@@ -60,3 +60,11 @@ def test_ignores_junk_and_survives_corrupt_files(demo_dir: Path, tmp_path: Path)
 def test_missing_folder_raises(tmp_path: Path) -> None:
     with pytest.raises(NotADirectoryError):
         list_rounds(str(tmp_path / "nope"))
+
+
+def test_user_home_folder_is_expanded(demo_dir: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(demo_dir.parent))
+    result = list_rounds(f"~/{demo_dir.name}")
+    assert len(result["rounds"]) == 4
+    assert "~" not in result["folder"]
+    assert all("~" not in r["path"] for r in result["rounds"])

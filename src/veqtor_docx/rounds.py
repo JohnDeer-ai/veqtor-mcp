@@ -23,7 +23,7 @@ def list_rounds(folder: str) -> dict:
     (``~$*``) are ignored and the scan is non-recursive. Files that cannot be
     read as DOCX end up in ``skipped`` instead of failing the whole call.
     """
-    root = Path(folder)
+    root = Path(folder).expanduser()
     if not root.is_dir():
         raise NotADirectoryError(f"not a folder: {folder}")
 

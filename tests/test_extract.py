@@ -15,6 +15,8 @@ from veqtor_docx.synthetic import (
     CAP_R3,
     CAP_R4,
     CARVEOUT_DROPPED,
+    EXPRESS_ROW_FEE,
+    EXPRESS_ROW_LABEL,
 )
 
 
@@ -33,14 +35,27 @@ def test_clean_round_has_no_changes(demo_dir: Path) -> None:
 def test_round2_units(demo_dir: Path) -> None:
     result = _round(demo_dir, 2)
     units = result["change_units"]
-    assert [u["change_type"] for u in units] == ["replace", "delete", "insert", "replace"]
+    assert [u["change_type"] for u in units] == [
+        "replace",
+        "insert",
+        "insert",
+        "delete",
+        "insert",
+        "replace",
+    ]
     assert {u["author"] for u in units} == {AUTHOR_CP}
     assert {u["date"] for u in units} == {"2026-05-05T09:30:00Z"}
 
-    table_cell, audit, adviser, cap = units
+    table_cell, row_label, row_fee, audit, adviser, cap = units
     # Tracked change inside a table cell is anchored to the numbered subclause.
     assert (table_cell["old_text"], table_cell["new_text"]) == ("50%", "65%")
     assert table_cell["clause_anchor"] == {"label": "3.3", "heading": "Cancellation Charges"}
+
+    # An inserted table row yields insert units for its cell content and a
+    # structural trPrIns fact (asserted below).
+    assert row_label["new_text"] == EXPRESS_ROW_LABEL
+    assert row_fee["new_text"] == EXPRESS_ROW_FEE
+    assert row_label["clause_anchor"]["label"] == "3.3"
 
     assert audit["old_text"] == AUDIT_SENTENCE
     assert audit["new_text"] is None
@@ -59,9 +74,14 @@ def test_round2_units(demo_dir: Path) -> None:
     assert (cap["old_text"], cap["new_text"]) == (CAP_R1, CAP_R2)
     assert cap["clause_anchor"] == {"label": "14.2", "heading": "Limitation of Liability"}
 
-    # Formatting-only tracked change is reported, not silently dropped.
-    assert result["unsupported_revisions"] == {"rPrChange": 1}
-    assert result["revision_count"] == 7
+    # Formatting-only and structural revisions are reported, never dropped:
+    # the row insertion marker and the inserted paragraph marks of its cells.
+    assert result["unsupported_revisions"] == {
+        "rPrChange": 1,
+        "trPrIns": 1,
+        "paragraphMarkIns": 2,
+    }
+    assert result["revision_count"] == 12
 
 
 def test_round3_units(demo_dir: Path) -> None:
@@ -110,6 +130,17 @@ def test_liability_timeline_chains_across_rounds(demo_dir: Path) -> None:
         (CAP_R2, CAP_R3),
         (CAP_R3, CAP_R4),
     ]
+
+
+def test_user_home_paths_are_expanded(demo_dir: Path, monkeypatch) -> None:
+    """README tells users to point Claude at ~/veqtor-demo-rounds; a literal
+    tilde must work and references must carry the openable expanded path."""
+    monkeypatch.setenv("HOME", str(demo_dir.parent))
+    tilde_path = f"~/{demo_dir.name}/round-2-counterparty-redline.docx"
+    result = extract_redlines(tilde_path)
+    assert result["change_units"]
+    assert "~" not in result["path"]
+    assert "~" not in result["change_units"][0]["reference"]["path"]
 
 
 def test_references_are_deterministic_and_verifiable(demo_dir: Path) -> None:

@@ -18,6 +18,7 @@ import hashlib
 import re
 import zipfile
 from dataclasses import dataclass
+from pathlib import Path
 
 from lxml import etree
 
@@ -375,6 +376,9 @@ def _sha256(path: str) -> str:
 
 def extract_redlines(path: str) -> dict:
     """Extract tracked changes from ``path`` as deterministic change units."""
+    # MCP clients pass user-written paths; "~/Deals/x.docx" must just work,
+    # and references must carry the openable expanded path.
+    path = str(Path(path).expanduser())
     file_sha256 = _sha256(path)
     document = parse_xml(_load_part(path, DOCUMENT_PART))
     styles = _parse_styles(_load_optional_part(path, "word/styles.xml"))
@@ -416,14 +420,6 @@ def extract_redlines(path: str) -> dict:
                         num_id_el.get(w("val")),
                         int(ilvl_el.get(w("val"))) if ilvl_el is not None else 0,
                     )
-            # Paragraph-mark insertions/deletions live in pPr/rPr. They are
-            # structural facts, not text units; count them.
-            mark_rpr = ppr.find(w("rPr"))
-            if mark_rpr is not None:
-                if mark_rpr.find(w("ins")) is not None:
-                    bump("paragraphMarkIns")
-                if mark_rpr.find(w("del")) is not None:
-                    bump("paragraphMarkDel")
 
         resolved = _resolve_style(styles, style_id)
         outline = para_outline if para_outline is not None else resolved.outline_lvl
@@ -482,12 +478,26 @@ def extract_redlines(path: str) -> dict:
                 }
             )
 
+    # One classification pass over every revision element. Run-level ins/del
+    # became change units above; everything else — paragraph marks, inserted
+    # or deleted table rows/cells, section markers, formatting changes — is
+    # counted here so no revision markup is ever silently dropped.
     revision_count = 0
     for el in document.iter():
         if el.tag in UNSUPPORTED_REVISION_TAGS:
             bump(etree.QName(el.tag).localname)
         elif el.tag in TEXT_REVISION_TAGS:
             revision_count += 1
+            parent = el.getparent()
+            if parent is None:
+                continue
+            parent_name = etree.QName(parent.tag).localname
+            suffix = "Ins" if el.tag == w("ins") else "Del"
+            grand = parent.getparent()
+            if parent_name == "rPr" and grand is not None and grand.tag == w("pPr"):
+                bump(f"paragraphMark{suffix}")
+            elif parent_name in ("trPr", "tcPr", "tblPr", "sectPr"):
+                bump(f"{parent_name}{suffix}")
 
     return {
         "path": path,

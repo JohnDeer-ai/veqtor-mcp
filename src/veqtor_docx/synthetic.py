@@ -173,8 +173,14 @@ class Para:
 
 
 @dataclass
+class TableRow:
+    cells: list[list[Seg]]  # cells -> segments (one paragraph per cell)
+    inserted: bool = False  # whole row tracked as inserted (w:trPr/w:ins)
+
+
+@dataclass
 class Table:
-    rows: list[list[list[Seg]]]  # rows -> cells -> segments (one paragraph per cell)
+    rows: list[TableRow]
 
 
 @dataclass
@@ -298,10 +304,22 @@ class _DocBuilder:
             e.set(w("sz"), "4")
         for row in model.rows:
             tr = etree.SubElement(tbl, w("tr"))
-            for cell in row:
+            trpr = etree.SubElement(tr, w("trPr"))
+            if row.inserted:
+                # Word marks an inserted row structurally in trPr, in
+                # addition to wrapping the cell content in w:ins.
+                mark = etree.SubElement(trpr, w("ins"))
+                mark.set(w("id"), self._next_id())
+                mark.set(w("author"), self.spec.author)
+                mark.set(w("date"), self.spec.date)
+            for cell in row.cells:
                 tc = etree.SubElement(tr, w("tc"))
                 etree.SubElement(tc, w("tcPr"))
-                tc.append(self._paragraph(Para("VBody", segments=cell)))
+                tc.append(
+                    self._paragraph(
+                        Para("VBody", segments=cell, inserted=row.inserted)
+                    )
+                )
         return tbl
 
     def build(self) -> bytes:
@@ -365,6 +383,8 @@ COMPELLED_CLAUSE = (
     "that it gives the other Party prompt written notice where lawful."
 )
 TITLE_SENTENCE = " Title to each Batch passes to Client upon payment in full."
+EXPRESS_ROW_LABEL = "Same-day cancellation"
+EXPRESS_ROW_FEE = "110%"
 
 AUTHOR_CP = "53"  # counterparty exports a bare numeric author string
 AUTHOR_US = "A. Petrov"
@@ -376,6 +396,7 @@ def _contract_blocks(
     audit_tail: list[Seg],
     adviser: list[Seg],
     cancel_fee_cell: list[Seg],
+    extra_cancel_row: TableRow | None,
     compelled_para: Para | None,
     governing_law: list[Seg],
     delivery_p1_tail: list[Seg],
@@ -428,11 +449,12 @@ def _contract_blocks(
         ),
         Table(
             [
-                [[T("Notice period before the scheduled production slot")], [T("Cancellation fee (% of the Work Order value)")]],
-                [[T("60 days or more")], [T("0%")]],
-                [[T("30 to 59 days")], cancel_fee_cell],
-                [[T("15 to 29 days")], [T("75%")]],
-                [[T("Less than 15 days")], [T("100%")]],
+                TableRow([[T("Notice period before the scheduled production slot")], [T("Cancellation fee (% of the Work Order value)")]]),
+                TableRow([[T("60 days or more")], [T("0%")]]),
+                TableRow([[T("30 to 59 days")], cancel_fee_cell]),
+                TableRow([[T("15 to 29 days")], [T("75%")]]),
+                TableRow([[T("Less than 15 days")], [T("100%")]]),
+                *([extra_cancel_row] if extra_cancel_row is not None else []),
             ]
         ),
         sec("Delivery"),
@@ -565,6 +587,7 @@ def _round_specs() -> list[RoundSpec]:
             audit_tail=[T(AUDIT_SENTENCE)],
             adviser=[],
             cancel_fee_cell=[T("50%")],
+            extra_cancel_row=None,
             compelled_para=None,
             governing_law=GOVERNING_LAW_PLAIN,
             delivery_p1_tail=[],
@@ -587,6 +610,10 @@ def _round_specs() -> list[RoundSpec]:
             audit_tail=[DEL(AUDIT_SENTENCE)],
             adviser=[INS(ADVISER_SENTENCE, split=True)],
             cancel_fee_cell=[DEL("50%"), INS("65%")],
+            # Whole tracked row insertion: trPr/ins + inserted cell content.
+            extra_cancel_row=TableRow(
+                [[INS(EXPRESS_ROW_LABEL)], [INS(EXPRESS_ROW_FEE)]], inserted=True
+            ),
             compelled_para=None,
             governing_law=[
                 T("This Agreement is governed by the laws of "),
@@ -615,6 +642,7 @@ def _round_specs() -> list[RoundSpec]:
             audit_tail=[],
             adviser=[T(ADVISER_SENTENCE)],
             cancel_fee_cell=[T("65%")],
+            extra_cancel_row=TableRow([[T(EXPRESS_ROW_LABEL)], [T(EXPRESS_ROW_FEE)]]),
             compelled_para=Para(
                 "VLegalManual", [INS(COMPELLED_CLAUSE)], inserted=True
             ),
@@ -643,6 +671,7 @@ def _round_specs() -> list[RoundSpec]:
             audit_tail=[],
             adviser=[T(ADVISER_SENTENCE)],
             cancel_fee_cell=[T("65%")],
+            extra_cancel_row=TableRow([[T(EXPRESS_ROW_LABEL)], [T(EXPRESS_ROW_FEE)]]),
             compelled_para=Para("VLegalManual", [T(COMPELLED_CLAUSE)]),
             governing_law=GOVERNING_LAW_PLAIN,
             delivery_p1_tail=[T(TITLE_SENTENCE)],
