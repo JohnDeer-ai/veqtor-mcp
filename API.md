@@ -18,10 +18,14 @@ Input:
 }
 ```
 
-Output:
+Output. Rounds are sorted by filename (the deterministic v1 round order);
+Word lock files (`~$*`) are ignored, the scan is non-recursive, and files
+that cannot be read as DOCX are reported in `skipped` instead of failing
+the call:
 
 ```json
 {
+  "folder": "/Users/example/Deals/AcmeDistribution",
   "rounds": [
     {
       "round_id": "round-001",
@@ -30,7 +34,8 @@ Output:
       "sha256": "example",
       "revision_count": 12
     }
-  ]
+  ],
+  "skipped": []
 }
 ```
 
@@ -47,10 +52,22 @@ Input:
 }
 ```
 
-Output:
+Output. `change_type` is `insert`, `delete`, or `replace`; inserts have
+`old_text: null`, deletes have `new_text: null`. `old_text`/`new_text` are
+contiguous verbatim quotes of the prior/new reading. `clause_anchor` is
+best-effort (`null` when the document offers no outline/numbering signal;
+`label` is omitted rather than guessed when numbering cannot be resolved
+reliably). Revision markup M1 does not decode — formatting changes, moves,
+paragraph-mark revisions — is counted in `unsupported_revisions`, never
+silently dropped. `revision_count` is the raw number of `w:ins`/`w:del`
+elements in `word/document.xml`:
 
 ```json
 {
+  "path": "/Users/example/Deals/AcmeDistribution/02-counterparty.docx",
+  "file_sha256": "example",
+  "part_name": "word/document.xml",
+  "revision_count": 12,
   "change_units": [
     {
       "change_unit_id": "cu_001",
@@ -59,7 +76,7 @@ Output:
       "author": "J. Smith",
       "date": "2026-07-01T09:00:00Z",
       "clause_anchor": {
-        "label": "Section 14.2",
+        "label": "14.2",
         "heading": "Limitation of Liability"
       },
       "old_text": "fees paid in the previous 12 months",
@@ -70,7 +87,8 @@ Output:
         "revision_ids": ["17", "18"]
       }
     }
-  ]
+  ],
+  "unsupported_revisions": {"rPrChange": 1}
 }
 ```
 

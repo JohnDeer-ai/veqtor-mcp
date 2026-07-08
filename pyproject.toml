@@ -23,12 +23,10 @@ classifiers = [
 ]
 dependencies = [
   "lxml>=5.0",
+  "mcp>=1.0",
 ]
 
 [project.optional-dependencies]
-mcp = [
-  "mcp>=1.0",
-]
 dev = [
   "pip-licenses>=5.0",
   "pytest>=8.0",
@@ -36,6 +34,7 @@ dev = [
 
 [project.scripts]
 veqtor-mcp = "veqtor_mcp.server:main"
+veqtor-demo-rounds = "veqtor_docx.synthetic:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/veqtor_docx", "src/veqtor_mcp"]
@@ -43,3 +42,6 @@ packages = ["src/veqtor_docx", "src/veqtor_mcp"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+  "private: local dogfood against private corpora (needs VEQTOR_PRIVATE_FIXTURE_DIR)",
+]

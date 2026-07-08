@@ -40,3 +40,35 @@ M1 - Read.
 The first working demo is a Claude Code/Desktop session where the user asks for
 negotiation history on a topic from a local folder of DOCX rounds and receives a
 timeline with verifiable references.
+
+## Quickstart
+
+Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+
+```bash
+uv tool install git+https://github.com/JohnDeer-ai/veqtor-mcp
+```
+
+Generate the synthetic demo rounds (no real documents are shipped or needed):
+
+```bash
+veqtor-demo-rounds ~/veqtor-demo-rounds
+```
+
+Register the server with Claude Code:
+
+```bash
+claude mcp add veqtor -- veqtor-mcp
+```
+
+Then ask Claude:
+
+> Using the veqtor tools, what happened to the limitation of liability across
+> the rounds in ~/veqtor-demo-rounds?
+
+Claude calls `list_rounds` and `extract_redlines` and answers with a timeline
+grounded in file hashes and revision ids.
+
+For development: `uv venv && uv pip install -e ".[dev]" && pytest`. The
+private dogfood suite runs only when `VEQTOR_PRIVATE_FIXTURE_DIR` points at a
+local corpus: `pytest -m private`.
