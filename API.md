@@ -123,6 +123,8 @@ Output:
 
 Call this before relying on a quotation in a memo, email, or negotiation summary.
 Use anchors returned by `extract_redlines` or `trace_clause` whenever available.
+`verdict` is one of `exact`, `normalized`, or `not_found`; `diff` explains any
+non-exact result.
 
 Input:
 

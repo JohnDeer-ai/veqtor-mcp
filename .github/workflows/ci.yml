@@ -19,5 +19,4 @@ jobs:
       - name: Run tests
         run: python -m pytest -q
       - name: Audit dependency licenses
-        run: python -m piplicenses --fail-on "GPL;AGPL;LGPL;SSPL;BUSL"
-
+        run: python -m piplicenses --partial-match --fail-on "GPL;AGPL;LGPL;SSPL;BUSL"
