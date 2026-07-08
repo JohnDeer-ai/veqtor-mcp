@@ -65,6 +65,8 @@ Each milestone must work with:
 
 - More than two weeks without a working Claude demo.
 - A feature cannot be explained as read, verify, apply, or record.
+- Generic DOCX editing becomes the product surface instead of negotiation
+  history and verifiable decision records.
 - M1 requires full semantic matching.
 - UI, auth, or hosted infrastructure appears before M4.
 - `ROADMAP.md` plus `API.md` exceed 5-6 pages.

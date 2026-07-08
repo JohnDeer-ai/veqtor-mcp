@@ -9,6 +9,10 @@ contract redlines: read, verify, apply, and record. The LLM remains the legal
 reasoning layer. This toolchain handles document facts, anchors, tracked-change
 application, and provenance.
 
+Veqtor MCP is not a generic DOCX editor. Generic editing belongs to broader
+document tools; this project focuses on negotiation history, clause-grounded
+references, verifiable quotes, anchored counterproposals, and decision records.
+
 ## Privacy Boundary
 
 The server reads files locally. Whole documents are not uploaded by the server
