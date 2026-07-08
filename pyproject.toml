@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "veqtor-mcp"
+version = "0.0.0"
+description = "Local contract DOCX toolchain for MCP-compatible LLM clients"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+authors = [
+  { name = "Ilya Shilov" }
+]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Office/Business",
+  "Topic :: Text Processing",
+]
+dependencies = [
+  "lxml>=5.0",
+]
+
+[project.optional-dependencies]
+mcp = [
+  "mcp>=1.0",
+]
+dev = [
+  "pip-licenses>=5.0",
+  "pytest>=8.0",
+]
+
+[project.scripts]
+veqtor-mcp = "veqtor_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/veqtor_docx", "src/veqtor_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
