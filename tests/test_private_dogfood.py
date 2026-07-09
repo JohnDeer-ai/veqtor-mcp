@@ -13,13 +13,15 @@ Run locally with::
 
 import json
 import os
+import shutil
 import zipfile
 from pathlib import Path
 
 import pytest
 
-from veqtor_docx import extract_redlines
+from veqtor_docx import apply_edits, extract_redlines
 from veqtor_docx._ooxml import parse_xml, w
+from veqtor_docx.apply import DEFAULT_AUTHOR, _paragraph_segments, _resolve_anchor_paragraph
 
 _ENV = "VEQTOR_PRIVATE_FIXTURE_DIR"
 
@@ -87,6 +89,11 @@ def test_chain_integrity_on_clean_tracked_accepted_triples() -> None:
         clean_text = _visible_text(clean[0])
         accepted_text = _visible_text(accepted[0])
         for unit in extract_redlines(str(path))["change_units"]:
+            if unit["change_type"] == "counter" or unit.get("countered_by"):
+                # Cross-author counters live in three-party pending state:
+                # their old/new text is defined against the proposal, not
+                # against the clean/accepted two-version world.
+                continue
             old = _squash(unit["old_text"] or "")
             new = _squash(unit["new_text"] or "")
             if len(old) >= 6:
@@ -95,3 +102,71 @@ def test_chain_integrity_on_clean_tracked_accepted_triples() -> None:
                 assert new in accepted_text, f"{unit['change_unit_id']} new_text not in accepted"
     if not triples:
         pytest.skip("no clean/tracked/accepted triples in the private corpus")
+
+
+def test_apply_edits_on_a_copy_of_a_real_redline(tmp_path: Path) -> None:
+    """M2 dogfood: apply a runtime-derived tracked edit to a COPY of a real
+    redlined document and prove the round trip. The edit text is derived from
+    the document at runtime — no contract text lives in this file — and the
+    original corpus file is never opened for writing."""
+    applied = 0
+    for original in _corpus_files():
+        extraction = extract_redlines(str(original))
+        if not extraction["change_units"]:
+            continue
+
+        working_copy = tmp_path / f"copy-{applied}-{original.name}"
+        shutil.copyfile(original, working_copy)
+        source = extract_redlines(str(working_copy))
+        document = parse_xml(
+            zipfile.ZipFile(working_copy).read("word/document.xml")
+        )
+
+        # Derive a delete_text candidate: a plain-run substring, unique in its
+        # paragraph, taken from the clause of some existing change unit.
+        target = None
+        for unit in source["change_units"]:
+            paragraph = _resolve_anchor_paragraph(document, unit)
+            segments = _paragraph_segments(paragraph)
+            reading = "".join(seg.node.text or "" for seg in segments)
+            for seg in segments:
+                text = seg.node.text or ""
+                if not seg.plain or len(text) < 28:
+                    continue
+                candidate = text[3:25].strip()
+                if len(candidate) >= 12 and reading.count(candidate) == 1:
+                    target = (unit, candidate)
+                    break
+            if target:
+                break
+        if target is None:
+            continue
+
+        unit, delete_text = target
+        out = tmp_path / f"out-{applied}-{original.name}"
+        result = apply_edits(
+            str(working_copy),
+            str(out),
+            [
+                {
+                    "anchor": {
+                        "change_unit_id": unit["change_unit_id"],
+                        "file_sha256": source["file_sha256"],
+                    },
+                    "delete_text": delete_text,
+                    "insert_text": delete_text.upper(),
+                }
+            ],
+        )
+        assert result["round_trip_check"]["status"] == "passed"
+        mine = [
+            u
+            for u in extract_redlines(str(out))["change_units"]
+            if u["author"] == DEFAULT_AUTHOR
+        ]
+        assert len(mine) == 1
+        assert mine[0]["old_text"] == delete_text
+        applied += 1
+        if applied >= 3:
+            break
+    assert applied >= 1, "no private document accepted a derived edit"

@@ -609,7 +609,10 @@ def _round_specs() -> list[RoundSpec]:
             ),
             audit_tail=[DEL(AUDIT_SENTENCE)],
             adviser=[INS(ADVISER_SENTENCE, split=True)],
-            cancel_fee_cell=[DEL("50%"), INS("65%")],
+            # The percent sign stays plain: a table-cell paragraph with both a
+            # tracked change and untouched text, so the write path can anchor
+            # an edit inside a table.
+            cancel_fee_cell=[DEL("50"), INS("65"), T("%")],
             # Whole tracked row insertion: trPr/ins + inserted cell content.
             extra_cancel_row=TableRow(
                 [[INS(EXPRESS_ROW_LABEL)], [INS(EXPRESS_ROW_FEE)]], inserted=True

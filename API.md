@@ -52,15 +52,18 @@ Input:
 }
 ```
 
-Output. `change_type` is `insert`, `delete`, or `replace`; inserts have
-`old_text: null`, deletes have `new_text: null`. `old_text`/`new_text` are
-contiguous verbatim quotes of the prior/new reading. `clause_anchor` is
-best-effort (`null` when the document offers no outline/numbering signal;
-`label` is omitted rather than guessed when numbering cannot be resolved
-reliably). Revision markup M1 does not decode — formatting changes, moves,
-paragraph-mark revisions — is counted in `unsupported_revisions`, never
-silently dropped. `revision_count` is the raw number of `w:ins`/`w:del`
-elements in `word/document.xml`:
+Output. `change_type` is `insert`, `delete`, `replace`, or `counter`; inserts
+have `old_text: null`, deletes have `new_text: null`. `old_text`/`new_text`
+are contiguous verbatim quotes of the prior/new reading. A `counter` unit is
+one author's visible strike inside another author's still-pending insertion:
+its `old_text` quotes the countered proposal (not contract text), and the
+countered unit carries `countered_by` with the strike's revision ids.
+`clause_anchor` is best-effort (`null` when the document offers no
+outline/numbering signal; `label` is omitted rather than guessed when
+numbering cannot be resolved reliably). Revision markup the tool does not
+decode — formatting changes, moves, paragraph-mark revisions — is counted in
+`unsupported_revisions`, never silently dropped. `revision_count` is the raw
+number of `w:ins`/`w:del` elements in `word/document.xml`:
 
 ```json
 {
@@ -196,6 +199,34 @@ written and no output DOCX is left behind. If the round-trip check fails after
 application, the tool returns an error and removes the failed output artifact.
 The round-trip check compares OOXML structure outside touched anchor ranges; it
 does not require byte-identical DOCX packages.
+
+Three edit forms, all written as visible tracked changes — never silent
+rewrites:
+
+- plain replace/delete: `delete_text` lies in untouched text of the anchored
+  clause;
+- counter: `delete_text` lies entirely inside one counterparty pending
+  insertion — written as a strike nested in their insertion (their proposal
+  stays visible; extraction reports your `counter` unit and marks theirs
+  `countered_by`), with the replacement inserted after theirs;
+- reinstate: `{"anchor": ..., "reinstate_text": "..."}` restores text hidden
+  inside exactly one counterparty deletion, as a visible insertion placed
+  before it.
+
+Several edits may target one paragraph; spans must not overlap (applied right
+to left). Adjacent same-author markup merges in extraction, so layouts that
+would leave two operations touching are refused with stable codes: a pending
+insertion is countered once, with the full replacement (`already_countered`
+on any later attempt); no edit may start immediately after a countered
+insertion (`edits_overlap`); new markup is never written flush against our
+own earlier tracked changes (`adjacent_to_own_revision`) — extend the
+neighbouring edit to cover the extra text instead. This guarantee is not an
+enumeration: before anything is written, the tool re-extracts the candidate
+result, and any layout that would lose or alter a pre-existing change unit
+is refused under `adjacent_to_own_revision` even where no specific rule
+anticipated it. Spans mixing plain and tracked text, or lying in your own
+pending insertion, return `overlaps_tracked_changes`. New revisions are
+authored as `Veqtor MCP` and carry no `w:date` (deterministic output).
 
 Input:
 

@@ -42,6 +42,29 @@ def extract_redlines(path: str) -> dict:
     return veqtor_docx.extract_redlines(path)
 
 
+@mcp.tool()
+def apply_edits(source_path: str, output_path: str, edits: list[dict]) -> dict:
+    """Create a new DOCX with the given edits applied as real tracked changes.
+
+    Call this only after the user asks to prepare or apply counter wording,
+    and only with anchors produced by ``extract_redlines``. Each edit needs
+    ``anchor`` ({change_unit_id, file_sha256}) plus either ``delete_text``
+    with optional ``insert_text``, or ``reinstate_text``. ``delete_text``
+    must occur exactly once in the anchored clause: in untouched text it
+    becomes a plain tracked replace/delete; entirely inside one counterparty
+    pending insertion it becomes a visible counter (their proposal stays,
+    struck through, with our replacement after it). ``reinstate_text``
+    visibly restores text from a counterparty deletion. Several edits may
+    target one paragraph if their spans do not overlap. Edits are atomic and
+    fail closed: a hash mismatch, missing or ambiguous match, or unsupported
+    overlap returns an error and writes nothing. After writing, the server
+    re-extracts the output and proves the round trip: exactly the prior
+    change units plus the proposed edits, no collateral changes outside the
+    touched clauses. The source file is never modified.
+    """
+    return veqtor_docx.apply_edits(source_path, output_path, edits)
+
+
 def main() -> None:
     mcp.run()
 

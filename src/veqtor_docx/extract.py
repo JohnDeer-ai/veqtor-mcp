@@ -266,27 +266,40 @@ class _Wrapper:
     date: str | None
     rev_id: str | None
     text: str
+    nested_in: str | None = None  # containing w:ins id for cross-author counters
+
+
+def _nested_del_author_differs(node: etree._Element, wrapper: etree._Element) -> bool | None:
+    """For a text node under ``wrapper``: None if not inside a nested w:del,
+    else True when that deletion's author differs from the wrapper's."""
+    for ancestor in node.iterancestors():
+        if ancestor is wrapper:
+            return None
+        if ancestor.tag == w("moveFrom"):
+            return False  # moved-away text is hidden regardless of author
+        if ancestor.tag == w("del"):
+            return (ancestor.get(w("author")) or "") != (wrapper.get(w("author")) or "")
+    return None
 
 
 def _wrapper_text(element: etree._Element, kind: str) -> str:
     """Visible text a revision wrapper contributes to its side of the change.
 
-    An insertion counts only ``w:t`` runs that are not inside a nested
-    ``w:del``/``w:moveFrom`` (text inserted and later deleted belongs to
-    neither the old nor the new reading). A deletion counts ``w:delText``.
+    An insertion keeps the author's full proposal: text the same author later
+    deleted (a retraction) is hidden, but text struck by ANOTHER author — a
+    counter — still belongs to the proposal as made; the counter is reported
+    as its own change unit. A deletion counts ``w:delText``.
     """
     parts: list[str] = []
     for node in element.iter():
         tag = node.tag
         if kind == "ins" and tag == w("t"):
-            skip = False
-            for ancestor in node.iterancestors():
-                if ancestor is element:
-                    break
-                if ancestor.tag in (w("del"), w("moveFrom")):
-                    skip = True
-                    break
-            if not skip:
+            if _nested_del_author_differs(node, element) is False:
+                continue  # same-author retraction or moved away: hidden
+            parts.append(node.text or "")
+        elif kind == "ins" and tag == w("delText"):
+            # Counter-struck text still reads as part of their proposal.
+            if _nested_del_author_differs(node, element):
                 parts.append(node.text or "")
         elif kind == "del" and tag == w("delText"):
             parts.append(node.text or "")
@@ -295,6 +308,16 @@ def _wrapper_text(element: etree._Element, kind: str) -> str:
         elif tag in (w("br"), w("cr")):
             parts.append("\n")
     return "".join(parts)
+
+
+def _foreign_nested_dels(ins_element: etree._Element) -> list[etree._Element]:
+    """Nested deletions by another author inside a pending insertion."""
+    ins_author = ins_element.get(w("author")) or ""
+    return [
+        el
+        for el in ins_element.iter(w("del"))
+        if (el.get(w("author")) or "") != ins_author
+    ]
 
 
 def _paragraph_stream(para: etree._Element) -> list[tuple[str, object]]:
@@ -325,6 +348,28 @@ def _paragraph_stream(para: etree._Element) -> list[tuple[str, object]]:
                         ),
                     )
                 )
+                if kind == "ins":
+                    # Cross-author deletions nested inside a pending insertion
+                    # are counters: distinct facts with their own author. Emit
+                    # them right after their host so an adjacent same-author
+                    # replacement insertion can merge into one counter unit.
+                    for index, nested in enumerate(_foreign_nested_dels(child)):
+                        if index:
+                            items.append(("text", " "))  # keep counters apart
+                        items.append(
+                            (
+                                "wrap",
+                                _Wrapper(
+                                    element=nested,
+                                    kind="del",
+                                    author=nested.get(w("author")) or "",
+                                    date=nested.get(w("date")),
+                                    rev_id=nested.get(w("id")),
+                                    text=_wrapper_text(nested, "del"),
+                                    nested_in=child.get(w("id")),
+                                ),
+                            )
+                        )
             elif tag in MOVE_REVISION_TAGS:
                 items.append(("move", child))
             elif tag == w("r"):
@@ -451,7 +496,12 @@ def extract_redlines(path: str) -> dict:
         for group in _group_units(items):
             ins_text = "".join(item.text for item in group if item.kind == "ins")
             del_text = "".join(item.text for item in group if item.kind == "del")
-            if ins_text and del_text:
+            countering = any(item.nested_in for item in group)
+            if countering:
+                # A cross-author strike inside someone's pending insertion:
+                # old_text is the countered proposal text, not contract text.
+                change_type = "counter"
+            elif ins_text and del_text:
                 change_type = "replace"
             elif ins_text:
                 change_type = "insert"
@@ -460,23 +510,33 @@ def extract_redlines(path: str) -> dict:
             else:
                 continue  # empty wrappers carry no reviewable text
             dates = [item.date for item in group if item.date]
-            change_units.append(
-                {
-                    "change_unit_id": f"cu_{len(change_units) + 1:03d}",
-                    "file_sha256": file_sha256,
-                    "change_type": change_type,
-                    "author": group[0].author,
-                    "date": min(dates) if dates else None,
-                    "clause_anchor": anchor,
-                    "old_text": del_text or None,
-                    "new_text": ins_text or None,
-                    "reference": {
-                        "path": path,
-                        "part_name": DOCUMENT_PART,
-                        "revision_ids": [item.rev_id for item in group if item.rev_id],
-                    },
-                }
-            )
+            unit = {
+                "change_unit_id": f"cu_{len(change_units) + 1:03d}",
+                "file_sha256": file_sha256,
+                "change_type": change_type,
+                "author": group[0].author,
+                "date": min(dates) if dates else None,
+                "clause_anchor": anchor,
+                "old_text": del_text or None,
+                "new_text": ins_text or None,
+                "reference": {
+                    "path": path,
+                    "part_name": DOCUMENT_PART,
+                    "revision_ids": [item.rev_id for item in group if item.rev_id],
+                },
+            }
+            countered_by = [
+                nested.get(w("id"))
+                for item in group
+                if item.kind == "ins"
+                for nested in _foreign_nested_dels(item.element)
+                if nested.get(w("id"))
+            ]
+            if countered_by:
+                # This unit's proposal has been struck (fully or in part) by
+                # another author; the strikes are separate "counter" units.
+                unit["countered_by"] = countered_by
+            change_units.append(unit)
 
     # One classification pass over every revision element. Run-level ins/del
     # became change units above; everything else — paragraph marks, inserted

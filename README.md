@@ -35,11 +35,12 @@ that provider's terms.
 
 ## Current Focus
 
-M1 - Read.
+M2 - Write.
 
-The first working demo is a Claude Code/Desktop session where the user asks for
-negotiation history on a topic from a local folder of DOCX rounds and receives a
-timeline with verifiable references.
+M1 (Read) is complete: `list_rounds` and `extract_redlines` work end to end
+from Claude Code over MCP. The next demo is Claude proposing counter wording
+and producing a new DOCX with real tracked changes, applied only at anchors
+from the read path, with a round-trip proof and fail-closed errors.
 
 ## Quickstart
 

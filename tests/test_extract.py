@@ -48,7 +48,7 @@ def test_round2_units(demo_dir: Path) -> None:
 
     table_cell, row_label, row_fee, audit, adviser, cap = units
     # Tracked change inside a table cell is anchored to the numbered subclause.
-    assert (table_cell["old_text"], table_cell["new_text"]) == ("50%", "65%")
+    assert (table_cell["old_text"], table_cell["new_text"]) == ("50", "65")
     assert table_cell["clause_anchor"] == {"label": "3.3", "heading": "Cancellation Charges"}
 
     # An inserted table row yields insert units for its cell content and a
