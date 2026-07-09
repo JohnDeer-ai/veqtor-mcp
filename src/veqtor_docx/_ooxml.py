@@ -11,6 +11,10 @@ NSMAP = {"w": W_NS}
 DOCUMENT_PART = "word/document.xml"
 
 
+class DocxError(ValueError):
+    """Raised when a file cannot be read as a DOCX package."""
+
+
 def w(tag: str) -> str:
     """Return the fully qualified name for a ``w:`` tag."""
     return f"{{{W_NS}}}{tag}"
@@ -59,4 +63,9 @@ def run_text(element: etree._Element) -> str:
 
 
 def parse_xml(data: bytes) -> etree._Element:
-    return etree.fromstring(data)
+    """Parse an OOXML part; malformed XML is a DocxError, not a raw lxml
+    exception — the whole read path shares one fail-closed boundary."""
+    try:
+        return etree.fromstring(data)
+    except etree.XMLSyntaxError as exc:
+        raise DocxError(f"malformed XML: {exc}") from exc

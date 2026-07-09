@@ -4,16 +4,20 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import zipfile
 from pathlib import Path
 
 from ._ooxml import DOCUMENT_PART, TEXT_REVISION_TAGS, parse_xml
 
 
-def _revision_count(path: Path) -> int:
-    with zipfile.ZipFile(path) as zf:
+def _round_facts(path: Path) -> tuple[str, int]:
+    """sha256 and revision count from one byte snapshot of the file."""
+    payload = path.read_bytes()
+    with zipfile.ZipFile(io.BytesIO(payload)) as zf:
         document = parse_xml(zf.read(DOCUMENT_PART))
-    return sum(1 for el in document.iter() if el.tag in TEXT_REVISION_TAGS)
+    count = sum(1 for el in document.iter() if el.tag in TEXT_REVISION_TAGS)
+    return hashlib.sha256(payload).hexdigest(), count
 
 
 def list_rounds(folder: str) -> dict:
@@ -42,11 +46,10 @@ def list_rounds(folder: str) -> dict:
     skipped: list[dict] = []
     for path in candidates:
         try:
-            revision_count = _revision_count(path)
+            digest, revision_count = _round_facts(path)
         except Exception as exc:  # corrupt, encrypted or non-OOXML file
             skipped.append({"filename": path.name, "reason": str(exc)})
             continue
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
         rounds.append(
             {
                 "round_id": f"round-{len(rounds) + 1:03d}",

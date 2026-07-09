@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import io
 import os
 import tempfile
 import zipfile
@@ -59,7 +60,7 @@ from pathlib import Path
 from lxml import etree
 
 from ._ooxml import DOCUMENT_PART, MOVE_REVISION_TAGS, TEXT_REVISION_TAGS, parse_xml, w
-from .extract import DocxError, extract_redlines
+from .extract import DocxError, _extract_from_bytes, extract_redlines
 
 DEFAULT_AUTHOR = "Veqtor MCP"
 
@@ -656,11 +657,18 @@ def apply_edits(
     if os.path.exists(output):
         raise ApplyError("output_exists", f"refusing to overwrite {output}")
 
-    source_sha = hashlib.sha256(Path(source).read_bytes()).hexdigest()
-    baseline = extract_redlines(source)
+    # One byte snapshot of the source: the sha the anchors are checked
+    # against, the baseline units and the parts being rewritten must all
+    # describe the same bytes, even if the file changes underneath us.
+    try:
+        source_payload = Path(source).read_bytes()
+    except OSError as exc:
+        raise ApplyError("file_unreadable", f"cannot read {source}: {exc}") from exc
+    source_sha = hashlib.sha256(source_payload).hexdigest()
+    baseline = _extract_from_bytes(source_payload, source)
     units_by_id = {u["change_unit_id"]: u for u in baseline["change_units"]}
 
-    with zipfile.ZipFile(source) as zf:
+    with zipfile.ZipFile(io.BytesIO(source_payload)) as zf:
         infos = zf.infolist()
         parts = {info.filename: zf.read(info.filename) for info in infos}
     # Untouched source bytes for the structural half of the round-trip proof.

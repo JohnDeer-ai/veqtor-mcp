@@ -5,6 +5,12 @@
 This file defines the public tool surface. Output examples are part of the API
 because models use them to decide how to call tools and how to cite results.
 
+Stable error codes cover well-typed but invalid inputs (wrong hash, unknown
+anchor, blank quote, unresolvable layout). Type-level rejections — e.g. a
+non-object `anchor` or a non-array `edits` sent over MCP — are handled by the
+transport's schema validation before a tool runs and are outside that
+contract.
+
 ## `list_rounds`
 
 Call this when the user points to a folder of contract drafts or asks which
@@ -143,9 +149,13 @@ Output:
 ## `verify_quote`
 
 Call this before relying on a quotation in a memo, email, or negotiation summary.
-Use anchors returned by `extract_redlines` or `trace_clause` whenever available.
+Use anchors returned by `extract_redlines` or `trace_clause`.
 `verdict` is one of `exact`, `normalized`, or `not_found`; `diff` explains any
-non-exact result.
+non-exact result. v1 verifies against the anchored change unit's `new_text`
+then `old_text` (`matches[].side` says which); matching is case-sensitive;
+`normalized` collapses whitespace runs and typographic quotes/dashes. A hash
+mismatch or unknown anchor is an error, never a verdict. Whole-document
+search without an anchor is a later slice.
 
 Input:
 
@@ -177,7 +187,8 @@ Output:
       "path": "/Users/example/Deals/AcmeDistribution/02-counterparty.docx",
       "part_name": "word/document.xml",
       "revision_ids": ["17", "18"],
-      "clause": "Section 14.2"
+      "clause": "14.2 Limitation of Liability",
+      "side": "new"
     }
   ],
   "diff": []

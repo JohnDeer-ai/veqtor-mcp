@@ -32,6 +32,7 @@ async def test_tools_are_exposed_and_callable(demo_dir: Path) -> None:
             "list_rounds",
             "extract_redlines",
             "apply_edits",
+            "verify_quote",
         }
 
         listed = await session.call_tool("list_rounds", {"folder": str(demo_dir)})

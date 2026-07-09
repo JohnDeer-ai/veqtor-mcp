@@ -65,6 +65,21 @@ def apply_edits(source_path: str, output_path: str, edits: list[dict]) -> dict:
     return veqtor_docx.apply_edits(source_path, output_path, edits)
 
 
+@mcp.tool()
+def verify_quote(path: str, anchor: dict, quote: str) -> dict:
+    """Check a quotation against the document before relying on it.
+
+    Call this before using a quote in a memo, email, or negotiation summary.
+    ``anchor`` is {change_unit_id, file_sha256} from ``extract_redlines``.
+    The verdict is ``exact`` (verbatim in the anchored change unit's old or
+    new text), ``normalized`` (matches after collapsing whitespace and
+    typographic quotes/dashes — ``diff`` says so), or ``not_found``.
+    Matching is case-sensitive and deterministic; a hash mismatch or unknown
+    anchor is an error, never a guess.
+    """
+    return veqtor_docx.verify_quote(path, anchor, quote)
+
+
 def main() -> None:
     mcp.run()
 

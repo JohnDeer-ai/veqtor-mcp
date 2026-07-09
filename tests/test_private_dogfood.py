@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from veqtor_docx import apply_edits, extract_redlines
+from veqtor_docx import apply_edits, extract_redlines, verify_quote
 from veqtor_docx._ooxml import parse_xml, w
 from veqtor_docx.apply import DEFAULT_AUTHOR, _paragraph_segments, _resolve_anchor_paragraph
 
@@ -170,3 +170,30 @@ def test_apply_edits_on_a_copy_of_a_real_redline(tmp_path: Path) -> None:
         if applied >= 3:
             break
     assert applied >= 1, "no private document accepted a derived edit"
+
+
+def test_verify_quote_confirms_extracted_texts_on_real_redlines() -> None:
+    """M3 dogfood: every extracted quote must verify as exact against its own
+    anchor — the read path and the verifier must agree on real documents."""
+    checked = 0
+    for path in _corpus_files():
+        extraction = extract_redlines(str(path))
+        for unit in extraction["change_units"]:
+            text = unit["new_text"] or unit["old_text"]
+            if not text or len(text) < 12:
+                continue
+            outcome = verify_quote(
+                str(path),
+                {
+                    "change_unit_id": unit["change_unit_id"],
+                    "file_sha256": extraction["file_sha256"],
+                },
+                text,
+            )
+            assert outcome["verdict"] == "exact", unit["change_unit_id"]
+            checked += 1
+            if checked >= 40:
+                break
+        if checked >= 40:
+            break
+    assert checked, "no verifiable change units found in the private corpus"

@@ -15,6 +15,7 @@ so any claim can be re-checked against the source document.
 from __future__ import annotations
 
 import hashlib
+import io
 import re
 import zipfile
 from dataclasses import dataclass
@@ -27,6 +28,7 @@ from ._ooxml import (
     MOVE_REVISION_TAGS,
     TEXT_REVISION_TAGS,
     UNSUPPORTED_REVISION_TAGS,
+    DocxError,
     parse_xml,
     run_text,
     w,
@@ -34,9 +36,7 @@ from ._ooxml import (
 
 _MANUAL_NUMBER_RE = re.compile(r"^\s*(\d+(?:\.\d+)*[A-Za-z]?|\([a-z]\)|[A-Z]\.)[.\s]\s*")
 
-
-class DocxError(ValueError):
-    """Raised when a file cannot be read as a DOCX package."""
+__all__ = ["DocxError", "extract_redlines"]
 
 
 @dataclass
@@ -47,21 +47,17 @@ class _Style:
     based_on: str | None = None
 
 
-def _load_part(path: str, part: str) -> bytes:
+def _read_parts(payload: bytes, path: str, parts: tuple[str, ...]) -> dict[str, bytes | None]:
+    """Read the named parts from one in-memory snapshot of the package."""
     try:
-        with zipfile.ZipFile(path) as zf:
-            return zf.read(part)
-    except (zipfile.BadZipFile, KeyError, OSError) as exc:
-        raise DocxError(f"cannot read {part} from {path}: {exc}") from exc
-
-
-def _load_optional_part(path: str, part: str) -> bytes | None:
-    try:
-        with zipfile.ZipFile(path) as zf:
-            if part not in zf.namelist():
-                return None
-            return zf.read(part)
-    except (zipfile.BadZipFile, OSError) as exc:
+        with zipfile.ZipFile(io.BytesIO(payload)) as zf:
+            names = set(zf.namelist())
+            if DOCUMENT_PART not in names:
+                raise DocxError(f"no {DOCUMENT_PART} in {path}")
+            return {
+                part: zf.read(part) if part in names else None for part in parts
+            }
+    except zipfile.BadZipFile as exc:
         raise DocxError(f"cannot open {path}: {exc}") from exc
 
 
@@ -411,25 +407,32 @@ def _group_units(items: list[tuple[str, object]]) -> list[list[_Wrapper]]:
     return groups
 
 
-def _sha256(path: str) -> str:
-    digest = hashlib.sha256()
-    with open(path, "rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 16), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def extract_redlines(path: str) -> dict:
-    """Extract tracked changes from ``path`` as deterministic change units."""
+    """Extract tracked changes from ``path`` as deterministic change units.
+
+    The file is read exactly once; ``file_sha256`` and every extracted fact
+    derive from that single byte snapshot, so the hash always names the
+    bytes the facts came from.
+    """
     # MCP clients pass user-written paths; "~/Deals/x.docx" must just work,
     # and references must carry the openable expanded path.
     path = str(Path(path).expanduser())
-    file_sha256 = _sha256(path)
-    document = parse_xml(_load_part(path, DOCUMENT_PART))
-    styles = _parse_styles(_load_optional_part(path, "word/styles.xml"))
-    numbering = _NumberingCounters(
-        _parse_numbering(_load_optional_part(path, "word/numbering.xml"))
+    try:
+        payload = Path(path).read_bytes()
+    except OSError as exc:
+        raise DocxError(f"cannot read {path}: {exc}") from exc
+    return _extract_from_bytes(payload, path)
+
+
+def _extract_from_bytes(payload: bytes, path: str) -> dict:
+    """Extract from an in-memory snapshot; ``path`` is a label for output."""
+    file_sha256 = hashlib.sha256(payload).hexdigest()
+    parts = _read_parts(
+        payload, path, (DOCUMENT_PART, "word/styles.xml", "word/numbering.xml")
     )
+    document = parse_xml(parts[DOCUMENT_PART])
+    styles = _parse_styles(parts["word/styles.xml"])
+    numbering = _NumberingCounters(_parse_numbering(parts["word/numbering.xml"]))
 
     body = document.find(w("body"))
     if body is None:

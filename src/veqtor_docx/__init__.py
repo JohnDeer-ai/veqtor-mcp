@@ -5,15 +5,18 @@ from .apply import ApplyError, apply_edits
 from .extract import DocxError, extract_redlines
 from .rounds import list_rounds
 from .synthetic import generate_demo_rounds
+from .verify import VerifyError, verify_quote
 
 __all__ = [
     "ApplyError",
     "DocxError",
+    "VerifyError",
     "__version__",
     "apply_edits",
     "extract_redlines",
     "generate_demo_rounds",
     "list_rounds",
+    "verify_quote",
 ]
 
 __version__ = "0.0.0"

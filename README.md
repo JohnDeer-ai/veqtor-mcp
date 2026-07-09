@@ -35,12 +35,15 @@ that provider's terms.
 
 ## Current Focus
 
-M2 - Write.
+M3 - Trust.
 
-M1 (Read) is complete: `list_rounds` and `extract_redlines` work end to end
-from Claude Code over MCP. The next demo is Claude proposing counter wording
-and producing a new DOCX with real tracked changes, applied only at anchors
-from the read path, with a round-trip proof and fail-closed errors.
+M1 (Read) and M2 (Write) are complete: negotiation history with verifiable
+references, and counterproposals written as real tracked changes with a
+round-trip proof — both demoed end to end from Claude over MCP. M3 slice 1
+is implemented: deterministic `verify_quote` checks any quotation against
+its read-path anchor (`exact` / `normalized` / `not_found`) before it is
+relied on. Next slice: a slim decision record and provenance for read/write
+actions.
 
 ## Quickstart
 
