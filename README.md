@@ -69,6 +69,31 @@ Then ask Claude:
 Claude calls `list_rounds` and `extract_redlines` and answers with a timeline
 grounded in file hashes and revision ids.
 
+### Claude Desktop (regular chat)
+
+The same server works in the regular Claude Desktop chat. Add an `mcpServers`
+block to `~/Library/Application Support/Claude/claude_desktop_config.json`
+next to the existing settings (the command path must be absolute — GUI apps
+do not inherit your shell PATH; `uv tool install` puts the binary at
+`~/.local/bin/veqtor-mcp`):
+
+```json
+"mcpServers": {
+  "veqtor": {
+    "command": "/Users/you/.local/bin/veqtor-mcp"
+  }
+}
+```
+
+Quit Claude Desktop fully (Cmd+Q) and reopen; the veqtor tools appear in the
+tools menu and Claude asks permission before each call.
+
+A successful run answers the demo question with a per-round timeline that
+cites filenames, `change_unit_id`s, `revision_ids` and sha256 prefixes
+matching `extract_redlines` output, quotes old/new wording verbatim, and
+discloses undecoded revision markup from `unsupported_revisions` instead of
+guessing around it.
+
 For development: `uv venv && uv pip install -e ".[dev]" && pytest`. The
 private dogfood suite runs only when `VEQTOR_PRIVATE_FIXTURE_DIR` points at a
 local corpus: `pytest -m private`.
