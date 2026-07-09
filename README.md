@@ -70,6 +70,16 @@ Then ask Claude:
 Claude calls `list_rounds` and `extract_redlines` and answers with a timeline
 grounded in file hashes and revision ids.
 
+For the write path (M2), continue with:
+
+> Prepare our counterproposal as round-5-our-counter.docx: restore the 150%
+> affected Work Order liability cap and reinstate the willful misconduct
+> carve-out the counterparty deleted.
+
+Claude anchors both edits with `apply_edits` and produces a new DOCX with
+real tracked changes — the counterparty's proposal stays visible, struck
+through, next to ours — and reports the round-trip proof.
+
 ### Claude Desktop (regular chat)
 
 The same server works in the regular Claude Desktop chat. Add an `mcpServers`
