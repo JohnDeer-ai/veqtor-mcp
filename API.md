@@ -42,7 +42,7 @@ of nesting, 100,000 JSON nodes, and 128 decimal digits per integer. Invalid
 UTF-8 or JSON, duplicate object keys, non-finite numbers, invalid Unicode scalar
 values, schema/digest failures, and bound violations are all classified as
 `journal_corrupt` without echoing the damaged value. The line-size cap applies
-to the stored compact/full record, not to the normalized full tool outcome
+to the stored journal record, not to the normalized full tool outcome
 covered only by `tool_result_sha256`. Before append, the final record with its
 lock-assigned id is serialized to one immutable frame. Those exact bytes pass
 the same decoder, bounded-JSON checks, and schema validator used on read, and
@@ -57,8 +57,8 @@ unknown tool or mismatched pair is `record_invalid` on write and
 `journal_corrupt` on read. The five historical `(tool_name, record_type)` pairs
 documented by this release, together with their compact projection rules, are
 append-only v1 format commitments: a retired tool may leave the writable and
-MCP surfaces but remains readable in full and compact exports. Existing pairs
-must never be removed or retyped, and v1 read limits must not be narrowed;
+MCP surfaces but remains readable through raw local and compact reads. Existing
+pairs must never be removed or retyped, and v1 read limits must not be narrowed;
 incompatible changes require a new `schema_version`. Older servers may reject
 records from tools added by a newer release, so downgrade compatibility is not
 guaranteed.
@@ -66,8 +66,8 @@ guaranteed.
 Writer timestamps use exactly `YYYY-MM-DDTHH:MM:SSZ` or, when microseconds are
 non-zero, `YYYY-MM-DDTHH:MM:SS.ffffffZ`. Compact export returns a timestamp
 verbatim only when it matches this grammar and round-trips through the same v1
-formatter; other historical strings remain available in full mode but compact
-mode emits `legacy-unvalidated` plus a digest.
+formatter; other historical strings remain available through raw local reads,
+while compact mode emits `legacy-unvalidated` plus a digest.
 
 The permanent pairs introduced by this release are:
 
@@ -183,6 +183,11 @@ projection:
 }
 ```
 
+If the DOCX bytes are readable but extraction fails while decoding the OOXML,
+the controlled failure record carries `observed_source_sha256` for that exact
+snapshot. Malformed numeric style, numbering or paragraph properties do not
+escape as raw Python conversion errors.
+
 ## `verify_quote`
 
 Call this before relying on a quotation in a memo, email, or negotiation summary.
@@ -193,6 +198,10 @@ then `old_text` (`matches[].side` says which); matching is case-sensitive;
 `normalized` collapses whitespace runs and typographic quotes/dashes. A hash
 mismatch or unknown anchor is an error, never a verdict. Whole-document
 search without an anchor is a later slice.
+Any refusal after the document snapshot is readable, including an OOXML
+extraction failure, carries `observed_source_sha256` for the bytes that rejected
+the claim. The caller's claimed hash remains asserted input and is digested in
+compact history.
 
 Input:
 
@@ -244,11 +253,36 @@ delete and the replacement text to insert. If the anchor is missing, ambiguous,
 bound to a different file hash, or resolved to text that does not exactly match
 `delete_text`, the tool returns an error and writes nothing.
 
-`edits` are atomic: if any edit fails validation or application, no edits are
-written and no output DOCX is left behind. If the round-trip check fails after
-application, the tool returns an error and removes the failed output artifact.
+`edits` are atomic: if any edit fails validation or application, no final
+output DOCX is written. If the round-trip check fails after application, the
+tool returns the original controlled error and makes a best-effort attempt to
+remove its temporary artifact. An operating-system cleanup refusal may leave
+that uniquely named temp file behind, but it never replaces the provenance-
+bearing operation error and never publishes the requested output path.
+Final publication is an atomic create-if-absent operation from a temporary
+file in the destination directory. If another process creates the destination
+after the initial check, apply returns `output_exists` and preserves that file;
+it never uses overwrite-style rename semantics.
+After a successful hard-link publication, removal of the temporary name is
+best-effort. If the operating system refuses that cleanup, apply still returns
+success because the requested output has already been atomically published;
+the uniquely named temp remains as a second hard link to the same inode and may
+be removed later without changing the output bytes or `output_sha256`.
 The round-trip check compares OOXML structure outside touched anchor ranges; it
 does not require byte-identical DOCX packages.
+Any controlled apply refusal after the source byte snapshot is known records
+`observed_source_sha256`. Operation-wide failures do not invent an `edit_index`;
+that field is present only when one specific edit or plan caused the refusal.
+If re-extraction of the temporary candidate fails after its own SHA is known,
+that distinct digest is recorded as `observed_candidate_sha256`; it never
+replaces or masquerades as the apply source snapshot.
+CRC or other controlled failures while reading all source archive members use
+`file_unextractable`; temporary archive write failures use `output_unwritable`.
+Encrypted required members and decompressor failures are normalized through
+the same snapshot boundary. Before creating a candidate, apply reads each
+source member by its exact `ZipInfo` and rejects duplicate member names as
+`file_unextractable`; duplicate-name lookup is never allowed to substitute the
+last member's bytes for an earlier member.
 
 Three edit forms, all written as visible tracked changes — never silent
 rewrites:
@@ -307,6 +341,7 @@ Output:
   "applied": [
     {
       "change_unit_id": "cu_017",
+      "operation": "replace",
       "deleted_text": "USD 50,000",
       "inserted_text": "The aggregate liability cap will equal the fees paid in the previous 12 months, excluding willful misconduct.",
       "tracked_revision_ids": ["31", "32"]
@@ -322,6 +357,14 @@ Output:
 }
 ```
 
+The current producer always emits
+`comparison: "ooxml_semantic_diff_outside_touched_anchors"`. Historical v1
+records using `comparison: "exact"` remain readable for compatibility, but
+that retired value is only a legacy round-trip-success marker. It is not
+emitted by current code, and v1 assigns it no byte-for-byte identity or other
+stronger guarantee for the DOCX ZIP package. The current marker states the
+documented semantic scope; neither value is a whole-package binary proof.
+
 ## `export_decision_record`
 
 Call this when the user asks for an audit trail, negotiation record, or summary
@@ -332,7 +375,7 @@ search in v1.
 The export reads `.veqtor/decision-records.jsonl` for the workspace and returns
 chronological substantive records. Access events from `export_decision_record`
 itself are recorded in the journal but omitted from the default export window.
-To protect context and privacy, export is compact by default: verbatim `input`
+To protect context and privacy, the MCP export is always compact: verbatim `input`
 payloads, paths, clause headings, raw error text and free-form provenance are
 replaced by digests. Only format-validated identifiers, hashes and counters
 observed by the server remain verbatim; client-asserted claims are digested,
@@ -340,6 +383,11 @@ and unused extra anchor fields are not journaled. Repeated facts are bounded
 snapshots `{count, sha256, sample, truncated}`; samples contain at most 20
 validated items while the digest covers the complete source collection. Large
 extract results therefore stay bounded and re-verifiable.
+Only a genuine empty list or mapping is represented by `count: 0` with
+`truncated: false`. If readable historical JSON stores the wrong container type,
+compact projection returns `count: null`, a digest of that original malformed
+value, an empty sample and `truncated: true`; it never turns malformed data into
+a complete empty snapshot.
 Compact projection never trusts a stored snapshot merely because it already
 has this shape. On every export, snapshot metadata is type-checked, every
 sample item is projected through the same field allowlist as a raw item, and
@@ -356,11 +404,13 @@ or unrecognized value is replaced by `legacy-unvalidated` plus its digest in
 compact output. Pre-release journals using older build markers are disposable
 and are not migrated; archive or remove their `.veqtor` sidecar before a
 pre-release demo to avoid mixing legacy and current markers.
-Use `include_payload: true` only when the user explicitly needs full local
-records as stored in the journal. An `extract_redlines` record is already a
-summary and does not contain every old/new text. That explicit mode adds no
-smaller response cap; stored entries remain subject to the per-record journal
-boundary above and the response remains subject to `max_records`.
+The raw journal is not available through the MCP surface. It remains readable
+locally for diagnostics and historical compatibility, including old access
+events whose stored result says `payloads: "full"`. Older clients that still
+send `include_payload` do not enable full mode; the unrecognized argument may be
+ignored by the current transport and the result remains explicitly
+`payloads: "compact"`. An `extract_redlines` record is already a summary and
+does not contain every old/new text.
 Responses are capped to the newest `max_records` entries (default 50). If
 `truncated` is true, call again with
 `before_record_id: next_before_record_id` to page earlier. `total_count` is the
@@ -374,8 +424,7 @@ Input:
 {
   "workspace": "/Users/example/Deals/AcmeDistribution",
   "max_records": 50,
-  "before_record_id": null,
-  "include_payload": false
+  "before_record_id": null
 }
 ```
 
@@ -388,6 +437,17 @@ Output:
   "access_count": 1,
   "truncated": false,
   "next_before_record_id": null,
+  "payloads": "compact",
+  "assurance": {
+    "journal_model": "best_effort_local_provenance",
+    "model_payload": "compact_only",
+    "tamper_evident": false,
+    "hash_chain": false,
+    "record_id_guarantee": "strictly_increasing_only",
+    "producer_identity": "python_source_files_snapshot_only",
+    "content_hashes": "recheckable_fingerprints_not_authentication",
+    "round_trip_scope": "ooxml_semantic_diff_outside_touched_anchors_not_docx_byte_identity"
+  },
   "records": [
     {
       "schema_version": "decision_record.v1",
@@ -435,6 +495,15 @@ Output:
 }
 ```
 
+The assurance object is part of the model-facing contract. File and result
+hashes let a holder of the relevant bytes re-check content relationships; they
+do not authenticate the mutable local journal. Record ids are server-assigned
+and strictly increasing, but visible gaps may be normal because access events
+are omitted, and ids do not prove that records were not deleted, truncated,
+renumbered or rewritten. `producer_identity` covers imported Python source
+files only, not the interpreter, dependencies, native libraries, configuration
+or complete installed artifact.
+
 `result_sha256` fingerprints the stored record result (compact summaries for
 tools such as `extract_redlines`), not the compact export projection;
 `tool_result_sha256` fingerprints the normalized full tool outcome before
@@ -457,6 +526,10 @@ json.dumps(
     separators=(",", ":"),
 ).encode("utf-8")
 ```
+
+Canonical hashing accepts at least 1,000,000 JSON nodes in v1. This floor is
+separate from the 100,000-node limit for a stored journal record and must not
+be narrowed under the same canonical-json-v1 contract.
 
 Object keys must be strings. Read-time duplicate keys are rejected. Keys are
 sorted by Python `str` Unicode code-point order, not by UTF-16 code units.
@@ -495,3 +568,14 @@ failure yields `source-snapshot-unavailable`; partial digests are never
 presented as complete. This is not a source-commit or Python bytecode identity.
 Raw package roots and source entries must not be symlinks; the digest input is a
 canonical `source_snapshot.v1` manifest of sorted `{path, sha256}` entries.
+The frozen two-file conformance vector hashes `ENGINE = 1\n` as
+`c1ff757ec2295bdcca2cd04c50b1462b952f8be7c59f4bd0530163bce3da5a74`
+at `veqtor_docx/engine.py` and `SERVER = 1\n` as
+`0b580e9a58186f758e87b1cb658319682611f9fdac36264919432f06a66c4768`
+at `veqtor_mcp/server.py`. The canonical manifest digest is
+`6e6bdfc120d8caded5ff2b08c656ac81dc452cf9b66e9d9da4312001aba9e824`,
+so the exact producer identity is
+`source-snapshot-v1-sha256:6e6bdfc120d8caded5ff2b08c656ac81dc452cf9b66e9d9da4312001aba9e824`.
+The literal manifest bytes and identity are ratcheted in
+`test_source_snapshot_hashes_package_source_tree`; changing the schema,
+framing, ordering or digest input requires a new snapshot prefix/version.

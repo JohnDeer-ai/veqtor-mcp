@@ -48,8 +48,9 @@ unsafe existing ignore files are refused before the journal is touched.
 
 Any text or metadata returned by a tool to an MCP client becomes part of the
 LLM conversation context and may be sent to the user's model provider under
-that provider's terms. This includes text returned by `export_decision_record`
-from the local sidecar journal.
+that provider's terms. `export_decision_record` therefore exposes only a
+compact projection through MCP. The raw journal remains local, may contain
+verbatim private text, and is never returned by the MCP tool.
 
 ## Day-0 Invariants
 
@@ -68,13 +69,13 @@ M3 - Trust.
 
 M1 (Read) and M2 (Write) are complete: negotiation history with verifiable
 references, and counterproposals written as real tracked changes with a
-round-trip proof — both demoed end to end from Claude over MCP. M3 slice 1
+round-trip check — both demoed end to end from Claude over MCP. M3 slice 1
 is implemented: deterministic `verify_quote` checks any quotation against
 its read-path anchor (`exact` / `normalized` / `not_found`) before it is
 relied on. M3 slice 2 adds a local decision-record sidecar and
 `export_decision_record` so Claude can explain which toolchain actions were
-performed and which hashes, anchors, revision ids and round-trip checks prove
-them.
+performed and which hashes, anchors, revision ids and round-trip checks provide
+re-checkable evidence for them.
 
 ## Quickstart
 
@@ -112,23 +113,22 @@ For the write path (M2), continue with:
 
 Claude anchors both edits with `apply_edits` and produces a new DOCX with
 real tracked changes — the counterparty's proposal stays visible, struck
-through, next to ours — and reports the round-trip proof.
+through, next to ours — and reports the round-trip check.
 
 For the trust trail (M3), after a quote verification or counterproposal, ask:
 
 > What veqtor actions were taken in ~/veqtor-demo-rounds, and what proves them?
 
-Claude calls `export_decision_record` and reports the compact local records
+Claude calls `export_decision_record` and reports compact local records
 with `record_id`s, file hashes, anchors, revision ids and round-trip status.
 Access events from export itself are recorded locally but are not returned in
-the default export window. The default compact export omits verbatim inputs,
+the default export window. The compact export omits verbatim inputs,
 paths, clause headings, raw errors and free-form provenance. Repeated facts are
 bounded snapshots with a total count, digest and sample of at most 20 items.
-`include_payload: true` returns the full records as stored in the journal; an
-extract record is already a summary, not a copy of every old/new text. v1 has
-no separate smaller response cap for that explicit mode, but each stored record
-remains subject to the 1 MiB journal boundary and the response remains subject
-to `max_records` (default 50, maximum 500), so keep it narrow.
+Raw records are not available through MCP; inspect the private local JSONL
+directly when local diagnostics require them. An extract record is already a
+summary, not a copy of every old/new text. Responses remain subject to
+`max_records` (default 50, maximum 500).
 
 ### Claude Desktop (regular chat)
 
@@ -149,11 +149,11 @@ do not inherit your shell PATH; `uv tool install` puts the binary at
 Quit Claude Desktop fully (Cmd+Q) and reopen; the veqtor tools appear in the
 tools menu and Claude asks permission before each call.
 
-A successful run answers the demo question with a per-round timeline that
-cites filenames, `change_unit_id`s, `revision_ids` and sha256 prefixes
-matching `extract_redlines` output, quotes old/new wording verbatim, and
-discloses undecoded revision markup from `unsupported_revisions` instead of
-guessing around it.
+A successful trust-trail run distinguishes content fingerprints from journal
+authentication: it calls the history best-effort local provenance, says it is
+not tamper-evident or a hash chain, and does not treat record ids as deletion
+proof. Separate read/verify workflows may quote wording returned by those tools;
+the compact history export does not return verbatim matter text.
 
 For development: `uv venv && uv pip install -e ".[dev]" && pytest`. The
 private dogfood suite runs only when `VEQTOR_PRIVATE_FIXTURE_DIR` points at a

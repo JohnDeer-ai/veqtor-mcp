@@ -55,9 +55,10 @@ _TYPOGRAPHIC = str.maketrans(
 class VerifyError(DocxError):
     """A fail-closed refusal: the message starts with a stable error code."""
 
-    def __init__(self, code: str, detail: str) -> None:
+    def __init__(self, code: str, detail: str, **metadata: object) -> None:
         super().__init__(f"{code}: {detail}")
         self.code = code
+        self.metadata = metadata
 
 
 def _normalize(text: str) -> str:
@@ -101,12 +102,23 @@ def verify_quote(path: str, anchor: dict, quote: str) -> dict:
         code = (
             "file_unextractable" if Path(resolved).is_file() else "file_unreadable"
         )
-        raise VerifyError(code, str(exc)) from exc
+        metadata: dict[str, object] = {}
+        source_metadata = getattr(exc, "metadata", None)
+        if isinstance(source_metadata, dict):
+            observed_sha = source_metadata.get("observed_source_sha256")
+            if isinstance(observed_sha, str):
+                metadata = {
+                    "claimed_source_sha256": claimed_sha,
+                    "observed_source_sha256": observed_sha,
+                }
+        raise VerifyError(code, str(exc), **metadata) from exc
     actual_sha = extraction["file_sha256"]
     if claimed_sha != actual_sha:
         raise VerifyError(
             "file_sha256_mismatch",
             "anchor was produced from a different file than path",
+            claimed_source_sha256=claimed_sha,
+            observed_source_sha256=actual_sha,
         )
     unit = next(
         (u for u in extraction["change_units"] if u["change_unit_id"] == unit_id),
@@ -114,7 +126,10 @@ def verify_quote(path: str, anchor: dict, quote: str) -> dict:
     )
     if unit is None:
         raise VerifyError(
-            "anchor_not_found", f"{unit_id} is not a change unit of the file"
+            "anchor_not_found",
+            f"{unit_id} is not a change unit of the file",
+            claimed_source_sha256=claimed_sha,
+            observed_source_sha256=actual_sha,
         )
 
     checked_anchor = {"change_unit_id": unit_id, "file_sha256": actual_sha}

@@ -2,6 +2,8 @@
 """extract_redlines against the synthetic rounds: every fact must be exact."""
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 from veqtor_docx import extract_redlines
@@ -27,6 +29,37 @@ from veqtor_docx.synthetic import (
 def _round(demo_dir: Path, number: int) -> dict:
     path = sorted(demo_dir.glob("*.docx"))[number - 1]
     return extract_redlines(str(path))
+
+
+def test_package_import_does_not_require_optional_lzma_extension() -> None:
+    script = """
+import importlib.abc
+import sys
+
+class BlockLzma(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname in {"lzma", "_lzma"}:
+            raise ModuleNotFoundError(f"No module named {fullname!r}")
+        return None
+
+sys.meta_path.insert(0, BlockLzma())
+sys.modules.pop("lzma", None)
+sys.modules.pop("_lzma", None)
+sys.modules.pop("zipfile", None)
+import veqtor_docx
+import zipfile
+assert zipfile.lzma is None
+assert callable(veqtor_docx.extract_redlines)
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_extract_revision_categories_v1_are_frozen() -> None:

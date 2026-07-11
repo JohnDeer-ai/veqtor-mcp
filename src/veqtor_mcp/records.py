@@ -979,11 +979,22 @@ def write_record(
     return {"record_id": record_id, "record_status": "written"}
 
 
+def _parse_before_record_id(value: str | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        return _record_number(value)
+    except ValueError as exc:
+        raise DecisionRecordError(
+            "invalid_before_record_id", "before_record_id must look like dr_NNN"
+        ) from exc
+
+
 def _window_records(
     records: list[dict[str, Any]],
     *,
     limit: int,
-    before_record_id: str | None,
+    before_record_number: int | None,
     include_access_events: bool,
 ) -> tuple[list[dict[str, Any]], int, bool, str | None]:
     visible = [
@@ -991,15 +1002,11 @@ def _window_records(
         for record in records
         if include_access_events or record.get("record_type") != ACCESS_RECORD_TYPE
     ]
-    if before_record_id is not None:
-        try:
-            before = _record_number(before_record_id)
-        except ValueError as exc:
-            raise DecisionRecordError(
-                "invalid_before_record_id", "before_record_id must look like dr_NNN"
-            ) from exc
+    if before_record_number is not None:
         visible = [
-            record for record in visible if _record_number(record["record_id"]) < before
+            record
+            for record in visible
+            if _record_number(record["record_id"]) < before_record_number
         ]
     selected = visible[-limit:]
     truncated = len(visible) > len(selected)
@@ -1019,8 +1026,8 @@ def _nonnegative_int(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
 
 
-def _list_count(value: Any) -> int:
-    return len(value) if isinstance(value, list) else 0
+def _list_count(value: Any) -> int | None:
+    return len(value) if isinstance(value, list) else None
 
 
 def _strict_bool(value: Any) -> bool | None:
@@ -1099,28 +1106,62 @@ def _part_name(value: Any) -> str | None:
     return value if value == DOCUMENT_PART_V1 else None
 
 
+def _contains_incomplete_snapshot(value: Any) -> bool:
+    if isinstance(value, dict):
+        if {
+            "count",
+            "sha256",
+            "sample",
+            "truncated",
+        }.issubset(value) and value.get("truncated") is True:
+            return True
+        return any(_contains_incomplete_snapshot(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_contains_incomplete_snapshot(item) for item in value)
+    return False
+
+
 def _bounded_collection(
     value: Any,
     projector: Callable[[Any], Any | None],
     *,
     limit: int = COMPACT_SAMPLE_LIMIT,
 ) -> dict[str, Any]:
-    raw = value if isinstance(value, list) else []
+    if not isinstance(value, list):
+        return _invalid_bounded_snapshot(value)
+    raw = value
     sample: list[Any] = []
+    filtered = False
     for item in raw:
         projected = projector(item)
-        if projected is not None and len(sample) < limit:
+        if projected is None:
+            filtered = True
+        elif len(sample) < limit:
             sample.append(projected)
+            filtered = filtered or _contains_incomplete_snapshot(projected)
+        else:
+            filtered = True
     return {
         "count": len(raw),
         "sha256": _stable_digest(raw),
         "sample": sample,
-        "truncated": len(sample) != len(raw),
+        "truncated": filtered or len(sample) != len(raw),
+    }
+
+
+def _invalid_bounded_snapshot(value: Any) -> dict[str, Any]:
+    return {
+        "count": None,
+        "sha256": _stable_digest(value),
+        "sample": [],
+        "truncated": True,
     }
 
 
 def _bounded_mapping(value: Any) -> dict[str, Any]:
-    raw = value if isinstance(value, dict) else {}
+    if not isinstance(value, dict):
+        return _invalid_bounded_snapshot(value)
+    raw = value
     items = [
         {"key": key, "value": item}
         for key, item in sorted(raw.items(), key=lambda pair: str(pair[0]))
@@ -1151,10 +1192,25 @@ def _validated_bounded_snapshot(
         "truncated",
     }.issubset(value):
         return None
-    count = _nonnegative_int(value.get("count"))
+    raw_count = value.get("count")
     digest = value.get("sha256")
     raw_sample = value.get("sample")
     declared_truncated = _strict_bool(value.get("truncated"))
+    required_keys = {"count", "sha256", "sample", "truncated"}
+    if (
+        set(value) == required_keys
+        and raw_count is None
+        and _is_sha256(digest)
+        and raw_sample == []
+        and declared_truncated is True
+    ):
+        return {
+            "count": None,
+            "sha256": digest,
+            "sample": [],
+            "truncated": True,
+        }
+    count = _nonnegative_int(raw_count)
     if (
         count is None
         or not _is_sha256(digest)
@@ -1163,7 +1219,6 @@ def _validated_bounded_snapshot(
         or count < len(raw_sample)
     ):
         return None
-    required_keys = {"count", "sha256", "sample", "truncated"}
     filtered = set(value) != required_keys
     safe_sample: list[Any] = []
     for item in raw_sample:
@@ -1171,7 +1226,7 @@ def _validated_bounded_snapshot(
         if projected is None:
             filtered = True
             continue
-        if projected != item:
+        if projected != item or _contains_incomplete_snapshot(projected):
             filtered = True
         if len(safe_sample) < COMPACT_SAMPLE_LIMIT:
             safe_sample.append(projected)
@@ -1192,11 +1247,7 @@ def _validated_bounded_snapshot(
 def _revision_ids_summary(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         snapshot = _validated_bounded_snapshot(value, _revision_id)
-        return (
-            snapshot
-            if snapshot is not None
-            else _bounded_collection([], _revision_id)
-        )
+        return snapshot if snapshot is not None else _invalid_bounded_snapshot(value)
     return _bounded_collection(value, _revision_id)
 
 
@@ -1260,12 +1311,16 @@ def _observed_applied_summary(value: Any) -> dict[str, Any] | None:
         return None
     change_unit_id = _change_unit_id(value.get("change_unit_id"))
     operation = _known_value(value.get("operation"), APPLY_OPERATIONS_V1)
-    if change_unit_id is None or operation is None:
+    if (
+        change_unit_id is None
+        or operation is None
+        or "tracked_revision_ids" not in value
+    ):
         return None
     return {
         "change_unit_id": change_unit_id,
         "operation": operation,
-        "tracked_revision_ids": _revision_ids_summary(value.get("tracked_revision_ids")),
+        "tracked_revision_ids": _revision_ids_summary(value["tracked_revision_ids"]),
     }
 
 
@@ -1274,11 +1329,11 @@ def _observed_match_summary(value: Any) -> dict[str, Any] | None:
         return None
     part_name = _part_name(value.get("part_name"))
     side = _known_value(value.get("side"), MATCH_SIDES_V1)
-    if part_name is None or side is None:
+    if part_name is None or side is None or "revision_ids" not in value:
         return None
     return {
         "part_name": part_name,
-        "revision_ids": _revision_ids_summary(value.get("revision_ids")),
+        "revision_ids": _revision_ids_summary(value["revision_ids"]),
         "side": side,
         "clause_sha256": _stable_digest(value.get("clause")),
     }
@@ -1316,13 +1371,19 @@ def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
             summary["error_omitted"] = True
         return summary
     if projection_kind == "list_rounds":
-        rounds = result.get("rounds", [])
+        rounds = result.get("rounds")
         return {
             "status": _known_value(result.get("status"), V1_OK_STATUSES),
             "folder": _path_digest(result.get("folder")),
-            "round_count": _list_count(rounds),
-            "rounds": _bounded_collection(rounds, _observed_round_summary),
-            "skipped_count": _list_count(result.get("skipped")),
+            "round_count": _list_count(rounds) if "rounds" in result else None,
+            "rounds": (
+                _bounded_collection(rounds, _observed_round_summary)
+                if "rounds" in result
+                else None
+            ),
+            "skipped_count": (
+                _list_count(result["skipped"]) if "skipped" in result else None
+            ),
         }
     if projection_kind == "extract_redlines":
         return {
@@ -1334,8 +1395,10 @@ def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
             "part_name": _part_name(result.get("part_name")),
             "revision_count": _nonnegative_int(result.get("revision_count")),
             "change_unit_count": _nonnegative_int(result.get("change_unit_count")),
-            "unsupported_revisions": _bounded_mapping(
-                result.get("unsupported_revisions")
+            "unsupported_revisions": (
+                _bounded_mapping(result["unsupported_revisions"])
+                if "unsupported_revisions" in result
+                else None
             ),
         }
     if projection_kind == "apply_edits":
@@ -1344,8 +1407,10 @@ def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
             "output_sha256": result.get("output_sha256")
             if _is_sha256(result.get("output_sha256"))
             else None,
-            "applied": _bounded_collection(
-                result.get("applied"), _observed_applied_summary
+            "applied": (
+                _bounded_collection(result["applied"], _observed_applied_summary)
+                if "applied" in result
+                else None
             ),
             "round_trip_check": _round_trip_summary(result.get("round_trip_check")),
         }
@@ -1355,10 +1420,12 @@ def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
             "verdict": _known_value(result.get("verdict"), VERIFY_VERDICTS_V1),
             "exact": _strict_bool(result.get("exact")),
             "checked_anchor": _observed_anchor_summary(result.get("checked_anchor")),
-            "matches": _bounded_collection(
-                result.get("matches"), _observed_match_summary
+            "matches": (
+                _bounded_collection(result["matches"], _observed_match_summary)
+                if "matches" in result
+                else None
             ),
-            "diff_count": _list_count(result.get("diff")),
+            "diff_count": _list_count(result["diff"]) if "diff" in result else None,
         }
     if projection_kind == "export_decision_record":
         next_before = result.get("next_before_record_id")
@@ -1384,6 +1451,7 @@ def _summary_provenance(record: dict[str, Any]) -> dict[str, Any]:
         "file_sha256",
         "source_sha256",
         "observed_source_sha256",
+        "observed_candidate_sha256",
         "output_sha256",
     ):
         if key in provenance and _is_sha256(provenance[key]):
@@ -1409,26 +1477,32 @@ def _summary_provenance(record: dict[str, Any]) -> dict[str, Any]:
         )
     if "input_anchor" in provenance:
         summary["input_anchor"] = _asserted_digest(provenance["input_anchor"])
-    if isinstance(provenance.get("anchors"), dict):
-        snapshot = _validated_bounded_snapshot(
-            provenance["anchors"], _observed_anchor_summary
-        )
-        if snapshot is not None:
-            summary["anchors"] = snapshot
-    elif isinstance(provenance.get("anchors"), list):
+    if "anchors" in provenance:
         anchors = provenance["anchors"]
-        if projection_kind in {"extract_redlines", "verify_quote"} and record[
-            "result"
-        ].get("status") != RESULT_STATUS_ERROR:
-            summary["anchors"] = bounded_observed_anchors(anchors)
+        if isinstance(anchors, dict):
+            snapshot = _validated_bounded_snapshot(
+                anchors, _observed_anchor_summary
+            )
+            summary["anchors"] = (
+                snapshot
+                if snapshot is not None
+                else _invalid_bounded_snapshot(anchors)
+            )
+        elif isinstance(anchors, list):
+            if projection_kind in {"extract_redlines", "verify_quote"} and record[
+                "result"
+            ].get("status") != RESULT_STATUS_ERROR:
+                summary["anchors"] = bounded_observed_anchors(anchors)
+            else:
+                summary["anchors"] = {
+                    "count": len(anchors),
+                    "sha256": _stable_digest(anchors),
+                    "sample": [],
+                    "truncated": bool(anchors),
+                }
         else:
-            summary["anchors"] = {
-                "count": len(anchors),
-                "sha256": _stable_digest(anchors),
-                "sample": [],
-                "truncated": bool(anchors),
-            }
-    if isinstance(provenance.get("applied"), list):
+            summary["anchors"] = _invalid_bounded_snapshot(anchors)
+    if "applied" in provenance:
         summary["applied"] = _bounded_collection(
             provenance["applied"], _observed_applied_summary
         )
@@ -1436,13 +1510,13 @@ def _summary_provenance(record: dict[str, Any]) -> dict[str, Any]:
         summary["round_trip_check"] = _round_trip_summary(
             provenance["round_trip_check"]
         )
-    if projection_kind == "list_rounds" and isinstance(
-        provenance.get("rounds"), list
-    ):
-        summary["rounds"] = _bounded_collection(
-            provenance["rounds"], _observed_round_summary
-        )
-        summary["skipped_count"] = _list_count(provenance.get("skipped"))
+    if projection_kind == "list_rounds":
+        if "rounds" in provenance:
+            summary["rounds"] = _bounded_collection(
+                provenance["rounds"], _observed_round_summary
+            )
+        if "skipped" in provenance:
+            summary["skipped_count"] = _list_count(provenance["skipped"])
     return summary
 
 
@@ -1520,8 +1594,12 @@ def read_records(
     max_records: int | None = None,
     before_record_id: str | None = None,
     include_access_events: bool = False,
-    include_payload: bool = True,
+    include_payload: bool = False,
 ) -> dict[str, Any]:
+    if type(include_payload) is not bool:
+        raise DecisionRecordError(
+            "invalid_include_payload", "include_payload must be a boolean"
+        )
     if max_records is None:
         limit = DEFAULT_MAX_RECORDS
     elif not isinstance(max_records, int) or max_records < 1:
@@ -1530,6 +1608,7 @@ def read_records(
         )
     else:
         limit = min(max_records, MAX_MAX_RECORDS)
+    before_record_number = _parse_before_record_id(before_record_id)
     root, expected_identity = _canonical_workspace(workspace)
     with _sidecar_for_read(root, expected_identity=expected_identity) as sidecar_info:
         if sidecar_info is None:
@@ -1565,7 +1644,7 @@ def read_records(
     selected, total, truncated, next_before = _window_records(
         records,
         limit=limit,
-        before_record_id=before_record_id,
+        before_record_number=before_record_number,
         include_access_events=include_access_events,
     )
     access_count = sum(

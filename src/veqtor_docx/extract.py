@@ -18,6 +18,7 @@ import hashlib
 import io
 import re
 import zipfile
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -40,6 +41,22 @@ from .contracts import (
 
 _MANUAL_NUMBER_RE = re.compile(r"^\s*(\d+(?:\.\d+)*[A-Za-z]?|\([a-z]\)|[A-Z]\.)[.\s]\s*")
 
+try:
+    import lzma as _lzma
+except ImportError:
+    _LZMA_READ_ERRORS: tuple[type[BaseException], ...] = ()
+else:
+    _LZMA_READ_ERRORS = (_lzma.LZMAError,)
+
+_ZIP_READ_ERRORS = (
+    EOFError,
+    OSError,
+    RuntimeError,
+    zipfile.BadZipFile,
+    zipfile.LargeZipFile,
+    zlib.error,
+) + _LZMA_READ_ERRORS
+
 __all__ = ["DocxError", "extract_redlines"]
 
 
@@ -61,7 +78,7 @@ def _read_parts(payload: bytes, path: str, parts: tuple[str, ...]) -> dict[str, 
             return {
                 part: zf.read(part) if part in names else None for part in parts
             }
-    except zipfile.BadZipFile as exc:
+    except _ZIP_READ_ERRORS as exc:
         raise DocxError(f"cannot open {path}: {exc}") from exc
 
 
@@ -431,6 +448,23 @@ def extract_redlines(path: str) -> dict:
 def _extract_from_bytes(payload: bytes, path: str) -> dict:
     """Extract from an in-memory snapshot; ``path`` is a label for output."""
     file_sha256 = hashlib.sha256(payload).hexdigest()
+    try:
+        return _extract_snapshot(payload, path, file_sha256)
+    except DocxError as exc:
+        metadata = getattr(exc, "metadata", None)
+        if not isinstance(metadata, dict):
+            metadata = {}
+            exc.metadata = metadata
+        metadata.setdefault("observed_source_sha256", file_sha256)
+        raise
+    except (IndexError, KeyError, OverflowError, TypeError, ValueError) as exc:
+        error = DocxError(f"cannot extract {path}: invalid OOXML value")
+        error.metadata = {"observed_source_sha256": file_sha256}
+        raise error from exc
+
+
+def _extract_snapshot(payload: bytes, path: str, file_sha256: str) -> dict:
+    """Decode a hash-identified package snapshot behind one error boundary."""
     parts = _read_parts(
         payload, path, (DOCUMENT_PART, "word/styles.xml", "word/numbering.xml")
     )

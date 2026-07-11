@@ -34,7 +34,8 @@ M2 slice 2. The contract (see API.md and the M2 gate in ROADMAP.md):
   matches, spans mixing plain and tracked text, our own pending insertions,
   unusual run shapes — raises :class:`ApplyError` and writes nothing.
 - Edits are atomic: the output file appears only after every edit applied and
-  the round-trip check passed; a failed check removes the temp artifact.
+  the round-trip check passed; a failed check attempts to remove the temp
+  artifact without letting a cleanup refusal mask the original error.
 - Round-trip proof: ``extract_redlines(output)`` must return exactly the prior
   change units plus the proposed edits, and nothing outside the touched
   paragraphs may differ. The structural check is paragraph-granular: an edit
@@ -75,7 +76,12 @@ from .contracts import (
     ROUND_TRIP_COMPARISON_CURRENT,
     ROUND_TRIP_STATUS_PASSED,
 )
-from .extract import DocxError, _extract_from_bytes, extract_redlines
+from .extract import (
+    DocxError,
+    _extract_from_bytes,
+    _ZIP_READ_ERRORS,
+    extract_redlines,
+)
 
 DEFAULT_AUTHOR = "Veqtor MCP"
 _PLAN_OPERATION_PLAIN = "plain"
@@ -320,6 +326,107 @@ def _attach_plan_metadata(
     for key, value in _plan_error_metadata(plan, observed_source_sha256).items():
         exc.metadata.setdefault(key, value)
     return exc
+
+
+def _attach_observed_source_metadata(
+    exc: DocxError,
+    observed_source_sha256: str,
+) -> DocxError:
+    metadata = getattr(exc, "metadata", None)
+    if not isinstance(metadata, dict):
+        metadata = {}
+        exc.metadata = metadata
+    metadata["observed_source_sha256"] = observed_source_sha256
+    return exc
+
+
+def _relabel_candidate_snapshot_metadata(
+    exc: DocxError,
+    observed_source_sha256: str,
+) -> DocxError:
+    """Keep a failed candidate snapshot distinct from the apply source."""
+    metadata = getattr(exc, "metadata", None)
+    if not isinstance(metadata, dict):
+        metadata = {}
+        exc.metadata = metadata
+    candidate_sha = metadata.pop("observed_source_sha256", None)
+    if isinstance(candidate_sha, str):
+        metadata.setdefault("observed_candidate_sha256", candidate_sha)
+    metadata["observed_source_sha256"] = observed_source_sha256
+    return exc
+
+
+def _read_source_archive(
+    payload: bytes,
+    source: str,
+) -> tuple[list[zipfile.ZipInfo], dict[str, bytes]]:
+    """Read every source member or return one provenance-bearing refusal."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            infos = archive.infolist()
+            names = [info.filename for info in infos]
+            if len(names) != len(set(names)):
+                raise ApplyError(
+                    "file_unextractable",
+                    f"source archive {source} contains duplicate member names",
+                )
+            parts = {
+                info.filename: archive.read(info)
+                for info in infos
+            }
+    except _ZIP_READ_ERRORS as exc:
+        raise ApplyError(
+            "file_unextractable",
+            f"cannot read every member of source archive {source}",
+        ) from exc
+    return infos, parts
+
+
+def _write_output_archive(
+    tmp_path: str,
+    infos: list[zipfile.ZipInfo],
+    parts: dict[str, bytes],
+) -> None:
+    """Write the candidate package behind a stable output-I/O boundary."""
+    try:
+        with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as archive:
+            for info in infos:
+                fresh = zipfile.ZipInfo(info.filename, date_time=info.date_time)
+                fresh.compress_type = zipfile.ZIP_DEFLATED
+                archive.writestr(fresh, parts[info.filename])
+    except (
+        OSError,
+        RuntimeError,
+        ValueError,
+        zipfile.BadZipFile,
+        zipfile.LargeZipFile,
+    ) as exc:
+        raise ApplyError(
+            "output_unwritable",
+            "cannot write temporary output archive",
+        ) from exc
+
+
+def _cleanup_temp_artifact(tmp_path: str) -> None:
+    """Best-effort cleanup that never replaces the operation's real error."""
+    try:
+        os.remove(tmp_path)
+    except OSError:
+        pass
+
+
+def _publish_output_no_clobber(tmp_path: str, output: str) -> None:
+    """Atomically publish a same-directory temp file only if output is absent."""
+    try:
+        os.link(tmp_path, output)
+    except FileExistsError as exc:
+        raise ApplyError(
+            "output_exists",
+            f"refusing to overwrite {output}",
+        ) from exc
+    except OSError as exc:
+        raise ApplyError("output_unwritable", str(exc)) from exc
+    _cleanup_temp_artifact(tmp_path)
 
 
 def _validate_edit_shapes(
@@ -755,19 +862,21 @@ def apply_edits(
     except OSError as exc:
         raise ApplyError("file_unreadable", f"cannot read {source}: {exc}") from exc
     source_sha = hashlib.sha256(source_payload).hexdigest()
-    _validate_edit_shapes(edits, observed_source_sha256=source_sha)
-    baseline = _extract_from_bytes(source_payload, source)
-    units_by_id = {u["change_unit_id"]: u for u in baseline["change_units"]}
+    try:
+        _validate_edit_shapes(edits, observed_source_sha256=source_sha)
+        baseline = _extract_from_bytes(source_payload, source)
+        units_by_id = {u["change_unit_id"]: u for u in baseline["change_units"]}
 
-    with zipfile.ZipFile(io.BytesIO(source_payload)) as zf:
-        infos = zf.infolist()
-        parts = {info.filename: zf.read(info.filename) for info in infos}
-    # Untouched source bytes for the structural half of the round-trip proof.
-    source_document_bytes = parts[DOCUMENT_PART]
-    document = parse_xml(parts[DOCUMENT_PART])
-    body = document.find(w("body"))
-    if body is None:
-        raise DocxError(f"no w:body in {source}")
+        infos, parts = _read_source_archive(source_payload, source)
+        # Untouched source bytes for the structural half of the round-trip proof.
+        source_document_bytes = parts[DOCUMENT_PART]
+        document = parse_xml(parts[DOCUMENT_PART])
+        body = document.find(w("body"))
+        if body is None:
+            raise DocxError(f"no w:body in {source}")
+    except DocxError as exc:
+        _attach_observed_source_metadata(exc, source_sha)
+        raise
 
     next_id = _next_revision_id(document)
     planned: list[_PlannedEdit] = []
@@ -941,6 +1050,7 @@ def apply_edits(
     )
     # Unique temp name in the output directory: a fixed suffix could clobber
     # an unrelated pre-existing sibling file.
+    tmp_path: str | None = None
     try:
         tmp_fd, tmp_path = tempfile.mkstemp(
             dir=os.path.dirname(output) or ".",
@@ -949,15 +1059,24 @@ def apply_edits(
         )
         os.close(tmp_fd)
     except OSError as exc:
-        raise ApplyError("output_unwritable", str(exc)) from exc
+        if tmp_path is not None:
+            _cleanup_temp_artifact(tmp_path)
+        raise ApplyError(
+            "output_unwritable",
+            str(exc),
+            observed_source_sha256=source_sha,
+        ) from exc
+    assert tmp_path is not None
     try:
-        with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            for info in infos:
-                fresh = zipfile.ZipInfo(info.filename, date_time=info.date_time)
-                fresh.compress_type = zipfile.ZIP_DEFLATED
-                zf.writestr(fresh, parts[info.filename])
+        _write_output_archive(tmp_path, infos, parts)
 
-        result = extract_redlines(tmp_path)
+        try:
+            result = extract_redlines(tmp_path)
+        except DocxError as exc:
+            raise _relabel_candidate_snapshot_metadata(
+                exc,
+                source_sha,
+            ) from exc
 
         expected_new = [_expected_unit(plan, author) for plan in planned]
         verdict = _round_trip_verdict(
@@ -991,13 +1110,13 @@ def apply_edits(
                 "output_unreadable",
                 f"cannot read temporary output artifact: {exc}",
             ) from exc
-        try:
-            os.replace(tmp_path, output)
-        except OSError as exc:
-            raise ApplyError("output_unwritable", str(exc)) from exc
+        _publish_output_no_clobber(tmp_path, output)
+    except DocxError as exc:
+        _attach_observed_source_metadata(exc, source_sha)
+        _cleanup_temp_artifact(tmp_path)
+        raise
     except BaseException:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+        _cleanup_temp_artifact(tmp_path)
         raise
 
     return {

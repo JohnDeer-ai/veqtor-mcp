@@ -94,6 +94,7 @@ def test_missing_file_is_a_stable_error(cap, tmp_path: Path) -> None:
     with pytest.raises(VerifyError) as err:
         verify_quote(str(tmp_path / "nope.docx"), anchor, "USD 50,000")
     assert err.value.code == "file_unreadable"
+    assert err.value.metadata == {}
 
 
 def test_malformed_document_xml_is_a_stable_error(demo_dir: Path, tmp_path: Path) -> None:
@@ -121,6 +122,10 @@ def test_malformed_document_xml_is_a_stable_error(demo_dir: Path, tmp_path: Path
             "anything",
         )
     assert err.value.code == "file_unextractable"
+    assert err.value.metadata == {
+        "claimed_source_sha256": real_sha,
+        "observed_source_sha256": real_sha,
+    }
 
 
 def test_readable_but_unextractable_docx_is_a_stable_error(tmp_path: Path) -> None:
@@ -137,6 +142,10 @@ def test_readable_but_unextractable_docx_is_a_stable_error(tmp_path: Path) -> No
             "anything",
         )
     assert err.value.code == "file_unextractable"
+    assert err.value.metadata == {
+        "claimed_source_sha256": real_sha,
+        "observed_source_sha256": real_sha,
+    }
 
 
 def test_fail_closed_errors(cap, demo_dir: Path) -> None:
@@ -148,14 +157,23 @@ def test_fail_closed_errors(cap, demo_dir: Path) -> None:
     with pytest.raises(VerifyError) as err:
         verify_quote(path, {**anchor, "file_sha256": "0" * 64}, CAP_R2)
     assert err.value.code == "file_sha256_mismatch"
+    assert err.value.metadata == {
+        "claimed_source_sha256": "0" * 64,
+        "observed_source_sha256": anchor["file_sha256"],
+    }
 
     with pytest.raises(VerifyError) as err:
         verify_quote(path, {**anchor, "change_unit_id": "cu_999"}, CAP_R2)
     assert err.value.code == "anchor_not_found"
+    assert err.value.metadata == {
+        "claimed_source_sha256": anchor["file_sha256"],
+        "observed_source_sha256": anchor["file_sha256"],
+    }
 
     with pytest.raises(VerifyError) as err:
         verify_quote(path, {"change_unit_id": anchor["change_unit_id"]}, CAP_R2)
     assert err.value.code == "anchor_missing"
+    assert err.value.metadata == {}
 
 
 def test_verdict_and_hash_come_from_one_snapshot(demo_dir: Path, monkeypatch) -> None:

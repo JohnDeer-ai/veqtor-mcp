@@ -9,10 +9,12 @@ import hashlib
 import importlib
 import inspect
 import json
+import lzma
 import os
 import stat
 import subprocess
 import zipfile
+import zlib
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from pathlib import Path
 
@@ -43,6 +45,58 @@ def _cap_from_tool(path: Path) -> tuple[dict, dict]:
         "change_unit_id": cap["change_unit_id"],
         "file_sha256": extracted["file_sha256"],
     }
+
+
+def _rewrite_docx_part(path: Path, part_name: str, transform) -> None:
+    with zipfile.ZipFile(path, "r") as archive:
+        infos = archive.infolist()
+        parts = {info.filename: archive.read(info.filename) for info in infos}
+    parts[part_name] = transform(parts[part_name])
+    with zipfile.ZipFile(path, "w") as archive:
+        for info in infos:
+            archive.writestr(info, parts[info.filename])
+
+
+def _mark_zip_member_encrypted(path: Path, member_name: str) -> None:
+    payload = bytearray(path.read_bytes())
+    with zipfile.ZipFile(path, "r") as archive:
+        info = archive.getinfo(member_name)
+
+    local_flag_offset = info.header_offset + 6
+    local_flag = int.from_bytes(
+        payload[local_flag_offset : local_flag_offset + 2],
+        "little",
+    )
+    payload[local_flag_offset : local_flag_offset + 2] = (
+        local_flag | 0x1
+    ).to_bytes(2, "little")
+
+    encoded_name = member_name.encode("utf-8")
+    cursor = 0
+    found = False
+    while True:
+        central = payload.find(b"PK\x01\x02", cursor)
+        if central < 0:
+            break
+        name_length = int.from_bytes(payload[central + 28 : central + 30], "little")
+        extra_length = int.from_bytes(payload[central + 30 : central + 32], "little")
+        comment_length = int.from_bytes(payload[central + 32 : central + 34], "little")
+        name_start = central + 46
+        name_end = name_start + name_length
+        if bytes(payload[name_start:name_end]) == encoded_name:
+            central_flag_offset = central + 8
+            central_flag = int.from_bytes(
+                payload[central_flag_offset : central_flag_offset + 2],
+                "little",
+            )
+            payload[central_flag_offset : central_flag_offset + 2] = (
+                central_flag | 0x1
+            ).to_bytes(2, "little")
+            found = True
+            break
+        cursor = name_end + extra_length + comment_length
+    assert found
+    path.write_bytes(payload)
 
 
 def _write_concurrent_record(workspace: str, index: int) -> dict:
@@ -108,16 +162,20 @@ def test_successful_tool_calls_write_decision_records(tmp_path: Path) -> None:
     assert applied["record_status"] == "written"
     assert applied["output_sha256"] == veqtor_docx.extract_redlines(str(out))["file_sha256"]
 
-    exported = server.export_decision_record(str(matter), max_records=2, include_payload=True)
+    exported = server.export_decision_record(str(matter), max_records=2)
     assert exported["record_status"] == "written"
-    assert exported["payloads"] == "full"
+    assert exported["payloads"] == "compact"
     assert exported["total_count"] == 3
     assert exported["access_count"] == 0
     assert exported["truncated"] is True
     assert exported["next_before_record_id"] == "dr_002"
     assert [record["record_id"] for record in exported["records"]] == ["dr_002", "dr_003"]
+    compact_apply = exported["records"][1]
+    assert compact_apply["result"]["applied"]["sample"][0]["operation"] == "replace"
+    assert compact_apply["provenance"]["applied"]["sample"][0]["operation"] == "replace"
 
-    verify_record, apply_record = exported["records"]
+    full = records.read_records(str(matter), max_records=2, include_payload=True)
+    verify_record, apply_record = full["records"]
     assert verify_record["tool_name"] == "verify_quote"
     assert verify_record["input"]["quote"] == "the total fees paid by Client under this Agreement"
     assert verify_record["result"]["verdict"] == "exact"
@@ -126,6 +184,7 @@ def test_successful_tool_calls_write_decision_records(tmp_path: Path) -> None:
     assert apply_record["tool_name"] == "apply_edits"
     assert apply_record["provenance"]["source_sha256"] == anchor["file_sha256"]
     assert apply_record["provenance"]["output_sha256"] == applied["output_sha256"]
+    assert apply_record["provenance"]["applied"][0]["operation"] == "replace"
     assert apply_record["provenance"]["round_trip_check"]["status"] == "passed"
 
 
@@ -134,7 +193,7 @@ def test_extract_record_is_compact_and_does_not_duplicate_change_text(tmp_path: 
     source = matter / "round-2-counterparty-redline.docx"
 
     extracted, _ = _cap_from_tool(source)
-    journal = records.read_records(str(matter), max_records=10)
+    journal = records.read_records(str(matter), max_records=10, include_payload=True)
     extract_record = next(
         record for record in journal["records"] if record["tool_name"] == "extract_redlines"
     )
@@ -182,10 +241,46 @@ def test_source_snapshot_hashes_package_source_tree(
     first = records._source_snapshot_identity(roots)
     reordered = records._source_snapshot_identity(list(reversed(roots)))
 
+    manifest = {
+        "schema": "source_snapshot.v1",
+        "files": [
+            {
+                "path": "veqtor_docx/engine.py",
+                "sha256": (
+                    "c1ff757ec2295bdcca2cd04c50b1462b"
+                    "952f8be7c59f4bd0530163bce3da5a74"
+                ),
+            },
+            {
+                "path": "veqtor_mcp/server.py",
+                "sha256": (
+                    "0b580e9a58186f758e87b1cb65831968"
+                    "2611f9fdac36264919432f06a66c4768"
+                ),
+            },
+        ],
+    }
+    expected_manifest = (
+        b'{"files":[{"path":"veqtor_docx/engine.py","sha256":'
+        b'"c1ff757ec2295bdcca2cd04c50b1462b952f8be7c59f4bd0530163bce3da5a74"},'
+        b'{"path":"veqtor_mcp/server.py","sha256":'
+        b'"0b580e9a58186f758e87b1cb658319682611f9fdac36264919432f06a66c4768"}],'
+        b'"schema":"source_snapshot.v1"}'
+    )
+
     (mcp_root / "server.py").write_text("SERVER = 2\n", encoding="utf-8")
     second = records._source_snapshot_identity(roots)
 
-    assert first.startswith(records.SOURCE_SNAPSHOT_PREFIX)
+    assert records.SOURCE_SNAPSHOT_SCHEMA == "source_snapshot.v1"
+    assert records.SOURCE_SNAPSHOT_PREFIX == "source-snapshot-v1-sha256:"
+    assert records._canonical_json_bytes(manifest) == expected_manifest
+    assert records._stable_digest(manifest) == (
+        "6e6bdfc120d8caded5ff2b08c656ac81dc452cf9b66e9d9da4312001aba9e824"
+    )
+    assert first == (
+        "source-snapshot-v1-sha256:"
+        "6e6bdfc120d8caded5ff2b08c656ac81dc452cf9b66e9d9da4312001aba9e824"
+    )
     assert reordered == first
     assert second.startswith(records.SOURCE_SNAPSHOT_PREFIX)
     assert first != second
@@ -781,9 +876,7 @@ def test_controlled_failures_are_recorded_then_reraised(tmp_path: Path) -> None:
         )
 
     assert err.value.code == "anchor_not_found"
-    exported = server.export_decision_record(
-        str(matter), max_records=10, include_payload=True
-    )
+    exported = records.read_records(str(matter), max_records=10, include_payload=True)
     error_records = [
         record
         for record in exported["records"]
@@ -810,7 +903,7 @@ def test_hash_mismatch_records_claimed_and_observed_sha(tmp_path: Path) -> None:
         )
 
     assert err.value.code == "file_sha256_mismatch"
-    exported = records.read_records(str(matter), max_records=10)
+    exported = records.read_records(str(matter), max_records=10, include_payload=True)
     error_record = next(
         record
         for record in exported["records"]
@@ -848,7 +941,9 @@ def test_multi_edit_hash_mismatch_records_offending_claim(tmp_path: Path) -> Non
     assert err.value.code == "file_sha256_mismatch"
     error_record = next(
         record
-        for record in records.read_records(str(matter), max_records=10)["records"]
+        for record in records.read_records(
+            str(matter), max_records=10, include_payload=True
+        )["records"]
         if record["tool_name"] == "apply_edits" and record["result"]["status"] == "error"
     )
     assert error_record["provenance"]["claimed_source_sha256"] == "0" * 64
@@ -882,7 +977,9 @@ def test_multi_edit_delete_text_failure_records_offending_index(tmp_path: Path) 
     assert err.value.code == "delete_text_not_found"
     error_record = next(
         record
-        for record in records.read_records(str(matter), max_records=10)["records"]
+        for record in records.read_records(
+            str(matter), max_records=10, include_payload=True
+        )["records"]
         if record["tool_name"] == "apply_edits" and record["result"]["status"] == "error"
     )
     assert error_record["provenance"]["claimed_source_sha256"] == extracted["file_sha256"]
@@ -916,7 +1013,9 @@ def test_malformed_second_edit_records_offending_index(tmp_path: Path) -> None:
     assert err.value.code == "invalid_edit"
     error_record = next(
         record
-        for record in records.read_records(str(matter), max_records=10)["records"]
+        for record in records.read_records(
+            str(matter), max_records=10, include_payload=True
+        )["records"]
         if record["tool_name"] == "apply_edits" and record["result"]["status"] == "error"
     )
     assert error_record["provenance"]["claimed_source_sha256"] == extracted["file_sha256"]
@@ -968,12 +1067,714 @@ def test_late_apply_failure_records_offending_plan_metadata(
     assert not output.exists()
     error_record = next(
         record
-        for record in records.read_records(str(matter), max_records=10)["records"]
+        for record in records.read_records(
+            str(matter), max_records=10, include_payload=True
+        )["records"]
         if record["tool_name"] == "apply_edits" and record["result"]["status"] == "error"
     )
     assert error_record["provenance"]["edit_index"] == 1
     assert error_record["provenance"]["claimed_source_sha256"] == extracted["file_sha256"]
     assert error_record["provenance"]["observed_source_sha256"] == extracted["file_sha256"]
+
+
+def test_operation_wide_output_failure_records_observed_source_sha(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-2-counterparty-redline.docx"
+    extracted, anchor = _cap_from_tool(source)
+    apply_module = importlib.import_module("veqtor_docx.apply")
+    original_read_bytes = Path.read_bytes
+    temp_reads = {"count": 0}
+
+    def flaky_read_bytes(self: Path) -> bytes:
+        if str(self).endswith(".veqtor-tmp"):
+            temp_reads["count"] += 1
+            if temp_reads["count"] == 2:
+                raise OSError("simulated temp read failure")
+        return original_read_bytes(self)
+
+    monkeypatch.setattr(apply_module.Path, "read_bytes", flaky_read_bytes)
+    output = tmp_path / "never.docx"
+    with pytest.raises(veqtor_docx.ApplyError) as err:
+        server.apply_edits(
+            str(source),
+            str(output),
+            [
+                {
+                    "anchor": anchor,
+                    "delete_text": "USD 50,000",
+                    "insert_text": "USD 250,000",
+                }
+            ],
+        )
+
+    assert err.value.code == "output_unreadable"
+    assert err.value.metadata == {
+        "observed_source_sha256": extracted["file_sha256"]
+    }
+    assert not output.exists()
+    assert not list(tmp_path.glob("*.veqtor-tmp"))
+    full = records.read_records(str(matter), max_records=10, include_payload=True)
+    error_record = next(
+        record
+        for record in full["records"]
+        if record["tool_name"] == "apply_edits" and record["result"]["status"] == "error"
+    )
+    assert error_record["provenance"]["observed_source_sha256"] == extracted[
+        "file_sha256"
+    ]
+    assert "edit_index" not in error_record["provenance"]
+
+
+def test_operation_wide_round_trip_failure_has_no_invented_edit_index(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-2-counterparty-redline.docx"
+    extracted, anchor = _cap_from_tool(source)
+    apply_module = importlib.import_module("veqtor_docx.apply")
+    monkeypatch.setattr(
+        apply_module,
+        "_round_trip_verdict",
+        lambda *_args: veqtor_docx.ApplyError(
+            "round_trip_failed", "simulated operation-wide mismatch"
+        ),
+    )
+    output = tmp_path / "never.docx"
+
+    with pytest.raises(veqtor_docx.ApplyError) as err:
+        server.apply_edits(
+            str(source),
+            str(output),
+            [
+                {
+                    "anchor": anchor,
+                    "delete_text": "USD 50,000",
+                    "insert_text": "USD 250,000",
+                }
+            ],
+        )
+
+    assert err.value.code == "round_trip_failed"
+    assert err.value.metadata == {
+        "observed_source_sha256": extracted["file_sha256"]
+    }
+    assert not output.exists()
+    full = records.read_records(str(matter), max_records=10, include_payload=True)
+    error_record = next(
+        record
+        for record in full["records"]
+        if record["tool_name"] == "apply_edits" and record["result"]["status"] == "error"
+    )
+    assert error_record["provenance"]["observed_source_sha256"] == extracted[
+        "file_sha256"
+    ]
+    assert "edit_index" not in error_record["provenance"]
+
+
+def test_readable_snapshot_parse_failures_record_observed_source_sha(
+    tmp_path: Path,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-2-counterparty-redline.docx"
+
+    def invalidate_outline_level(styles: bytes) -> bytes:
+        marker = b'w:outlineLvl w:val="1"'
+        assert marker in styles
+        return styles.replace(
+            marker,
+            b'w:outlineLvl w:val="not-a-number"',
+            1,
+        )
+
+    _rewrite_docx_part(source, "word/styles.xml", invalidate_outline_level)
+    observed = hashlib.sha256(source.read_bytes()).hexdigest()
+    anchor = {
+        "change_unit_id": "cu_001",
+        "file_sha256": observed,
+    }
+    output = matter / "never.docx"
+
+    with pytest.raises(veqtor_docx.DocxError) as extract_error:
+        server.extract_redlines(str(source))
+    assert getattr(extract_error.value, "metadata") == {
+        "observed_source_sha256": observed
+    }
+
+    with pytest.raises(veqtor_docx.VerifyError) as verify_error:
+        server.verify_quote(str(source), anchor, "anything")
+    assert verify_error.value.code == "file_unextractable"
+    assert verify_error.value.metadata == {
+        "claimed_source_sha256": observed,
+        "observed_source_sha256": observed,
+    }
+
+    with pytest.raises(veqtor_docx.DocxError) as apply_error:
+        server.apply_edits(
+            str(source),
+            str(output),
+            [
+                {
+                    "anchor": anchor,
+                    "delete_text": "anything",
+                    "insert_text": "replacement",
+                }
+            ],
+        )
+    assert getattr(apply_error.value, "metadata") == {
+        "observed_source_sha256": observed
+    }
+    assert not output.exists()
+
+    full = records.read_records(str(matter), max_records=10, include_payload=True)
+    failures = [
+        record
+        for record in full["records"]
+        if record["result"]["status"] == "error"
+    ]
+    assert [record["tool_name"] for record in failures] == [
+        "extract_redlines",
+        "verify_quote",
+        "apply_edits",
+    ]
+    for record in failures:
+        assert record["provenance"]["observed_source_sha256"] == observed
+    assert failures[1]["provenance"]["claimed_source_sha256"] == observed
+    assert failures[2]["provenance"]["claimed_source_sha256"] == observed
+
+
+def test_source_archive_crc_failure_records_observed_source_sha(
+    tmp_path: Path,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-2-counterparty-redline.docx"
+    sentinel = b"UNUSED-CRC-MEMBER-CONTENT"
+    with zipfile.ZipFile(source, "a", zipfile.ZIP_STORED) as archive:
+        archive.writestr("unused-provenance-member.bin", sentinel)
+    payload = source.read_bytes()
+    offset = payload.find(sentinel)
+    assert offset >= 0
+    assert payload.find(sentinel, offset + 1) == -1
+    source.write_bytes(
+        payload[:offset] + b"X" + payload[offset + 1 :]
+    )
+
+    extracted, anchor = _cap_from_tool(source)
+    output = matter / "never.docx"
+    with pytest.raises(veqtor_docx.ApplyError) as err:
+        server.apply_edits(
+            str(source),
+            str(output),
+            [
+                {
+                    "anchor": anchor,
+                    "delete_text": "USD 50,000",
+                    "insert_text": "USD 250,000",
+                }
+            ],
+        )
+
+    assert err.value.code == "file_unextractable"
+    assert err.value.metadata == {
+        "observed_source_sha256": extracted["file_sha256"]
+    }
+    assert not output.exists()
+    full = records.read_records(str(matter), max_records=10, include_payload=True)
+    error_record = next(
+        record
+        for record in full["records"]
+        if record["tool_name"] == "apply_edits"
+        and record["result"]["status"] == "error"
+    )
+    assert error_record["provenance"]["observed_source_sha256"] == extracted[
+        "file_sha256"
+    ]
+    assert "edit_index" not in error_record["provenance"]
+
+
+def test_encrypted_required_member_failures_are_recorded_for_all_tools(
+    tmp_path: Path,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-2-counterparty-redline.docx"
+    _mark_zip_member_encrypted(source, "word/document.xml")
+    observed = hashlib.sha256(source.read_bytes()).hexdigest()
+    anchor = {
+        "change_unit_id": "cu_001",
+        "file_sha256": observed,
+    }
+    output = matter / "never.docx"
+
+    with pytest.raises(veqtor_docx.DocxError) as extract_error:
+        server.extract_redlines(str(source))
+    assert getattr(extract_error.value, "metadata") == {
+        "observed_source_sha256": observed
+    }
+
+    with pytest.raises(veqtor_docx.VerifyError) as verify_error:
+        server.verify_quote(str(source), anchor, "anything")
+    assert verify_error.value.code == "file_unextractable"
+    assert verify_error.value.metadata == {
+        "claimed_source_sha256": observed,
+        "observed_source_sha256": observed,
+    }
+
+    with pytest.raises(veqtor_docx.DocxError) as apply_error:
+        server.apply_edits(
+            str(source),
+            str(output),
+            [
+                {
+                    "anchor": anchor,
+                    "delete_text": "anything",
+                    "insert_text": "replacement",
+                }
+            ],
+        )
+    assert getattr(apply_error.value, "metadata") == {
+        "observed_source_sha256": observed
+    }
+    assert not output.exists()
+
+    full = records.read_records(str(matter), max_records=10, include_payload=True)
+    failures = [
+        record
+        for record in full["records"]
+        if record["result"]["status"] == "error"
+    ]
+    assert [record["tool_name"] for record in failures] == [
+        "extract_redlines",
+        "verify_quote",
+        "apply_edits",
+    ]
+    for record in failures:
+        assert record["provenance"]["observed_source_sha256"] == observed
+
+
+@pytest.mark.parametrize(
+    "decompressor_error",
+    [
+        zlib.error("simulated deflate failure"),
+        lzma.LZMAError("simulated LZMA failure"),
+    ],
+    ids=["zlib", "lzma"],
+)
+def test_source_archive_decompressor_failures_are_recorded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    decompressor_error: BaseException,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-2-counterparty-redline.docx"
+    member_name = "unused-compressed-member.bin"
+    with zipfile.ZipFile(source, "a", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(member_name, b"compressed content")
+    extracted, anchor = _cap_from_tool(source)
+    original_read = zipfile.ZipFile.read
+
+    def fail_member_read(self, member, pwd=None):
+        if isinstance(member, zipfile.ZipInfo) and member.filename == member_name:
+            raise decompressor_error
+        return original_read(self, member, pwd)
+
+    monkeypatch.setattr(zipfile.ZipFile, "read", fail_member_read)
+    output = matter / "never.docx"
+    with pytest.raises(veqtor_docx.ApplyError) as err:
+        server.apply_edits(
+            str(source),
+            str(output),
+            [
+                {
+                    "anchor": anchor,
+                    "delete_text": "USD 50,000",
+                    "insert_text": "USD 250,000",
+                }
+            ],
+        )
+
+    assert err.value.code == "file_unextractable"
+    assert err.value.metadata == {
+        "observed_source_sha256": extracted["file_sha256"]
+    }
+    assert not output.exists()
+    full = records.read_records(str(matter), max_records=10, include_payload=True)
+    error_record = next(
+        record
+        for record in full["records"]
+        if record["tool_name"] == "apply_edits"
+        and record["result"]["status"] == "error"
+    )
+    assert error_record["provenance"]["observed_source_sha256"] == extracted[
+        "file_sha256"
+    ]
+
+
+def test_duplicate_source_archive_members_are_rejected_before_rewrite(
+    tmp_path: Path,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-2-counterparty-redline.docx"
+    member_name = "duplicate-unused-member.bin"
+    first_content = b"FIRST-DUPLICATE-CONTENT"
+    second_content = b"SECOND-DUPLICATE-CONTENT"
+    with zipfile.ZipFile(source, "a", zipfile.ZIP_STORED) as archive:
+        archive.writestr(member_name, first_content)
+        with pytest.warns(UserWarning, match="Duplicate name"):
+            archive.writestr(member_name, second_content)
+
+    with zipfile.ZipFile(source, "r") as archive:
+        duplicates = [
+            info for info in archive.infolist() if info.filename == member_name
+        ]
+    assert len(duplicates) == 2
+    payload = bytearray(source.read_bytes())
+    first = duplicates[0]
+    name_length = int.from_bytes(
+        payload[first.header_offset + 26 : first.header_offset + 28],
+        "little",
+    )
+    extra_length = int.from_bytes(
+        payload[first.header_offset + 28 : first.header_offset + 30],
+        "little",
+    )
+    data_offset = first.header_offset + 30 + name_length + extra_length
+    payload[data_offset] ^= 0x01
+    source.write_bytes(payload)
+
+    with zipfile.ZipFile(source, "r") as archive:
+        duplicates = [
+            info for info in archive.infolist() if info.filename == member_name
+        ]
+        with pytest.raises(zipfile.BadZipFile, match="Bad CRC-32"):
+            archive.read(duplicates[0])
+        assert archive.read(duplicates[1]) == second_content
+
+    extracted, anchor = _cap_from_tool(source)
+    output = matter / "never.docx"
+    with pytest.raises(veqtor_docx.ApplyError) as err:
+        server.apply_edits(
+            str(source),
+            str(output),
+            [
+                {
+                    "anchor": anchor,
+                    "delete_text": "USD 50,000",
+                    "insert_text": "USD 250,000",
+                }
+            ],
+        )
+
+    assert err.value.code == "file_unextractable"
+    assert err.value.metadata == {
+        "observed_source_sha256": extracted["file_sha256"]
+    }
+    assert not output.exists()
+    full = records.read_records(str(matter), max_records=10, include_payload=True)
+    error_record = next(
+        record
+        for record in full["records"]
+        if record["tool_name"] == "apply_edits"
+        and record["result"]["status"] == "error"
+    )
+    assert error_record["provenance"]["observed_source_sha256"] == extracted[
+        "file_sha256"
+    ]
+
+
+def test_output_archive_write_failure_records_observed_source_sha(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-2-counterparty-redline.docx"
+    extracted, anchor = _cap_from_tool(source)
+    apply_module = importlib.import_module("veqtor_docx.apply")
+
+    def fail_writestr(*_args, **_kwargs):
+        raise OSError("simulated output archive write failure")
+
+    monkeypatch.setattr(apply_module.zipfile.ZipFile, "writestr", fail_writestr)
+    output = matter / "never.docx"
+    with pytest.raises(veqtor_docx.ApplyError) as err:
+        server.apply_edits(
+            str(source),
+            str(output),
+            [
+                {
+                    "anchor": anchor,
+                    "delete_text": "USD 50,000",
+                    "insert_text": "USD 250,000",
+                }
+            ],
+        )
+
+    assert err.value.code == "output_unwritable"
+    assert err.value.metadata == {
+        "observed_source_sha256": extracted["file_sha256"]
+    }
+    assert not output.exists()
+    assert not list(matter.glob("*.veqtor-tmp"))
+    full = records.read_records(str(matter), max_records=10, include_payload=True)
+    error_record = next(
+        record
+        for record in full["records"]
+        if record["tool_name"] == "apply_edits"
+        and record["result"]["status"] == "error"
+    )
+    assert error_record["provenance"]["observed_source_sha256"] == extracted[
+        "file_sha256"
+    ]
+    assert "edit_index" not in error_record["provenance"]
+
+
+def test_candidate_reextraction_failure_keeps_snapshot_shas_distinct(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-2-counterparty-redline.docx"
+    extracted, anchor = _cap_from_tool(source)
+    apply_module = importlib.import_module("veqtor_docx.apply")
+    original_write = apply_module._write_output_archive
+    candidate_sha: dict[str, str] = {}
+
+    def write_unextractable_candidate(tmp_path, infos, parts):
+        candidate_parts = dict(parts)
+        styles = candidate_parts["word/styles.xml"]
+        marker = b'w:outlineLvl w:val="1"'
+        assert marker in styles
+        candidate_parts["word/styles.xml"] = styles.replace(
+            marker,
+            b'w:outlineLvl w:val="not-a-number"',
+            1,
+        )
+        original_write(tmp_path, infos, candidate_parts)
+        candidate_sha["value"] = hashlib.sha256(
+            Path(tmp_path).read_bytes()
+        ).hexdigest()
+
+    monkeypatch.setattr(
+        apply_module,
+        "_write_output_archive",
+        write_unextractable_candidate,
+    )
+    output = matter / "never.docx"
+    with pytest.raises(veqtor_docx.DocxError) as err:
+        server.apply_edits(
+            str(source),
+            str(output),
+            [
+                {
+                    "anchor": anchor,
+                    "delete_text": "USD 50,000",
+                    "insert_text": "USD 250,000",
+                }
+            ],
+        )
+
+    assert candidate_sha["value"] != extracted["file_sha256"]
+    assert getattr(err.value, "metadata") == {
+        "observed_candidate_sha256": candidate_sha["value"],
+        "observed_source_sha256": extracted["file_sha256"],
+    }
+    assert not output.exists()
+    assert not list(matter.glob("*.veqtor-tmp"))
+
+    full = records.read_records(str(matter), max_records=10, include_payload=True)
+    error_record = next(
+        record
+        for record in full["records"]
+        if record["tool_name"] == "apply_edits"
+        and record["result"]["status"] == "error"
+    )
+    assert error_record["provenance"]["claimed_source_sha256"] == extracted[
+        "file_sha256"
+    ]
+    assert error_record["provenance"]["observed_source_sha256"] == extracted[
+        "file_sha256"
+    ]
+    assert error_record["provenance"]["observed_candidate_sha256"] == candidate_sha[
+        "value"
+    ]
+
+    compact = records.read_records(str(matter), max_records=10)
+    compact_error = next(
+        record
+        for record in compact["records"]
+        if record["tool_name"] == "apply_edits"
+        and record["result"]["status"] == "error"
+    )
+    assert compact_error["provenance"]["observed_source_sha256"] == extracted[
+        "file_sha256"
+    ]
+    assert compact_error["provenance"]["observed_candidate_sha256"] == candidate_sha[
+        "value"
+    ]
+
+
+def test_cleanup_failure_preserves_original_recorded_apply_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-2-counterparty-redline.docx"
+    extracted, anchor = _cap_from_tool(source)
+    apply_module = importlib.import_module("veqtor_docx.apply")
+    monkeypatch.setattr(
+        apply_module,
+        "_round_trip_verdict",
+        lambda *_args: veqtor_docx.ApplyError(
+            "round_trip_failed", "simulated operation-wide mismatch"
+        ),
+    )
+
+    def deny_cleanup(_path: str) -> None:
+        raise PermissionError("simulated cleanup refusal")
+
+    monkeypatch.setattr(apply_module.os, "remove", deny_cleanup)
+    output = matter / "never.docx"
+    with pytest.raises(veqtor_docx.ApplyError) as err:
+        server.apply_edits(
+            str(source),
+            str(output),
+            [
+                {
+                    "anchor": anchor,
+                    "delete_text": "USD 50,000",
+                    "insert_text": "USD 250,000",
+                }
+            ],
+        )
+
+    assert err.value.code == "round_trip_failed"
+    assert err.value.metadata == {
+        "observed_source_sha256": extracted["file_sha256"]
+    }
+    assert not output.exists()
+    assert len(list(matter.glob("*.veqtor-tmp"))) == 1
+    full = records.read_records(str(matter), max_records=10, include_payload=True)
+    error_record = next(
+        record
+        for record in full["records"]
+        if record["tool_name"] == "apply_edits"
+        and record["result"]["status"] == "error"
+    )
+    assert error_record["result"]["error_code"] == "round_trip_failed"
+    assert error_record["provenance"]["observed_source_sha256"] == extracted[
+        "file_sha256"
+    ]
+    assert "edit_index" not in error_record["provenance"]
+
+
+def test_destination_race_is_published_without_clobber(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-2-counterparty-redline.docx"
+    extracted, anchor = _cap_from_tool(source)
+    apply_module = importlib.import_module("veqtor_docx.apply")
+    real_replace = os.replace
+    real_link = os.link
+    sentinel = b"destination created by another process"
+
+    def restore_publish_functions() -> None:
+        monkeypatch.setattr(apply_module.os, "replace", real_replace)
+        monkeypatch.setattr(apply_module.os, "link", real_link)
+
+    def race_replace(source_path: str, destination_path: str) -> None:
+        restore_publish_functions()
+        Path(destination_path).write_bytes(sentinel)
+        real_replace(source_path, destination_path)
+
+    def race_link(source_path: str, destination_path: str) -> None:
+        restore_publish_functions()
+        Path(destination_path).write_bytes(sentinel)
+        real_link(source_path, destination_path)
+
+    monkeypatch.setattr(apply_module.os, "replace", race_replace)
+    monkeypatch.setattr(apply_module.os, "link", race_link)
+    output = matter / "raced-output.docx"
+    with pytest.raises(veqtor_docx.ApplyError) as err:
+        server.apply_edits(
+            str(source),
+            str(output),
+            [
+                {
+                    "anchor": anchor,
+                    "delete_text": "USD 50,000",
+                    "insert_text": "USD 250,000",
+                }
+            ],
+        )
+
+    assert err.value.code == "output_exists"
+    assert err.value.metadata == {
+        "observed_source_sha256": extracted["file_sha256"]
+    }
+    assert output.read_bytes() == sentinel
+    assert not list(matter.glob("*.veqtor-tmp"))
+
+    full = records.read_records(str(matter), max_records=10, include_payload=True)
+    error_record = next(
+        record
+        for record in full["records"]
+        if record["tool_name"] == "apply_edits"
+        and record["result"]["status"] == "error"
+    )
+    assert error_record["result"]["error_code"] == "output_exists"
+    assert error_record["provenance"]["observed_source_sha256"] == extracted[
+        "file_sha256"
+    ]
+    assert "edit_index" not in error_record["provenance"]
+
+
+@pytest.mark.parametrize("failure", ["hash_mismatch", "unknown_anchor"])
+def test_verify_failures_record_the_snapshot_that_rejected_the_claim(
+    tmp_path: Path,
+    failure: str,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-2-counterparty-redline.docx"
+    extracted, anchor = _cap_from_tool(source)
+    asserted = (
+        {**anchor, "file_sha256": "0" * 64}
+        if failure == "hash_mismatch"
+        else {**anchor, "change_unit_id": "cu_999"}
+    )
+
+    with pytest.raises(veqtor_docx.VerifyError) as err:
+        server.verify_quote(str(source), asserted, "USD 50,000")
+
+    assert err.value.metadata == {
+        "claimed_source_sha256": asserted["file_sha256"],
+        "observed_source_sha256": extracted["file_sha256"],
+    }
+    full = records.read_records(str(matter), max_records=10, include_payload=True)
+    error_record = next(
+        record
+        for record in full["records"]
+        if record["tool_name"] == "verify_quote" and record["result"]["status"] == "error"
+    )
+    assert error_record["provenance"]["claimed_source_sha256"] == asserted[
+        "file_sha256"
+    ]
+    assert error_record["provenance"]["observed_source_sha256"] == extracted[
+        "file_sha256"
+    ]
+    compact = records.read_records(str(matter), max_records=10)
+    compact_error = next(
+        record
+        for record in compact["records"]
+        if record["tool_name"] == "verify_quote" and record["result"]["status"] == "error"
+    )
+    assert compact_error["provenance"]["claimed_source_sha256"]["omitted"] is True
+    assert compact_error["provenance"]["observed_source_sha256"] == extracted[
+        "file_sha256"
+    ]
 
 
 def test_export_missing_journal_returns_empty_and_records_export(tmp_path: Path) -> None:
@@ -1015,6 +1816,39 @@ def test_export_excludes_access_events_and_supports_cursor(tmp_path: Path) -> No
     assert previous["next_before_record_id"] == "dr_002"
 
 
+@pytest.mark.parametrize(
+    "history_state",
+    ["missing_sidecar", "empty_journal", "substantive_history"],
+)
+def test_invalid_cursor_is_rejected_before_any_history_fast_path(
+    tmp_path: Path,
+    history_state: str,
+) -> None:
+    matter = tmp_path / "matter"
+    matter.mkdir()
+    journal = matter / records.SIDECAR_DIR / records.JOURNAL_NAME
+    if history_state == "empty_journal":
+        journal.parent.mkdir()
+        journal.write_bytes(b"")
+    elif history_state == "substantive_history":
+        assert records.write_record(
+            workspace=matter,
+            tool_name="list_rounds",
+            input_payload={"folder": str(matter)},
+            result={"status": "ok", "folder": str(matter), "rounds": [], "skipped": []},
+            provenance={"rounds": [], "skipped": []},
+        )["record_status"] == "written"
+    before_exists = journal.exists()
+    before_bytes = journal.read_bytes() if before_exists else None
+
+    with pytest.raises(records.DecisionRecordError) as err:
+        server.export_decision_record(str(matter), before_record_id="bad")
+
+    assert err.value.code == "invalid_before_record_id"
+    assert journal.exists() is before_exists
+    assert (journal.read_bytes() if journal.exists() else None) == before_bytes
+
+
 def test_default_export_is_compact_for_large_verbatim_input(tmp_path: Path) -> None:
     matter = _matter(tmp_path)
     source = matter / "round-2-counterparty-redline.docx"
@@ -1033,13 +1867,91 @@ def test_default_export_is_compact_for_large_verbatim_input(tmp_path: Path) -> N
     assert record["input"]["omitted"] is True
     assert "X" * 100 not in encoded.decode("utf-8")
 
-    full = server.export_decision_record(
-        str(matter),
-        max_records=1,
-        include_payload=True,
-    )
+    full = records.read_records(str(matter), max_records=1, include_payload=True)
     assert full["payloads"] == "full"
     assert full["records"][0]["input"]["quote"] == quote
+
+
+@pytest.mark.parametrize("invalid", [None, 0, 1, "false", "true", "yes"])
+def test_read_records_rejects_non_boolean_payload_mode(
+    tmp_path: Path,
+    invalid: object,
+) -> None:
+    matter = tmp_path / "matter"
+    matter.mkdir()
+
+    with pytest.raises(records.DecisionRecordError) as err:
+        records.read_records(str(matter), include_payload=invalid)  # type: ignore[arg-type]
+
+    assert err.value.code == "invalid_include_payload"
+
+
+def test_read_records_defaults_to_compact_but_full_history_remains_available(
+    tmp_path: Path,
+) -> None:
+    matter = tmp_path / "matter"
+    matter.mkdir()
+    sentinel = "PRIVATE_LOCAL_FULL_HISTORY_SENTINEL_47"
+    assert records.write_record(
+        workspace=matter,
+        tool_name="verify_quote",
+        input_payload={"quote": sentinel},
+        result={"status": "ok", "verdict": "not_found"},
+        provenance={},
+    )["record_status"] == "written"
+
+    compact = records.read_records(str(matter), max_records=1)
+    full = records.read_records(str(matter), max_records=1, include_payload=True)
+
+    assert compact["payloads"] == "compact"
+    assert sentinel not in json.dumps(compact)
+    assert full["payloads"] == "full"
+    assert full["records"][0]["input"]["quote"] == sentinel
+
+
+def test_historical_full_access_event_remains_readable_and_projectable(
+    tmp_path: Path,
+) -> None:
+    matter = tmp_path / "matter"
+    matter.mkdir()
+    assert records.write_record(
+        workspace=matter,
+        tool_name="export_decision_record",
+        input_payload={
+            "workspace": str(matter),
+            "max_records": 50,
+            "before_record_id": None,
+            "include_payload": True,
+        },
+        result={
+            "status": "ok",
+            "total_count": 1,
+            "access_count": 0,
+            "returned_count": 1,
+            "truncated": False,
+            "next_before_record_id": None,
+            "payloads": "full",
+        },
+        provenance={"workspace": str(matter)},
+    )["record_status"] == "written"
+
+    full = records.read_records(
+        str(matter),
+        max_records=1,
+        include_access_events=True,
+        include_payload=True,
+    )
+    compact = records.read_records(
+        str(matter),
+        max_records=1,
+        include_access_events=True,
+        include_payload=False,
+    )
+
+    assert full["records"][0]["input"]["include_payload"] is True
+    assert full["records"][0]["result"]["payloads"] == "full"
+    assert compact["records"][0]["result"]["payloads"] == "full"
+    assert compact["records"][0]["input"]["omitted"] is True
 
 
 def test_compact_export_omits_clause_and_change_text(tmp_path: Path) -> None:
@@ -1284,6 +2196,9 @@ def test_docx_producer_domains_are_shared_with_v1_projection() -> None:
     assert docx_contracts.MATCH_SIDES_V1 == {"old", "new"}
     assert docx_contracts.DOCUMENT_PART_V1 == "word/document.xml"
     assert docx_contracts.ROUND_TRIP_STATUSES_V1 == {"passed"}
+    assert docx_contracts.ROUND_TRIP_COMPARISON_CURRENT == (
+        "ooxml_semantic_diff_outside_touched_anchors"
+    )
     assert docx_contracts.ROUND_TRIP_COMPARISONS_V1 == {
         "exact",
         "ooxml_semantic_diff_outside_touched_anchors",
@@ -1299,6 +2214,187 @@ def test_every_extract_revision_category_is_projected(category: str) -> None:
     assert projected["count"] == 1
     assert projected["sample"] == [{"key": category, "value": 1}]
     assert projected["truncated"] is False
+
+
+@pytest.mark.parametrize(
+    "value",
+    [None, False, 7, 0.5, "PRIVATE_COLLECTION_SENTINEL", {"private": "SECRET"}],
+)
+def test_invalid_collection_values_are_explicitly_incomplete(value: object) -> None:
+    projected = records._bounded_collection(value, records._revision_id)
+
+    assert projected == {
+        "count": None,
+        "sha256": records._stable_digest(value),
+        "sample": [],
+        "truncated": True,
+    }
+
+
+@pytest.mark.parametrize(
+    "value",
+    [None, False, 7, 0.5, "PRIVATE_MAPPING_SENTINEL", ["SECRET"]],
+)
+def test_invalid_mapping_values_are_explicitly_incomplete(value: object) -> None:
+    projected = records._bounded_mapping(value)
+
+    assert projected == {
+        "count": None,
+        "sha256": records._stable_digest(value),
+        "sample": [],
+        "truncated": True,
+    }
+
+
+def test_only_real_empty_containers_project_as_complete_empty_snapshots() -> None:
+    empty_list = records._bounded_collection([], records._revision_id)
+    empty_mapping = records._bounded_mapping({})
+
+    assert empty_list == {
+        "count": 0,
+        "sha256": records._stable_digest([]),
+        "sample": [],
+        "truncated": False,
+    }
+    assert empty_mapping == {
+        "count": 0,
+        "sha256": records._stable_digest({}),
+        "sample": [],
+        "truncated": False,
+    }
+
+
+def test_invalid_snapshot_marker_is_idempotent() -> None:
+    marker = records._invalid_bounded_snapshot("PRIVATE_INVALID_MARKER")
+
+    assert records._validated_bounded_snapshot(marker, records._revision_id) == marker
+
+
+def test_filtered_collection_keeps_raw_count_digest_and_marks_incomplete() -> None:
+    raw = ["1", "PRIVATE_INVALID_REVISION_ID"]
+    projected = records._bounded_collection(raw, records._revision_id)
+
+    assert projected == {
+        "count": 2,
+        "sha256": records._stable_digest(raw),
+        "sample": ["1"],
+        "truncated": True,
+    }
+
+
+def test_result_collection_call_sites_preserve_invalid_value_digests() -> None:
+    sentinel = "PRIVATE_INVALID_RESULT_CONTAINER"
+    cases = [
+        (
+            "list_rounds",
+            {"status": "ok", "folder": "/matter", "rounds": sentinel, "skipped": []},
+            "rounds",
+        ),
+        (
+            "extract_redlines",
+            {"status": "ok", "unsupported_revisions": sentinel},
+            "unsupported_revisions",
+        ),
+        ("apply_edits", {"status": "ok", "applied": sentinel}, "applied"),
+        ("verify_quote", {"status": "ok", "matches": sentinel}, "matches"),
+    ]
+
+    for tool_name, result, field in cases:
+        projected = records._summary_result({"tool_name": tool_name, "result": result})
+        assert projected[field] == {
+            "count": None,
+            "sha256": records._stable_digest(sentinel),
+            "sample": [],
+            "truncated": True,
+        }
+
+
+def test_provenance_collection_call_sites_preserve_invalid_value_digests() -> None:
+    sentinel = "PRIVATE_INVALID_PROVENANCE_CONTAINER"
+    cases = [
+        (
+            {
+                "tool_name": "extract_redlines",
+                "result": {"status": "ok"},
+                "provenance": {"anchors": sentinel},
+            },
+            "anchors",
+        ),
+        (
+            {
+                "tool_name": "apply_edits",
+                "result": {"status": "ok"},
+                "provenance": {"applied": sentinel},
+            },
+            "applied",
+        ),
+        (
+            {
+                "tool_name": "list_rounds",
+                "result": {"status": "ok"},
+                "provenance": {"rounds": sentinel},
+            },
+            "rounds",
+        ),
+    ]
+
+    for record, field in cases:
+        projected = records._summary_provenance(record)
+        assert projected[field] == {
+            "count": None,
+            "sha256": records._stable_digest(sentinel),
+            "sample": [],
+            "truncated": True,
+        }
+
+
+def test_malformed_revision_ids_keep_the_original_digest_and_mark_parents() -> None:
+    malformed = {"private": "PRIVATE_REVISION_IDS_SENTINEL"}
+    matches = [
+        {
+            "part_name": "word/document.xml",
+            "revision_ids": malformed,
+            "side": "new",
+            "clause": None,
+        }
+    ]
+
+    projected = records._bounded_collection(matches, records._observed_match_summary)
+    nested = projected["sample"][0]["revision_ids"]
+
+    assert nested == {
+        "count": None,
+        "sha256": records._stable_digest(malformed),
+        "sample": [],
+        "truncated": True,
+    }
+    assert nested["sha256"] != records._stable_digest([])
+    assert projected["count"] == 1
+    assert projected["truncated"] is True
+    assert "PRIVATE_REVISION_IDS_SENTINEL" not in json.dumps(projected)
+
+
+def test_prebounded_parent_marks_canonical_nested_incompleteness() -> None:
+    nested = records._invalid_bounded_snapshot("PRIVATE_NESTED_INVALID")
+    parent = {
+        "count": 1,
+        "sha256": "a" * 64,
+        "sample": [
+            {
+                "change_unit_id": "cu_001",
+                "revision_ids": nested,
+            }
+        ],
+        "truncated": False,
+    }
+
+    projected = records._validated_bounded_snapshot(
+        parent, records._observed_anchor_summary
+    )
+
+    assert projected is not None
+    assert projected["sample"][0]["revision_ids"] == nested
+    assert projected["truncated"] is True
 
 
 def test_synthetic_extract_revision_categories_survive_compact_export(
@@ -1470,7 +2566,7 @@ def test_compact_export_reprojects_prebounded_anchor_snapshots(
         },
     ],
 )
-def test_compact_export_omits_invalid_prebounded_anchor_snapshots(
+def test_compact_export_marks_invalid_prebounded_anchor_snapshots_incomplete(
     snapshot: dict[str, object],
 ) -> None:
     projected = records._summary_provenance(
@@ -1481,7 +2577,12 @@ def test_compact_export_omits_invalid_prebounded_anchor_snapshots(
         }
     )
 
-    assert "anchors" not in projected
+    assert projected["anchors"] == {
+        "count": None,
+        "sha256": records._stable_digest(snapshot),
+        "sample": [],
+        "truncated": True,
+    }
 
 
 @pytest.mark.parametrize("extra_location", ["snapshot", "item", "nested"])
@@ -1593,7 +2694,7 @@ def test_malformed_provenance_skipped_is_safe_in_compact_export(
     )
     encoded = json.dumps(compact, ensure_ascii=False)
 
-    assert compact["records"][0]["provenance"]["skipped_count"] == 0
+    assert compact["records"][0]["provenance"]["skipped_count"] is None
     assert "PRIVATE_SKIPPED_SENTINEL" not in encoded
 
 
@@ -2323,8 +3424,32 @@ def test_v1_read_limits_are_not_narrowed() -> None:
     assert records.MAX_JOURNAL_NODES >= 100_000
     assert records.MAX_JSON_INTEGER_DIGITS >= 128
     assert records.MAX_COMPACT_ID_LENGTH >= 32
+    # This literal is the accepted canonical-json-v1 floor. The full tool
+    # outcome may be larger than a storable journal frame, so do not derive it
+    # from MAX_JOURNAL_NODES.
+    assert records.MAX_CANONICAL_JSON_NODES >= 1_000_000
     assert records.MAX_CANONICAL_JSON_NODES >= records.MAX_JOURNAL_NODES
     assert records.COMPACT_SAMPLE_LIMIT == 20
+
+
+def test_canonical_json_v1_accepts_frozen_million_node_floor() -> None:
+    # One list root plus 999,999 scalar children is exactly 1,000,000 nodes.
+    # Call without max_nodes so a narrowed function default cannot hide behind
+    # an unchanged MAX_CANONICAL_JSON_NODES constant.
+    item_count = 999_999
+    payload = [None] * item_count
+
+    encoded = records._canonical_json_bytes(payload)
+
+    assert len(encoded) == 5 * item_count + 1
+    assert encoded.startswith(b"[null,null")
+    assert encoded.endswith(b"null,null]")
+
+
+def test_v1_export_payload_registry_preserves_local_full_history_reads() -> None:
+    assert records.PAYLOAD_COMPACT == "compact"
+    assert records.PAYLOAD_FULL == "full"
+    assert records.V1_EXPORT_PAYLOADS == {"compact", "full"}
 
 
 @pytest.mark.parametrize(
@@ -2440,16 +3565,8 @@ def test_retired_tool_history_remains_readable_but_is_not_writable(
         "verdict": "exact",
         "exact": None,
         "checked_anchor": None,
-        "matches": {
-            "count": 0,
-            "sha256": (
-                "4f53cda18c2baa0c0354bb5f9a3ecbe5"
-                "ed12ab4d8e11ba873c2f11161202b945"
-            ),
-            "sample": [],
-            "truncated": False,
-        },
-        "diff_count": 0,
+        "matches": None,
+        "diff_count": None,
     }
     assert compact["records"][0]["provenance"] == {}
     assert full["payloads"] == "full"
@@ -2665,7 +3782,7 @@ def test_record_id_capacity_refuses_append_without_poisoning_journal(
     assert "record_invalid" in failed["record_error"]
     assert "invalid record_id" in failed["record_error"]
     assert journal.read_bytes() == before
-    loaded = records.read_records(str(matter), max_records=10)
+    loaded = records.read_records(str(matter), max_records=10, include_payload=True)
     assert loaded["records"][0]["record_id"] == maximum_id
 
 
@@ -2727,7 +3844,7 @@ def test_append_commits_the_exact_frame_validated_after_snapshot(
     assert len(validated_frames) == 2
     journal = matter / records.SIDECAR_DIR / records.JOURNAL_NAME
     assert journal.read_bytes() == validated_frames[-1] + b"\n"
-    loaded = records.read_records(str(matter), max_records=10)
+    loaded = records.read_records(str(matter), max_records=10, include_payload=True)
     stored = loaded["records"][0]
     assert stored["result"]["value"] == "before"
     assert stored["result_sha256"] == records._stable_digest(stored["result"])
@@ -3154,7 +4271,9 @@ def test_concurrent_appends_are_locked_and_ids_are_unique(tmp_path: Path) -> Non
         )
 
     assert all(meta["record_status"] == "written" for meta in metas)
-    exported = records.read_records(str(workspace), max_records=20)
+    exported = records.read_records(
+        str(workspace), max_records=20, include_payload=True
+    )
     assert exported["total_count"] == 12
     assert [record["record_id"] for record in exported["records"]] == [
         f"dr_{index:03d}" for index in range(1, 13)

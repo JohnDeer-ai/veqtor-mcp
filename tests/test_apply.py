@@ -8,9 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from veqtor_docx import ApplyError, apply_edits, extract_redlines
+from veqtor_docx import ApplyError, DocxError, apply_edits, extract_redlines
 from veqtor_docx._ooxml import parse_xml, w
 from veqtor_docx.apply import DEFAULT_AUTHOR, _collateral_outside
+from veqtor_docx.contracts import ROUND_TRIP_COMPARISON_CURRENT
 
 TAIL_OLD = " in respect of all claims in aggregate."
 TAIL_NEW = " in respect of all claims arising in any Contract Year."
@@ -44,6 +45,8 @@ def test_replace_at_anchor_with_round_trip(round2: Path, tmp_path: Path) -> None
     assert result["output_sha256"] == hashlib.sha256(out.read_bytes()).hexdigest()
     assert result["round_trip_check"]["status"] == "passed"
     assert result["round_trip_check"]["collateral_changes"] == []
+    assert result["round_trip_check"]["comparison"] == ROUND_TRIP_COMPARISON_CURRENT
+    assert not list(tmp_path.glob("*.veqtor-tmp"))
     assert round2.read_bytes() == source_bytes  # source untouched
 
     before = extract_redlines(str(round2))
@@ -195,7 +198,60 @@ def test_refuses_to_overwrite_output(round2: Path, tmp_path: Path) -> None:
     with pytest.raises(ApplyError) as err:
         apply_edits(str(round2), str(out), [_edit(_cap_anchor(round2))])
     assert err.value.code == "output_exists"
+    assert err.value.metadata == {}
     assert out.read_bytes() == b"do not clobber me"
+
+
+def test_atomic_publish_io_failure_is_stable_and_cleans_tmp(
+    round2: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    apply_module = importlib.import_module("veqtor_docx.apply")
+
+    def fail_link(_source: str, _destination: str) -> None:
+        raise PermissionError("simulated atomic publish refusal")
+
+    monkeypatch.setattr(apply_module.os, "link", fail_link)
+    output = tmp_path / "never.docx"
+    observed = hashlib.sha256(round2.read_bytes()).hexdigest()
+    with pytest.raises(ApplyError) as err:
+        apply_edits(str(round2), str(output), [_edit(_cap_anchor(round2))])
+
+    assert err.value.code == "output_unwritable"
+    assert err.value.metadata == {"observed_source_sha256": observed}
+    assert not output.exists()
+    assert not list(tmp_path.glob("*.veqtor-tmp"))
+
+
+def test_successful_publish_cleanup_refusal_keeps_valid_output_and_temp_link(
+    round2: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    apply_module = importlib.import_module("veqtor_docx.apply")
+    cleanup_calls: list[Path] = []
+
+    def deny_cleanup(path: str) -> None:
+        cleanup_calls.append(Path(path))
+        raise PermissionError("simulated post-publish cleanup refusal")
+
+    monkeypatch.setattr(apply_module.os, "remove", deny_cleanup)
+    output = tmp_path / "published.docx"
+
+    result = apply_edits(str(round2), str(output), [_edit(_cap_anchor(round2))])
+
+    assert result["status"] == "ok"
+    assert result["output_sha256"] == hashlib.sha256(output.read_bytes()).hexdigest()
+    temp_files = list(tmp_path.glob("*.veqtor-tmp"))
+    assert len(temp_files) == 1
+    assert cleanup_calls == temp_files
+    output_stat = output.stat()
+    temp_stat = temp_files[0].stat()
+    assert output_stat.st_ino == temp_stat.st_ino
+    assert output_stat.st_nlink == 2
+    assert temp_stat.st_nlink == 2
+    assert extract_redlines(str(output))["file_sha256"] == result["output_sha256"]
 
 
 def test_counter_and_reinstate_in_one_call(demo_dir: Path, tmp_path: Path) -> None:
@@ -696,5 +752,61 @@ def test_output_hash_failure_is_stable_and_cleans_tmp(
         apply_edits(str(round2), str(out), [_edit(_cap_anchor(round2))])
 
     assert err.value.code == "output_unreadable"
+    assert err.value.metadata == {
+        "observed_source_sha256": hashlib.sha256(round2.read_bytes()).hexdigest()
+    }
     assert not out.exists()
     assert not list(tmp_path.glob("*.veqtor-tmp"))
+
+
+def test_source_parse_failure_after_snapshot_carries_observed_sha(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "bogus.docx"
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("[Content_Types].xml", "<Types/>")
+    observed = hashlib.sha256(source.read_bytes()).hexdigest()
+    output = tmp_path / "never.docx"
+
+    with pytest.raises(DocxError) as err:
+        apply_edits(
+            str(source),
+            str(output),
+            [
+                {
+                    "anchor": {
+                        "change_unit_id": "cu_001",
+                        "file_sha256": observed,
+                    },
+                    "delete_text": "anything",
+                    "insert_text": "replacement",
+                }
+            ],
+        )
+
+    assert getattr(err.value, "metadata") == {
+        "observed_source_sha256": observed
+    }
+    assert not output.exists()
+
+
+def test_temp_creation_failure_after_snapshot_carries_observed_sha(
+    round2: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    apply_module = importlib.import_module("veqtor_docx.apply")
+
+    def fail_mkstemp(**_kwargs):
+        raise OSError("simulated mkstemp failure")
+
+    monkeypatch.setattr(apply_module.tempfile, "mkstemp", fail_mkstemp)
+    output = tmp_path / "never.docx"
+    observed = hashlib.sha256(round2.read_bytes()).hexdigest()
+
+    with pytest.raises(ApplyError) as err:
+        apply_edits(str(round2), str(output), [_edit(_cap_anchor(round2))])
+
+    assert err.value.code == "output_unwritable"
+    assert err.value.metadata == {"observed_source_sha256": observed}
+    assert not output.exists()
