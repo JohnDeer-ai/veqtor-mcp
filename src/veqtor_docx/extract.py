@@ -33,6 +33,10 @@ from ._ooxml import (
     run_text,
     w,
 )
+from .contracts import (
+    STRUCTURAL_REVISION_PARENT_NAMES_V1,
+    TEXT_REVISION_SUFFIX_BY_NAME_V1,
+)
 
 _MANUAL_NUMBER_RE = re.compile(r"^\s*(\d+(?:\.\d+)*[A-Za-z]?|\([a-z]\)|[A-Z]\.)[.\s]\s*")
 
@@ -555,11 +559,13 @@ def _extract_from_bytes(payload: bytes, path: str) -> dict:
             if parent is None:
                 continue
             parent_name = etree.QName(parent.tag).localname
-            suffix = "Ins" if el.tag == w("ins") else "Del"
+            suffix = TEXT_REVISION_SUFFIX_BY_NAME_V1[
+                etree.QName(el.tag).localname
+            ]
             grand = parent.getparent()
             if parent_name == "rPr" and grand is not None and grand.tag == w("pPr"):
                 bump(f"paragraphMark{suffix}")
-            elif parent_name in ("trPr", "tcPr", "tblPr", "sectPr"):
+            elif parent_name in STRUCTURAL_REVISION_PARENT_NAMES_V1:
                 bump(f"{parent_name}{suffix}")
 
     return {

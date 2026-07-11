@@ -1,18 +1,221 @@
 # SPDX-License-Identifier: Apache-2.0
 """Veqtor MCP server: deterministic DOCX facts for MCP-compatible clients.
 
-M1 exposes the read path — ``list_rounds`` and ``extract_redlines``. The
-tools return document facts with verifiable references (file hash, OOXML
-part, revision ids); legal interpretation stays with the calling model.
+The tools read redlines, verify quotes, apply tracked counter-edits and record
+local provenance. Legal interpretation stays with the calling model.
 """
 
 from __future__ import annotations
 
+from typing import Any
+
 from mcp.server.fastmcp import FastMCP
 
 import veqtor_docx
+from veqtor_mcp import records
 
 mcp = FastMCP("veqtor")
+
+
+def _ok_result(result: dict[str, Any]) -> dict[str, Any]:
+    return (
+        result
+        if "status" in result
+        else {"status": records.RESULT_STATUS_OK, **result}
+    )
+
+
+def _error_result(exc: veqtor_docx.DocxError) -> dict[str, Any]:
+    return {
+        "status": records.RESULT_STATUS_ERROR,
+        "error_code": getattr(exc, "code", "docx_error"),
+        "error": str(exc),
+    }
+
+
+def _with_record(
+    *,
+    tool_name: str,
+    workspace,
+    input_payload: dict[str, Any],
+    result: dict[str, Any],
+    provenance: dict[str, Any],
+    record_result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    meta = records.write_record(
+        workspace=workspace,
+        tool_name=tool_name,
+        input_payload=input_payload,
+        result=_ok_result(result) if record_result is None else record_result,
+        tool_result=_ok_result(result),
+        provenance=provenance,
+    )
+    return {**result, **meta}
+
+
+def _record_error(
+    *,
+    tool_name: str,
+    workspace,
+    input_payload: dict[str, Any],
+    exc: veqtor_docx.DocxError,
+    provenance: dict[str, Any] | None = None,
+) -> None:
+    records.write_record(
+        workspace=workspace,
+        tool_name=tool_name,
+        input_payload=input_payload,
+        result=_error_result(exc),
+        tool_result=_error_result(exc),
+        provenance=provenance or {},
+    )
+
+
+def _anchor_from_verify(anchor: dict) -> dict[str, Any]:
+    return {
+        key: anchor[key]
+        for key in ("change_unit_id", "file_sha256")
+        if key in anchor
+    }
+
+
+def _anchors_from_edits(edits: list[dict]) -> list[dict[str, Any]]:
+    anchors: list[dict[str, Any]] = []
+    for edit in edits:
+        if isinstance(edit, dict) and isinstance(edit.get("anchor"), dict):
+            anchors.append(_anchor_from_verify(edit["anchor"]))
+    return anchors
+
+
+def _record_edits(edits: Any) -> Any:
+    if not isinstance(edits, list):
+        return edits
+    recorded: list[Any] = []
+    for edit in edits:
+        if not isinstance(edit, dict):
+            recorded.append(edit)
+            continue
+        item = dict(edit)
+        if isinstance(item.get("anchor"), dict):
+            item["anchor"] = _anchor_from_verify(item["anchor"])
+        recorded.append(item)
+    return recorded
+
+
+def _claimed_source_sha_from_edits(edits: list[dict]) -> str | None:
+    for edit in edits:
+        if isinstance(edit, dict) and isinstance(edit.get("anchor"), dict):
+            value = edit["anchor"].get("file_sha256")
+            if isinstance(value, str):
+                return value
+    return None
+
+
+def _list_rounds_provenance(result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "folder": result["folder"],
+        "rounds": [
+            {
+                "path": item["path"],
+                "sha256": item["sha256"],
+                "revision_count": item["revision_count"],
+            }
+            for item in result["rounds"]
+        ],
+        "skipped": result["skipped"],
+    }
+
+
+def _extract_provenance(result: dict[str, Any]) -> dict[str, Any]:
+    anchors = [
+        {
+            "change_unit_id": unit["change_unit_id"],
+            "file_sha256": unit["file_sha256"],
+            "revision_ids": unit["reference"]["revision_ids"],
+            "clause_anchor": unit["clause_anchor"],
+        }
+        for unit in result["change_units"]
+    ]
+    return {
+        "path": result["path"],
+        "file_sha256": result["file_sha256"],
+        "part_name": result["part_name"],
+        "anchors": records.bounded_observed_anchors(anchors),
+    }
+
+
+def _extract_record_result(result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "status": records.RESULT_STATUS_OK,
+        "path": result["path"],
+        "file_sha256": result["file_sha256"],
+        "part_name": result["part_name"],
+        "revision_count": result["revision_count"],
+        "change_unit_count": len(result["change_units"]),
+        "unsupported_revisions": result["unsupported_revisions"],
+    }
+
+
+def _verify_provenance(result: dict[str, Any], anchor: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "file_sha256": result["checked_anchor"]["file_sha256"],
+        "checked_anchor": result["checked_anchor"],
+        "input_anchor": _anchor_from_verify(anchor),
+        "anchors": [
+            {
+                "change_unit_id": result["checked_anchor"]["change_unit_id"],
+                "revision_ids": match["revision_ids"],
+                "side": match["side"],
+            }
+            for match in result["matches"]
+        ],
+        "verdict": result["verdict"],
+    }
+
+
+def _apply_provenance(
+    result: dict[str, Any], source_path: str, edits: list[dict]
+) -> dict[str, Any]:
+    source_sha = _claimed_source_sha_from_edits(edits)
+    return {
+        "source_path": source_path,
+        "source_sha256": source_sha,
+        "output_path": result["output_path"],
+        "output_sha256": result["output_sha256"],
+        "anchors": _anchors_from_edits(edits),
+        "applied": [
+            {
+                "change_unit_id": item["change_unit_id"],
+                "tracked_revision_ids": item["tracked_revision_ids"],
+            }
+            for item in result["applied"]
+        ],
+        "round_trip_check": result["round_trip_check"],
+    }
+
+
+def _apply_error_provenance(
+    source_path: str,
+    output_path: str,
+    edits: list[dict],
+    exc: veqtor_docx.DocxError,
+) -> dict[str, Any]:
+    metadata = getattr(exc, "metadata", {})
+    claimed = (
+        metadata.get("claimed_source_sha256")
+        if isinstance(metadata, dict) and "claimed_source_sha256" in metadata
+        else _claimed_source_sha_from_edits(edits)
+    )
+    return {
+        "source_path": source_path,
+        "output_path": output_path,
+        "claimed_source_sha256": claimed,
+        "observed_source_sha256": metadata.get("observed_source_sha256")
+        if isinstance(metadata, dict)
+        else None,
+        "edit_index": metadata.get("edit_index") if isinstance(metadata, dict) else None,
+        "anchors": _anchors_from_edits(edits) if isinstance(edits, list) else [],
+    }
 
 
 @mcp.tool()
@@ -24,7 +227,15 @@ def list_rounds(folder: str) -> dict:
     filename; each entry carries the file's sha256 and the raw count of
     tracked revisions inside. Unreadable files are reported in ``skipped``.
     """
-    return veqtor_docx.list_rounds(folder)
+    workspace = records.workspace_for_folder(folder)
+    result = veqtor_docx.list_rounds(folder)
+    return _with_record(
+        tool_name="list_rounds",
+        workspace=workspace,
+        input_payload={"folder": folder},
+        result=result,
+        provenance=_list_rounds_provenance(result),
+    )
 
 
 @mcp.tool()
@@ -39,7 +250,27 @@ def extract_redlines(path: str) -> dict:
     the tool does not decode (formatting, moves) are counted in
     ``unsupported_revisions`` rather than silently dropped.
     """
-    return veqtor_docx.extract_redlines(path)
+    workspace = records.workspace_for_file(path)
+    input_payload = {"path": path}
+    try:
+        result = veqtor_docx.extract_redlines(path)
+    except veqtor_docx.DocxError as exc:
+        _record_error(
+            tool_name="extract_redlines",
+            workspace=workspace,
+            input_payload=input_payload,
+            exc=exc,
+            provenance={"path": path},
+        )
+        raise
+    return _with_record(
+        tool_name="extract_redlines",
+        workspace=workspace,
+        input_payload=input_payload,
+        result=result,
+        provenance=_extract_provenance(result),
+        record_result=_extract_record_result(result),
+    )
 
 
 @mcp.tool()
@@ -62,7 +293,41 @@ def apply_edits(source_path: str, output_path: str, edits: list[dict]) -> dict:
     change units plus the proposed edits, no collateral changes outside the
     touched clauses. The source file is never modified.
     """
-    return veqtor_docx.apply_edits(source_path, output_path, edits)
+    workspace = records.workspace_for_file(source_path)
+    input_payload = {
+        "source_path": source_path,
+        "output_path": output_path,
+        "edits": _record_edits(edits),
+    }
+    try:
+        result = veqtor_docx.apply_edits(source_path, output_path, edits)
+    except veqtor_docx.DocxError as exc:
+        error_provenance = (
+            _apply_error_provenance(source_path, output_path, edits, exc)
+            if isinstance(edits, list)
+            else {
+                "source_path": source_path,
+                "output_path": output_path,
+                "claimed_source_sha256": None,
+                "observed_source_sha256": None,
+                "anchors": [],
+            }
+        )
+        _record_error(
+            tool_name="apply_edits",
+            workspace=workspace,
+            input_payload=input_payload,
+            exc=exc,
+            provenance=error_provenance,
+        )
+        raise
+    return _with_record(
+        tool_name="apply_edits",
+        workspace=workspace,
+        input_payload=input_payload,
+        result=result,
+        provenance=_apply_provenance(result, source_path, edits),
+    )
 
 
 @mcp.tool()
@@ -77,7 +342,82 @@ def verify_quote(path: str, anchor: dict, quote: str) -> dict:
     Matching is case-sensitive and deterministic; a hash mismatch or unknown
     anchor is an error, never a guess.
     """
-    return veqtor_docx.verify_quote(path, anchor, quote)
+    workspace = records.workspace_for_file(path)
+    input_payload = {
+        "path": path,
+        "anchor": _anchor_from_verify(anchor) if isinstance(anchor, dict) else anchor,
+        "quote": quote,
+    }
+    try:
+        result = veqtor_docx.verify_quote(path, anchor, quote)
+    except veqtor_docx.DocxError as exc:
+        _record_error(
+            tool_name="verify_quote",
+            workspace=workspace,
+            input_payload=input_payload,
+            exc=exc,
+            provenance={
+                "path": path,
+                "input_anchor": _anchor_from_verify(anchor)
+                if isinstance(anchor, dict)
+                else {},
+            },
+        )
+        raise
+    return _with_record(
+        tool_name="verify_quote",
+        workspace=workspace,
+        input_payload=input_payload,
+        result=result,
+        provenance=_verify_provenance(result, anchor),
+    )
+
+
+@mcp.tool()
+def export_decision_record(
+    workspace: str,
+    max_records: int | None = None,
+    before_record_id: str | None = None,
+    include_payload: bool = False,
+) -> dict:
+    """Return local decision-record entries for a matter workspace.
+
+    Call this when the user asks what toolchain actions were performed or
+    what proves them. v1 returns chronological JSON records from the local
+    sidecar journal, capped to the newest records by default to keep private
+    matter text out of the model context unless needed.
+    """
+    root = records.workspace_for_folder(workspace)
+    input_payload = {
+        "workspace": workspace,
+        "max_records": max_records,
+        "before_record_id": before_record_id,
+        "include_payload": include_payload,
+    }
+    result = records.read_records(
+        workspace,
+        max_records,
+        before_record_id,
+        include_payload=include_payload,
+    )
+    export_summary = {
+        "status": records.RESULT_STATUS_OK,
+        "workspace": result["workspace"],
+        "total_count": result["total_count"],
+        "access_count": result["access_count"],
+        "returned_count": len(result["records"]),
+        "truncated": result["truncated"],
+        "next_before_record_id": result["next_before_record_id"],
+        "payloads": result["payloads"],
+    }
+    meta = records.write_record(
+        workspace=root,
+        tool_name="export_decision_record",
+        input_payload=input_payload,
+        result=export_summary,
+        provenance={"workspace": result["workspace"]},
+    )
+    return {**result, **meta}
 
 
 def main() -> None:

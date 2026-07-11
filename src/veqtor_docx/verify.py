@@ -27,6 +27,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .contracts import (
+    MATCH_SIDE_NEW,
+    MATCH_SIDE_OLD,
+    VERIFY_VERDICT_EXACT,
+    VERIFY_VERDICT_NORMALIZED,
+    VERIFY_VERDICT_NOT_FOUND,
+)
 from .extract import DocxError, extract_redlines
 
 # The drift a faithful quotation picks up between Word, chat and e-mail:
@@ -112,7 +119,10 @@ def verify_quote(path: str, anchor: dict, quote: str) -> dict:
 
     checked_anchor = {"change_unit_id": unit_id, "file_sha256": actual_sha}
     # Deterministic preference: the new reading first, then the prior one.
-    sides = [("new", unit["new_text"]), ("old", unit["old_text"])]
+    sides = [
+        (MATCH_SIDE_NEW, unit["new_text"]),
+        (MATCH_SIDE_OLD, unit["old_text"]),
+    ]
 
     def match(side: str) -> dict:
         return {
@@ -126,7 +136,7 @@ def verify_quote(path: str, anchor: dict, quote: str) -> dict:
     for side, text in sides:
         if text and quote in text:
             return {
-                "verdict": "exact",
+                "verdict": VERIFY_VERDICT_EXACT,
                 "exact": True,
                 "checked_anchor": checked_anchor,
                 "matches": [match(side)],
@@ -137,7 +147,7 @@ def verify_quote(path: str, anchor: dict, quote: str) -> dict:
     for side, text in sides:
         if text and normalized_quote and normalized_quote in _normalize(text):
             return {
-                "verdict": "normalized",
+                "verdict": VERIFY_VERDICT_NORMALIZED,
                 "exact": False,
                 "checked_anchor": checked_anchor,
                 "matches": [match(side)],
@@ -148,7 +158,7 @@ def verify_quote(path: str, anchor: dict, quote: str) -> dict:
             }
 
     return {
-        "verdict": "not_found",
+        "verdict": VERIFY_VERDICT_NOT_FOUND,
         "exact": False,
         "checked_anchor": checked_anchor,
         "matches": [],

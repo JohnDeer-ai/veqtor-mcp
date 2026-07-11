@@ -59,10 +59,26 @@ from pathlib import Path
 
 from lxml import etree
 
-from ._ooxml import DOCUMENT_PART, MOVE_REVISION_TAGS, TEXT_REVISION_TAGS, parse_xml, w
+from ._ooxml import (
+    DOCUMENT_PART,
+    MOVE_REVISION_TAGS,
+    TEXT_REVISION_TAGS,
+    parse_xml,
+    w,
+)
+from .contracts import (
+    APPLY_OPERATION_COUNTER,
+    APPLY_OPERATION_DELETE,
+    APPLY_OPERATION_REINSTATE,
+    APPLY_OPERATION_REPLACE,
+    RESULT_STATUS_OK,
+    ROUND_TRIP_COMPARISON_CURRENT,
+    ROUND_TRIP_STATUS_PASSED,
+)
 from .extract import DocxError, _extract_from_bytes, extract_redlines
 
 DEFAULT_AUTHOR = "Veqtor MCP"
+_PLAN_OPERATION_PLAIN = "plain"
 
 _XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 # Non-visible elements allowed to sit between covered runs during surgery.
@@ -72,9 +88,10 @@ _INERT_TAGS = frozenset({w("bookmarkStart"), w("bookmarkEnd"), w("proofErr")})
 class ApplyError(DocxError):
     """A fail-closed refusal: the message starts with a stable error code."""
 
-    def __init__(self, code: str, detail: str) -> None:
+    def __init__(self, code: str, detail: str, **metadata: object) -> None:
         super().__init__(f"{code}: {detail}")
         self.code = code
+        self.metadata = metadata
 
 
 # ---------------------------------------------------------------------------
@@ -239,8 +256,10 @@ def _next_non_inert(element: etree._Element) -> etree._Element | None:
 @dataclass
 class _PlannedEdit:
     anchor_id: str
+    edit_index: int
+    claimed_source_sha256: str
     paragraph: etree._Element
-    op: str  # "plain" | "counter" | "reinstate"
+    op: str  # _PLAN_OPERATION_PLAIN | counter | reinstate
     delete_text: str | None
     insert_text: str
     span: tuple[int, int]  # reading offsets; reinstate uses a zero-width point
@@ -249,7 +268,64 @@ class _PlannedEdit:
     ins_id: str | None
 
 
-def _validate_edit_shapes(edits: list) -> None:
+def _claimed_source_sha_from_edit(edit: object) -> str | None:
+    if isinstance(edit, dict) and isinstance(edit.get("anchor"), dict):
+        value = edit["anchor"].get("file_sha256")
+        if isinstance(value, str):
+            return value
+    return None
+
+
+def _edit_error_metadata(
+    edit: object,
+    edit_index: int,
+    observed_source_sha256: str | None,
+) -> dict[str, object]:
+    return {
+        "claimed_source_sha256": _claimed_source_sha_from_edit(edit),
+        "observed_source_sha256": observed_source_sha256,
+        "edit_index": edit_index,
+    }
+
+
+def _attach_edit_metadata(
+    exc: ApplyError,
+    edit: object,
+    edit_index: int,
+    observed_source_sha256: str,
+) -> ApplyError:
+    for key, value in _edit_error_metadata(
+        edit, edit_index, observed_source_sha256
+    ).items():
+        exc.metadata.setdefault(key, value)
+    return exc
+
+
+def _plan_error_metadata(
+    plan: _PlannedEdit,
+    observed_source_sha256: str,
+) -> dict[str, object]:
+    return {
+        "claimed_source_sha256": plan.claimed_source_sha256,
+        "observed_source_sha256": observed_source_sha256,
+        "edit_index": plan.edit_index,
+    }
+
+
+def _attach_plan_metadata(
+    exc: ApplyError,
+    plan: _PlannedEdit,
+    observed_source_sha256: str,
+) -> ApplyError:
+    for key, value in _plan_error_metadata(plan, observed_source_sha256).items():
+        exc.metadata.setdefault(key, value)
+    return exc
+
+
+def _validate_edit_shapes(
+    edits: list,
+    observed_source_sha256: str | None = None,
+) -> None:
     """Reject malformed input with stable error codes before any work.
 
     MCP clients send loosely typed JSON; none of it may reach the OOXML layer
@@ -257,11 +333,17 @@ def _validate_edit_shapes(edits: list) -> None:
     """
     for index, edit in enumerate(edits):
         if not isinstance(edit, dict):
-            raise ApplyError("invalid_edit", f"edits[{index}] must be an object")
+            raise ApplyError(
+                "invalid_edit",
+                f"edits[{index}] must be an object",
+                **_edit_error_metadata(edit, index, observed_source_sha256),
+            )
         anchor = edit.get("anchor")
         if not isinstance(anchor, dict):
             raise ApplyError(
-                "anchor_missing", f"edits[{index}].anchor must be an object"
+                "anchor_missing",
+                f"edits[{index}].anchor must be an object",
+                **_edit_error_metadata(edit, index, observed_source_sha256),
             )
         for key in ("change_unit_id", "file_sha256"):
             value = anchor.get(key)
@@ -269,6 +351,7 @@ def _validate_edit_shapes(edits: list) -> None:
                 raise ApplyError(
                     "anchor_missing",
                     f"edits[{index}].anchor.{key} must be a non-empty string",
+                    **_edit_error_metadata(edit, index, observed_source_sha256),
                 )
         delete_text = edit.get("delete_text")
         reinstate_text = edit.get("reinstate_text")
@@ -276,29 +359,35 @@ def _validate_edit_shapes(edits: list) -> None:
             raise ApplyError(
                 "invalid_edit",
                 f"edits[{index}] must use either delete_text or reinstate_text, not both",
+                **_edit_error_metadata(edit, index, observed_source_sha256),
             )
         if reinstate_text is not None:
             if not isinstance(reinstate_text, str) or not reinstate_text:
                 raise ApplyError(
                     "invalid_edit",
                     f"edits[{index}].reinstate_text must be a non-empty string",
+                    **_edit_error_metadata(edit, index, observed_source_sha256),
                 )
             if edit.get("insert_text"):
                 raise ApplyError(
                     "invalid_edit",
                     f"edits[{index}]: reinstate_text re-adds the deleted text "
                     "verbatim and does not combine with insert_text",
+                    **_edit_error_metadata(edit, index, observed_source_sha256),
                 )
         else:
             if not isinstance(delete_text, str) or not delete_text:
                 raise ApplyError(
                     "delete_text_missing",
                     f"edits[{index}].delete_text must be a non-empty string",
+                    **_edit_error_metadata(edit, index, observed_source_sha256),
                 )
             insert_text = edit.get("insert_text", "")
             if insert_text is not None and not isinstance(insert_text, str):
                 raise ApplyError(
-                    "invalid_edit", f"edits[{index}].insert_text must be a string"
+                    "invalid_edit",
+                    f"edits[{index}].insert_text must be a string",
+                    **_edit_error_metadata(edit, index, observed_source_sha256),
                 )
 
 
@@ -341,7 +430,7 @@ def _match_delete_span(
 
     touched = [s for s in segments if s.start < span[1] and s.end > span[0]]
     if all(s.plain for s in touched):
-        return "plain", span, None
+        return _PLAN_OPERATION_PLAIN, span, None
 
     containers = {s.container for s in touched}
     if len(containers) == 1:
@@ -359,7 +448,7 @@ def _match_delete_span(
                     "the matched span lies in your own pending insertion; "
                     "counter edits target the counterparty's proposals",
                 )
-            return "counter", span, container
+            return APPLY_OPERATION_COUNTER, span, container
     raise ApplyError(
         "overlaps_tracked_changes",
         "the matched span mixes plain text and tracked changes, or sits in "
@@ -513,11 +602,11 @@ def _wrap_covered_runs(
 
 
 def _apply_plan(plan: _PlannedEdit, author: str) -> None:
-    if plan.op == "plain":
+    if plan.op == _PLAN_OPERATION_PLAIN:
         deletion = _wrap_covered_runs(plan.paragraph, plan, author)
         if plan.ins_id is not None:
             deletion.addnext(_new_insertion(plan.ins_id, author, plan.insert_text))
-    elif plan.op == "counter":
+    elif plan.op == APPLY_OPERATION_COUNTER:
         _wrap_covered_runs(plan.container, plan, author)
         if plan.ins_id is not None:
             # The replacement goes after THEIR insertion, as Word does: their
@@ -616,13 +705,15 @@ def _round_trip_verdict(
 
 
 def _expected_unit(plan: _PlannedEdit, author: str) -> tuple:
-    if plan.op == "reinstate":
+    if plan.op == APPLY_OPERATION_REINSTATE:
         return ("insert", author, None, None, plan.insert_text, (plan.ins_id,))
     revision_ids = [plan.del_id] + ([plan.ins_id] if plan.ins_id else [])
-    if plan.op == "counter":
-        change_type = "counter"
+    if plan.op == APPLY_OPERATION_COUNTER:
+        change_type = APPLY_OPERATION_COUNTER
     else:
-        change_type = "replace" if plan.ins_id else "delete"
+        change_type = (
+            APPLY_OPERATION_REPLACE if plan.ins_id else APPLY_OPERATION_DELETE
+        )
     return (
         change_type,
         author,
@@ -653,7 +744,6 @@ def apply_edits(
         raise ApplyError("invalid_edit", "edits must be an array of edit objects")
     if not edits:
         raise ApplyError("no_edits", "edits list is empty")
-    _validate_edit_shapes(edits)
     if os.path.exists(output):
         raise ApplyError("output_exists", f"refusing to overwrite {output}")
 
@@ -665,6 +755,7 @@ def apply_edits(
     except OSError as exc:
         raise ApplyError("file_unreadable", f"cannot read {source}: {exc}") from exc
     source_sha = hashlib.sha256(source_payload).hexdigest()
+    _validate_edit_shapes(edits, observed_source_sha256=source_sha)
     baseline = _extract_from_bytes(source_payload, source)
     units_by_id = {u["change_unit_id"]: u for u in baseline["change_units"]}
 
@@ -680,49 +771,64 @@ def apply_edits(
 
     next_id = _next_revision_id(document)
     planned: list[_PlannedEdit] = []
-    for edit in edits:
-        anchor = edit["anchor"]
-        if anchor["file_sha256"] != source_sha:
-            raise ApplyError(
-                "file_sha256_mismatch",
-                "anchor was produced from a different file than source_path",
-            )
-        unit = units_by_id.get(anchor["change_unit_id"])
-        if unit is None:
-            raise ApplyError(
-                "anchor_not_found",
-                f"{anchor['change_unit_id']} is not a change unit of the source file",
-            )
-        paragraph = _resolve_anchor_paragraph(document, unit)
+    for edit_index, edit in enumerate(edits):
+        try:
+            anchor = edit["anchor"]
+            if anchor["file_sha256"] != source_sha:
+                raise ApplyError(
+                    "file_sha256_mismatch",
+                    "anchor was produced from a different file than source_path",
+                    claimed_source_sha256=anchor["file_sha256"],
+                    observed_source_sha256=source_sha,
+                    edit_index=edit_index,
+                )
+            unit = units_by_id.get(anchor["change_unit_id"])
+            if unit is None:
+                raise ApplyError(
+                    "anchor_not_found",
+                    f"{anchor['change_unit_id']} is not a change unit of the source file",
+                    claimed_source_sha256=anchor["file_sha256"],
+                    observed_source_sha256=source_sha,
+                    edit_index=edit_index,
+                )
+            paragraph = _resolve_anchor_paragraph(document, unit)
 
-        reinstate_text = edit.get("reinstate_text")
-        if reinstate_text is not None:
-            span, container = _match_reinstate(paragraph, reinstate_text, author)
-            ins_id = str(next_id)
+            reinstate_text = edit.get("reinstate_text")
+            if reinstate_text is not None:
+                span, container = _match_reinstate(paragraph, reinstate_text, author)
+                ins_id = str(next_id)
+                next_id += 1
+                planned.append(
+                    _PlannedEdit(
+                        anchor["change_unit_id"], edit_index, anchor["file_sha256"],
+                        paragraph,
+                        APPLY_OPERATION_REINSTATE,
+                        None,
+                        reinstate_text,
+                        span,
+                        container, None, ins_id,
+                    )
+                )
+                continue
+
+            delete_text = edit["delete_text"]
+            insert_text = edit.get("insert_text") or ""
+            op, span, container = _match_delete_span(paragraph, delete_text, author)
+            del_id = str(next_id)
             next_id += 1
+            ins_id = None
+            if insert_text:
+                ins_id = str(next_id)
+                next_id += 1
             planned.append(
                 _PlannedEdit(
-                    anchor["change_unit_id"], paragraph, "reinstate", None,
-                    reinstate_text, span, container, None, ins_id,
+                    anchor["change_unit_id"], edit_index, anchor["file_sha256"],
+                    paragraph, op, delete_text, insert_text, span, container,
+                    del_id, ins_id,
                 )
             )
-            continue
-
-        delete_text = edit["delete_text"]
-        insert_text = edit.get("insert_text") or ""
-        op, span, container = _match_delete_span(paragraph, delete_text, author)
-        del_id = str(next_id)
-        next_id += 1
-        ins_id = None
-        if insert_text:
-            ins_id = str(next_id)
-            next_id += 1
-        planned.append(
-            _PlannedEdit(
-                anchor["change_unit_id"], paragraph, op, delete_text,
-                insert_text, span, container, del_id, ins_id,
-            )
-        )
+        except ApplyError as exc:
+            raise _attach_edit_metadata(exc, edit, edit_index, source_sha) from exc
 
     # Same-paragraph edits: spans must not overlap; apply right to left so
     # earlier offsets stay valid while later text shifts.
@@ -735,11 +841,12 @@ def apply_edits(
     for key, plans in by_paragraph.items():
         targeted_deletions: set[int] = set()
         for plan in plans:
-            if plan.op == "reinstate":
+            if plan.op == APPLY_OPERATION_REINSTATE:
                 if id(plan.container) in targeted_deletions:
                     raise ApplyError(
                         "edits_overlap",
                         "two edits reinstate text from the same deletion",
+                        **_plan_error_metadata(plan, source_sha),
                     )
                 targeted_deletions.add(id(plan.container))
 
@@ -750,7 +857,7 @@ def apply_edits(
         # unambiguously and are refused rather than written confusingly.
         countered_hosts: set[int] = set()
         for plan in plans:
-            if plan.op != "counter":
+            if plan.op != APPLY_OPERATION_COUNTER:
                 continue
             if id(plan.container) in countered_hosts:
                 raise ApplyError(
@@ -758,6 +865,7 @@ def apply_edits(
                     "one pending insertion can be countered only once; "
                     "consolidate into a single counter that covers the whole "
                     "replacement",
+                    **_plan_error_metadata(plan, source_sha),
                 )
             countered_hosts.add(id(plan.container))
             if any(
@@ -770,6 +878,7 @@ def apply_edits(
                     "already_countered",
                     "this insertion already carries our counter; counter an "
                     "insertion once, with the full replacement text",
+                    **_plan_error_metadata(plan, source_sha),
                 )
             following = _next_non_inert(plan.container)
             following_is_wrapper = following is not None and (
@@ -782,6 +891,7 @@ def apply_edits(
                     "the countered insertion is directly followed by other "
                     "tracked markup; placing the replacement there would "
                     "break its grouping",
+                    **_plan_error_metadata(plan, source_sha),
                 )
             if following_is_wrapper and (following.get(w("author")) or "") == author:
                 # Even a pure strike surfaces at the host's right edge in
@@ -790,16 +900,22 @@ def apply_edits(
                     "adjacent_to_own_revision",
                     "the countered insertion is directly followed by our own "
                     "earlier tracked change; the strike would merge with it",
+                    **_plan_error_metadata(plan, source_sha),
                 )
             host_end = _element_reading_span(plan.paragraph, plan.container)[1]
             for other in plans:
-                if other is not plan and other.op == "plain" and other.span[0] == host_end:
+                if (
+                    other is not plan
+                    and other.op == _PLAN_OPERATION_PLAIN
+                    and other.span[0] == host_end
+                ):
                     raise ApplyError(
                         "edits_overlap",
                         "an edit starts immediately after a countered "
                         "insertion; without untouched text between them the "
                         "operations cannot stay distinct — apply it in a "
                         "separate call",
+                        **_plan_error_metadata(other, source_sha),
                     )
 
         ordered = sorted(plans, key=lambda p: (p.span[0], p.span[1]))
@@ -808,9 +924,13 @@ def apply_edits(
                 raise ApplyError(
                     "edits_overlap",
                     "two edits target overlapping text in the same paragraph",
+                    **_plan_error_metadata(right, source_sha),
                 )
         for plan in sorted(plans, key=lambda p: p.span[0], reverse=True):
-            _apply_plan(plan, author)
+            try:
+                _apply_plan(plan, author)
+            except ApplyError as exc:
+                raise _attach_plan_metadata(exc, plan, source_sha) from exc
 
     # ------------------------------------------------------------------
     # Write to a temp artifact, prove the round trip, then move into place.
@@ -864,20 +984,33 @@ def apply_edits(
                 "round_trip_failed",
                 f"collateral changes outside the touched anchors: {collateral}",
             )
+        try:
+            output_sha = hashlib.sha256(Path(tmp_path).read_bytes()).hexdigest()
+        except OSError as exc:
+            raise ApplyError(
+                "output_unreadable",
+                f"cannot read temporary output artifact: {exc}",
+            ) from exc
+        try:
+            os.replace(tmp_path, output)
+        except OSError as exc:
+            raise ApplyError("output_unwritable", str(exc)) from exc
     except BaseException:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
         raise
-    os.replace(tmp_path, output)
 
     return {
-        "status": "ok",
+        "status": RESULT_STATUS_OK,
         "output_path": output,
+        "output_sha256": output_sha,
         "applied": [
             {
                 "change_unit_id": plan.anchor_id,
-                "operation": plan.op if plan.op != "plain" else (
-                    "replace" if plan.ins_id else "delete"
+                "operation": plan.op if plan.op != _PLAN_OPERATION_PLAIN else (
+                    APPLY_OPERATION_REPLACE
+                    if plan.ins_id
+                    else APPLY_OPERATION_DELETE
                 ),
                 "deleted_text": plan.delete_text,
                 "inserted_text": plan.insert_text or None,
@@ -889,8 +1022,8 @@ def apply_edits(
             for plan in planned
         ],
         "round_trip_check": {
-            "status": "passed",
+            "status": ROUND_TRIP_STATUS_PASSED,
             "collateral_changes": [],
-            "comparison": "ooxml_semantic_diff_outside_touched_anchors",
+            "comparison": ROUND_TRIP_COMPARISON_CURRENT,
         },
     }

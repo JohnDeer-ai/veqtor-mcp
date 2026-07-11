@@ -2,6 +2,7 @@
 """apply_edits: fail-closed application of tracked edits with round-trip proof."""
 
 import hashlib
+import importlib
 import zipfile
 from pathlib import Path
 
@@ -40,6 +41,7 @@ def test_replace_at_anchor_with_round_trip(round2: Path, tmp_path: Path) -> None
     result = apply_edits(str(round2), str(out), [_edit(_cap_anchor(round2))])
 
     assert result["status"] == "ok"
+    assert result["output_sha256"] == hashlib.sha256(out.read_bytes()).hexdigest()
     assert result["round_trip_check"]["status"] == "passed"
     assert result["round_trip_check"]["collateral_changes"] == []
     assert round2.read_bytes() == source_bytes  # source untouched
@@ -671,3 +673,28 @@ def test_output_is_a_valid_source_for_further_rounds(round2: Path, tmp_path: Pat
     reread = extract_redlines(str(out))
     assert reread["file_sha256"] == listing_sha
     assert reread["revision_count"] == extract_redlines(str(round2))["revision_count"] + 2
+
+
+def test_output_hash_failure_is_stable_and_cleans_tmp(
+    round2: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    apply_module = importlib.import_module("veqtor_docx.apply")
+    original_read_bytes = Path.read_bytes
+    temp_reads = {"count": 0}
+
+    def flaky_read_bytes(self: Path) -> bytes:
+        if str(self).endswith(".veqtor-tmp"):
+            temp_reads["count"] += 1
+            if temp_reads["count"] == 2:
+                raise OSError("simulated temp read failure")
+        return original_read_bytes(self)
+
+    monkeypatch.setattr(apply_module.Path, "read_bytes", flaky_read_bytes)
+    out = tmp_path / "counter.docx"
+
+    with pytest.raises(ApplyError) as err:
+        apply_edits(str(round2), str(out), [_edit(_cap_anchor(round2))])
+
+    assert err.value.code == "output_unreadable"
+    assert not out.exists()
+    assert not list(tmp_path.glob("*.veqtor-tmp"))

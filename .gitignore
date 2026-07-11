@@ -8,7 +8,7 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+.veqtor/
 
 # generated demo fixtures (recreate with veqtor-demo-rounds)
 /veqtor-demo-rounds/
-

@@ -5,6 +5,10 @@ import json
 from pathlib import Path
 
 from veqtor_docx import extract_redlines
+from veqtor_docx.contracts import (
+    EXTRACT_REVISION_CATEGORIES_V1,
+    TEXT_REVISION_SUFFIX_BY_NAME_V1,
+)
 from veqtor_docx.synthetic import (
     ADVISER_SENTENCE,
     AUDIT_SENTENCE,
@@ -23,6 +27,36 @@ from veqtor_docx.synthetic import (
 def _round(demo_dir: Path, number: int) -> dict:
     path = sorted(demo_dir.glob("*.docx"))[number - 1]
     return extract_redlines(str(path))
+
+
+def test_extract_revision_categories_v1_are_frozen() -> None:
+    assert dict(TEXT_REVISION_SUFFIX_BY_NAME_V1) == {
+        "ins": "Ins",
+        "del": "Del",
+    }
+    assert EXTRACT_REVISION_CATEGORIES_V1 == {
+        "moveFrom",
+        "moveTo",
+        "rPrChange",
+        "pPrChange",
+        "tblPrChange",
+        "trPrChange",
+        "tcPrChange",
+        "sectPrChange",
+        "numberingChange",
+        "cellIns",
+        "cellDel",
+        "paragraphMarkIns",
+        "paragraphMarkDel",
+        "trPrIns",
+        "trPrDel",
+        "tcPrIns",
+        "tcPrDel",
+        "tblPrIns",
+        "tblPrDel",
+        "sectPrIns",
+        "sectPrDel",
+    }
 
 
 def test_clean_round_has_no_changes(demo_dir: Path) -> None:

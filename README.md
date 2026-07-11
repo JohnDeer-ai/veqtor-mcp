@@ -18,9 +18,38 @@ references, verifiable quotes, anchored counterproposals, and decision records.
 The server reads files locally. Whole documents are not uploaded by the server
 as a background operation.
 
+M3 decision-record tooling writes a local sidecar journal in `.veqtor/` inside
+the matter folder. The journal is append-only JSONL and may contain verbatim
+quotes from the matter documents; treat it as part of the private corpus and do
+not commit it. It is a best-effort local provenance history, not a
+transactional audit log: check `record_status` before treating a record as
+durable, and move a corrupt `.veqtor/decision-records.jsonl` aside if you need
+the server to start a fresh journal while preserving the damaged one for
+inspection. Each stored record is bounded to 1 MiB of UTF-8 JSON, 64 nesting
+levels, 100,000 JSON nodes, and 128 decimal digits per integer; malformed or
+out-of-bound entries fail closed as `journal_corrupt`, while an unrecordable new
+entry returns `record_status: "write_failed"` without failing the tool. Every
+record is an LF-terminated frame; blank frames and unterminated EOF fragments
+are corrupt and are never repaired automatically because their commit status is
+unknown. The final lock-assigned record passes the same schema validation used
+on read: one immutable frame is serialized, those exact bytes are decoded and
+validated, and the same bytes are appended without reserialization. Callers
+must not mutate payload structures during `write_record`; the selected snapshot
+is otherwise unspecified, while any `written` frame remains readable. v1
+records are re-verifiable through file hashes and anchors but are not
+tamper-evident; hash-chain integrity, journal rotation, and aggregate size caps
+are outside this slice. The v1 journal lock uses POSIX `fcntl`, matching the
+local macOS/Linux target. The threat model is a local, non-hostile single-user
+workspace: the server rejects unsafe static targets and pins opened
+directories, but it is not a security boundary against a malicious process
+running as the same user.
+Before every append the server validates or restores `.veqtor/.gitignore`;
+unsafe existing ignore files are refused before the journal is touched.
+
 Any text or metadata returned by a tool to an MCP client becomes part of the
 LLM conversation context and may be sent to the user's model provider under
-that provider's terms.
+that provider's terms. This includes text returned by `export_decision_record`
+from the local sidecar journal.
 
 ## Day-0 Invariants
 
@@ -42,8 +71,10 @@ references, and counterproposals written as real tracked changes with a
 round-trip proof — both demoed end to end from Claude over MCP. M3 slice 1
 is implemented: deterministic `verify_quote` checks any quotation against
 its read-path anchor (`exact` / `normalized` / `not_found`) before it is
-relied on. Next slice: a slim decision record and provenance for read/write
-actions.
+relied on. M3 slice 2 adds a local decision-record sidecar and
+`export_decision_record` so Claude can explain which toolchain actions were
+performed and which hashes, anchors, revision ids and round-trip checks prove
+them.
 
 ## Quickstart
 
@@ -83,6 +114,22 @@ Claude anchors both edits with `apply_edits` and produces a new DOCX with
 real tracked changes — the counterparty's proposal stays visible, struck
 through, next to ours — and reports the round-trip proof.
 
+For the trust trail (M3), after a quote verification or counterproposal, ask:
+
+> What veqtor actions were taken in ~/veqtor-demo-rounds, and what proves them?
+
+Claude calls `export_decision_record` and reports the compact local records
+with `record_id`s, file hashes, anchors, revision ids and round-trip status.
+Access events from export itself are recorded locally but are not returned in
+the default export window. The default compact export omits verbatim inputs,
+paths, clause headings, raw errors and free-form provenance. Repeated facts are
+bounded snapshots with a total count, digest and sample of at most 20 items.
+`include_payload: true` returns the full records as stored in the journal; an
+extract record is already a summary, not a copy of every old/new text. v1 has
+no separate smaller response cap for that explicit mode, but each stored record
+remains subject to the 1 MiB journal boundary and the response remains subject
+to `max_records` (default 50, maximum 500), so keep it narrow.
+
 ### Claude Desktop (regular chat)
 
 The same server works in the regular Claude Desktop chat. Add an `mcpServers`
@@ -110,4 +157,8 @@ guessing around it.
 
 For development: `uv venv && uv pip install -e ".[dev]" && pytest`. The
 private dogfood suite runs only when `VEQTOR_PRIVATE_FIXTURE_DIR` points at a
-local corpus: `pytest -m private`.
+local corpus: `pytest -m private`. Its M3 slice 2 workflow copies one suitable
+real DOCX into a temporary matter, runs extract -> verify -> apply -> export,
+and checks compact-export leakage against runtime old/new strings of at least
+12 characters; it does not claim FastMCP transport coverage or every file in
+the corpus.

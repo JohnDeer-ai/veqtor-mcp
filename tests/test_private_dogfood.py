@@ -14,6 +14,7 @@ Run locally with::
 import json
 import os
 import shutil
+import stat
 import zipfile
 from pathlib import Path
 
@@ -22,6 +23,7 @@ import pytest
 from veqtor_docx import apply_edits, extract_redlines, verify_quote
 from veqtor_docx._ooxml import parse_xml, w
 from veqtor_docx.apply import DEFAULT_AUTHOR, _paragraph_segments, _resolve_anchor_paragraph
+from veqtor_mcp import records, server
 
 _ENV = "VEQTOR_PRIVATE_FIXTURE_DIR"
 
@@ -50,6 +52,26 @@ def _visible_text(path: Path) -> str:
 
 def _squash(text: str) -> str:
     return "".join(text.split())
+
+
+def _runtime_edit_target(path: Path, units: list[dict]) -> tuple[dict, str] | None:
+    document = parse_xml(zipfile.ZipFile(path).read("word/document.xml"))
+    for unit in units:
+        paragraph = _resolve_anchor_paragraph(document, unit)
+        segments = _paragraph_segments(paragraph)
+        reading = "".join(seg.node.text or "" for seg in segments)
+        for seg in segments:
+            text = seg.node.text or ""
+            if not seg.plain or len(text) < 28:
+                continue
+            candidate = text[3:25].strip()
+            if (
+                len(candidate) >= 12
+                and candidate.upper() != candidate
+                and reading.count(candidate) == 1
+            ):
+                return unit, candidate
+    return None
 
 
 def test_every_private_docx_extracts_deterministically() -> None:
@@ -118,27 +140,9 @@ def test_apply_edits_on_a_copy_of_a_real_redline(tmp_path: Path) -> None:
         working_copy = tmp_path / f"copy-{applied}-{original.name}"
         shutil.copyfile(original, working_copy)
         source = extract_redlines(str(working_copy))
-        document = parse_xml(
-            zipfile.ZipFile(working_copy).read("word/document.xml")
-        )
-
         # Derive a delete_text candidate: a plain-run substring, unique in its
         # paragraph, taken from the clause of some existing change unit.
-        target = None
-        for unit in source["change_units"]:
-            paragraph = _resolve_anchor_paragraph(document, unit)
-            segments = _paragraph_segments(paragraph)
-            reading = "".join(seg.node.text or "" for seg in segments)
-            for seg in segments:
-                text = seg.node.text or ""
-                if not seg.plain or len(text) < 28:
-                    continue
-                candidate = text[3:25].strip()
-                if len(candidate) >= 12 and reading.count(candidate) == 1:
-                    target = (unit, candidate)
-                    break
-            if target:
-                break
+        target = _runtime_edit_target(working_copy, source["change_units"])
         if target is None:
             continue
 
@@ -197,3 +201,101 @@ def test_verify_quote_confirms_extracted_texts_on_real_redlines() -> None:
         if checked >= 40:
             break
     assert checked, "no verifiable change units found in the private corpus"
+
+
+def test_mcp_recorder_export_workflow_on_private_matter_copy(tmp_path: Path) -> None:
+    """M3 slice 2 dogfood: exercise the MCP layer, not only the domain layer.
+
+    One suitable real document is copied into a temporary matter. The sidecar
+    journal is expected only beside that copy, and compact export is checked
+    against runtime old/new strings of at least 12 characters.
+    """
+    exercised = False
+    for index, original in enumerate(_corpus_files()):
+        matter = tmp_path / f"matter-{index}"
+        matter.mkdir()
+        working_copy = matter / original.name
+        shutil.copyfile(original, working_copy)
+
+        extraction = server.extract_redlines(str(working_copy))
+        units = extraction["change_units"]
+        if not units:
+            continue
+
+        quote_target = next(
+            (
+                (unit, text)
+                for unit in units
+                for text in (unit["new_text"], unit["old_text"])
+                if text and len(text) >= 12
+            ),
+            None,
+        )
+        target = _runtime_edit_target(working_copy, units)
+        if quote_target is None or target is None:
+            continue
+
+        quote_unit, quote = quote_target
+        anchor = {
+            "change_unit_id": quote_unit["change_unit_id"],
+            "file_sha256": extraction["file_sha256"],
+        }
+        verified = server.verify_quote(str(working_copy), anchor, quote)
+        assert verified["record_status"] == "written"
+        assert verified["verdict"] == "exact"
+
+        edit_unit, delete_text = target
+        output_path = matter / f"mcp-output-{original.name}"
+        applied = server.apply_edits(
+            str(working_copy),
+            str(output_path),
+            [
+                {
+                    "anchor": {
+                        "change_unit_id": edit_unit["change_unit_id"],
+                        "file_sha256": extraction["file_sha256"],
+                    },
+                    "delete_text": delete_text,
+                    "insert_text": delete_text.upper(),
+                }
+            ],
+        )
+        assert applied["record_status"] == "written"
+        assert applied["round_trip_check"]["status"] == "passed"
+        assert applied["output_sha256"] == extract_redlines(str(output_path))["file_sha256"]
+
+        exported = server.export_decision_record(str(matter), max_records=10)
+        assert exported["record_status"] == "written"
+        assert exported["payloads"] == "compact"
+        assert exported["total_count"] >= 3
+        tool_names = [record["tool_name"] for record in exported["records"]]
+        assert "extract_redlines" in tool_names
+        assert "verify_quote" in tool_names
+        assert "apply_edits" in tool_names
+
+        apply_record = next(
+            record for record in exported["records"] if record["tool_name"] == "apply_edits"
+        )
+        assert apply_record["input"]["omitted"] is True
+        assert apply_record["provenance"]["output_sha256"] == applied["output_sha256"]
+        assert apply_record["provenance"]["round_trip_check"]["status"] == "passed"
+
+        sensitive_values = {
+            text
+            for unit in units
+            for text in (unit["new_text"], unit["old_text"])
+            if text and len(text) >= 12
+        }
+        sensitive_values.update({quote, delete_text, delete_text.upper()})
+        encoded = json.dumps(exported, ensure_ascii=False)
+        if any(value in encoded for value in sensitive_values):
+            pytest.fail("compact export leaked a verbatim private payload")
+
+        sidecar = matter / records.SIDECAR_DIR
+        journal = sidecar / records.JOURNAL_NAME
+        assert stat.S_IMODE(sidecar.stat().st_mode) == 0o700
+        assert stat.S_IMODE(journal.stat().st_mode) == 0o600
+        assert not (original.parent / records.SIDECAR_DIR).exists()
+        exercised = True
+        break
+    assert exercised, "no private document supported MCP recorder/export dogfood"

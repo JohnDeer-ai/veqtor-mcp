@@ -5,10 +5,17 @@ from __future__ import annotations
 
 from lxml import etree
 
+from .contracts import (
+    DOCUMENT_PART_V1,
+    MOVE_REVISION_NAMES_V1,
+    TEXT_REVISION_NAMES_V1,
+    UNSUPPORTED_REVISION_NAMES_V1,
+)
+
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 NSMAP = {"w": W_NS}
 
-DOCUMENT_PART = "word/document.xml"
+DOCUMENT_PART = DOCUMENT_PART_V1
 
 
 class DocxError(ValueError):
@@ -21,23 +28,13 @@ def w(tag: str) -> str:
 
 
 # Tracked-change wrapper elements that carry run content.
-TEXT_REVISION_TAGS = frozenset({w("ins"), w("del")})
-MOVE_REVISION_TAGS = frozenset({w("moveFrom"), w("moveTo")})
+TEXT_REVISION_TAGS = frozenset(w(name) for name in TEXT_REVISION_NAMES_V1)
+MOVE_REVISION_TAGS = frozenset(w(name) for name in MOVE_REVISION_NAMES_V1)
 
 # Revision markup M1 does not extract as change units. These are counted and
 # reported so the caller knows facts were present but not decoded.
 UNSUPPORTED_REVISION_TAGS = frozenset(
-    {
-        w("rPrChange"),
-        w("pPrChange"),
-        w("tblPrChange"),
-        w("trPrChange"),
-        w("tcPrChange"),
-        w("sectPrChange"),
-        w("numberingChange"),
-        w("cellIns"),
-        w("cellDel"),
-    }
+    w(name) for name in UNSUPPORTED_REVISION_NAMES_V1
 )
 
 

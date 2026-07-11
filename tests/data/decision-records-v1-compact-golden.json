@@ -1,0 +1,405 @@
+[
+  {
+    "created_at": "2026-07-10T00:00:01Z",
+    "input": {
+      "omitted": true,
+      "sha256": "f6809732e17b764384ea50ec16592273a14c2d108b423b62a39f1722b15c4051"
+    },
+    "payloads": "compact",
+    "producer": {
+      "build": "source-snapshot-unavailable",
+      "name": "veqtor-mcp",
+      "version": "0.0.0"
+    },
+    "provenance": {
+      "folder": {
+        "omitted": true,
+        "sha256": "8064e05de289642d85a0f695bd4c98e62e677594bfa62302fbdabef5f2e3dc13"
+      },
+      "rounds": {
+        "count": 2,
+        "sample": [
+          {
+            "revision_count": 0,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "revision_count": 3,
+            "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        ],
+        "sha256": "c419ecb9d9fd13cc8f76a972baa74f0df1f4a1c3e6c04660c6b5f1cc3e815896",
+        "truncated": false
+      },
+      "skipped_count": 0
+    },
+    "record_id": "dr_001",
+    "record_type": "tool_observation.v1",
+    "result": {
+      "folder": {
+        "omitted": true,
+        "sha256": "8064e05de289642d85a0f695bd4c98e62e677594bfa62302fbdabef5f2e3dc13"
+      },
+      "round_count": 2,
+      "rounds": {
+        "count": 2,
+        "sample": [
+          {
+            "revision_count": 0,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "revision_count": 3,
+            "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        ],
+        "sha256": "c419ecb9d9fd13cc8f76a972baa74f0df1f4a1c3e6c04660c6b5f1cc3e815896",
+        "truncated": false
+      },
+      "skipped_count": 1,
+      "status": "ok"
+    },
+    "result_sha256": "330b42bdc7a4fc27a483da11976804b708de93dfc1fe8ee7785aefba54a984da",
+    "schema_version": "decision_record.v1",
+    "tool_name": "list_rounds",
+    "tool_result_sha256": "330b42bdc7a4fc27a483da11976804b708de93dfc1fe8ee7785aefba54a984da",
+    "workspace": {
+      "omitted": true,
+      "sha256": "8064e05de289642d85a0f695bd4c98e62e677594bfa62302fbdabef5f2e3dc13"
+    }
+  },
+  {
+    "created_at": "2026-07-10T00:00:02Z",
+    "input": {
+      "omitted": true,
+      "sha256": "396e28a470adfffd0fc4d4b0be4b19691f1aca613d1b43290479667761748cbf"
+    },
+    "payloads": "compact",
+    "producer": {
+      "build": "source-snapshot-unavailable",
+      "name": "veqtor-mcp",
+      "version": "0.0.0"
+    },
+    "provenance": {
+      "anchors": {
+        "count": 1,
+        "sample": [
+          {
+            "change_unit_id": "cu_017",
+            "clause_anchor_sha256": "501f64d77915b18919da88ee2903289a3b6f690de84f641327bad0d3b9772cdc",
+            "file_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "part_name": "word/document.xml",
+            "revision_ids": {
+              "count": 2,
+              "sample": [
+                "17",
+                "18"
+              ],
+              "sha256": "1f544cfe94e8a86285a8ae927c80b318d923bd3d3bc882563dbccd197c829d1d",
+              "truncated": false
+            }
+          }
+        ],
+        "sha256": "a6929f5026e724b888723b5af84cad3488553e0bd94cca2450b31962c89fcb81",
+        "truncated": false
+      },
+      "file_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "part_name": "word/document.xml",
+      "path": {
+        "omitted": true,
+        "sha256": "8a9a54773c79a2a223dd4ac44d6eb4e22a96a8bdaf9a9555ed70ce19493c4298"
+      }
+    },
+    "record_id": "dr_002",
+    "record_type": "tool_observation.v1",
+    "result": {
+      "change_unit_count": 1,
+      "file_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "part_name": "word/document.xml",
+      "path": {
+        "omitted": true,
+        "sha256": "8a9a54773c79a2a223dd4ac44d6eb4e22a96a8bdaf9a9555ed70ce19493c4298"
+      },
+      "revision_count": 3,
+      "status": "ok",
+      "unsupported_revisions": {
+        "count": 2,
+        "sample": [
+          {
+            "key": "moveFrom",
+            "value": 1
+          },
+          {
+            "key": "rPrChange",
+            "value": 2
+          }
+        ],
+        "sha256": "50d751d2f38349130ad5854346c476c7df509a47fc503caf8d5f9c1b3bfb0a23",
+        "truncated": false
+      }
+    },
+    "result_sha256": "6261800022539c6d2f5de4e8672d573d6df7f91140da6454190d78937dfe8f26",
+    "schema_version": "decision_record.v1",
+    "tool_name": "extract_redlines",
+    "tool_result_sha256": "6261800022539c6d2f5de4e8672d573d6df7f91140da6454190d78937dfe8f26",
+    "workspace": {
+      "omitted": true,
+      "sha256": "8064e05de289642d85a0f695bd4c98e62e677594bfa62302fbdabef5f2e3dc13"
+    }
+  },
+  {
+    "created_at": "2026-07-10T00:00:03Z",
+    "input": {
+      "omitted": true,
+      "sha256": "d8487d24a176899287559fdaa3899b1392e036dce6a3722eb50ef481f0a17e6c"
+    },
+    "payloads": "compact",
+    "producer": {
+      "build": "source-snapshot-unavailable",
+      "name": "veqtor-mcp",
+      "version": "0.0.0"
+    },
+    "provenance": {
+      "anchors": {
+        "count": 1,
+        "sample": [
+          {
+            "change_unit_id": "cu_017",
+            "revision_ids": {
+              "count": 2,
+              "sample": [
+                "17",
+                "18"
+              ],
+              "sha256": "1f544cfe94e8a86285a8ae927c80b318d923bd3d3bc882563dbccd197c829d1d",
+              "truncated": false
+            },
+            "side": "new"
+          }
+        ],
+        "sha256": "e69cf37448b05f4d394e0a8078abc2825aef2446253397bafdbb8259fd09de21",
+        "truncated": false
+      },
+      "checked_anchor": {
+        "change_unit_id": "cu_017",
+        "file_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "file_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "input_anchor": {
+        "omitted": true,
+        "sha256": "f9257799d8cdaea68f786ae8298e084f2c948f6dc8619fac30a1d8b5466fe769"
+      },
+      "path": {
+        "omitted": true,
+        "sha256": "8a9a54773c79a2a223dd4ac44d6eb4e22a96a8bdaf9a9555ed70ce19493c4298"
+      },
+      "verdict": "exact"
+    },
+    "record_id": "dr_003",
+    "record_type": "verification.v1",
+    "result": {
+      "checked_anchor": {
+        "change_unit_id": "cu_017",
+        "file_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "diff_count": 0,
+      "exact": true,
+      "matches": {
+        "count": 1,
+        "sample": [
+          {
+            "clause_sha256": "15d3832f00b012c658d33bde8ac002e6330b34bd53cad810c8e4390b39b3dd76",
+            "part_name": "word/document.xml",
+            "revision_ids": {
+              "count": 2,
+              "sample": [
+                "17",
+                "18"
+              ],
+              "sha256": "1f544cfe94e8a86285a8ae927c80b318d923bd3d3bc882563dbccd197c829d1d",
+              "truncated": false
+            },
+            "side": "new"
+          }
+        ],
+        "sha256": "615d863e1e61c342504fc05b11f0e84a54cda38276d3e611d6888a4c41482d80",
+        "truncated": false
+      },
+      "status": "ok",
+      "verdict": "exact"
+    },
+    "result_sha256": "aabf8362367cea6e2299641eb47649a192b7abea96cb7990af311cd7e13e6793",
+    "schema_version": "decision_record.v1",
+    "tool_name": "verify_quote",
+    "tool_result_sha256": "aabf8362367cea6e2299641eb47649a192b7abea96cb7990af311cd7e13e6793",
+    "workspace": {
+      "omitted": true,
+      "sha256": "8064e05de289642d85a0f695bd4c98e62e677594bfa62302fbdabef5f2e3dc13"
+    }
+  },
+  {
+    "created_at": "2026-07-10T00:00:04Z",
+    "input": {
+      "omitted": true,
+      "sha256": "96ce29bc531443308ef87557bbf8e6026f7e1bebc57e405c138a59967bb85fd2"
+    },
+    "payloads": "compact",
+    "producer": {
+      "build": "source-snapshot-unavailable",
+      "name": "veqtor-mcp",
+      "version": "0.0.0"
+    },
+    "provenance": {
+      "anchors": {
+        "count": 1,
+        "sample": [],
+        "sha256": "114e11a5649bd934a191a7cb0c52558b6cfe11765a81c783bc8327148132e2a1",
+        "truncated": true
+      },
+      "applied": {
+        "count": 1,
+        "sample": [],
+        "sha256": "73baa40c69397e0e184782248edf6b40518d7af85ec3b3aed9322a66820b3d5f",
+        "truncated": true
+      },
+      "output_path": {
+        "omitted": true,
+        "sha256": "50aa6cbfcfde22539995c88313d263751f4209e0af1eb4650f7aff9af6d26cb2"
+      },
+      "output_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "round_trip_check": {
+        "collateral_change_count": 0,
+        "comparison": "exact",
+        "status": "passed"
+      },
+      "source_path": {
+        "omitted": true,
+        "sha256": "8a9a54773c79a2a223dd4ac44d6eb4e22a96a8bdaf9a9555ed70ce19493c4298"
+      },
+      "source_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "record_id": "dr_004",
+    "record_type": "decision.v1",
+    "result": {
+      "applied": {
+        "count": 1,
+        "sample": [
+          {
+            "change_unit_id": "cu_017",
+            "operation": "replace",
+            "tracked_revision_ids": {
+              "count": 2,
+              "sample": [
+                "21",
+                "22"
+              ],
+              "sha256": "b98fe6da186651b4529264d03336490f6653c21b8cfa6baddc2af1a946191d64",
+              "truncated": false
+            }
+          }
+        ],
+        "sha256": "ba202860e5f4fce4784e2fdb261840a63efa1f7500531258d012902b99f67ef4",
+        "truncated": false
+      },
+      "output_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "round_trip_check": {
+        "collateral_change_count": 0,
+        "comparison": "exact",
+        "status": "passed"
+      },
+      "status": "ok"
+    },
+    "result_sha256": "b819fb516c1bab28f8c98fdbbfb6283e37fdf2d49708376985b73daa41e2900e",
+    "schema_version": "decision_record.v1",
+    "tool_name": "apply_edits",
+    "tool_result_sha256": "b819fb516c1bab28f8c98fdbbfb6283e37fdf2d49708376985b73daa41e2900e",
+    "workspace": {
+      "omitted": true,
+      "sha256": "8064e05de289642d85a0f695bd4c98e62e677594bfa62302fbdabef5f2e3dc13"
+    }
+  },
+  {
+    "created_at": "2026-07-10T00:00:05Z",
+    "input": {
+      "omitted": true,
+      "sha256": "b32862649903ffc18b2fb5264ba4d418af7ca6d0795c2d5e1e0a22b7481d0ea9"
+    },
+    "payloads": "compact",
+    "producer": {
+      "build": "legacy-unvalidated",
+      "build_sha256": "0e93f08f965fe03a7de6c4b22f397bcbec9d87d106a7a9bc686deb64d76391a6",
+      "name": "veqtor-mcp",
+      "version": "0.0.0"
+    },
+    "provenance": {
+      "claimed_source_sha256": {
+        "omitted": true,
+        "sha256": "f285357f69ff8e8825c3754a3601a9b35e9ea43667cbf02d7747cce2f006b0b6"
+      },
+      "edit_index": 0,
+      "observed_source_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "output_path": {
+        "omitted": true,
+        "sha256": "086847fd30de9b9d1c8287541b64f7fd1829a6c598ee99d728eaa29ef8259650"
+      },
+      "source_path": {
+        "omitted": true,
+        "sha256": "8a9a54773c79a2a223dd4ac44d6eb4e22a96a8bdaf9a9555ed70ce19493c4298"
+      }
+    },
+    "record_id": "dr_005",
+    "record_type": "decision.v1",
+    "result": {
+      "error_code": "delete_text_not_found",
+      "error_omitted": true,
+      "error_sha256": "2b62778f4195dfeb550ba0fd12d06ddcdf05ebc36a17c9f30d037fd6635fad93",
+      "status": "error"
+    },
+    "result_sha256": "6c5a23e823456ba79abbb4bb3721eac1a6c817e619e3df901802d5ac712866a3",
+    "schema_version": "decision_record.v1",
+    "tool_name": "apply_edits",
+    "tool_result_sha256": "6c5a23e823456ba79abbb4bb3721eac1a6c817e619e3df901802d5ac712866a3",
+    "workspace": {
+      "omitted": true,
+      "sha256": "8064e05de289642d85a0f695bd4c98e62e677594bfa62302fbdabef5f2e3dc13"
+    }
+  },
+  {
+    "created_at": "2026-07-10T00:00:06Z",
+    "input": {
+      "omitted": true,
+      "sha256": "6f528ff8c5baae7a64f286d0c4d12f68b6493d6f328b4e7b79a39b0a6d839749"
+    },
+    "payloads": "compact",
+    "producer": {
+      "build": "source-snapshot-unavailable",
+      "name": "veqtor-mcp",
+      "version": "0.0.0"
+    },
+    "provenance": {
+      "workspace": {
+        "omitted": true,
+        "sha256": "8064e05de289642d85a0f695bd4c98e62e677594bfa62302fbdabef5f2e3dc13"
+      }
+    },
+    "record_id": "dr_006",
+    "record_type": "access_event.v1",
+    "result": {
+      "access_count": 0,
+      "next_before_record_id": null,
+      "payloads": "compact",
+      "returned_count": 5,
+      "status": "ok",
+      "total_count": 5,
+      "truncated": false
+    },
+    "result_sha256": "9d01f6d3317521bb6fccb146c69c88cc490e14eb238857c9d026fdaf3bf86127",
+    "schema_version": "decision_record.v1",
+    "tool_name": "export_decision_record",
+    "tool_result_sha256": "9d01f6d3317521bb6fccb146c69c88cc490e14eb238857c9d026fdaf3bf86127",
+    "workspace": {
+      "omitted": true,
+      "sha256": "8064e05de289642d85a0f695bd4c98e62e677594bfa62302fbdabef5f2e3dc13"
+    }
+  }
+]
