@@ -48,8 +48,15 @@ read/write actions.
 
 ### M4 - Skill / Public Polish
 
-Demo: Claude skill for negotiation history and counterproposal workflow, plus
-PyPI/GIF/video if useful.
+Demo: a versioned public Alpha that an external user can install, diagnose and
+run through negotiation history, full-pipeline preflight, counterproposal and
+compact provenance without a development checkout.
+
+v0.1 includes versioned GitHub wheel/sdist artifacts, Alpha metadata, installed-
+wheel MCP smoke, bounded paragraph context, configured tracked-change author,
+release documentation and a fresh-user Quickstart. PyPI publication remains a
+later distribution decision; the versioned GitHub release is canonical for
+v0.1.
 
 ## Promotion Gates
 
@@ -78,4 +85,4 @@ Each milestone must work with:
 - Built-in LLM calls or MCP sampling.
 - Hosted service.
 - Custom chat UI.
-- PyPI publication name and branding decision.
+- PyPI Trusted Publishing after the GitHub Alpha channel is proven.

@@ -34,6 +34,7 @@ from .contracts import (
     VERIFY_VERDICT_NORMALIZED,
     VERIFY_VERDICT_NOT_FOUND,
 )
+from ._ooxml import UserPathError, resolve_user_path
 from .extract import DocxError, extract_redlines
 
 # The drift a faithful quotation picks up between Word, chat and e-mail:
@@ -84,6 +85,10 @@ def verify_quote(path: str, anchor: dict, quote: str) -> dict:
         )
     if not isinstance(anchor, dict):
         raise VerifyError("anchor_missing", "anchor must be an object")
+    try:
+        resolved = resolve_user_path(path)
+    except UserPathError as exc:
+        raise VerifyError(exc.code, exc.detail) from exc
     unit_id = anchor.get("change_unit_id")
     claimed_sha = anchor.get("file_sha256")
     for key, value in (("change_unit_id", unit_id), ("file_sha256", claimed_sha)):
@@ -92,7 +97,6 @@ def verify_quote(path: str, anchor: dict, quote: str) -> dict:
                 "anchor_missing", f"anchor.{key} must be a non-empty string"
             )
 
-    resolved = str(Path(path).expanduser())
     # One snapshot for everything: extract_redlines reads the file exactly
     # once and derives file_sha256 from the same bytes as the facts, so the
     # verdict and checked_anchor can never describe different content.

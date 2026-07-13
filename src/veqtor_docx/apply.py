@@ -41,9 +41,10 @@ M2 slice 2. The contract (see API.md and the M2 gate in ROADMAP.md):
   paragraphs may differ. The structural check is paragraph-granular: an edit
   anchored in a table cell does not exempt the rest of that table.
 
-Determinism: new revisions carry a fixed author, no ``w:date`` (optional in
-OOXML), and ids continuing the document's own sequence, so applying the same
-edits to the same file always yields byte-identical output.
+Determinism: new revisions carry one caller-supplied author (the MCP server
+holds its configured value constant for the process), no ``w:date`` (optional
+in OOXML), and ids continuing the document's own sequence. Applying the same
+edits with the same author to the same file yields byte-identical output.
 """
 
 from __future__ import annotations
@@ -64,7 +65,14 @@ from ._ooxml import (
     DOCUMENT_PART,
     MOVE_REVISION_TAGS,
     TEXT_REVISION_TAGS,
+    UserPathError,
+    ZIP_READ_ERRORS,
+    current_text_atom,
+    is_xml_text_compatible,
     parse_xml,
+    resolve_user_path,
+    text_atom,
+    tracked_change_author_validation_error,
     w,
 )
 from .contracts import (
@@ -72,19 +80,31 @@ from .contracts import (
     APPLY_OPERATION_DELETE,
     APPLY_OPERATION_REINSTATE,
     APPLY_OPERATION_REPLACE,
+    PREFLIGHT_EDIT_STATUS_APPLICABLE,
+    PREFLIGHT_EDIT_STATUS_BLOCKED,
+    PREFLIGHT_EDIT_STATUS_NOT_EVALUATED,
+    PREFLIGHT_EDIT_STATUS_PLANNED,
     RESULT_STATUS_OK,
     ROUND_TRIP_COMPARISON_CURRENT,
+    ROUND_TRIP_STATUS_FAILED,
     ROUND_TRIP_STATUS_PASSED,
 )
 from .extract import (
     DocxError,
     _extract_from_bytes,
-    _ZIP_READ_ERRORS,
+    _group_change_fields,
+    _group_units,
+    _paragraph_stream,
     extract_redlines,
 )
 
 DEFAULT_AUTHOR = "Veqtor MCP"
 _PLAN_OPERATION_PLAIN = "plain"
+MAX_REVISION_ID = 2_147_483_647
+MAX_REVISION_ID_DIGITS = len(str(MAX_REVISION_ID))
+_ANCHOR_KEYS = frozenset({"change_unit_id", "file_sha256"})
+_DELETE_EDIT_KEYS = frozenset({"anchor", "delete_text", "insert_text"})
+_REINSTATE_EDIT_KEYS = frozenset({"anchor", "reinstate_text"})
 
 _XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 # Non-visible elements allowed to sit between covered runs during surgery.
@@ -107,8 +127,9 @@ class ApplyError(DocxError):
 
 @dataclass
 class _Seg:
-    node: etree._Element  # the w:t element
-    run: etree._Element
+    node: etree._Element
+    text: str
+    run: etree._Element | None
     start: int
     end: int
     plain: bool
@@ -116,7 +137,7 @@ class _Seg:
 
 
 def _paragraph_segments(para: etree._Element) -> list[_Seg]:
-    """Char-mapped ``w:t`` segments of the paragraph's current reading.
+    """Char-mapped text-atom segments of the paragraph's current reading.
 
     The current reading accepts insertions and drops deleted/moved-away text
     (whoever deleted it). ``plain`` marks text no revision wrapper touches
@@ -125,34 +146,40 @@ def _paragraph_segments(para: etree._Element) -> list[_Seg]:
     """
     segments: list[_Seg] = []
     offset = 0
-    for node in para.iter(w("t")):
-        hidden = False
+    for node in para.iter():
+        contribution = current_text_atom(node, boundary=para)
+        if contribution is None:
+            continue
         container: etree._Element | None = None
-        run = node.getparent()
+        run = next(node.iterancestors(w("r")), None)
         for ancestor in node.iterancestors():
             if ancestor is para:
                 break
-            if ancestor.tag in (w("del"), w("moveFrom")):
-                hidden = True
-                break
             if ancestor.tag == w("ins") or ancestor.tag in MOVE_REVISION_TAGS:
                 container = ancestor
-        if hidden:
-            continue
-        text = node.text or ""
         plain = (
             container is None
             and run is not None
             and run.tag == w("r")
             and run.getparent() is para
         )
-        segments.append(_Seg(node, run, offset, offset + len(text), plain, container))
-        offset += len(text)
+        segments.append(
+            _Seg(
+                node,
+                contribution,
+                run,
+                offset,
+                offset + len(contribution),
+                plain,
+                container,
+            )
+        )
+        offset += len(contribution)
     return segments
 
 
 def _reading_text(segments: list[_Seg]) -> str:
-    return "".join(seg.node.text or "" for seg in segments)
+    return "".join(seg.text for seg in segments)
 
 
 def _reading_offset_before(para: etree._Element, element: etree._Element) -> int:
@@ -161,17 +188,9 @@ def _reading_offset_before(para: etree._Element, element: etree._Element) -> int
     for node in para.iter():
         if node is element:
             return offset
-        if node.tag != w("t"):
-            continue
-        hidden = False
-        for ancestor in node.iterancestors():
-            if ancestor is para:
-                break
-            if ancestor.tag in (w("del"), w("moveFrom")):
-                hidden = True
-                break
-        if not hidden:
-            offset += len(node.text or "")
+        contribution = current_text_atom(node, boundary=para)
+        if contribution is not None:
+            offset += len(contribution)
     return offset
 
 
@@ -181,22 +200,18 @@ def _element_reading_span(
     """Reading-offset span the element's visible text occupies."""
     start = _reading_offset_before(para, element)
     length = 0
-    for node in element.iter(w("t")):
-        hidden = False
-        for ancestor in node.iterancestors():
-            if ancestor is element:
-                break
-            if ancestor.tag in (w("del"), w("moveFrom")):
-                hidden = True
-                break
-        if not hidden:
-            length += len(node.text or "")
+    for node in element.iter():
+        contribution = current_text_atom(node, boundary=para)
+        if contribution is not None:
+            length += len(contribution)
     return start, start + length
 
 
-def _run_is_simple(run: etree._Element) -> bool:
+def _run_is_simple(run: etree._Element | None) -> bool:
     """True when the run holds only rPr and w:t children (safe to split/wrap)."""
-    return all(child.tag in (w("rPr"), w("t")) for child in run)
+    return run is not None and all(
+        child.tag in (w("rPr"), w("t")) for child in run
+    )
 
 
 def _split_run_at(segments: list[_Seg], offset: int) -> None:
@@ -209,7 +224,7 @@ def _split_run_at(segments: list[_Seg], offset: int) -> None:
                     "the matched span borders a run with mixed content",
                 )
             cut = offset - seg.start
-            text = seg.node.text or ""
+            text = seg.text
             right = copy.deepcopy(seg.run)
             seg.node.text = text[:cut]
             right_t = right.find(w("t"))
@@ -223,20 +238,112 @@ def _split_run_at(segments: list[_Seg], offset: int) -> None:
     return
 
 
-def _next_revision_id(document: etree._Element) -> int:
+@dataclass
+class _RevisionIdAllocator:
+    """Reserve bounded revision ids atomically for one planned operation."""
+
+    next_value: int
+
+    @property
+    def available(self) -> int:
+        return max(0, MAX_REVISION_ID - self.next_value + 1)
+
+    def reserve(self, count: int) -> tuple[str, ...]:
+        """Return ``count`` consecutive ids or refuse without advancing."""
+        if count < 1:
+            raise ValueError("revision id reservations must be positive")
+        if count > self.available:
+            raise ApplyError(
+                "revision_id_exhausted",
+                "document has insufficient supported revision ids available "
+                "for this edit",
+                failure_phase="planning",
+                required_revision_ids=count,
+                available_revision_ids=self.available,
+            )
+        first = self.next_value
+        self.next_value += count
+        return tuple(str(value) for value in range(first, first + count))
+
+
+def _revision_id_allocator(document: etree._Element) -> _RevisionIdAllocator:
+    """Validate existing ids and return the sole allocator for new revisions."""
     highest = 100
     for el in document.iter():
         val = el.get(w("id"))
         if val is not None:
-            try:
-                highest = max(highest, int(val))
-            except ValueError:
-                continue
-    return highest + 1
+            if (
+                not val.isascii()
+                or not val.isdecimal()
+                or len(val) > MAX_REVISION_ID_DIGITS
+            ):
+                raise ApplyError(
+                    "revision_id_unsupported",
+                    "document contains a revision id outside the supported "
+                    "decimal range",
+                    failure_phase="source",
+                )
+            numeric = int(val)
+            if numeric > MAX_REVISION_ID:
+                raise ApplyError(
+                    "revision_id_unsupported",
+                    "document contains a revision id outside the supported "
+                    "decimal range",
+                    failure_phase="source",
+                )
+            highest = max(highest, numeric)
+    return _RevisionIdAllocator(highest + 1)
+
+
+def _reserve_revision_ids(
+    allocator: _RevisionIdAllocator,
+    count: int,
+    *,
+    operation: str,
+    container: etree._Element | None,
+) -> tuple[str, ...]:
+    """Reserve ids and attach already-proved match facts to exhaustion."""
+    try:
+        return allocator.reserve(count)
+    except ApplyError as exc:
+        exc.metadata.setdefault("operation", operation)
+        exc.metadata.setdefault("match_count", 1)
+        exc.metadata.setdefault(
+            "target_author",
+            (container.get(w("author")) or "") if container is not None else None,
+        )
+        exc.metadata.setdefault(
+            "target_revision_ids",
+            [container.get(w("id"))]
+            if container is not None and container.get(w("id"))
+            else [],
+        )
+        raise
 
 
 def _hidden_del_text(deletion: etree._Element) -> str:
-    return "".join(node.text or "" for node in deletion.iter(w("delText")))
+    return "".join(
+        value
+        for node in deletion.iter()
+        if (value := text_atom(node, include_deleted_text=True)) is not None
+    )
+
+
+def _hidden_del_atom_overlaps(
+    deletion: etree._Element,
+    span: tuple[int, int],
+) -> bool:
+    """Whether a hidden-text span touches an atom surgery cannot preserve."""
+    offset = 0
+    for node in deletion.iter():
+        value = text_atom(node, include_deleted_text=True)
+        if value is None:
+            continue
+        start, end = offset, offset + len(value)
+        offset = end
+        if start < span[1] and end > span[0] and node.tag != w("delText"):
+            return True
+    return False
 
 
 def _hosts_our_strike(element: etree._Element, author: str) -> bool:
@@ -265,6 +372,7 @@ class _PlannedEdit:
     edit_index: int
     claimed_source_sha256: str
     paragraph: etree._Element
+    paragraph_index: int
     op: str  # _PLAN_OPERATION_PLAIN | counter | reinstate
     delete_text: str | None
     insert_text: str
@@ -272,6 +380,99 @@ class _PlannedEdit:
     container: etree._Element | None  # counter: their w:ins; reinstate: their w:del
     del_id: str | None
     ins_id: str | None
+
+
+@dataclass(frozen=True)
+class _PreparedCandidate:
+    """A fully validated DOCX candidate that has not been published."""
+
+    source_path: str
+    source_sha256: str
+    candidate_payload: bytes
+    candidate_sha256: str
+    applied: list[dict]
+    round_trip_check: dict
+    edit_diagnostics: list[dict]
+
+
+def _plan_diagnostic(plan: _PlannedEdit, *, status: str) -> dict:
+    return {
+        "edit_index": plan.edit_index,
+        "change_unit_id": plan.anchor_id,
+        "status": status,
+        "operation": plan.op if plan.op != _PLAN_OPERATION_PLAIN else (
+            APPLY_OPERATION_REPLACE if plan.ins_id else APPLY_OPERATION_DELETE
+        ),
+        "match_count": 1,
+        "target_author": (
+            (plan.container.get(w("author")) or "")
+            if plan.container is not None
+            else None
+        ),
+        "target_revision_ids": (
+            [plan.container.get(w("id"))]
+            if plan.container is not None and plan.container.get(w("id"))
+            else []
+        ),
+        "position_supported": (
+            True if status == PREFLIGHT_EDIT_STATUS_APPLICABLE else None
+        ),
+        "refusal_code": None,
+    }
+
+
+_PREFLIGHT_DIAGNOSTIC_KEYS = (
+    "edit_index",
+    "change_unit_id",
+    "status",
+    "operation",
+    "match_count",
+    "target_author",
+    "target_revision_ids",
+    "position_supported",
+    "refusal_code",
+)
+
+
+def _empty_preflight_diagnostic(
+    edit: object,
+    edit_index: int,
+    status: str,
+) -> dict:
+    change_unit_id = None
+    if isinstance(edit, dict) and isinstance(edit.get("anchor"), dict):
+        change_unit_id = edit["anchor"].get("change_unit_id")
+    return {
+        "edit_index": edit_index,
+        "change_unit_id": change_unit_id,
+        "status": status,
+        "operation": None,
+        "match_count": None,
+        "target_author": None,
+        "target_revision_ids": [],
+        "position_supported": None,
+        "refusal_code": None,
+    }
+
+
+def _normalize_preflight_diagnostic(
+    edit: object,
+    edit_index: int,
+    status: str,
+    facts: object = None,
+) -> dict:
+    item = _empty_preflight_diagnostic(edit, edit_index, status)
+    if isinstance(facts, dict):
+        for key in _PREFLIGHT_DIAGNOSTIC_KEYS:
+            if key in facts:
+                item[key] = facts[key]
+    item["edit_index"] = edit_index
+    item["status"] = status
+    if item["change_unit_id"] is None:
+        item["change_unit_id"] = _empty_preflight_diagnostic(
+            edit, edit_index, status
+        )["change_unit_id"]
+    return item
 
 
 def _claimed_source_sha_from_edit(edit: object) -> str | None:
@@ -310,11 +511,22 @@ def _attach_edit_metadata(
 def _plan_error_metadata(
     plan: _PlannedEdit,
     observed_source_sha256: str,
+    planned: list[_PlannedEdit],
+    *,
+    failure_phase: str = "planning",
 ) -> dict[str, object]:
     return {
         "claimed_source_sha256": plan.claimed_source_sha256,
         "observed_source_sha256": observed_source_sha256,
         "edit_index": plan.edit_index,
+        "preflight_edit": _plan_diagnostic(
+            plan, status=PREFLIGHT_EDIT_STATUS_BLOCKED
+        ),
+        "failure_phase": failure_phase,
+        "planned_edits": [
+            _plan_diagnostic(item, status=PREFLIGHT_EDIT_STATUS_PLANNED)
+            for item in sorted(planned, key=lambda item: item.edit_index)
+        ],
     }
 
 
@@ -322,8 +534,16 @@ def _attach_plan_metadata(
     exc: ApplyError,
     plan: _PlannedEdit,
     observed_source_sha256: str,
+    planned: list[_PlannedEdit],
+    *,
+    failure_phase: str,
 ) -> ApplyError:
-    for key, value in _plan_error_metadata(plan, observed_source_sha256).items():
+    for key, value in _plan_error_metadata(
+        plan,
+        observed_source_sha256,
+        planned,
+        failure_phase=failure_phase,
+    ).items():
         exc.metadata.setdefault(key, value)
     return exc
 
@@ -337,6 +557,38 @@ def _attach_observed_source_metadata(
         metadata = {}
         exc.metadata = metadata
     metadata["observed_source_sha256"] = observed_source_sha256
+    return exc
+
+
+def _attach_pipeline_failure_metadata(
+    exc: DocxError,
+    planned: list[_PlannedEdit],
+    *,
+    failure_phase: str,
+    candidate_payload: bytes | None = None,
+    round_trip_check: dict | None = None,
+) -> DocxError:
+    """Preserve facts already proved before a later atomic refusal."""
+    metadata = getattr(exc, "metadata", None)
+    if not isinstance(metadata, dict):
+        metadata = {}
+        exc.metadata = metadata
+    metadata.setdefault("failure_phase", failure_phase)
+    if planned:
+        metadata.setdefault(
+            "planned_edits",
+            [
+                _plan_diagnostic(plan, status=PREFLIGHT_EDIT_STATUS_PLANNED)
+                for plan in sorted(planned, key=lambda item: item.edit_index)
+            ],
+        )
+    if candidate_payload is not None:
+        metadata.setdefault(
+            "observed_candidate_sha256",
+            hashlib.sha256(candidate_payload).hexdigest(),
+        )
+    if round_trip_check is not None:
+        metadata.setdefault("round_trip_check", round_trip_check)
     return exc
 
 
@@ -374,7 +626,7 @@ def _read_source_archive(
                 info.filename: archive.read(info)
                 for info in infos
             }
-    except _ZIP_READ_ERRORS as exc:
+    except ZIP_READ_ERRORS as exc:
         raise ApplyError(
             "file_unextractable",
             f"cannot read every member of source archive {source}",
@@ -382,14 +634,14 @@ def _read_source_archive(
     return infos, parts
 
 
-def _write_output_archive(
-    tmp_path: str,
+def _output_archive_bytes(
     infos: list[zipfile.ZipInfo],
     parts: dict[str, bytes],
-) -> None:
-    """Write the candidate package behind a stable output-I/O boundary."""
+) -> bytes:
+    """Serialize the candidate package entirely in memory."""
+    buffer = io.BytesIO()
     try:
-        with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as archive:
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
             for info in infos:
                 fresh = zipfile.ZipInfo(info.filename, date_time=info.date_time)
                 fresh.compress_type = zipfile.ZIP_DEFLATED
@@ -403,8 +655,9 @@ def _write_output_archive(
     ) as exc:
         raise ApplyError(
             "output_unwritable",
-            "cannot write temporary output archive",
+            "cannot serialize candidate DOCX archive",
         ) from exc
+    return buffer.getvalue()
 
 
 def _cleanup_temp_artifact(tmp_path: str) -> None:
@@ -452,6 +705,14 @@ def _validate_edit_shapes(
                 f"edits[{index}].anchor must be an object",
                 **_edit_error_metadata(edit, index, observed_source_sha256),
             )
+        unexpected_anchor_keys = set(anchor) - _ANCHOR_KEYS
+        if unexpected_anchor_keys:
+            raise ApplyError(
+                "invalid_edit",
+                f"edits[{index}].anchor contains unsupported fields: "
+                f"{', '.join(sorted(map(str, unexpected_anchor_keys)))}",
+                **_edit_error_metadata(edit, index, observed_source_sha256),
+            )
         for key in ("change_unit_id", "file_sha256"):
             value = anchor.get(key)
             if not isinstance(value, str) or not value:
@@ -460,55 +721,127 @@ def _validate_edit_shapes(
                     f"edits[{index}].anchor.{key} must be a non-empty string",
                     **_edit_error_metadata(edit, index, observed_source_sha256),
                 )
-        delete_text = edit.get("delete_text")
-        reinstate_text = edit.get("reinstate_text")
-        if delete_text is not None and reinstate_text is not None:
+        has_delete_text = "delete_text" in edit
+        has_reinstate_text = "reinstate_text" in edit
+        if has_delete_text and has_reinstate_text:
             raise ApplyError(
                 "invalid_edit",
                 f"edits[{index}] must use either delete_text or reinstate_text, not both",
                 **_edit_error_metadata(edit, index, observed_source_sha256),
             )
-        if reinstate_text is not None:
+        if has_reinstate_text:
+            unexpected_edit_keys = set(edit) - _REINSTATE_EDIT_KEYS
+            if unexpected_edit_keys:
+                raise ApplyError(
+                    "invalid_edit",
+                    f"edits[{index}] reinstate contains unsupported fields: "
+                    f"{', '.join(sorted(map(str, unexpected_edit_keys)))}",
+                    **_edit_error_metadata(edit, index, observed_source_sha256),
+                )
+            reinstate_text = edit["reinstate_text"]
             if not isinstance(reinstate_text, str) or not reinstate_text:
                 raise ApplyError(
                     "invalid_edit",
                     f"edits[{index}].reinstate_text must be a non-empty string",
                     **_edit_error_metadata(edit, index, observed_source_sha256),
                 )
-            if edit.get("insert_text"):
+            if not is_xml_text_compatible(reinstate_text):
                 raise ApplyError(
                     "invalid_edit",
-                    f"edits[{index}]: reinstate_text re-adds the deleted text "
-                    "verbatim and does not combine with insert_text",
+                    f"edits[{index}].reinstate_text contains characters "
+                    "invalid in XML",
                     **_edit_error_metadata(edit, index, observed_source_sha256),
                 )
         else:
+            unexpected_edit_keys = set(edit) - _DELETE_EDIT_KEYS
+            if unexpected_edit_keys:
+                raise ApplyError(
+                    "invalid_edit",
+                    f"edits[{index}] contains unsupported fields: "
+                    f"{', '.join(sorted(map(str, unexpected_edit_keys)))}",
+                    **_edit_error_metadata(edit, index, observed_source_sha256),
+                )
+            delete_text = edit.get("delete_text")
             if not isinstance(delete_text, str) or not delete_text:
                 raise ApplyError(
                     "delete_text_missing",
                     f"edits[{index}].delete_text must be a non-empty string",
                     **_edit_error_metadata(edit, index, observed_source_sha256),
                 )
+            if not is_xml_text_compatible(delete_text):
+                raise ApplyError(
+                    "invalid_edit",
+                    f"edits[{index}].delete_text contains characters invalid "
+                    "in XML",
+                    **_edit_error_metadata(edit, index, observed_source_sha256),
+                )
             insert_text = edit.get("insert_text", "")
-            if insert_text is not None and not isinstance(insert_text, str):
+            if not isinstance(insert_text, str):
                 raise ApplyError(
                     "invalid_edit",
                     f"edits[{index}].insert_text must be a string",
                     **_edit_error_metadata(edit, index, observed_source_sha256),
                 )
+            if not is_xml_text_compatible(insert_text):
+                raise ApplyError(
+                    "invalid_edit",
+                    f"edits[{index}].insert_text contains characters invalid "
+                    "in XML",
+                    **_edit_error_metadata(edit, index, observed_source_sha256),
+                )
 
 
-def _resolve_anchor_paragraph(document: etree._Element, unit: dict) -> etree._Element:
-    """Resolve the anchor unit to its paragraph element."""
-    wanted = set(unit["reference"]["revision_ids"])
-    for el in document.iter():
-        if el.tag in TEXT_REVISION_TAGS and el.get(w("id")) in wanted:
-            for ancestor in el.iterancestors(w("p")):
-                return ancestor
-    raise ApplyError(
-        "anchor_not_found",
-        f"revision ids of {unit['change_unit_id']} are not present in the document",
+def _resolve_anchor_paragraph(
+    document: etree._Element, unit: dict
+) -> tuple[etree._Element, int]:
+    """Resolve one hash-bound unit by structural position and fingerprint.
+
+    ``w:id`` is provenance, not an address: legitimate DOCX files can carry
+    duplicate revision ids.  The source hash binds the anchor to exact bytes;
+    paragraph/group ordinals locate the unit in those bytes; the canonical
+    group facts prove that extraction and application agree on its identity.
+    """
+    reference = unit.get("reference")
+    if (
+        not isinstance(reference, dict)
+        or reference.get("part_name") != DOCUMENT_PART
+    ):
+        raise ApplyError("anchor_mismatch", "anchor part is not supported")
+    paragraph_index = reference.get("paragraph_index")
+    group_index = reference.get("group_index")
+    if not isinstance(paragraph_index, int) or not isinstance(group_index, int):
+        raise ApplyError("anchor_mismatch", "anchor has no structural locator")
+
+    paragraphs = list(document.iter(w("p")))
+    if paragraph_index < 0 or paragraph_index >= len(paragraphs):
+        raise ApplyError("anchor_mismatch", "anchor paragraph is not present")
+    paragraph = paragraphs[paragraph_index]
+    groups = _group_units(_paragraph_stream(paragraph))
+    if group_index < 0 or group_index >= len(groups):
+        raise ApplyError("anchor_mismatch", "anchor revision group is not present")
+    fields = _group_change_fields(groups[group_index])
+    expected = (
+        unit.get("change_type"),
+        unit.get("author"),
+        unit.get("date"),
+        unit.get("old_text"),
+        unit.get("new_text"),
+        tuple(reference.get("revision_ids", [])),
     )
+    observed = (
+        fields.get("change_type") if fields else None,
+        fields.get("author") if fields else None,
+        fields.get("date") if fields else None,
+        fields.get("old_text") if fields else None,
+        fields.get("new_text") if fields else None,
+        tuple(fields.get("revision_ids", [])) if fields else (),
+    )
+    if observed != expected:
+        raise ApplyError(
+            "anchor_mismatch",
+            "the structurally located revision group does not match the anchor",
+        )
+    return paragraph, paragraph_index
 
 
 def _match_delete_span(
@@ -527,16 +860,21 @@ def _match_delete_span(
         raise ApplyError(
             "delete_text_not_found",
             "delete_text does not occur in the anchored clause's current reading",
+            match_count=0,
         )
     if len(matches) > 1:
         raise ApplyError(
             "delete_text_ambiguous",
             f"delete_text occurs {len(matches)} times in the anchored clause",
+            match_count=len(matches),
         )
     span = (matches[0], matches[0] + len(delete_text))
 
     touched = [s for s in segments if s.start < span[1] and s.end > span[0]]
-    if all(s.plain for s in touched):
+    # Matching follows the canonical current reading even when the underlying
+    # OOXML layout is not writable.  Surgery validates the narrower run shape
+    # later, so an extracted quote never degrades into a false zero-match.
+    if all(s.container is None for s in touched):
         return _PLAN_OPERATION_PLAIN, span, None
 
     containers = {s.container for s in touched}
@@ -546,7 +884,6 @@ def _match_delete_span(
             container is not None
             and container.tag == w("ins")
             and container.getparent() is para
-            and all(s.run.getparent() is container for s in touched)
         ):
             container_author = container.get(w("author")) or ""
             if container_author == author:
@@ -554,12 +891,19 @@ def _match_delete_span(
                     "overlaps_tracked_changes",
                     "the matched span lies in your own pending insertion; "
                     "counter edits target the counterparty's proposals",
+                    match_count=1,
+                    operation=APPLY_OPERATION_COUNTER,
+                    target_author=container_author,
+                    target_revision_ids=[container.get(w("id"))]
+                    if container.get(w("id"))
+                    else [],
                 )
             return APPLY_OPERATION_COUNTER, span, container
     raise ApplyError(
         "overlaps_tracked_changes",
         "the matched span mixes plain text and tracked changes, or sits in "
         "markup the write path does not support",
+        match_count=1,
     )
 
 
@@ -583,13 +927,34 @@ def _match_reinstate(
             "reinstate_text_not_found",
             "reinstate_text does not occur inside a counterparty deletion in "
             "the anchored clause",
+            match_count=0,
+            operation=APPLY_OPERATION_REINSTATE,
         )
     if total > 1 or len(hits) > 1:
         raise ApplyError(
             "reinstate_text_ambiguous",
             "reinstate_text occurs more than once among the clause's deletions",
+            match_count=total,
+            operation=APPLY_OPERATION_REINSTATE,
         )
     deletion = hits[0]
+    hidden = _hidden_del_text(deletion)
+    matched_at = hidden.find(reinstate_text)
+    if _hidden_del_atom_overlaps(
+        deletion,
+        (matched_at, matched_at + len(reinstate_text)),
+    ):
+        raise ApplyError(
+            "unsupported_run_shape",
+            "reinstate_text touches an OOXML text atom the write path cannot "
+            "preserve",
+            match_count=1,
+            operation=APPLY_OPERATION_REINSTATE,
+            target_author=deletion.get(w("author")) or "",
+            target_revision_ids=[deletion.get(w("id"))]
+            if deletion.get(w("id"))
+            else [],
+        )
     previous = deletion.getprevious()
     while previous is not None and previous.tag in _INERT_TAGS:
         previous = previous.getprevious()
@@ -600,6 +965,12 @@ def _match_reinstate(
             "reinstate_position_unsupported",
             "the counterparty deletion directly follows other tracked markup; "
             "reinstating here would break its grouping",
+            match_count=1,
+            operation=APPLY_OPERATION_REINSTATE,
+            target_author=deletion.get(w("author")) or "",
+            target_revision_ids=[deletion.get(w("id"))]
+            if deletion.get(w("id"))
+            else [],
         )
     point = _reading_offset_before(para, deletion)
     return (point, point), deletion
@@ -648,7 +1019,7 @@ def _wrap_covered_runs(
         for s in segments
         if s.start >= span_start and s.end <= span_end and s.end > s.start
     ]
-    if not covered or "".join(s.node.text or "" for s in covered) != plan.delete_text:
+    if not covered or "".join(s.text for s in covered) != plan.delete_text:
         raise ApplyError(
             "unsupported_run_shape",
             "could not align the matched span onto whole runs",
@@ -772,6 +1143,7 @@ def _collateral_outside(
 
 def _unit_content(unit: dict) -> tuple:
     return (
+        unit["reference"]["paragraph_index"],
         unit["change_type"],
         unit["author"],
         unit["date"],
@@ -813,7 +1185,15 @@ def _round_trip_verdict(
 
 def _expected_unit(plan: _PlannedEdit, author: str) -> tuple:
     if plan.op == APPLY_OPERATION_REINSTATE:
-        return ("insert", author, None, None, plan.insert_text, (plan.ins_id,))
+        return (
+            plan.paragraph_index,
+            "insert",
+            author,
+            None,
+            None,
+            plan.insert_text,
+            (plan.ins_id,),
+        )
     revision_ids = [plan.del_id] + ([plan.ins_id] if plan.ins_id else [])
     if plan.op == APPLY_OPERATION_COUNTER:
         change_type = APPLY_OPERATION_COUNTER
@@ -822,6 +1202,7 @@ def _expected_unit(plan: _PlannedEdit, author: str) -> tuple:
             APPLY_OPERATION_REPLACE if plan.ins_id else APPLY_OPERATION_DELETE
         )
     return (
+        plan.paragraph_index,
         change_type,
         author,
         None,
@@ -836,23 +1217,30 @@ def _expected_unit(plan: _PlannedEdit, author: str) -> tuple:
 # ---------------------------------------------------------------------------
 
 
-def apply_edits(
+def _prepare_candidate(
     source_path: str,
-    output_path: str,
     edits: list[dict],
     author: str = DEFAULT_AUTHOR,
-) -> dict:
-    """Apply explicit tracked edits at read-path anchors; fail closed."""
-    source = str(Path(source_path).expanduser())
-    output = str(Path(output_path).expanduser())
+) -> _PreparedCandidate:
+    """Run the complete edit pipeline without publishing an output file."""
+    try:
+        source = resolve_user_path(source_path)
+    except UserPathError as exc:
+        raise ApplyError(
+            exc.code, exc.detail, failure_phase="validation"
+        ) from exc
     # The MCP schema already types `edits` as an array, but this is a public
     # Python API too — a non-list must fail closed, not TypeError.
     if not isinstance(edits, list):
         raise ApplyError("invalid_edit", "edits must be an array of edit objects")
     if not edits:
         raise ApplyError("no_edits", "edits list is empty")
-    if os.path.exists(output):
-        raise ApplyError("output_exists", f"refusing to overwrite {output}")
+    if author_error := tracked_change_author_validation_error(author):
+        raise ApplyError(
+            "invalid_author",
+            author_error,
+            failure_phase="validation",
+        )
 
     # One byte snapshot of the source: the sha the anchors are checked
     # against, the baseline units and the parts being rewritten must all
@@ -864,6 +1252,13 @@ def apply_edits(
     source_sha = hashlib.sha256(source_payload).hexdigest()
     try:
         _validate_edit_shapes(edits, observed_source_sha256=source_sha)
+    except DocxError as exc:
+        _attach_observed_source_metadata(exc, source_sha)
+        metadata = getattr(exc, "metadata", None)
+        if isinstance(metadata, dict):
+            metadata.setdefault("failure_phase", "validation")
+        raise
+    try:
         baseline = _extract_from_bytes(source_payload, source)
         units_by_id = {u["change_unit_id"]: u for u in baseline["change_units"]}
 
@@ -878,9 +1273,14 @@ def apply_edits(
         _attach_observed_source_metadata(exc, source_sha)
         raise
 
-    next_id = _next_revision_id(document)
+    try:
+        revision_ids = _revision_id_allocator(document)
+    except DocxError as exc:
+        _attach_observed_source_metadata(exc, source_sha)
+        raise
     planned: list[_PlannedEdit] = []
     for edit_index, edit in enumerate(edits):
+        unit: dict | None = None
         try:
             anchor = edit["anchor"]
             if anchor["file_sha256"] != source_sha:
@@ -900,17 +1300,21 @@ def apply_edits(
                     observed_source_sha256=source_sha,
                     edit_index=edit_index,
                 )
-            paragraph = _resolve_anchor_paragraph(document, unit)
+            paragraph, paragraph_index = _resolve_anchor_paragraph(document, unit)
 
             reinstate_text = edit.get("reinstate_text")
             if reinstate_text is not None:
                 span, container = _match_reinstate(paragraph, reinstate_text, author)
-                ins_id = str(next_id)
-                next_id += 1
+                (ins_id,) = _reserve_revision_ids(
+                    revision_ids,
+                    1,
+                    operation=APPLY_OPERATION_REINSTATE,
+                    container=container,
+                )
                 planned.append(
                     _PlannedEdit(
                         anchor["change_unit_id"], edit_index, anchor["file_sha256"],
-                        paragraph,
+                        paragraph, paragraph_index,
                         APPLY_OPERATION_REINSTATE,
                         None,
                         reinstate_text,
@@ -923,21 +1327,51 @@ def apply_edits(
             delete_text = edit["delete_text"]
             insert_text = edit.get("insert_text") or ""
             op, span, container = _match_delete_span(paragraph, delete_text, author)
-            del_id = str(next_id)
-            next_id += 1
-            ins_id = None
-            if insert_text:
-                ins_id = str(next_id)
-                next_id += 1
+            operation = op if op != _PLAN_OPERATION_PLAIN else (
+                APPLY_OPERATION_REPLACE if insert_text else APPLY_OPERATION_DELETE
+            )
+            reserved = _reserve_revision_ids(
+                revision_ids,
+                2 if insert_text else 1,
+                operation=operation,
+                container=container,
+            )
+            del_id = reserved[0]
+            ins_id = reserved[1] if insert_text else None
             planned.append(
                 _PlannedEdit(
                     anchor["change_unit_id"], edit_index, anchor["file_sha256"],
-                    paragraph, op, delete_text, insert_text, span, container,
+                    paragraph, paragraph_index, op, delete_text, insert_text,
+                    span, container,
                     del_id, ins_id,
                 )
             )
         except ApplyError as exc:
-            raise _attach_edit_metadata(exc, edit, edit_index, source_sha) from exc
+            exc = _attach_edit_metadata(exc, edit, edit_index, source_sha)
+            metadata = exc.metadata
+            operation = metadata.get("operation")
+            if operation is None and isinstance(edit, dict) and "reinstate_text" in edit:
+                operation = APPLY_OPERATION_REINSTATE
+            preflight_edit = {
+                "edit_index": edit_index,
+                "change_unit_id": (
+                    edit.get("anchor", {}).get("change_unit_id")
+                    if isinstance(edit, dict)
+                    and isinstance(edit.get("anchor"), dict)
+                    else None
+                ),
+                "status": "blocked",
+                "operation": operation,
+                "match_count": metadata.get("match_count", 0),
+                "target_author": metadata.get("target_author"),
+                "target_revision_ids": metadata.get("target_revision_ids", []),
+                "position_supported": False,
+                "refusal_code": None,
+            }
+            metadata.setdefault("preflight_edit", preflight_edit)
+            raise _attach_pipeline_failure_metadata(
+                exc, planned, failure_phase="matching"
+            )
 
     # Same-paragraph edits: spans must not overlap; apply right to left so
     # earlier offsets stay valid while later text shifts.
@@ -955,7 +1389,7 @@ def apply_edits(
                     raise ApplyError(
                         "edits_overlap",
                         "two edits reinstate text from the same deletion",
-                        **_plan_error_metadata(plan, source_sha),
+                        **_plan_error_metadata(plan, source_sha, planned),
                     )
                 targeted_deletions.add(id(plan.container))
 
@@ -974,7 +1408,7 @@ def apply_edits(
                     "one pending insertion can be countered only once; "
                     "consolidate into a single counter that covers the whole "
                     "replacement",
-                    **_plan_error_metadata(plan, source_sha),
+                    **_plan_error_metadata(plan, source_sha, planned),
                 )
             countered_hosts.add(id(plan.container))
             if any(
@@ -987,7 +1421,7 @@ def apply_edits(
                     "already_countered",
                     "this insertion already carries our counter; counter an "
                     "insertion once, with the full replacement text",
-                    **_plan_error_metadata(plan, source_sha),
+                    **_plan_error_metadata(plan, source_sha, planned),
                 )
             following = _next_non_inert(plan.container)
             following_is_wrapper = following is not None and (
@@ -1000,7 +1434,7 @@ def apply_edits(
                     "the countered insertion is directly followed by other "
                     "tracked markup; placing the replacement there would "
                     "break its grouping",
-                    **_plan_error_metadata(plan, source_sha),
+                    **_plan_error_metadata(plan, source_sha, planned),
                 )
             if following_is_wrapper and (following.get(w("author")) or "") == author:
                 # Even a pure strike surfaces at the host's right edge in
@@ -1009,7 +1443,7 @@ def apply_edits(
                     "adjacent_to_own_revision",
                     "the countered insertion is directly followed by our own "
                     "earlier tracked change; the strike would merge with it",
-                    **_plan_error_metadata(plan, source_sha),
+                    **_plan_error_metadata(plan, source_sha, planned),
                 )
             host_end = _element_reading_span(plan.paragraph, plan.container)[1]
             for other in plans:
@@ -1024,7 +1458,7 @@ def apply_edits(
                         "insertion; without untouched text between them the "
                         "operations cannot stay distinct — apply it in a "
                         "separate call",
-                        **_plan_error_metadata(other, source_sha),
+                        **_plan_error_metadata(other, source_sha, planned),
                     )
 
         ordered = sorted(plans, key=lambda p: (p.span[0], p.span[1]))
@@ -1033,45 +1467,32 @@ def apply_edits(
                 raise ApplyError(
                     "edits_overlap",
                     "two edits target overlapping text in the same paragraph",
-                    **_plan_error_metadata(right, source_sha),
+                    **_plan_error_metadata(right, source_sha, planned),
                 )
         for plan in sorted(plans, key=lambda p: p.span[0], reverse=True):
             try:
                 _apply_plan(plan, author)
             except ApplyError as exc:
-                raise _attach_plan_metadata(exc, plan, source_sha) from exc
+                raise _attach_plan_metadata(
+                    exc,
+                    plan,
+                    source_sha,
+                    planned,
+                    failure_phase="surgery",
+                ) from exc
 
     # ------------------------------------------------------------------
-    # Write to a temp artifact, prove the round trip, then move into place.
+    # Serialize in memory and prove the same candidate apply_edits publishes.
     # ------------------------------------------------------------------
     parts[DOCUMENT_PART] = (
         b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n'
         + etree.tostring(document)
     )
-    # Unique temp name in the output directory: a fixed suffix could clobber
-    # an unrelated pre-existing sibling file.
-    tmp_path: str | None = None
+    candidate_payload: bytes | None = None
     try:
-        tmp_fd, tmp_path = tempfile.mkstemp(
-            dir=os.path.dirname(output) or ".",
-            prefix=os.path.basename(output) + ".",
-            suffix=".veqtor-tmp",
-        )
-        os.close(tmp_fd)
-    except OSError as exc:
-        if tmp_path is not None:
-            _cleanup_temp_artifact(tmp_path)
-        raise ApplyError(
-            "output_unwritable",
-            str(exc),
-            observed_source_sha256=source_sha,
-        ) from exc
-    assert tmp_path is not None
-    try:
-        _write_output_archive(tmp_path, infos, parts)
-
+        candidate_payload = _output_archive_bytes(infos, parts)
         try:
-            result = extract_redlines(tmp_path)
+            result = _extract_from_bytes(candidate_payload, source)
         except DocxError as exc:
             raise _relabel_candidate_snapshot_metadata(
                 exc,
@@ -1102,47 +1523,240 @@ def apply_edits(
             raise ApplyError(
                 "round_trip_failed",
                 f"collateral changes outside the touched anchors: {collateral}",
+                collateral_changes=collateral,
             )
-        try:
-            output_sha = hashlib.sha256(Path(tmp_path).read_bytes()).hexdigest()
-        except OSError as exc:
-            raise ApplyError(
-                "output_unreadable",
-                f"cannot read temporary output artifact: {exc}",
-            ) from exc
-        _publish_output_no_clobber(tmp_path, output)
     except DocxError as exc:
         _attach_observed_source_metadata(exc, source_sha)
-        _cleanup_temp_artifact(tmp_path)
+        metadata = getattr(exc, "metadata", {})
+        collateral_changes = (
+            metadata.get("collateral_changes", [])
+            if isinstance(metadata, dict)
+            else []
+        )
+        failure_phase = (
+            "serialization" if candidate_payload is None else "round_trip"
+        )
+        round_trip_check = (
+            None
+            if failure_phase == "serialization"
+            else {
+                "status": ROUND_TRIP_STATUS_FAILED,
+                "collateral_changes": collateral_changes,
+                "comparison": ROUND_TRIP_COMPARISON_CURRENT,
+            }
+        )
+        raise _attach_pipeline_failure_metadata(
+            exc,
+            planned,
+            failure_phase=failure_phase,
+            candidate_payload=candidate_payload,
+            round_trip_check=round_trip_check,
+        )
+
+    applied = [
+        {
+            "change_unit_id": plan.anchor_id,
+            "operation": plan.op if plan.op != _PLAN_OPERATION_PLAIN else (
+                APPLY_OPERATION_REPLACE if plan.ins_id else APPLY_OPERATION_DELETE
+            ),
+            "deleted_text": plan.delete_text,
+            "inserted_text": plan.insert_text or None,
+            "tracked_revision_ids": (
+                ([plan.del_id] if plan.del_id else [])
+                + ([plan.ins_id] if plan.ins_id else [])
+            ),
+        }
+        for plan in planned
+    ]
+    diagnostics = [
+        _plan_diagnostic(plan, status="applicable")
+        for plan in sorted(planned, key=lambda item: item.edit_index)
+    ]
+    round_trip_check = {
+        "status": ROUND_TRIP_STATUS_PASSED,
+        "collateral_changes": [],
+        "comparison": ROUND_TRIP_COMPARISON_CURRENT,
+    }
+    return _PreparedCandidate(
+        source_path=source,
+        source_sha256=source_sha,
+        candidate_payload=candidate_payload,
+        candidate_sha256=hashlib.sha256(candidate_payload).hexdigest(),
+        applied=applied,
+        round_trip_check=round_trip_check,
+        edit_diagnostics=diagnostics,
+    )
+
+
+def _preflight_failure_result(
+    source_path: str,
+    edits: object,
+    author: str,
+    exc: DocxError,
+) -> dict:
+    metadata = getattr(exc, "metadata", {})
+    metadata = metadata if isinstance(metadata, dict) else {}
+    failure_phase = metadata.get("failure_phase")
+    if failure_phase is None:
+        failure_phase = (
+            "validation"
+            if getattr(exc, "code", None)
+            in {
+                "anchor_missing",
+                "delete_text_missing",
+                "invalid_edit",
+                "invalid_author",
+                "invalid_path",
+                "no_edits",
+            }
+            else "source"
+        )
+    blocking_index = metadata.get("edit_index")
+    blocking_diagnostic = metadata.get("preflight_edit")
+    planned_diagnostics = {
+        item.get("edit_index"): dict(item)
+        for item in metadata.get("planned_edits", [])
+        if isinstance(item, dict) and isinstance(item.get("edit_index"), int)
+    }
+    diagnostics: list[dict] = []
+    if isinstance(edits, list):
+        for index, edit in enumerate(edits):
+            if index == blocking_index and isinstance(blocking_diagnostic, dict):
+                item = _normalize_preflight_diagnostic(
+                    edit,
+                    index,
+                    PREFLIGHT_EDIT_STATUS_BLOCKED,
+                    blocking_diagnostic,
+                )
+                item["position_supported"] = False
+                item["refusal_code"] = getattr(exc, "code", "docx_error")
+                diagnostics.append(item)
+                continue
+            if index in planned_diagnostics:
+                diagnostics.append(
+                    _normalize_preflight_diagnostic(
+                        edit,
+                        index,
+                        PREFLIGHT_EDIT_STATUS_PLANNED,
+                        planned_diagnostics[index],
+                    )
+                )
+                continue
+            item = _empty_preflight_diagnostic(
+                edit,
+                index,
+                PREFLIGHT_EDIT_STATUS_BLOCKED
+                if index == blocking_index
+                else PREFLIGHT_EDIT_STATUS_NOT_EVALUATED,
+            )
+            if index == blocking_index:
+                item["refusal_code"] = getattr(exc, "code", "docx_error")
+            diagnostics.append(item)
+    try:
+        safe_source_path = resolve_user_path(source_path)
+    except UserPathError:
+        safe_source_path = None
+    return {
+        "status": RESULT_STATUS_OK,
+        "source_path": safe_source_path,
+        "source_sha256": metadata.get("observed_source_sha256"),
+        "tracked_change_author": (
+            None if getattr(exc, "code", None) == "invalid_author" else author
+        ),
+        "batch_applicable": False,
+        "candidate_sha256": None,
+        "observed_candidate_sha256": metadata.get(
+            "observed_candidate_sha256"
+        ),
+        "blocking_edit_index": blocking_index,
+        "refusal_code": getattr(exc, "code", "docx_error"),
+        "failure_phase": failure_phase,
+        "reason": str(exc),
+        "edits": diagnostics,
+        "round_trip_check": metadata.get("round_trip_check"),
+    }
+
+
+def preflight_edits(
+    source_path: str,
+    edits: list[dict],
+    author: str = DEFAULT_AUTHOR,
+) -> dict:
+    """Fully dry-run edits in memory without creating an output DOCX."""
+    try:
+        prepared = _prepare_candidate(source_path, edits, author)
+    except DocxError as exc:
+        return _preflight_failure_result(source_path, edits, author, exc)
+    return {
+        "status": RESULT_STATUS_OK,
+        "source_path": prepared.source_path,
+        "source_sha256": prepared.source_sha256,
+        "tracked_change_author": author,
+        "batch_applicable": True,
+        "candidate_sha256": prepared.candidate_sha256,
+        "observed_candidate_sha256": None,
+        "blocking_edit_index": None,
+        "refusal_code": None,
+        "failure_phase": None,
+        "reason": None,
+        "edits": prepared.edit_diagnostics,
+        "round_trip_check": prepared.round_trip_check,
+    }
+
+
+def apply_edits(
+    source_path: str,
+    output_path: str,
+    edits: list[dict],
+    author: str = DEFAULT_AUTHOR,
+) -> dict:
+    """Apply explicit tracked edits using the same pipeline as preflight."""
+    try:
+        output = resolve_user_path(output_path)
+    except UserPathError as exc:
+        raise ApplyError(
+            exc.code, exc.detail, failure_phase="validation"
+        ) from exc
+    if os.path.exists(output):
+        raise ApplyError("output_exists", f"refusing to overwrite {output}")
+    prepared = _prepare_candidate(source_path, edits, author)
+
+    tmp_path: str | None = None
+    try:
+        tmp_fd, tmp_path = tempfile.mkstemp(
+            dir=os.path.dirname(output) or ".",
+            prefix=os.path.basename(output) + ".",
+            suffix=".veqtor-tmp",
+        )
+        with os.fdopen(tmp_fd, "wb") as handle:
+            handle.write(prepared.candidate_payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        _publish_output_no_clobber(tmp_path, output)
+    except DocxError as exc:
+        _attach_observed_source_metadata(exc, prepared.source_sha256)
+        if tmp_path is not None:
+            _cleanup_temp_artifact(tmp_path)
         raise
+    except OSError as exc:
+        if tmp_path is not None:
+            _cleanup_temp_artifact(tmp_path)
+        raise ApplyError(
+            "output_unwritable",
+            str(exc),
+            observed_source_sha256=prepared.source_sha256,
+        ) from exc
     except BaseException:
-        _cleanup_temp_artifact(tmp_path)
+        if tmp_path is not None:
+            _cleanup_temp_artifact(tmp_path)
         raise
 
     return {
         "status": RESULT_STATUS_OK,
+        "source_sha256": prepared.source_sha256,
         "output_path": output,
-        "output_sha256": output_sha,
-        "applied": [
-            {
-                "change_unit_id": plan.anchor_id,
-                "operation": plan.op if plan.op != _PLAN_OPERATION_PLAIN else (
-                    APPLY_OPERATION_REPLACE
-                    if plan.ins_id
-                    else APPLY_OPERATION_DELETE
-                ),
-                "deleted_text": plan.delete_text,
-                "inserted_text": plan.insert_text or None,
-                "tracked_revision_ids": (
-                    ([plan.del_id] if plan.del_id else [])
-                    + ([plan.ins_id] if plan.ins_id else [])
-                ),
-            }
-            for plan in planned
-        ],
-        "round_trip_check": {
-            "status": ROUND_TRIP_STATUS_PASSED,
-            "collateral_changes": [],
-            "comparison": ROUND_TRIP_COMPARISON_CURRENT,
-        },
+        "output_sha256": prepared.candidate_sha256,
+        "tracked_change_author": author,
+        "applied": prepared.applied,
+        "round_trip_check": prepared.round_trip_check,
     }

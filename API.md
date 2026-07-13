@@ -32,7 +32,12 @@ failures, `write_failed` means the commit is unknown even if a partial frame
 later appears on disk. Controlled fail-closed
 `DocxError` refusals attempt to record and are then re-raised; FastMCP error
 responses cannot echo their `record_id` in v1. Transport/type validation
-errors never reach the tool wrapper and are not recorded. A corrupt journal
+errors never reach the tool wrapper and are not recorded. Unexpected failures
+anywhere in workspace resolution, the core call, provenance projection,
+journal publication or response construction are journaled as a generic
+`internal_error` when a safe workspace exists, then replaced with a
+context-free MCP error. Their exception type, message, document content and
+local paths are never returned to the client. A corrupt journal
 (`journal_corrupt`) fails closed on export or further append. The journal is a
 sequence of non-empty JSON records, each terminated by one LF; blank frames and
 any non-empty unterminated EOF fragment are corrupt. An unterminated fragment
@@ -54,7 +59,7 @@ or changing the journal. Callers must not mutate payload structures during
 admits only the MCP names in its writable allowlist and derives each
 `record_type` from the permanent `decision_record.v1` historical tool spec. An
 unknown tool or mismatched pair is `record_invalid` on write and
-`journal_corrupt` on read. The five historical `(tool_name, record_type)` pairs
+`journal_corrupt` on read. The six historical `(tool_name, record_type)` pairs
 documented by this release, together with their compact projection rules, are
 append-only v1 format commitments: a retired tool may leave the writable and
 MCP surfaces but remains readable through raw local and compact reads. Existing
@@ -74,8 +79,14 @@ The permanent pairs introduced by this release are:
 - `list_rounds` → `tool_observation.v1`;
 - `extract_redlines` → `tool_observation.v1`;
 - `verify_quote` → `verification.v1`;
+- `preflight_edits` → `verification.v1`;
 - `apply_edits` → `decision.v1`;
 - `export_decision_record` → `access_event.v1`.
+
+The pair is forward-compatible for the 0.1 reader: it continues to accept all
+valid 0.0 records. Once a journal contains `preflight_edits`, downgrade to the
+0.0 reader is unsupported because that older tool does not know the new
+historical pair; it fails closed rather than skipping an unknown record.
 
 Move the damaged JSONL file aside to preserve it for inspection and let the
 server start a new one. v1 records are re-verifiable through hashes and anchors
@@ -101,8 +112,9 @@ Input:
 
 Output. Rounds are sorted by filename (the deterministic v1 round order);
 Word lock files (`~$*`) are ignored, the scan is non-recursive, and files
-that cannot be read as DOCX are reported in `skipped` instead of failing
-the call:
+that cannot be read as DOCX are reported in `skipped` with a stable reason code
+instead of failing the call. Unexpected implementation failures are not
+converted into successful skips and never expose their exception text:
 
 ```json
 {
@@ -149,7 +161,12 @@ decode — formatting changes, moves, paragraph-mark revisions — is counted in
 number of `w:ins`/`w:del` elements in `word/document.xml`. The extractor and
 decision-record projector consume one append-only v1 revision-category
 contract, so every category the v1 producer can emit is accepted by compact
-projection:
+projection. Every unit also includes bounded context from the paragraph's
+accepted/current reading: at most 240 characters before and after the unit,
+truncation flags, and a conservative `manual_label` only when the paragraph
+itself begins with a dotted label such as `5.2` or `2.1A`. This label is
+independent from the nearest-heading `clause_anchor` and is `null` rather than
+guessed:
 
 ```json
 {
@@ -168,11 +185,20 @@ projection:
         "label": "14.2",
         "heading": "Limitation of Liability"
       },
+      "paragraph_context": {
+        "before": "...",
+        "after": "...",
+        "manual_label": "14.2",
+        "truncated_before": false,
+        "truncated_after": false
+      },
       "old_text": "fees paid in the previous 12 months",
       "new_text": "USD 50,000",
       "reference": {
         "path": "/Users/example/Deals/AcmeDistribution/02-counterparty.docx",
         "part_name": "word/document.xml",
+        "paragraph_index": 42,
+        "group_index": 0,
         "revision_ids": ["17", "18"]
       }
     }
@@ -187,6 +213,12 @@ If the DOCX bytes are readable but extraction fails while decoding the OOXML,
 the controlled failure record carries `observed_source_sha256` for that exact
 snapshot. Malformed numeric style, numbering or paragraph properties do not
 escape as raw Python conversion errors.
+
+`paragraph_index` and `group_index` are zero-based structural locators inside
+the hash-identified `word/document.xml` snapshot. Apply resolves a unit by
+those positions and verifies its complete extracted fingerprint before text
+matching. `revision_ids` remain provenance only: OOXML producers may duplicate
+or move `w:id` values, so Veqtor never uses an id alone as the edit address.
 
 ## `verify_quote`
 
@@ -243,6 +275,132 @@ Output:
 }
 ```
 
+## `preflight_edits`
+
+Call this before `apply_edits` to determine whether one atomic edit batch can
+pass the complete document-processing pipeline. Preflight reads one source byte
+snapshot, validates and plans every edit, performs the OOXML surgery on a copy,
+serializes a candidate DOCX in memory, re-extracts it, and runs the same
+round-trip and collateral-change checks as apply. It never creates an output
+DOCX. Given the same source bytes, producer build, configured author, and edit
+payload, `batch_applicable: true` means apply will not fail in those document-
+processing phases; output publication can still fail because the source changed,
+the destination exists, permissions are insufficient, or the filesystem races.
+
+The document is read-only, but the tool records its result in the local
+`.veqtor` sidecar unless decision records are disabled. A failed batch is a
+structured successful tool response, not an MCP error. No edit is partially
+committed.
+
+Input uses the same `source_path` and `edits` fields as `apply_edits`, without
+an `output_path`.
+
+Output:
+
+```json
+{
+  "status": "ok",
+  "source_path": "/Users/example/Deals/AcmeDistribution/12-current.docx",
+  "source_sha256": "example",
+  "tracked_change_author": "Veqtor MCP",
+  "producer": {
+    "name": "veqtor-mcp",
+    "version": "0.1.0",
+    "build": "source-snapshot-v1-sha256:example"
+  },
+  "batch_applicable": true,
+  "candidate_sha256": "example",
+  "observed_candidate_sha256": null,
+  "blocking_edit_index": null,
+  "refusal_code": null,
+  "failure_phase": null,
+  "reason": null,
+  "edits": [
+    {
+      "edit_index": 0,
+      "change_unit_id": "cu_017",
+      "status": "applicable",
+      "operation": "counter",
+      "match_count": 1,
+      "target_author": "J. Smith",
+      "target_revision_ids": ["17"],
+      "position_supported": true,
+      "refusal_code": null
+    }
+  ],
+  "round_trip_check": {
+    "status": "passed",
+    "comparison": "ooxml_semantic_diff_outside_touched_anchors",
+    "collateral_changes": []
+  }
+}
+```
+
+A refused edit keeps the same per-edit diagnostic shape and adds a stable code,
+for example:
+
+```json
+{
+  "status": "ok",
+  "source_path": "/Users/example/Deals/AcmeDistribution/12-current.docx",
+  "source_sha256": "example",
+  "tracked_change_author": "Veqtor MCP",
+  "producer": {
+    "name": "veqtor-mcp",
+    "version": "0.1.0",
+    "build": "source-snapshot-v1-sha256:example"
+  },
+  "batch_applicable": false,
+  "candidate_sha256": null,
+  "observed_candidate_sha256": null,
+  "blocking_edit_index": 0,
+  "refusal_code": "counter_position_unsupported",
+  "failure_phase": "planning",
+  "reason": "counter_position_unsupported: the countered insertion is directly followed by other tracked markup; placing the replacement there would break its grouping",
+  "edits": [{
+    "edit_index": 0,
+    "change_unit_id": "cu_005",
+    "status": "blocked",
+    "operation": "counter",
+    "match_count": 1,
+    "target_author": "J. Smith",
+    "target_revision_ids": ["78"],
+    "position_supported": false,
+    "refusal_code": "counter_position_unsupported"
+  }],
+  "round_trip_check": null
+}
+```
+
+Per-edit status is `applicable` only after the complete dry-run succeeds.
+`blocked` identifies the edit that caused a specific refusal; `planned` means
+the edit was matched and planned but the atomic batch failed in a later phase;
+`not_evaluated` means processing never reached that edit. `failure_phase` is
+one of `validation`, `source`, `matching`, `planning`, `surgery`,
+`serialization`, or `round_trip`. A late candidate failure preserves
+`observed_candidate_sha256` and a failed `round_trip_check` without presenting
+the candidate as applicable.
+
+Every item in `edits` has the same field set. A `null` operation,
+`match_count`, target or position means that processing never reached the
+phase that could establish that fact; `match_count: 0` means matching did run
+and proved there were no matches. For example, validation fails before text
+matching and therefore returns:
+
+```json
+{
+  "edit_index": 0,
+  "change_unit_id": "cu_001",
+  "status": "blocked",
+  "operation": null,
+  "match_count": null,
+  "target_author": null,
+  "target_revision_ids": [],
+  "position_supported": null,
+  "refusal_code": "delete_text_missing"
+}
+```
+
 ## `apply_edits`
 
 Call this only after the user asks to prepare or apply counter wording and only
@@ -254,11 +412,11 @@ bound to a different file hash, or resolved to text that does not exactly match
 `delete_text`, the tool returns an error and writes nothing.
 
 `edits` are atomic: if any edit fails validation or application, no final
-output DOCX is written. If the round-trip check fails after application, the
-tool returns the original controlled error and makes a best-effort attempt to
-remove its temporary artifact. An operating-system cleanup refusal may leave
-that uniquely named temp file behind, but it never replaces the provenance-
-bearing operation error and never publishes the requested output path.
+output DOCX is written. Planning, OOXML surgery, candidate serialization,
+re-extraction, round-trip and collateral checks happen in memory before a
+temporary publication artifact exists. A failure in those phases therefore
+leaves no temp file. Once validation passes, the exact candidate bytes are
+written to a temporary artifact for atomic publication.
 Final publication is an atomic create-if-absent operation from a temporary
 file in the destination directory. If another process creates the destination
 after the initial check, apply returns `output_exists` and preserves that file;
@@ -269,15 +427,27 @@ success because the requested output has already been atomically published;
 the uniquely named temp remains as a second hard link to the same inode and may
 be removed later without changing the output bytes or `output_sha256`.
 The round-trip check compares OOXML structure outside touched anchor ranges; it
-does not require byte-identical DOCX packages.
+does not require byte-identical DOCX packages. Inside touched ranges it proves
+the prior units plus the proposed unit per paragraph position, so the right
+revision content appearing in a different clause is a failure rather than a
+successful global multiset match.
 Any controlled apply refusal after the source byte snapshot is known records
 `observed_source_sha256`. Operation-wide failures do not invent an `edit_index`;
 that field is present only when one specific edit or plan caused the refusal.
-If re-extraction of the temporary candidate fails after its own SHA is known,
+If re-extraction of the in-memory candidate fails after its own SHA is known,
 that distinct digest is recorded as `observed_candidate_sha256`; it never
 replaces or masquerades as the apply source snapshot.
 CRC or other controlled failures while reading all source archive members use
-`file_unextractable`; temporary archive write failures use `output_unwritable`.
+`file_unextractable`; candidate serialization or publication failures use
+`output_unwritable`.
+New tracked-change ids are allocated only when every existing `w:id` uses the
+supported lexical form: one to ten ASCII decimal digits, with a numeric value
+no greater than `2147483647`. Leading zeroes are accepted within that ten-digit
+limit; longer spellings are refused even when their numeric value would fit.
+Other values return `revision_id_unsupported`; an edit or batch that needs more
+ids than remain through `2147483647` returns `revision_id_exhausted` before any
+OOXML surgery. Neither condition reaches Python's unbounded integer conversion
+path or publishes a partial batch.
 Encrypted required members and decompressor failures are normalized through
 the same snapshot boundary. Before creating a candidate, apply reads each
 source member by its exact `ZipInfo` and rejects duplicate member names as
@@ -297,6 +467,24 @@ rewrites:
   inside exactly one counterparty deletion, as a visible insertion placed
   before it.
 
+Edit objects use a closed schema. Replace/delete accepts only `anchor`, a
+non-empty string `delete_text`, and optional string `insert_text`; an empty
+string means delete-only. Reinstate accepts only `anchor` and a non-empty
+string `reinstate_text`: the `insert_text` key must be absent. Validation uses
+the following stable machine codes; malformed values are never ignored or
+coerced:
+
+| Input condition | Refusal code |
+| --- | --- |
+| `delete_text` absent, `null`, empty, or non-string | `delete_text_missing` |
+| `insert_text` present with a non-string value, including `null` | `invalid_edit` |
+| `reinstate_text` present but not a non-empty string | `invalid_edit` |
+| Unknown edit or anchor field | `invalid_edit` |
+| Text containing an XML-incompatible character | `invalid_edit` |
+
+`delete_text_missing` therefore means that no usable non-empty deletion string
+was supplied; it is not limited to the physical absence of the JSON key.
+
 Several edits may target one paragraph; spans must not overlap (applied right
 to left). Adjacent same-author markup merges in extraction, so layouts that
 would leave two operations touching are refused with stable codes: a pending
@@ -309,8 +497,16 @@ enumeration: before anything is written, the tool re-extracts the candidate
 result, and any layout that would lose or alter a pre-existing change unit
 is refused under `adjacent_to_own_revision` even where no specific rule
 anticipated it. Spans mixing plain and tracked text, or lying in your own
-pending insertion, return `overlaps_tracked_changes`. New revisions are
-authored as `Veqtor MCP` and carry no `w:date` (deterministic output).
+pending insertion, return `overlaps_tracked_changes`. New revisions use the
+server-start author from `VEQTOR_TRACKED_CHANGE_AUTHOR` (default `Veqtor MCP`)
+and carry no `w:date`. The MCP input cannot override the author per call.
+Matcher readings use the same mappings as extraction for `w:tab`, `w:br`,
+`w:cr` and `w:noBreakHyphen`; when the v0.1 surgery path cannot preserve one
+of those element atoms, it reports `match_count: 1` and
+`unsupported_run_shape` rather than a false zero-match.
+All edit text is validated against the XML 1.0 character set before matching;
+invalid control characters or Unicode surrogates return a validation-phase
+`invalid_edit` refusal and never reach OOXML serialization.
 
 Input:
 
@@ -336,8 +532,15 @@ Output:
 ```json
 {
   "status": "ok",
+  "source_sha256": "example-source",
   "output_path": "/Users/example/Deals/AcmeDistribution/13-our-counter.docx",
   "output_sha256": "example-output",
+  "tracked_change_author": "Veqtor MCP",
+  "producer": {
+    "name": "veqtor-mcp",
+    "version": "0.1.0",
+    "build": "source-snapshot-v1-sha256:example"
+  },
   "applied": [
     {
       "change_unit_id": "cu_017",
@@ -398,7 +601,9 @@ normal derivation of a raw value into an allowed digest field is not. Across
 compact v1, the only scalar
 values retained verbatim are documented enums, strict booleans, non-negative
 counters, format-validated identifiers and timestamps, and SHA-256 values;
-other strings are omitted, digested, or represented as `legacy-unvalidated`.
+the bounded server-configured tracked-change author is also retained so a
+write's identity can be inspected. Other strings are omitted, digested, or
+represented as `legacy-unvalidated`.
 Only the current `producer.build` snapshot format remains verbatim; every older
 or unrecognized value is replaced by `legacy-unvalidated` plus its digest in
 compact output. Pre-release journals using older build markers are disposable
@@ -435,6 +640,7 @@ Output:
   "workspace": {"sha256": "example-workspace-digest", "omitted": true},
   "total_count": 4,
   "access_count": 1,
+  "returned_count": 4,
   "truncated": false,
   "next_before_record_id": null,
   "payloads": "compact",
@@ -456,7 +662,7 @@ Output:
       "created_at": "2026-07-09T12:00:00Z",
       "tool_name": "verify_quote",
       "workspace": {"sha256": "example-workspace-digest", "omitted": true},
-      "producer": {"name": "veqtor-mcp", "version": "0.0.0", "build": "source-snapshot-v1-sha256:..."},
+      "producer": {"name": "veqtor-mcp", "version": "0.1.0", "build": "source-snapshot-v1-sha256:..."},
       "payloads": "compact",
       "input": {"sha256": "example-input-digest", "omitted": true},
       "result": {

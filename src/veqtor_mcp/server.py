@@ -7,14 +7,45 @@ local provenance. Legal interpretation stays with the calling model.
 
 from __future__ import annotations
 
-from typing import Any
+import json
+import os
+import platform
+import sys
+from functools import cache
+from typing import Any, Callable
 
 from mcp.server.fastmcp import FastMCP
 
 import veqtor_docx
+from veqtor_docx._ooxml import tracked_change_author_validation_error
+from veqtor_docx.apply import DEFAULT_AUTHOR
+from veqtor_mcp import __version__
 from veqtor_mcp import records
 
+TRACKED_CHANGE_AUTHOR_ENV = "VEQTOR_TRACKED_CHANGE_AUTHOR"
+def _tracked_change_author_from_environment() -> str:
+    value = os.environ.get(TRACKED_CHANGE_AUTHOR_ENV, DEFAULT_AUTHOR)
+    value = value.strip()
+    if error := tracked_change_author_validation_error(value):
+        raise RuntimeError(f"{TRACKED_CHANGE_AUTHOR_ENV}: {error}")
+    return value
+
+
+@cache
+def _tracked_change_author() -> str:
+    """Resolve immutable process configuration lazily after CLI dispatch."""
+    return _tracked_change_author_from_environment()
+
+
 mcp = FastMCP("veqtor")
+
+
+def _producer() -> dict[str, str]:
+    return {
+        "name": "veqtor-mcp",
+        "version": __version__,
+        "build": records.SOURCE_SNAPSHOT_IDENTITY,
+    }
 
 
 def _ok_result(result: dict[str, Any]) -> dict[str, Any]:
@@ -69,6 +100,84 @@ def _record_error(
         tool_result=_error_result(exc),
         provenance=provenance or {},
     )
+
+
+class _InternalOperationError(veqtor_docx.DocxError):
+    """Generic journal representation of an unexpected implementation bug."""
+
+    code = "internal_error"
+
+
+class _McpBoundaryError(veqtor_docx.DocxError):
+    """A context-free error safe to expose through FastMCP."""
+
+    def __init__(self, code: str, detail: str) -> None:
+        super().__init__(f"{code}: {detail}")
+        self.code = code
+
+
+def _record_internal_error(
+    *,
+    tool_name: str,
+    workspace,
+    input_payload: dict[str, Any],
+    provenance: dict[str, Any],
+) -> None:
+    # Deliberately omit the original exception type and message: they can
+    # contain document text, local paths or library internals.
+    _record_error(
+        tool_name=tool_name,
+        workspace=workspace,
+        input_payload=input_payload,
+        exc=_InternalOperationError("unexpected internal failure"),
+        provenance=provenance,
+    )
+
+
+def _run_tool_boundary(
+    *,
+    tool_name: str,
+    workspace_resolver: Callable[[], Any],
+    input_payload_factory: Callable[[], dict[str, Any]],
+    internal_provenance_factory: Callable[[], dict[str, Any]],
+    operation: Callable[[Any, dict[str, Any]], dict[str, Any]],
+) -> dict[str, Any]:
+    """Execute the complete MCP tool pipeline behind one safe boundary."""
+    workspace = None
+    input_payload: dict[str, Any] = {}
+    try:
+        input_payload = input_payload_factory()
+        workspace = workspace_resolver()
+        return operation(workspace, input_payload)
+    except veqtor_docx.DocxError:
+        raise
+    except records.DecisionRecordError as exc:
+        # Journal-layer diagnostics may contain resolved workspace paths.
+        # Preserve the stable machine code but never the local detail at the
+        # MCP transport boundary.
+        raise _McpBoundaryError(
+            exc.code, "decision-record operation refused"
+        ) from None
+    except Exception:
+        if workspace is not None:
+            try:
+                provenance = internal_provenance_factory()
+            except Exception:
+                provenance = {}
+            try:
+                _record_internal_error(
+                    tool_name=tool_name,
+                    workspace=workspace,
+                    input_payload=input_payload,
+                    provenance=provenance,
+                )
+            except Exception:
+                # Journaling is best effort and must never replace the safe
+                # public error boundary with another implementation detail.
+                pass
+        raise _McpBoundaryError(
+            "internal_error", "unexpected tool failure"
+        ) from None
 
 
 def _anchor_from_verify(anchor: dict) -> dict[str, Any]:
@@ -208,12 +317,12 @@ def _verify_error_provenance(
 def _apply_provenance(
     result: dict[str, Any], source_path: str, edits: list[dict]
 ) -> dict[str, Any]:
-    source_sha = _claimed_source_sha_from_edits(edits)
     return {
         "source_path": source_path,
-        "source_sha256": source_sha,
+        "source_sha256": result["source_sha256"],
         "output_path": result["output_path"],
         "output_sha256": result["output_sha256"],
+        "tracked_change_author": result["tracked_change_author"],
         "anchors": _anchors_from_edits(edits),
         "applied": [
             {
@@ -227,11 +336,36 @@ def _apply_provenance(
     }
 
 
+def _preflight_provenance(
+    result: dict[str, Any], source_path: str, edits: list[dict]
+) -> dict[str, Any]:
+    provenance: dict[str, Any] = {
+        "source_path": source_path,
+        "anchors": _anchors_from_edits(edits),
+        "batch_applicable": result["batch_applicable"],
+        "tracked_change_author": result["tracked_change_author"],
+    }
+    if result.get("source_sha256") is not None:
+        provenance["source_sha256"] = result["source_sha256"]
+    if result.get("blocking_edit_index") is not None:
+        provenance["edit_index"] = result["blocking_edit_index"]
+    if result.get("observed_candidate_sha256") is not None:
+        provenance["observed_candidate_sha256"] = result[
+            "observed_candidate_sha256"
+        ]
+    if result.get("failure_phase") is not None:
+        provenance["failure_phase"] = result["failure_phase"]
+    if result.get("round_trip_check") is not None:
+        provenance["round_trip_check"] = result["round_trip_check"]
+    return provenance
+
+
 def _apply_error_provenance(
     source_path: str,
     output_path: str,
     edits: list[dict],
     exc: veqtor_docx.DocxError,
+    tracked_change_author: str,
 ) -> dict[str, Any]:
     metadata = getattr(exc, "metadata", {})
     claimed = (
@@ -243,6 +377,7 @@ def _apply_error_provenance(
         "source_path": source_path,
         "output_path": output_path,
         "anchors": _anchors_from_edits(edits) if isinstance(edits, list) else [],
+        "tracked_change_author": tracked_change_author,
     }
     if claimed is not None:
         provenance["claimed_source_sha256"] = claimed
@@ -284,14 +419,32 @@ def list_rounds(folder: str) -> dict:
     filename; each entry carries the file's sha256 and the raw count of
     tracked revisions inside. Unreadable files are reported in ``skipped``.
     """
-    workspace = records.workspace_for_folder(folder)
-    result = veqtor_docx.list_rounds(folder)
-    return _with_record(
+    def operation(workspace, input_payload):
+        try:
+            result = veqtor_docx.list_rounds(folder)
+        except veqtor_docx.DocxError as exc:
+            _record_error(
+                tool_name="list_rounds",
+                workspace=workspace,
+                input_payload=input_payload,
+                exc=exc,
+                provenance={"folder": folder},
+            )
+            raise
+        return _with_record(
+            tool_name="list_rounds",
+            workspace=workspace,
+            input_payload=input_payload,
+            result=result,
+            provenance=_list_rounds_provenance(result),
+        )
+
+    return _run_tool_boundary(
         tool_name="list_rounds",
-        workspace=workspace,
-        input_payload={"folder": folder},
-        result=result,
-        provenance=_list_rounds_provenance(result),
+        workspace_resolver=lambda: records.workspace_for_folder(folder),
+        input_payload_factory=lambda: {"folder": folder},
+        internal_provenance_factory=lambda: {"folder": folder},
+        operation=operation,
     )
 
 
@@ -302,31 +455,107 @@ def extract_redlines(path: str) -> dict:
     Call this when the user asks what changed in a DOCX, asks for tracked
     changes, or needs clause anchors. Each change unit states the change type
     (insert/delete/replace), author, date, old/new text, a best-effort clause
-    anchor, and a reference (path, OOXML part, revision ids, file sha256)
-    that lets any quote be re-checked against the document. Revision kinds
-    the tool does not decode (formatting, moves) are counted in
+    anchor, bounded before/after context from the current paragraph reading,
+    a conservative explicit manual paragraph label, and a reference (path,
+    OOXML part, revision ids, file sha256) that lets any quote be re-checked
+    against the document. Revision kinds the tool does not decode are counted in
     ``unsupported_revisions`` rather than silently dropped.
     """
-    workspace = records.workspace_for_file(path)
-    input_payload = {"path": path}
-    try:
-        result = veqtor_docx.extract_redlines(path)
-    except veqtor_docx.DocxError as exc:
-        _record_error(
+    def operation(workspace, input_payload):
+        try:
+            result = veqtor_docx.extract_redlines(path)
+        except veqtor_docx.DocxError as exc:
+            _record_error(
+                tool_name="extract_redlines",
+                workspace=workspace,
+                input_payload=input_payload,
+                exc=exc,
+                provenance=_extract_error_provenance(path, exc),
+            )
+            raise
+        return _with_record(
             tool_name="extract_redlines",
             workspace=workspace,
             input_payload=input_payload,
-            exc=exc,
-            provenance=_extract_error_provenance(path, exc),
+            result=result,
+            provenance=_extract_provenance(result),
+            record_result=_extract_record_result(result),
         )
-        raise
-    return _with_record(
+
+    return _run_tool_boundary(
         tool_name="extract_redlines",
-        workspace=workspace,
-        input_payload=input_payload,
-        result=result,
-        provenance=_extract_provenance(result),
-        record_result=_extract_record_result(result),
+        workspace_resolver=lambda: records.workspace_for_file(path),
+        input_payload_factory=lambda: {"path": path},
+        internal_provenance_factory=lambda: {"source_path": path},
+        operation=operation,
+    )
+
+
+@mcp.tool()
+def preflight_edits(source_path: str, edits: list[dict]) -> dict:
+    """Dry-run an atomic edit batch through the complete DOCX pipeline.
+
+    Call this before ``apply_edits``. It uses the same source snapshot,
+    planner, OOXML surgery, candidate serialization, re-extraction, round-trip
+    proof and collateral-change check as apply, but keeps the candidate in
+    memory and never creates an output DOCX. ``batch_applicable`` is therefore
+    authoritative for document-processing failures on the same bytes, build,
+    configuration and edit payload. A later apply may still fail if the source
+    changes or the output cannot be published. Like other read-only document
+    tools, this call records local provenance in the workspace sidecar unless
+    decision records are disabled.
+    """
+    context: dict[str, Any] = {}
+
+    def internal_provenance() -> dict[str, Any]:
+        provenance = {
+            "source_path": source_path,
+            "anchors": _anchors_from_edits(edits)
+            if isinstance(edits, list)
+            else [],
+        }
+        if "tracked_change_author" in context:
+            provenance["tracked_change_author"] = context["tracked_change_author"]
+        return provenance
+
+    def operation(workspace, input_payload):
+        tracked_change_author = _tracked_change_author()
+        context["tracked_change_author"] = tracked_change_author
+        try:
+            result = {
+                **veqtor_docx.preflight_edits(
+                    source_path,
+                    edits,
+                    author=tracked_change_author,
+                ),
+                "producer": _producer(),
+            }
+        except veqtor_docx.DocxError as exc:
+            _record_error(
+                tool_name="preflight_edits",
+                workspace=workspace,
+                input_payload=input_payload,
+                exc=exc,
+                provenance=internal_provenance(),
+            )
+            raise
+        return _with_record(
+            tool_name="preflight_edits",
+            workspace=workspace,
+            input_payload=input_payload,
+            result=result,
+            provenance=_preflight_provenance(result, source_path, edits),
+        )
+
+    return _run_tool_boundary(
+        tool_name="preflight_edits",
+        workspace_resolver=lambda: records.workspace_for_file(source_path),
+        input_payload_factory=lambda: {
+            "source_path": source_path,
+            "edits": _record_edits(edits),
+        },
+        internal_provenance_factory=internal_provenance,
+        operation=operation,
     )
 
 
@@ -351,38 +580,76 @@ def apply_edits(source_path: str, output_path: str, edits: list[dict]) -> dict:
     outside the touched anchors. This is not a byte-identity check of the DOCX
     package. The source file is never modified.
     """
-    workspace = records.workspace_for_file(source_path)
-    input_payload = {
-        "source_path": source_path,
-        "output_path": output_path,
-        "edits": _record_edits(edits),
-    }
-    try:
-        result = veqtor_docx.apply_edits(source_path, output_path, edits)
-    except veqtor_docx.DocxError as exc:
-        error_provenance = (
-            _apply_error_provenance(source_path, output_path, edits, exc)
+    context: dict[str, Any] = {}
+
+    def internal_provenance() -> dict[str, Any]:
+        provenance = {
+            "source_path": source_path,
+            "output_path": output_path,
+            "anchors": _anchors_from_edits(edits)
             if isinstance(edits, list)
-            else {
-                "source_path": source_path,
-                "output_path": output_path,
-                "anchors": [],
+            else [],
+        }
+        if "tracked_change_author" in context:
+            provenance["tracked_change_author"] = context["tracked_change_author"]
+        return provenance
+
+    def operation(workspace, input_payload):
+        tracked_change_author = _tracked_change_author()
+        context["tracked_change_author"] = tracked_change_author
+        try:
+            result = {
+                **veqtor_docx.apply_edits(
+                    source_path,
+                    output_path,
+                    edits,
+                    author=tracked_change_author,
+                ),
+                "producer": _producer(),
             }
-        )
-        _record_error(
+        except veqtor_docx.DocxError as exc:
+            error_provenance = (
+                _apply_error_provenance(
+                    source_path,
+                    output_path,
+                    edits,
+                    exc,
+                    tracked_change_author,
+                )
+                if isinstance(edits, list)
+                else {
+                    "source_path": source_path,
+                    "output_path": output_path,
+                    "anchors": [],
+                    "tracked_change_author": tracked_change_author,
+                }
+            )
+            _record_error(
+                tool_name="apply_edits",
+                workspace=workspace,
+                input_payload=input_payload,
+                exc=exc,
+                provenance=error_provenance,
+            )
+            raise
+        return _with_record(
             tool_name="apply_edits",
             workspace=workspace,
             input_payload=input_payload,
-            exc=exc,
-            provenance=error_provenance,
+            result=result,
+            provenance=_apply_provenance(result, source_path, edits),
         )
-        raise
-    return _with_record(
+
+    return _run_tool_boundary(
         tool_name="apply_edits",
-        workspace=workspace,
-        input_payload=input_payload,
-        result=result,
-        provenance=_apply_provenance(result, source_path, edits),
+        workspace_resolver=lambda: records.workspace_for_file(source_path),
+        input_payload_factory=lambda: {
+            "source_path": source_path,
+            "output_path": output_path,
+            "edits": _record_edits(edits),
+        },
+        internal_provenance_factory=internal_provenance,
+        operation=operation,
     )
 
 
@@ -399,29 +666,46 @@ def verify_quote(path: str, anchor: dict, quote: str) -> dict:
     anchor is an error, never a guess. The verdict covers only the anchored
     change unit, not the whole document or the legal accuracy of the quote.
     """
-    workspace = records.workspace_for_file(path)
-    input_payload = {
-        "path": path,
-        "anchor": _anchor_from_verify(anchor) if isinstance(anchor, dict) else anchor,
-        "quote": quote,
-    }
-    try:
-        result = veqtor_docx.verify_quote(path, anchor, quote)
-    except veqtor_docx.DocxError as exc:
-        _record_error(
+    def internal_provenance() -> dict[str, Any]:
+        return {
+            "source_path": path,
+            "anchor": _anchor_from_verify(anchor)
+            if isinstance(anchor, dict)
+            else None,
+        }
+
+    def operation(workspace, input_payload):
+        try:
+            result = veqtor_docx.verify_quote(path, anchor, quote)
+        except veqtor_docx.DocxError as exc:
+            _record_error(
+                tool_name="verify_quote",
+                workspace=workspace,
+                input_payload=input_payload,
+                exc=exc,
+                provenance=_verify_error_provenance(path, anchor, exc),
+            )
+            raise
+        return _with_record(
             tool_name="verify_quote",
             workspace=workspace,
             input_payload=input_payload,
-            exc=exc,
-            provenance=_verify_error_provenance(path, anchor, exc),
+            result=result,
+            provenance=_verify_provenance(result, anchor),
         )
-        raise
-    return _with_record(
+
+    return _run_tool_boundary(
         tool_name="verify_quote",
-        workspace=workspace,
-        input_payload=input_payload,
-        result=result,
-        provenance=_verify_provenance(result, anchor),
+        workspace_resolver=lambda: records.workspace_for_file(path),
+        input_payload_factory=lambda: {
+            "path": path,
+            "anchor": _anchor_from_verify(anchor)
+            if isinstance(anchor, dict)
+            else anchor,
+            "quote": quote,
+        },
+        internal_provenance_factory=internal_provenance,
+        operation=operation,
     )
 
 
@@ -443,41 +727,113 @@ def export_decision_record(
     the raw local journal may contain private matter text and is never returned
     by this tool.
     """
-    root = records.workspace_for_folder(workspace)
-    input_payload = {
-        "workspace": workspace,
-        "max_records": max_records,
-        "before_record_id": before_record_id,
-    }
-    result = records.read_records(
-        workspace,
-        max_records,
-        before_record_id,
-        include_payload=False,
-    )
-    assurance = _decision_record_assurance()
-    export_summary = {
-        "status": records.RESULT_STATUS_OK,
-        "workspace": result["workspace"],
-        "total_count": result["total_count"],
-        "access_count": result["access_count"],
-        "returned_count": len(result["records"]),
-        "truncated": result["truncated"],
-        "next_before_record_id": result["next_before_record_id"],
-        "payloads": result["payloads"],
-        "assurance": assurance,
-    }
-    meta = records.write_record(
-        workspace=root,
+    def operation(root, input_payload):
+        result = records.read_records(
+            workspace,
+            max_records,
+            before_record_id,
+            include_payload=False,
+        )
+        assurance = _decision_record_assurance()
+        export_summary = {
+            "status": records.RESULT_STATUS_OK,
+            "workspace": result["workspace"],
+            "total_count": result["total_count"],
+            "access_count": result["access_count"],
+            "returned_count": len(result["records"]),
+            "truncated": result["truncated"],
+            "next_before_record_id": result["next_before_record_id"],
+            "payloads": result["payloads"],
+            "assurance": assurance,
+        }
+        meta = records.write_record(
+            workspace=root,
+            tool_name="export_decision_record",
+            input_payload=input_payload,
+            result=export_summary,
+            provenance={"workspace": result["workspace"]},
+        )
+        return {
+            **result,
+            "returned_count": len(result["records"]),
+            "assurance": assurance,
+            **meta,
+        }
+
+    return _run_tool_boundary(
         tool_name="export_decision_record",
-        input_payload=input_payload,
-        result=export_summary,
-        provenance={"workspace": result["workspace"]},
+        workspace_resolver=lambda: records.workspace_for_folder(workspace),
+        input_payload_factory=lambda: {
+            "workspace": workspace,
+            "max_records": max_records,
+            "before_record_id": before_record_id,
+        },
+        internal_provenance_factory=lambda: {},
+        operation=operation,
     )
-    return {**result, "assurance": assurance, **meta}
 
 
 def main() -> None:
+    if sys.argv[1:] == ["--version"]:
+        print(f"veqtor-mcp {__version__}")
+        return
+    if sys.argv[1:] == ["doctor"]:
+        supported_python = (3, 12) <= sys.version_info[:2] < (3, 15)
+        supported_platform = sys.platform.startswith(("darwin", "linux"))
+        configuration_error: dict[str, str] | None = None
+        try:
+            tracked_change_author = _tracked_change_author()
+        except RuntimeError as exc:
+            tracked_change_author = None
+            configuration_error = {
+                "code": "tracked_change_author_invalid",
+                "message": str(exc),
+            }
+        status = (
+            "error"
+            if configuration_error is not None
+            else "ok"
+            if supported_python and supported_platform
+            else "unsupported"
+        )
+        print(
+            json.dumps(
+                {
+                    "name": "veqtor-mcp",
+                    "version": __version__,
+                    "build": records.SOURCE_SNAPSHOT_IDENTITY,
+                    "python": platform.python_version(),
+                    "platform": sys.platform,
+                    "supported_python": supported_python,
+                    "supported_platform": supported_platform,
+                    "tracked_change_author": tracked_change_author,
+                    "configuration_error": configuration_error,
+                    "decision_records": (
+                        "disabled" if records.disabled() else "enabled"
+                    ),
+                    "status": status,
+                },
+                sort_keys=True,
+            )
+        )
+        if (
+            configuration_error is not None
+            or not supported_python
+            or not supported_platform
+        ):
+            raise SystemExit(2)
+        return
+    if sys.argv[1:]:
+        print(
+            "usage: veqtor-mcp [--version|doctor]",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    try:
+        _tracked_change_author()
+    except RuntimeError as exc:
+        print(f"configuration error: {exc}", file=sys.stderr)
+        raise SystemExit(2) from None
     mcp.run()
 
 

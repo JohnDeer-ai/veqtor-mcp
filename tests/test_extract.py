@@ -4,9 +4,13 @@
 import json
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
-from veqtor_docx import extract_redlines
+from lxml import etree
+
+from veqtor_docx import extract_redlines, verify_quote
+from veqtor_docx._ooxml import parse_xml, w
 from veqtor_docx.contracts import (
     EXTRACT_REVISION_CATEGORIES_V1,
     TEXT_REVISION_SUFFIX_BY_NAME_V1,
@@ -29,6 +33,57 @@ from veqtor_docx.synthetic import (
 def _round(demo_dir: Path, number: int) -> dict:
     path = sorted(demo_dir.glob("*.docx"))[number - 1]
     return extract_redlines(str(path))
+
+
+def _rewrite_document(source: Path, target: Path, mutate) -> None:
+    with zipfile.ZipFile(source) as original, zipfile.ZipFile(target, "w") as output:
+        for info in original.infolist():
+            payload = original.read(info)
+            if info.filename == "word/document.xml":
+                document = parse_xml(payload)
+                mutate(document)
+                payload = (
+                    b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n'
+                    + etree.tostring(document)
+                )
+            output.writestr(info, payload)
+
+
+def _run(parent: etree._Element, text: str) -> etree._Element:
+    run = etree.SubElement(parent, w("r"))
+    node = etree.SubElement(run, w("t"))
+    node.text = text
+    return run
+
+
+def _insertion(
+    parent: etree._Element, revision_id: str, text: str
+) -> etree._Element:
+    insertion = etree.SubElement(parent, w("ins"))
+    insertion.set(w("id"), revision_id)
+    insertion.set(w("author"), "Context Test")
+    _run(insertion, text)
+    return insertion
+
+
+def _revision_with_no_break_hyphen(
+    parent: etree._Element,
+    kind: str,
+    revision_id: str,
+    left: str,
+    right: str,
+) -> etree._Element:
+    revision = etree.SubElement(parent, w(kind))
+    revision.set(w("id"), revision_id)
+    revision.set(w("author"), "Context Test")
+    run = etree.SubElement(revision, w("r"))
+    text_tag = w("t") if kind == "ins" else w("delText")
+    first = etree.SubElement(run, text_tag)
+    first.text = left
+    etree.SubElement(run, w("noBreakHyphen"))
+    second = etree.SubElement(run, text_tag)
+    second.text = right
+    return revision
 
 
 def test_package_import_does_not_require_optional_lzma_extension() -> None:
@@ -114,6 +169,14 @@ def test_round2_units(demo_dir: Path) -> None:
     assert {u["date"] for u in units} == {"2026-05-05T09:30:00Z"}
 
     table_cell, row_label, row_fee, audit, adviser, cap = units
+    for unit in units:
+        context = unit["paragraph_context"]
+        assert len(context["before"]) <= 240
+        assert len(context["after"]) <= 240
+        assert type(context["truncated_before"]) is bool
+        assert type(context["truncated_after"]) is bool
+        assert type(unit["reference"]["paragraph_index"]) is int
+        assert type(unit["reference"]["group_index"]) is int
     # Tracked change inside a table cell is anchored to the numbered subclause.
     assert (table_cell["old_text"], table_cell["new_text"]) == ("50", "65")
     assert table_cell["clause_anchor"] == {"label": "3.3", "heading": "Cancellation Charges"}
@@ -161,6 +224,13 @@ def test_round3_units(demo_dir: Path) -> None:
     # A manually numbered inserted clause anchors to itself.
     assert compelled["clause_anchor"] == {"label": "9.5", "heading": "Compelled Disclosure"}
     assert compelled["new_text"].startswith("9.5 Compelled Disclosure.")
+    assert compelled["paragraph_context"] == {
+        "before": "",
+        "after": "",
+        "manual_label": "9.5",
+        "truncated_before": False,
+        "truncated_after": False,
+    }
 
     assert (cap["old_text"], cap["new_text"]) == (CAP_R2, CAP_R3)
     assert carveout["change_type"] == "insert"
@@ -182,6 +252,190 @@ def test_round4_units(demo_dir: Path) -> None:
     assert (cap["old_text"], cap["new_text"]) == (CAP_R3, CAP_R4)
     assert dropped["old_text"] == CARVEOUT_DROPPED
     assert {u["author"] for u in units} == {AUTHOR_CP}
+
+
+def test_manual_paragraph_label_is_distinct_from_heading_anchor(
+    demo_dir: Path,
+) -> None:
+    result = _round(demo_dir, 3)
+    compelled = result["change_units"][0]
+
+    assert compelled["paragraph_context"]["manual_label"] == "9.5"
+    assert compelled["clause_anchor"] == {
+        "label": "9.5",
+        "heading": "Compelled Disclosure",
+    }
+    assert all(
+        unit["paragraph_context"]["manual_label"] is None
+        for unit in result["change_units"][1:]
+    )
+
+
+def test_repeated_insertions_use_element_offsets_not_text_search(
+    demo_dir: Path,
+    tmp_path: Path,
+) -> None:
+    source = demo_dir / "round-2-counterparty-redline.docx"
+    target = tmp_path / "repeated-context.docx"
+
+    def add_repeated_paragraph(document: etree._Element) -> None:
+        body = document.find(w("body"))
+        assert body is not None
+        paragraph = etree.Element(w("p"))
+        _run(paragraph, "Prefix ")
+        _insertion(paragraph, "900", "SAME")
+        _run(paragraph, " middle ")
+        _insertion(paragraph, "901", "SAME")
+        _run(paragraph, " suffix")
+        body.insert(max(0, len(body) - 1), paragraph)
+
+    _rewrite_document(source, target, add_repeated_paragraph)
+    extracted = extract_redlines(str(target))
+    first = next(
+        unit
+        for unit in extracted["change_units"]
+        if unit["reference"]["revision_ids"] == ["900"]
+    )
+    second = next(
+        unit
+        for unit in extracted["change_units"]
+        if unit["reference"]["revision_ids"] == ["901"]
+    )
+
+    assert first["paragraph_context"]["before"] == "Prefix "
+    assert first["paragraph_context"]["after"] == " middle SAME suffix"
+    assert second["paragraph_context"]["before"] == "Prefix SAME middle "
+    assert second["paragraph_context"]["after"] == " suffix"
+
+
+def test_tabs_and_breaks_share_one_reading_and_offset_model(
+    demo_dir: Path,
+    tmp_path: Path,
+) -> None:
+    source = demo_dir / "round-2-counterparty-redline.docx"
+    target = tmp_path / "structural-whitespace-context.docx"
+
+    def add_structural_whitespace(document: etree._Element) -> None:
+        body = document.find(w("body"))
+        assert body is not None
+
+        tabbed = etree.Element(w("p"))
+        run = _run(tabbed, "5.2")
+        etree.SubElement(run, w("tab"))
+        text = etree.SubElement(run, w("t"))
+        text.text = "Payment"
+        etree.SubElement(run, w("tab"))
+        tail = etree.SubElement(run, w("t"))
+        tail.text = "before "
+        _insertion(tabbed, "902", "CHANGED")
+        _run(tabbed, " suffix")
+
+        broken = etree.Element(w("p"))
+        run = _run(broken, "6.3")
+        etree.SubElement(run, w("br"))
+        text = etree.SubElement(run, w("t"))
+        text.text = "Payment "
+        _insertion(broken, "903", "UPDATED")
+
+        insert_at = max(0, len(body) - 1)
+        body.insert(insert_at, tabbed)
+        body.insert(insert_at + 1, broken)
+
+    _rewrite_document(source, target, add_structural_whitespace)
+    extracted = extract_redlines(str(target))
+    tabbed = next(
+        unit
+        for unit in extracted["change_units"]
+        if unit["reference"]["revision_ids"] == ["902"]
+    )
+    broken = next(
+        unit
+        for unit in extracted["change_units"]
+        if unit["reference"]["revision_ids"] == ["903"]
+    )
+
+    assert tabbed["paragraph_context"] == {
+        "before": "5.2\tPayment\tbefore ",
+        "after": " suffix",
+        "manual_label": "5.2",
+        "truncated_before": False,
+        "truncated_after": False,
+    }
+    assert broken["paragraph_context"] == {
+        "before": "6.3\nPayment ",
+        "after": "",
+        "manual_label": "6.3",
+        "truncated_before": False,
+        "truncated_after": False,
+    }
+
+
+def test_no_break_hyphen_is_shared_by_context_revisions_and_verification(
+    demo_dir: Path,
+    tmp_path: Path,
+) -> None:
+    source = demo_dir / "round-2-counterparty-redline.docx"
+    target = tmp_path / "no-break-hyphen.docx"
+
+    def add_no_break_hyphens(document: etree._Element) -> None:
+        body = document.find(w("body"))
+        assert body is not None
+
+        plain = etree.Element(w("p"))
+        run = _run(plain, "Alpha")
+        etree.SubElement(run, w("noBreakHyphen"))
+        tail = etree.SubElement(run, w("t"))
+        tail.text = "Beta "
+        _insertion(plain, "904", "Changed")
+        _run(plain, " suffix")
+
+        inserted = etree.Element(w("p"))
+        _run(inserted, "Before ")
+        _revision_with_no_break_hyphen(
+            inserted, "ins", "905", "Insert", "Value"
+        )
+        _run(inserted, " after")
+
+        deleted = etree.Element(w("p"))
+        _run(deleted, "Before ")
+        _revision_with_no_break_hyphen(
+            deleted, "del", "906", "Delete", "Value"
+        )
+        _run(deleted, " after")
+
+        insert_at = max(0, len(body) - 1)
+        for offset, paragraph in enumerate((plain, inserted, deleted)):
+            body.insert(insert_at + offset, paragraph)
+
+    _rewrite_document(source, target, add_no_break_hyphens)
+    extracted = extract_redlines(str(target))
+    units = {
+        unit["reference"]["revision_ids"][0]: unit
+        for unit in extracted["change_units"]
+        if unit["reference"]["revision_ids"]
+        and unit["reference"]["revision_ids"][0] in {"904", "905", "906"}
+    }
+
+    assert units["904"]["paragraph_context"]["before"] == "Alpha-Beta "
+    assert units["904"]["paragraph_context"]["after"] == " suffix"
+    assert units["905"]["new_text"] == "Insert-Value"
+    assert units["905"]["paragraph_context"]["before"] == "Before "
+    assert units["905"]["paragraph_context"]["after"] == " after"
+    assert units["906"]["old_text"] == "Delete-Value"
+    assert units["906"]["paragraph_context"]["before"] == "Before "
+    assert units["906"]["paragraph_context"]["after"] == " after"
+
+    for revision_id, quote in (("905", "Insert-Value"), ("906", "Delete-Value")):
+        unit = units[revision_id]
+        verified = verify_quote(
+            str(target),
+            {
+                "change_unit_id": unit["change_unit_id"],
+                "file_sha256": extracted["file_sha256"],
+            },
+            quote,
+        )
+        assert verified["verdict"] == "exact"
 
 
 def test_liability_timeline_chains_across_rounds(demo_dir: Path) -> None:

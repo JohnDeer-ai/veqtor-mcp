@@ -9,6 +9,7 @@ dist/
 build/
 *.egg-info/
 .veqtor/
+/.claude/
 
 # generated demo fixtures (recreate with veqtor-demo-rounds)
 /veqtor-demo-rounds/

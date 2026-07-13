@@ -11,6 +11,7 @@ Run locally with::
     VEQTOR_PRIVATE_FIXTURE_DIR="/path/to/private/corpus" pytest -m private
 """
 
+import hashlib
 import json
 import os
 import shutil
@@ -20,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from veqtor_docx import apply_edits, extract_redlines, verify_quote
+from veqtor_docx import apply_edits, extract_redlines, preflight_edits, verify_quote
 from veqtor_docx._ooxml import parse_xml, w
 from veqtor_docx.apply import DEFAULT_AUTHOR, _paragraph_segments, _resolve_anchor_paragraph
 from veqtor_mcp import records, server
@@ -36,6 +37,31 @@ pytestmark = [
 def _corpus_files() -> list[Path]:
     root = Path(os.environ.get(_ENV, "."))
     return sorted(p for p in root.rglob("*.docx") if not p.name.startswith("~$"))
+
+
+def _tree_snapshot(root: Path) -> tuple | None:
+    """Byte/shape/mode identity for a possibly pre-existing sidecar tree."""
+    if not os.path.lexists(root):
+        return None
+    snapshot: list[tuple[str, int, str, str | None]] = []
+    for path in [root, *sorted(root.rglob("*"))]:
+        metadata = path.lstat()
+        relative = "." if path == root else path.relative_to(root).as_posix()
+        mode = stat.S_IMODE(metadata.st_mode)
+        if path.is_symlink():
+            kind = "symlink"
+            payload = os.readlink(path)
+        elif path.is_file():
+            kind = "file"
+            payload = hashlib.sha256(path.read_bytes()).hexdigest()
+        elif path.is_dir():
+            kind = "directory"
+            payload = None
+        else:
+            kind = "special"
+            payload = None
+        snapshot.append((relative, mode, kind, payload))
+    return tuple(snapshot)
 
 
 def _visible_text(path: Path) -> str:
@@ -57,7 +83,7 @@ def _squash(text: str) -> str:
 def _runtime_edit_target(path: Path, units: list[dict]) -> tuple[dict, str] | None:
     document = parse_xml(zipfile.ZipFile(path).read("word/document.xml"))
     for unit in units:
-        paragraph = _resolve_anchor_paragraph(document, unit)
+        paragraph, _paragraph_index = _resolve_anchor_paragraph(document, unit)
         segments = _paragraph_segments(paragraph)
         reading = "".join(seg.node.text or "" for seg in segments)
         for seg in segments:
@@ -148,25 +174,32 @@ def test_apply_edits_on_a_copy_of_a_real_redline(tmp_path: Path) -> None:
 
         unit, delete_text = target
         out = tmp_path / f"out-{applied}-{original.name}"
+        edits = [
+            {
+                "anchor": {
+                    "change_unit_id": unit["change_unit_id"],
+                    "file_sha256": source["file_sha256"],
+                },
+                "delete_text": delete_text,
+                "insert_text": delete_text.upper(),
+            }
+        ]
+        preflight = preflight_edits(str(working_copy), edits)
+        assert preflight["batch_applicable"] is True
+        assert not out.exists()
         result = apply_edits(
             str(working_copy),
             str(out),
-            [
-                {
-                    "anchor": {
-                        "change_unit_id": unit["change_unit_id"],
-                        "file_sha256": source["file_sha256"],
-                    },
-                    "delete_text": delete_text,
-                    "insert_text": delete_text.upper(),
-                }
-            ],
+            edits,
         )
         assert result["round_trip_check"]["status"] == "passed"
+        assert result["output_sha256"] == preflight["candidate_sha256"]
+        written_ids = set(result["applied"][0]["tracked_revision_ids"])
         mine = [
             u
             for u in extract_redlines(str(out))["change_units"]
             if u["author"] == DEFAULT_AUTHOR
+            and set(u["reference"]["revision_ids"]) == written_ids
         ]
         assert len(mine) == 1
         assert mine[0]["old_text"] == delete_text
@@ -212,6 +245,8 @@ def test_mcp_recorder_export_workflow_on_private_matter_copy(tmp_path: Path) -> 
     """
     exercised = False
     for index, original in enumerate(_corpus_files()):
+        original_sidecar = original.parent / records.SIDECAR_DIR
+        original_sidecar_before = _tree_snapshot(original_sidecar)
         matter = tmp_path / f"matter-{index}"
         matter.mkdir()
         working_copy = matter / original.name
@@ -246,31 +281,40 @@ def test_mcp_recorder_export_workflow_on_private_matter_copy(tmp_path: Path) -> 
 
         edit_unit, delete_text = target
         output_path = matter / f"mcp-output-{original.name}"
+        edits = [
+            {
+                "anchor": {
+                    "change_unit_id": edit_unit["change_unit_id"],
+                    "file_sha256": extraction["file_sha256"],
+                },
+                "delete_text": delete_text,
+                "insert_text": delete_text.upper(),
+            }
+        ]
+        preflight = server.preflight_edits(str(working_copy), edits)
+        assert preflight["record_status"] == "written"
+        assert preflight["batch_applicable"] is True
+        assert preflight["producer"]["build"] == records.SOURCE_SNAPSHOT_IDENTITY
+        assert not output_path.exists()
         applied = server.apply_edits(
             str(working_copy),
             str(output_path),
-            [
-                {
-                    "anchor": {
-                        "change_unit_id": edit_unit["change_unit_id"],
-                        "file_sha256": extraction["file_sha256"],
-                    },
-                    "delete_text": delete_text,
-                    "insert_text": delete_text.upper(),
-                }
-            ],
+            edits,
         )
         assert applied["record_status"] == "written"
         assert applied["round_trip_check"]["status"] == "passed"
+        assert applied["output_sha256"] == preflight["candidate_sha256"]
         assert applied["output_sha256"] == extract_redlines(str(output_path))["file_sha256"]
 
         exported = server.export_decision_record(str(matter), max_records=10)
         assert exported["record_status"] == "written"
         assert exported["payloads"] == "compact"
-        assert exported["total_count"] >= 3
+        assert exported["total_count"] >= 4
+        assert exported["returned_count"] == len(exported["records"])
         tool_names = [record["tool_name"] for record in exported["records"]]
         assert "extract_redlines" in tool_names
         assert "verify_quote" in tool_names
+        assert "preflight_edits" in tool_names
         assert "apply_edits" in tool_names
 
         apply_record = next(
@@ -295,7 +339,7 @@ def test_mcp_recorder_export_workflow_on_private_matter_copy(tmp_path: Path) -> 
         journal = sidecar / records.JOURNAL_NAME
         assert stat.S_IMODE(sidecar.stat().st_mode) == 0o700
         assert stat.S_IMODE(journal.stat().st_mode) == 0o600
-        assert not (original.parent / records.SIDECAR_DIR).exists()
+        assert _tree_snapshot(original_sidecar) == original_sidecar_before
         exercised = True
         break
     assert exercised, "no private document supported MCP recorder/export dogfood"

@@ -1,0 +1,149 @@
+# SPDX-License-Identifier: Apache-2.0
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Package version to tag and release (without v prefix)
+        required: true
+        type: string
+      commit_sha:
+        description: Full main-branch commit SHA to promote
+        required: true
+        type: string
+      private_dogfood_passed:
+        description: Private dogfood passed locally against this exact commit
+        required: true
+        type: boolean
+
+permissions:
+  contents: read
+
+env:
+  DIST_ARTIFACT_NAME: veqtor-mcp-dist-${{ github.run_id }}-${{ github.run_attempt }}
+
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: Verify promotion identity and ancestry
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Verify trusted main tip, package version and local attestation
+        shell: bash
+        env:
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+          VERSION: ${{ inputs.version }}
+          PRIVATE_DOGFOOD_PASSED: ${{ inputs.private_dogfood_passed }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          [[ "$COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$GITHUB_SHA" = "$COMMIT_SHA"
+          git fetch --no-tags origin main
+          MAIN_SHA=$(git rev-parse origin/main)
+          TAG_REF="refs/tags/v$VERSION"
+          set +e
+          TAG_LINE=$(git ls-remote --exit-code --refs origin "$TAG_REF")
+          TAG_STATUS=$?
+          set -e
+          case "$TAG_STATUS" in
+            0)
+              read -r TAG_SHA RETURNED_REF <<<"$TAG_LINE"
+              test "$RETURNED_REF" = "$TAG_REF"
+              test "$TAG_SHA" = "$COMMIT_SHA"
+              git merge-base --is-ancestor "$COMMIT_SHA" "$MAIN_SHA"
+              ;;
+            2)
+              test "$MAIN_SHA" = "$COMMIT_SHA"
+              ;;
+            *)
+              echo "remote tag lookup failed" >&2
+              exit "$TAG_STATUS"
+              ;;
+          esac
+          PACKAGE_VERSION=$(git show "$COMMIT_SHA:pyproject.toml" | python3 -c 'import sys, tomllib; print(tomllib.load(sys.stdin.buffer)["project"]["version"])')
+          test "$VERSION" = "$PACKAGE_VERSION"
+          test "$PRIVATE_DOGFOOD_PASSED" = "true"
+
+  verify:
+    name: Run complete reusable CI
+    needs: guard
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ inputs.commit_sha }}
+
+  attempt_guard:
+    name: Verify complete current release attempt
+    needs: [guard, verify]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      verified_attempt: ${{ steps.verify_attempt.outputs.verified_attempt }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+          persist-credentials: false
+      - name: Verify every required gate succeeded in this attempt
+        id: verify_attempt
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" \
+            > "$RUNNER_TEMP/release-attempt-jobs.json"
+          python3 .github/scripts/verify_release_attempt.py \
+            --jobs "$RUNNER_TEMP/release-attempt-jobs.json" \
+            --commit "$COMMIT_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --attempt "$GITHUB_RUN_ATTEMPT"
+          printf 'verified_attempt=%s\n' "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Create tag and GitHub release
+    needs: [guard, verify, attempt_guard]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - name: Require a complete proof for the current attempt
+        env:
+          VERIFIED_ATTEMPT: ${{ needs.attempt_guard.outputs.verified_attempt }}
+        run: test "$VERIFIED_ATTEMPT" = "$GITHUB_RUN_ATTEMPT"
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ env.DIST_ARTIFACT_NAME }}
+          path: dist
+      - name: Promote the verified artifacts idempotently
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ADMIN_TOKEN: ${{ secrets.RELEASE_ADMIN_READ_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+        run: python3 .github/scripts/promote_release.py
+      - name: Verify the published release as a public consumer
+        env:
+          VERSION: ${{ inputs.version }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+        run: python3 .github/scripts/verify_published_release.py

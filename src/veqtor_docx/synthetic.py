@@ -31,16 +31,30 @@ metadata. Generating twice yields identical files and hashes.
 
 from __future__ import annotations
 
+import io
+import os
+import stat
+import sys
+import tempfile
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from lxml import etree
 
-from ._ooxml import W_NS, w
+from ._ooxml import DocxError, UserPathError, W_NS, resolve_user_path, w
 
 _XML_DECL = b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n'
 _ZIP_DATE = (2026, 1, 5, 12, 0, 0)
+
+
+class SyntheticError(DocxError):
+    """A stable refusal from the synthetic corpus write boundary."""
+
+    def __init__(self, code: str, detail: str) -> None:
+        super().__init__(f"{code}: {detail}")
+        self.code = code
+        self.detail = detail
 
 # ---------------------------------------------------------------------------
 # Static package parts
@@ -337,7 +351,8 @@ class _DocBuilder:
         return etree.tostring(root)
 
 
-def _write_docx(path: Path, spec: RoundSpec) -> None:
+def _docx_payload(spec: RoundSpec) -> bytes:
+    """Build one deterministic DOCX entirely in memory."""
     parts: list[tuple[str, bytes]] = [
         ("[Content_Types].xml", _CONTENT_TYPES.encode()),
         ("_rels/.rels", _ROOT_RELS.encode()),
@@ -348,11 +363,13 @@ def _write_docx(path: Path, spec: RoundSpec) -> None:
         ("docProps/core.xml", _core_props(spec.core_created, spec.core_modified).encode()),
         ("docProps/app.xml", _APP_PROPS.encode()),
     ]
-    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for name, data in parts:
             info = zipfile.ZipInfo(name, date_time=_ZIP_DATE)
             info.compress_type = zipfile.ZIP_DEFLATED
             zf.writestr(info, _XML_DECL + data)
+    return buffer.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -685,29 +702,183 @@ def _round_specs() -> list[RoundSpec]:
     return [round1, round2, round3, round4]
 
 
+def _prepare_output_directory(out: Path) -> bool:
+    """Return whether this call created a safe, real output directory."""
+    try:
+        info = out.lstat()
+    except FileNotFoundError:
+        try:
+            out.mkdir(parents=True, exist_ok=False)
+        except FileExistsError:
+            # A concurrent creator won the race; validate it below.
+            pass
+        except OSError as exc:
+            raise SyntheticError(
+                "output_unwritable", "cannot create output directory"
+            ) from exc
+        else:
+            return True
+        try:
+            info = out.lstat()
+        except OSError as exc:
+            raise SyntheticError(
+                "output_unwritable", "cannot inspect output directory"
+            ) from exc
+    except OSError as exc:
+        raise SyntheticError(
+            "output_unwritable", "cannot inspect output directory"
+        ) from exc
+    if not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode):
+        raise SyntheticError(
+            "output_not_directory", "output path must be a real directory"
+        )
+    return False
+
+
+def _target_is_absent(path: Path) -> bool:
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return True
+    except OSError as exc:
+        raise SyntheticError(
+            "output_unwritable", "cannot inspect an output target"
+        ) from exc
+    return False
+
+
+def _cleanup_path(path: Path) -> None:
+    try:
+        path.unlink()
+    except OSError:
+        pass
+
+
+def _rollback_published(
+    published: list[tuple[Path, tuple[int, int]]],
+) -> None:
+    """Remove only files this call linked and which have not been replaced."""
+    for target, expected_identity in reversed(published):
+        try:
+            info = target.lstat()
+        except OSError:
+            continue
+        if (
+            stat.S_ISREG(info.st_mode)
+            and (info.st_dev, info.st_ino) == expected_identity
+        ):
+            _cleanup_path(target)
+
+
+def _stage_payload(out: Path, filename: str, payload: bytes) -> tuple[Path, tuple[int, int]]:
+    tmp_path: Path | None = None
+    try:
+        fd, raw_tmp_path = tempfile.mkstemp(
+            dir=out,
+            prefix=f".{filename}.",
+            suffix=".veqtor-tmp",
+        )
+        tmp_path = Path(raw_tmp_path)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fchmod(handle.fileno(), 0o644)
+            os.fsync(handle.fileno())
+        info = tmp_path.lstat()
+        return tmp_path, (info.st_dev, info.st_ino)
+    except OSError as exc:
+        if tmp_path is not None:
+            _cleanup_path(tmp_path)
+        raise SyntheticError(
+            "output_unwritable", "cannot stage generated DOCX"
+        ) from exc
+
+
 def generate_demo_rounds(out_dir: str | Path) -> list[Path]:
-    """Write the four synthetic negotiation rounds into ``out_dir``.
+    """Atomically publish four deterministic rounds without overwriting files."""
+    try:
+        out = Path(resolve_user_path(out_dir))
+    except UserPathError as exc:
+        raise SyntheticError(exc.code, exc.detail) from exc
 
-    Returns the written paths in round order. Output is byte-deterministic.
-    """
-    out = Path(out_dir)
-    out.mkdir(parents=True, exist_ok=True)
-    written: list[Path] = []
-    for spec in _round_specs():
-        path = out / spec.filename
-        _write_docx(path, spec)
-        written.append(path)
-    return written
+    created_output_directory = False
+    staged: list[tuple[Path, Path, tuple[int, int]]] = []
+    published: list[tuple[Path, tuple[int, int]]] = []
+    try:
+        created_output_directory = _prepare_output_directory(out)
+        specs = _round_specs()
+        targets = [out / spec.filename for spec in specs]
+        if any(not _target_is_absent(target) for target in targets):
+            raise SyntheticError(
+                "output_exists",
+                "refusing to overwrite an existing output target",
+            )
+
+        try:
+            payloads = [_docx_payload(spec) for spec in specs]
+        except Exception as exc:
+            raise SyntheticError(
+                "internal_error", "cannot build synthetic DOCX payloads"
+            ) from exc
+
+        for target, payload in zip(targets, payloads, strict=True):
+            tmp_path, identity = _stage_payload(out, target.name, payload)
+            staged.append((tmp_path, target, identity))
+
+        for tmp_path, target, identity in staged:
+            try:
+                os.link(tmp_path, target)
+            except FileExistsError as exc:
+                raise SyntheticError(
+                    "output_exists",
+                    "refusing to overwrite an existing output target",
+                ) from exc
+            except OSError as exc:
+                raise SyntheticError(
+                    "output_unwritable", "cannot publish generated DOCX"
+                ) from exc
+            published.append((target, identity))
+    except SyntheticError:
+        _rollback_published(published)
+        raise
+    except OSError as exc:
+        _rollback_published(published)
+        raise SyntheticError(
+            "output_unwritable", "cannot publish synthetic corpus"
+        ) from exc
+    except Exception as exc:
+        _rollback_published(published)
+        raise SyntheticError(
+            "internal_error", "unexpected synthetic generator failure"
+        ) from exc
+    finally:
+        for tmp_path, _target, _identity in staged:
+            _cleanup_path(tmp_path)
+        if created_output_directory:
+            try:
+                out.rmdir()
+            except OSError:
+                pass
+
+    return [target for _tmp, target, _identity in staged]
 
 
-def main() -> None:
+def main() -> int:
     """Console entry point: write the demo rounds to the given folder."""
-    import sys
+    import argparse
 
-    target = sys.argv[1] if len(sys.argv) > 1 else "veqtor-demo-rounds"
-    for p in generate_demo_rounds(target):
-        print(p)
+    parser = argparse.ArgumentParser(description="Generate Veqtor demo DOCX rounds")
+    parser.add_argument("output", nargs="?", default="veqtor-demo-rounds")
+    target = parser.parse_args().output
+    try:
+        written = generate_demo_rounds(target)
+    except DocxError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    for path in written:
+        print(path)
+    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover
-    main()
+    raise SystemExit(main())

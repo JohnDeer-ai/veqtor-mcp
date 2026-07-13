@@ -26,12 +26,15 @@ from veqtor_docx.contracts import (
     DOCUMENT_PART_V1,
     EXTRACT_REVISION_CATEGORIES_V1,
     MATCH_SIDES_V1,
+    PREFLIGHT_EDIT_STATUSES_V1,
+    PREFLIGHT_FAILURE_PHASES_V1,
     RESULT_STATUS_ERROR,
     RESULT_STATUS_OK,
     ROUND_TRIP_COMPARISONS_V1,
     ROUND_TRIP_STATUSES_V1,
     VERIFY_VERDICTS_V1,
 )
+from veqtor_docx._ooxml import UserPathError, resolve_user_path
 from veqtor_mcp import __version__
 
 SCHEMA_VERSION = "decision_record.v1"
@@ -108,6 +111,7 @@ V1_HISTORICAL_TOOL_SPECS: Mapping[str, _V1ToolSpec] = MappingProxyType(
             "tool_observation.v1", "extract_redlines"
         ),
         "verify_quote": _V1ToolSpec("verification.v1", "verify_quote"),
+        "preflight_edits": _V1ToolSpec("verification.v1", "preflight_edits"),
         "apply_edits": _V1ToolSpec("decision.v1", "apply_edits"),
         "export_decision_record": _V1ToolSpec(
             ACCESS_RECORD_TYPE, "export_decision_record"
@@ -119,6 +123,7 @@ WRITABLE_TOOL_NAMES = frozenset(
         "list_rounds",
         "extract_redlines",
         "verify_quote",
+        "preflight_edits",
         "apply_edits",
         "export_decision_record",
     }
@@ -148,19 +153,25 @@ def utc_now() -> datetime:
 
 
 def workspace_for_folder(folder: str) -> Path:
-    return Path(folder).expanduser()
+    try:
+        return Path(resolve_user_path(folder))
+    except UserPathError as exc:
+        raise DecisionRecordError(exc.code, exc.detail) from exc
 
 
 def workspace_for_file(path: str) -> Path:
-    return Path(path).expanduser().parent
+    try:
+        return Path(resolve_user_path(path)).parent
+    except UserPathError as exc:
+        raise DecisionRecordError(exc.code, exc.detail) from exc
 
 
 def journal_path(workspace: str | Path) -> Path:
-    return Path(workspace).expanduser() / SIDECAR_DIR / JOURNAL_NAME
+    return workspace_for_folder(workspace) / SIDECAR_DIR / JOURNAL_NAME
 
 
 def _canonical_workspace(workspace: str | Path) -> tuple[Path, tuple[int, int]]:
-    root = Path(workspace).expanduser()
+    root = workspace_for_folder(workspace)
     try:
         resolved = root.resolve(strict=True)
     except OSError as exc:
@@ -207,7 +218,9 @@ def _open_workspace_fd(root: Path, expected_identity: tuple[int, int]) -> int:
             raise DecisionRecordError(
                 "workspace_changed", f"workspace changed before it could be opened: {root}"
             ) from exc
-        raise
+        raise DecisionRecordError(
+            "workspace_unreadable", "workspace cannot be opened"
+        ) from exc
     try:
         info = os.fstat(fd)
         if not stat.S_ISDIR(info.st_mode):
@@ -904,7 +917,9 @@ def _append_locked(sidecar_fd: int, path: Path, record: dict[str, Any]) -> str:
 
 
 def _record_error(exc: BaseException) -> str:
-    return _safe_error_text(exc, max_length=240)
+    if isinstance(exc, DecisionRecordError):
+        return exc.code
+    return "internal_error"
 
 
 def _base_record(
@@ -1028,6 +1043,14 @@ def _nonnegative_int(value: Any) -> int | None:
 
 def _list_count(value: Any) -> int | None:
     return len(value) if isinstance(value, list) else None
+
+
+def _tracked_change_author(value: Any) -> str | None:
+    if not isinstance(value, str) or not value or len(value) > 255:
+        return None
+    if any(ord(char) < 0x20 or 0xD800 <= ord(char) <= 0xDFFF for char in value):
+        return None
+    return value
 
 
 def _strict_bool(value: Any) -> bool | None:
@@ -1324,6 +1347,36 @@ def _observed_applied_summary(value: Any) -> dict[str, Any] | None:
     }
 
 
+def _preflight_edit_summary(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    edit_index = _nonnegative_int(value.get("edit_index"))
+    status = value.get("status")
+    if (
+        edit_index is None
+        or not isinstance(status, str)
+        or status not in PREFLIGHT_EDIT_STATUSES_V1
+    ):
+        return None
+    summary: dict[str, Any] = {"edit_index": edit_index, "status": status}
+    change_unit_id = _change_unit_id(value.get("change_unit_id"))
+    if change_unit_id is not None:
+        summary["change_unit_id"] = change_unit_id
+    operation = _known_value(value.get("operation"), APPLY_OPERATIONS_V1)
+    if operation is not None:
+        summary["operation"] = operation
+    match_count = _nonnegative_int(value.get("match_count"))
+    if match_count is not None:
+        summary["match_count"] = match_count
+    position_supported = _strict_bool(value.get("position_supported"))
+    if position_supported is not None:
+        summary["position_supported"] = position_supported
+    refusal_code = _error_code(value.get("refusal_code"))
+    if refusal_code is not None:
+        summary["refusal_code"] = refusal_code
+    return summary
+
+
 def _observed_match_summary(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         return None
@@ -1331,11 +1384,12 @@ def _observed_match_summary(value: Any) -> dict[str, Any] | None:
     side = _known_value(value.get("side"), MATCH_SIDES_V1)
     if part_name is None or side is None or "revision_ids" not in value:
         return None
+    clause = value.get("clause")
     return {
         "part_name": part_name,
         "revision_ids": _revision_ids_summary(value["revision_ids"]),
         "side": side,
-        "clause_sha256": _stable_digest(value.get("clause")),
+        "clause_sha256": _stable_digest(clause) if clause is not None else None,
     }
 
 
@@ -1402,7 +1456,7 @@ def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
             ),
         }
     if projection_kind == "apply_edits":
-        return {
+        summary = {
             "status": _known_value(result.get("status"), V1_OK_STATUSES),
             "output_sha256": result.get("output_sha256")
             if _is_sha256(result.get("output_sha256"))
@@ -1410,6 +1464,42 @@ def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
             "applied": (
                 _bounded_collection(result["applied"], _observed_applied_summary)
                 if "applied" in result
+                else None
+            ),
+            "round_trip_check": _round_trip_summary(result.get("round_trip_check")),
+        }
+        if _is_sha256(result.get("source_sha256")):
+            summary["source_sha256"] = result["source_sha256"]
+        author = _tracked_change_author(result.get("tracked_change_author"))
+        if author is not None:
+            summary["tracked_change_author"] = author
+        return summary
+    if projection_kind == "preflight_edits":
+        return {
+            "status": _known_value(result.get("status"), V1_OK_STATUSES),
+            "source_sha256": result.get("source_sha256")
+            if _is_sha256(result.get("source_sha256"))
+            else None,
+            "candidate_sha256": result.get("candidate_sha256")
+            if _is_sha256(result.get("candidate_sha256"))
+            else None,
+            "observed_candidate_sha256": result.get("observed_candidate_sha256")
+            if _is_sha256(result.get("observed_candidate_sha256"))
+            else None,
+            "batch_applicable": _strict_bool(result.get("batch_applicable")),
+            "blocking_edit_index": _nonnegative_int(
+                result.get("blocking_edit_index")
+            ),
+            "refusal_code": _error_code(result.get("refusal_code")),
+            "failure_phase": _known_value(
+                result.get("failure_phase"), PREFLIGHT_FAILURE_PHASES_V1
+            ),
+            "tracked_change_author": _tracked_change_author(
+                result.get("tracked_change_author")
+            ),
+            "edits": (
+                _bounded_collection(result["edits"], _preflight_edit_summary)
+                if "edits" in result
                 else None
             ),
             "round_trip_check": _round_trip_summary(result.get("round_trip_check")),
@@ -1464,6 +1554,16 @@ def _summary_provenance(record: dict[str, Any]) -> dict[str, Any]:
     edit_index = _nonnegative_int(provenance.get("edit_index"))
     if edit_index is not None:
         summary["edit_index"] = edit_index
+    failure_phase = _known_value(
+        provenance.get("failure_phase"), PREFLIGHT_FAILURE_PHASES_V1
+    )
+    if failure_phase is not None:
+        summary["failure_phase"] = failure_phase
+    tracked_change_author = _tracked_change_author(
+        provenance.get("tracked_change_author")
+    )
+    if tracked_change_author is not None:
+        summary["tracked_change_author"] = tracked_change_author
     if "claimed_source_sha256" in provenance:
         summary["claimed_source_sha256"] = _asserted_digest(
             provenance["claimed_source_sha256"]
@@ -1589,7 +1689,7 @@ def _compact_records(selected: list[dict[str, Any]]) -> list[dict[str, Any]]:
         ) from exc
 
 
-def read_records(
+def _read_records(
     workspace: str,
     max_records: int | None = None,
     before_record_id: str | None = None,
@@ -1660,3 +1760,27 @@ def read_records(
         "records": output_records,
         "payloads": PAYLOAD_FULL if include_payload else PAYLOAD_COMPACT,
     }
+
+
+def read_records(
+    workspace: str,
+    max_records: int | None = None,
+    before_record_id: str | None = None,
+    include_access_events: bool = False,
+    include_payload: bool = False,
+) -> dict[str, Any]:
+    """Read records without exposing raw filesystem failures or paths."""
+    try:
+        return _read_records(
+            workspace,
+            max_records,
+            before_record_id,
+            include_access_events,
+            include_payload,
+        )
+    except DecisionRecordError:
+        raise
+    except OSError as exc:
+        raise DecisionRecordError(
+            "workspace_unreadable", "workspace cannot be read"
+        ) from exc

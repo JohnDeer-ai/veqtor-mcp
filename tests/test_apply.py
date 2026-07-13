@@ -7,14 +7,32 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from lxml import etree
 
-from veqtor_docx import ApplyError, DocxError, apply_edits, extract_redlines
+from veqtor_docx import (
+    ApplyError,
+    DocxError,
+    apply_edits,
+    extract_redlines,
+    preflight_edits,
+)
 from veqtor_docx._ooxml import parse_xml, w
 from veqtor_docx.apply import DEFAULT_AUTHOR, _collateral_outside
 from veqtor_docx.contracts import ROUND_TRIP_COMPARISON_CURRENT
 
 TAIL_OLD = " in respect of all claims in aggregate."
 TAIL_NEW = " in respect of all claims arising in any Contract Year."
+PREFLIGHT_DIAGNOSTIC_KEYS = {
+    "edit_index",
+    "change_unit_id",
+    "status",
+    "operation",
+    "match_count",
+    "target_author",
+    "target_revision_ids",
+    "position_supported",
+    "refusal_code",
+}
 
 
 @pytest.fixture
@@ -34,6 +52,147 @@ def _cap_anchor(path: Path) -> dict:
 
 def _edit(anchor: dict, delete_text: str = TAIL_OLD, insert_text: str = TAIL_NEW) -> dict:
     return {"anchor": anchor, "delete_text": delete_text, "insert_text": insert_text}
+
+
+def _rewrite_document_xml(source: Path, output: Path, mutate) -> None:
+    with zipfile.ZipFile(source) as original, zipfile.ZipFile(output, "w") as target:
+        for info in original.infolist():
+            payload = original.read(info)
+            if info.filename == "word/document.xml":
+                document = parse_xml(payload)
+                mutate(document)
+                payload = (
+                    b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n'
+                    + etree.tostring(document)
+                )
+            target.writestr(info, payload)
+
+
+def _atom_run(parent: etree._Element, text_tag: str, atom_tag: str) -> None:
+    run = etree.SubElement(parent, w("r"))
+    before = etree.SubElement(run, w(text_tag))
+    before.text = "Atom"
+    etree.SubElement(run, w(atom_tag))
+    after = etree.SubElement(run, w(text_tag))
+    after.text = "Value"
+
+
+def _atom_revision_docx(
+    round2: Path,
+    output: Path,
+    *,
+    kind: str,
+    atom_tag: str,
+) -> None:
+    def mutate(document: etree._Element) -> None:
+        if kind == "ins":
+            wrapper = next(
+                element
+                for element in document.iter(w("ins"))
+                if "USD 50,000"
+                in "".join(node.text or "" for node in element.iter(w("t")))
+            )
+            text_tag = "t"
+        else:
+            wrapper = next(
+                element
+                for element in document.iter(w("del"))
+                if element.getparent() is not None
+                and element.getparent().tag == w("p")
+                and next(element.iter(w("delText")), None) is not None
+            )
+            text_tag = "delText"
+        for child in list(wrapper):
+            wrapper.remove(child)
+        _atom_run(wrapper, text_tag, atom_tag)
+
+    _rewrite_document_xml(round2, output, mutate)
+
+
+def _runless_atom_revision_docx(
+    round2: Path,
+    output: Path,
+    *,
+    atom_tag: str,
+) -> None:
+    def mutate(document: etree._Element) -> None:
+        wrapper = next(
+            element
+            for element in document.iter(w("ins"))
+            if "USD 50,000"
+            in "".join(node.text or "" for node in element.iter(w("t")))
+        )
+        for child in list(wrapper):
+            wrapper.remove(child)
+        before = etree.SubElement(wrapper, w("t"))
+        before.text = "Direct"
+        atom = etree.SubElement(wrapper, w(atom_tag))
+        if atom_tag == "t":
+            atom.text = "Text"
+        after = etree.SubElement(wrapper, w("t"))
+        after.text = "Value"
+
+    _rewrite_document_xml(round2, output, mutate)
+
+
+def _runless_plain_atom_docx(
+    round2: Path,
+    output: Path,
+    *,
+    atom_tag: str,
+) -> None:
+    anchor = _cap_anchor(round2)
+    extracted = extract_redlines(str(round2))
+    unit = next(
+        item
+        for item in extracted["change_units"]
+        if item["change_unit_id"] == anchor["change_unit_id"]
+    )
+    revision_ids = set(unit["reference"]["revision_ids"])
+
+    def mutate(document: etree._Element) -> None:
+        wrapper = next(
+            element
+            for element in document.iter()
+            if element.get(w("id")) in revision_ids
+        )
+        paragraph = next(wrapper.iterancestors(w("p")))
+        before = etree.SubElement(paragraph, w("t"))
+        before.text = "Direct"
+        atom = etree.SubElement(paragraph, w(atom_tag))
+        if atom_tag == "t":
+            atom.text = "Text"
+        after = etree.SubElement(paragraph, w("t"))
+        after.text = "Value"
+
+    _rewrite_document_xml(round2, output, mutate)
+
+
+def _runless_deletion_atom_docx(
+    round2: Path,
+    output: Path,
+    *,
+    atom_tag: str,
+) -> None:
+    def mutate(document: etree._Element) -> None:
+        wrapper = next(
+            element
+            for element in document.iter(w("del"))
+            if element.getparent() is not None
+            and element.getparent().tag == w("p")
+            and next(element.iter(w("delText")), None) is not None
+        )
+        for child in list(wrapper):
+            wrapper.remove(child)
+        before = etree.SubElement(wrapper, w("delText"))
+        before.text = "Direct"
+        atom = etree.SubElement(wrapper, w(atom_tag))
+        if atom_tag == "delText":
+            atom.text = "Text"
+        after = etree.SubElement(wrapper, w("delText"))
+        after.text = "Value"
+
+    _rewrite_document_xml(round2, output, mutate)
 
 
 def test_replace_at_anchor_with_round_trip(round2: Path, tmp_path: Path) -> None:
@@ -60,11 +219,290 @@ def test_replace_at_anchor_with_round_trip(round2: Path, tmp_path: Path) -> None
     assert mine[0]["change_type"] == "replace"
     assert mine[0]["old_text"] == TAIL_OLD
     assert mine[0]["new_text"] == TAIL_NEW
-    assert mine[0]["clause_anchor"] == {"label": "14.2", "heading": "Limitation of Liability"}
+    assert mine[0]["clause_anchor"] == {
+        "label": "14.2",
+        "heading": "Limitation of Liability",
+    }
     assert mine[0]["date"] is None  # no fabricated timestamps
     assert [str(i) for i in result["applied"][0]["tracked_revision_ids"]] == list(
         mine[0]["reference"]["revision_ids"]
     )
+
+
+def _duplicate_cap_id_in_earlier_clause(round2: Path, output: Path) -> None:
+    extracted = extract_redlines(str(round2))
+    cap = next(
+        unit
+        for unit in extracted["change_units"]
+        if unit["clause_anchor"] and unit["clause_anchor"]["label"] == "14.2"
+    )
+    earlier = extracted["change_units"][0]
+    duplicate_id = cap["reference"]["revision_ids"][0]
+
+    def mutate(document: etree._Element) -> None:
+        paragraphs = list(document.iter(w("p")))
+        earlier_para = paragraphs[earlier["reference"]["paragraph_index"]]
+        earlier_group = next(
+            element
+            for element in earlier_para.iter()
+            if element.tag in {w("ins"), w("del")}
+        )
+        earlier_group.set(w("id"), duplicate_id)
+        run = etree.Element(w("r"))
+        text = etree.SubElement(run, w("t"))
+        text.text = " WRONG ANCHOR TOKEN"
+        earlier_para.append(run)
+
+    _rewrite_document_xml(round2, output, mutate)
+
+
+def test_duplicate_revision_id_cannot_redirect_anchor(
+    round2: Path, tmp_path: Path
+) -> None:
+    source = tmp_path / "duplicate-revision-id.docx"
+    _duplicate_cap_id_in_earlier_clause(round2, source)
+    extracted = extract_redlines(str(source))
+    cap = next(
+        unit
+        for unit in extracted["change_units"]
+        if unit["clause_anchor"] and unit["clause_anchor"]["label"] == "14.2"
+    )
+    anchor = {
+        "change_unit_id": cap["change_unit_id"],
+        "file_sha256": extracted["file_sha256"],
+    }
+
+    refusal = preflight_edits(
+        str(source),
+        [_edit(anchor, delete_text="WRONG ANCHOR TOKEN", insert_text="WRONG")],
+    )
+
+    assert refusal["batch_applicable"] is False
+    assert refusal["refusal_code"] == "delete_text_not_found"
+    assert refusal["edits"][0]["match_count"] == 0
+
+
+def test_duplicate_revision_id_still_edits_the_structural_anchor(
+    round2: Path, tmp_path: Path
+) -> None:
+    source = tmp_path / "duplicate-revision-id.docx"
+    output = tmp_path / "correct-clause.docx"
+    _duplicate_cap_id_in_earlier_clause(round2, source)
+    before = extract_redlines(str(source))
+    cap = next(
+        unit
+        for unit in before["change_units"]
+        if unit["clause_anchor"] and unit["clause_anchor"]["label"] == "14.2"
+    )
+    anchor = {
+        "change_unit_id": cap["change_unit_id"],
+        "file_sha256": before["file_sha256"],
+    }
+
+    apply_edits(str(source), str(output), [_edit(anchor)])
+    after = extract_redlines(str(output))
+    created = next(
+        unit
+        for unit in after["change_units"]
+        if unit["author"] == DEFAULT_AUTHOR
+    )
+
+    assert created["reference"]["paragraph_index"] == cap["reference"][
+        "paragraph_index"
+    ]
+    assert created["clause_anchor"]["label"] == "14.2"
+
+
+@pytest.mark.parametrize(
+    ("revision_id", "expected_code"),
+    [
+        ("9" * 4_300, "revision_id_unsupported"),
+        ("0" * 10 + "1", "revision_id_unsupported"),
+        ("2147483648", "revision_id_unsupported"),
+        ("2147483647", "revision_id_exhausted"),
+        ("+101", "revision_id_unsupported"),
+        ("١٠١", "revision_id_unsupported"),
+    ],
+)
+def test_revision_id_boundary_is_controlled(
+    round2: Path,
+    tmp_path: Path,
+    revision_id: str,
+    expected_code: str,
+) -> None:
+    source = tmp_path / "revision-id-boundary.docx"
+
+    def mutate(document: etree._Element) -> None:
+        wrapper = next(document.iter(w("ins")))
+        wrapper.set(w("id"), revision_id)
+
+    _rewrite_document_xml(round2, source, mutate)
+    extracted = extract_redlines(str(source))
+    cap = next(
+        unit
+        for unit in extracted["change_units"]
+        if unit["clause_anchor"] and unit["clause_anchor"]["label"] == "14.2"
+    )
+    result = preflight_edits(
+        str(source),
+        [
+            _edit(
+                {
+                    "change_unit_id": cap["change_unit_id"],
+                    "file_sha256": extracted["file_sha256"],
+                }
+            )
+        ],
+    )
+
+    assert result["batch_applicable"] is False
+    assert result["refusal_code"] == expected_code
+    assert result["failure_phase"] == (
+        "planning" if expected_code == "revision_id_exhausted" else "source"
+    )
+
+
+def test_ten_digit_leading_zero_revision_id_is_supported(
+    round2: Path, tmp_path: Path
+) -> None:
+    source = tmp_path / "leading-zero-id.docx"
+    output = tmp_path / "leading-zero-output.docx"
+
+    def mutate(document: etree._Element) -> None:
+        next(document.iter(w("ins"))).set(w("id"), "0000000001")
+
+    _rewrite_document_xml(round2, source, mutate)
+
+    result = apply_edits(
+        str(source),
+        str(output),
+        [_edit(_cap_anchor(source), insert_text="")],
+    )
+
+    assert result["status"] == "ok"
+    assert output.exists()
+
+
+def _with_highest_revision_id(
+    source: Path,
+    output: Path,
+    highest: int,
+) -> None:
+    def mutate(document: etree._Element) -> None:
+        next(document.iter(w("ins"))).set(w("id"), str(highest))
+
+    _rewrite_document_xml(source, output, mutate)
+
+
+def test_last_revision_id_supports_one_id_edit(
+    round2: Path, tmp_path: Path
+) -> None:
+    source = tmp_path / "one-id-capacity.docx"
+    output = tmp_path / "one-id-output.docx"
+    _with_highest_revision_id(round2, source, 2_147_483_646)
+
+    result = apply_edits(
+        str(source),
+        str(output),
+        [_edit(_cap_anchor(source), insert_text="")],
+    )
+
+    assert result["applied"][0]["tracked_revision_ids"] == ["2147483647"]
+    created = [
+        unit
+        for unit in extract_redlines(str(output))["change_units"]
+        if unit["author"] == DEFAULT_AUTHOR
+    ]
+    assert created[0]["reference"]["revision_ids"] == ["2147483647"]
+
+
+def test_last_two_revision_ids_support_replace(
+    round2: Path, tmp_path: Path
+) -> None:
+    source = tmp_path / "two-id-capacity.docx"
+    output = tmp_path / "two-id-output.docx"
+    _with_highest_revision_id(round2, source, 2_147_483_645)
+
+    result = apply_edits(
+        str(source), str(output), [_edit(_cap_anchor(source))]
+    )
+
+    assert result["applied"][0]["tracked_revision_ids"] == [
+        "2147483646",
+        "2147483647",
+    ]
+
+
+def test_replace_refuses_when_only_one_revision_id_remains(
+    round2: Path, tmp_path: Path
+) -> None:
+    source = tmp_path / "replace-capacity.docx"
+    output = tmp_path / "replace-output.docx"
+    _with_highest_revision_id(round2, source, 2_147_483_646)
+    edits = [_edit(_cap_anchor(source))]
+
+    result = preflight_edits(str(source), edits)
+
+    assert result["batch_applicable"] is False
+    assert result["refusal_code"] == "revision_id_exhausted"
+    assert result["failure_phase"] == "planning"
+    assert result["blocking_edit_index"] == 0
+    assert result["edits"][0] == {
+        "edit_index": 0,
+        "change_unit_id": edits[0]["anchor"]["change_unit_id"],
+        "status": "blocked",
+        "operation": "replace",
+        "match_count": 1,
+        "target_author": None,
+        "target_revision_ids": [],
+        "position_supported": False,
+        "refusal_code": "revision_id_exhausted",
+    }
+
+    with pytest.raises(ApplyError, match="revision_id_exhausted") as refusal:
+        apply_edits(str(source), str(output), edits)
+    assert refusal.value.code == "revision_id_exhausted"
+    assert refusal.value.metadata["required_revision_ids"] == 2
+    assert refusal.value.metadata["available_revision_ids"] == 1
+    assert not output.exists()
+
+
+def test_batch_refuses_atomically_when_second_edit_exhausts_ids(
+    round2: Path, tmp_path: Path
+) -> None:
+    source = tmp_path / "batch-capacity.docx"
+    output = tmp_path / "batch-output.docx"
+    _with_highest_revision_id(round2, source, 2_147_483_646)
+    anchor = _cap_anchor(source)
+    edits = [
+        _edit(
+            anchor,
+            delete_text="Except as set out in Clause 14.3",
+            insert_text="",
+        ),
+        _edit(anchor, insert_text=""),
+    ]
+
+    result = preflight_edits(str(source), edits)
+
+    assert result["batch_applicable"] is False
+    assert result["refusal_code"] == "revision_id_exhausted"
+    assert result["failure_phase"] == "planning"
+    assert result["blocking_edit_index"] == 1
+    assert [item["status"] for item in result["edits"]] == [
+        "planned",
+        "blocked",
+    ]
+    assert result["edits"][0]["operation"] == "delete"
+    assert result["edits"][1]["operation"] == "delete"
+    assert result["edits"][1]["match_count"] == 1
+
+    with pytest.raises(ApplyError, match="revision_id_exhausted") as refusal:
+        apply_edits(str(source), str(output), edits)
+    assert refusal.value.metadata["edit_index"] == 1
+    assert refusal.value.metadata["required_revision_ids"] == 1
+    assert refusal.value.metadata["available_revision_ids"] == 0
+    assert not output.exists()
 
 
 def test_pure_deletion(round2: Path, tmp_path: Path) -> None:
@@ -587,6 +1025,61 @@ def test_counter_own_insertion_refused(round2: Path, tmp_path: Path) -> None:
     assert err.value.code == "overlaps_tracked_changes"
 
 
+def test_configured_author_collision_is_visible_in_preflight(
+    round2: Path,
+) -> None:
+    result = preflight_edits(
+        str(round2),
+        [_edit(_cap_anchor(round2), delete_text="USD 50,000")],
+        author="53",
+    )
+
+    assert result["tracked_change_author"] == "53"
+    assert result["batch_applicable"] is False
+    assert result["refusal_code"] == "overlaps_tracked_changes"
+
+
+def test_custom_author_is_shared_by_preflight_output_and_docx(
+    round2: Path, tmp_path: Path
+) -> None:
+    author = "John Deer"
+    edits = [_edit(_cap_anchor(round2))]
+    preflight = preflight_edits(str(round2), edits, author=author)
+    output = tmp_path / "custom-author.docx"
+    applied = apply_edits(str(round2), str(output), edits, author=author)
+
+    assert preflight["tracked_change_author"] == author
+    assert applied["tracked_change_author"] == author
+    assert any(
+        unit["author"] == author
+        for unit in extract_redlines(str(output))["change_units"]
+    )
+
+
+def test_configured_author_collision_blocks_reinstate(demo_dir: Path) -> None:
+    from veqtor_docx.synthetic import CARVEOUT_DROPPED
+
+    r4 = demo_dir / "round-4-counterparty-reply.docx"
+    extracted = extract_redlines(str(r4))
+    cap = next(u for u in extracted["change_units"] if u["change_type"] == "replace")
+    result = preflight_edits(
+        str(r4),
+        [
+            {
+                "anchor": {
+                    "change_unit_id": cap["change_unit_id"],
+                    "file_sha256": extracted["file_sha256"],
+                },
+                "reinstate_text": CARVEOUT_DROPPED,
+            }
+        ],
+        author="53",
+    )
+
+    assert result["batch_applicable"] is False
+    assert result["refusal_code"] == "reinstate_text_not_found"
+
+
 def test_reinstate_text_not_found(demo_dir: Path, tmp_path: Path) -> None:
     r4 = demo_dir / "round-4-counterparty-reply.docx"
     result = extract_redlines(str(r4))
@@ -607,6 +1100,50 @@ def test_reinstate_text_not_found(demo_dir: Path, tmp_path: Path) -> None:
         )
     assert err.value.code == "reinstate_text_not_found"
     assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize(
+    "insert_text",
+    [None, "", False, 0, 3.14, [], {}, "replacement"],
+    ids=["null", "empty", "false", "zero", "float", "list", "object", "text"],
+)
+def test_reinstate_rejects_every_present_insert_text_value(
+    demo_dir: Path,
+    tmp_path: Path,
+    insert_text,
+) -> None:
+    from veqtor_docx.synthetic import CARVEOUT_DROPPED
+
+    source = demo_dir / "round-4-counterparty-reply.docx"
+    extracted = extract_redlines(str(source))
+    cap = next(
+        unit for unit in extracted["change_units"] if unit["change_type"] == "replace"
+    )
+    edit = {
+        "anchor": {
+            "change_unit_id": cap["change_unit_id"],
+            "file_sha256": extracted["file_sha256"],
+        },
+        "reinstate_text": CARVEOUT_DROPPED,
+        "insert_text": insert_text,
+    }
+    output = tmp_path / "never.docx"
+
+    preflight = preflight_edits(str(source), [edit])
+
+    assert preflight["batch_applicable"] is False
+    assert preflight["failure_phase"] == "validation"
+    assert preflight["refusal_code"] == "invalid_edit"
+    assert preflight["blocking_edit_index"] == 0
+    assert set(preflight["edits"][0]) == PREFLIGHT_DIAGNOSTIC_KEYS
+    assert preflight["edits"][0]["status"] == "blocked"
+    assert preflight["edits"][0]["refusal_code"] == "invalid_edit"
+
+    with pytest.raises(ApplyError, match="invalid_edit") as refusal:
+        apply_edits(str(source), str(output), [edit])
+    assert refusal.value.code == "invalid_edit"
+    assert refusal.value.metadata["failure_phase"] == "validation"
+    assert not output.exists()
 
 
 def test_apply_at_table_cell_anchor(round2: Path, tmp_path: Path) -> None:
@@ -696,9 +1233,14 @@ def test_collateral_proof_catches_structural_changes(round2: Path) -> None:
         ([{"anchor": {"change_unit_id": 5, "file_sha256": "a" * 64}, "delete_text": "x"}], "anchor_missing"),
         ([{"anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64}, "delete_text": 42}], "delete_text_missing"),
         ([{"anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64}, "delete_text": "x", "insert_text": 42}], "invalid_edit"),
+        ([{"anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64}, "delete_text": "x", "insert_text": None}], "invalid_edit"),
+        ([{"anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64}, "delete_text": "x", "insert_text": "bad\x01text"}], "invalid_edit"),
         ([{"anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64}, "delete_text": "x", "reinstate_text": "y"}], "invalid_edit"),
         ([{"anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64}, "reinstate_text": "y", "insert_text": "z"}], "invalid_edit"),
+        ([{"anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64}, "reinstate_text": "y", "insert_text": False}], "invalid_edit"),
         ([{"anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64}, "reinstate_text": ""}], "invalid_edit"),
+        ([{"anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64, "extra": "x"}, "delete_text": "x"}], "invalid_edit"),
+        ([{"anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64}, "delete_text": "x", "extra": "x"}], "invalid_edit"),
     ],
 )
 def test_malformed_edits_fail_closed_with_error_codes(
@@ -709,6 +1251,38 @@ def test_malformed_edits_fail_closed_with_error_codes(
     with pytest.raises(ApplyError) as err:
         apply_edits(str(round2), str(out), edits)
     assert err.value.code == code
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize(
+    "delete_text",
+    [None, False, 0, 3.14, [], {}],
+    ids=["null", "false", "zero", "float", "list", "object"],
+)
+def test_documented_unusable_delete_text_returns_delete_text_missing(
+    round2: Path,
+    tmp_path: Path,
+    delete_text,
+) -> None:
+    edit = {
+        "anchor": {
+            "change_unit_id": "cu_001",
+            "file_sha256": "a" * 64,
+        },
+        "delete_text": delete_text,
+    }
+    preflight = preflight_edits(str(round2), [edit])
+    output = tmp_path / "never.docx"
+
+    assert preflight["batch_applicable"] is False
+    assert preflight["failure_phase"] == "validation"
+    assert preflight["refusal_code"] == "delete_text_missing"
+    assert preflight["edits"][0]["refusal_code"] == "delete_text_missing"
+    with pytest.raises(ApplyError) as refusal:
+        apply_edits(str(round2), str(output), [edit])
+    assert refusal.value.code == "delete_text_missing"
+    assert refusal.value.metadata["failure_phase"] == "validation"
+    assert not output.exists()
     assert not list(tmp_path.iterdir())
 
 
@@ -731,32 +1305,584 @@ def test_output_is_a_valid_source_for_further_rounds(round2: Path, tmp_path: Pat
     assert reread["revision_count"] == extract_redlines(str(round2))["revision_count"] + 2
 
 
-def test_output_hash_failure_is_stable_and_cleans_tmp(
-    round2: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_preflight_candidate_hash_matches_published_output(
+    round2: Path, tmp_path: Path
+) -> None:
+    edits = [_edit(_cap_anchor(round2))]
+    preflight = preflight_edits(str(round2), edits)
+    out = tmp_path / "counter.docx"
+    applied = apply_edits(str(round2), str(out), edits)
+
+    assert preflight["batch_applicable"] is True
+    assert set(preflight["edits"][0]) == PREFLIGHT_DIAGNOSTIC_KEYS
+    assert preflight["edits"][0]["refusal_code"] is None
+    assert preflight["candidate_sha256"] == applied["output_sha256"]
+    assert applied["output_sha256"] == hashlib.sha256(out.read_bytes()).hexdigest()
+
+
+def test_preflight_returns_structured_refusal_without_writing(
+    round2: Path, tmp_path: Path
+) -> None:
+    source_before = round2.read_bytes()
+    result = preflight_edits(
+        str(round2),
+        [
+            _edit(
+                {
+                    "change_unit_id": "cu_999",
+                    "file_sha256": hashlib.sha256(source_before).hexdigest(),
+                }
+            )
+        ],
+    )
+
+    assert result["status"] == "ok"
+    assert result["batch_applicable"] is False
+    assert result["blocking_edit_index"] == 0
+    assert result["refusal_code"] == "anchor_not_found"
+    assert result["edits"] == [
+        {
+            "edit_index": 0,
+            "status": "blocked",
+            "operation": None,
+            "match_count": 0,
+            "target_author": None,
+            "target_revision_ids": [],
+            "position_supported": False,
+            "change_unit_id": "cu_999",
+            "refusal_code": "anchor_not_found",
+        }
+    ]
+    assert round2.read_bytes() == source_before
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize(
+    ("edit", "code"),
+    [
+        (
+            {"anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64}},
+            "delete_text_missing",
+        ),
+        (
+            {
+                "anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64},
+                "delete_text": 42,
+            },
+            "delete_text_missing",
+        ),
+        (
+            {
+                "anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64},
+                "delete_text": "x",
+                "insert_text": 42,
+            },
+            "invalid_edit",
+        ),
+        (
+            {
+                "anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64},
+                "delete_text": "x",
+                "reinstate_text": "y",
+            },
+            "invalid_edit",
+        ),
+        (
+            {
+                "anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64},
+                "reinstate_text": "y",
+                "insert_text": "z",
+            },
+            "invalid_edit",
+        ),
+        (
+            {
+                "anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64},
+                "reinstate_text": "",
+            },
+            "invalid_edit",
+        ),
+    ],
+)
+def test_validation_refusals_use_complete_unevaluated_diagnostic_shape(
+    round2: Path,
+    edit: dict,
+    code: str,
+) -> None:
+    result = preflight_edits(str(round2), [edit])
+
+    assert result["batch_applicable"] is False
+    assert result["failure_phase"] == "validation"
+    assert result["refusal_code"] == code
+    assert result["edits"] == [
+        {
+            "edit_index": 0,
+            "change_unit_id": "cu_001",
+            "status": "blocked",
+            "operation": None,
+            "match_count": None,
+            "target_author": None,
+            "target_revision_ids": [],
+            "position_supported": None,
+            "refusal_code": code,
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid"),
+    [
+        ("delete_text", "bad\x01text"),
+        ("insert_text", "bad\x0btext"),
+        ("reinstate_text", "bad\ud800text"),
+    ],
+)
+def test_xml_incompatible_edit_text_is_a_structured_validation_refusal(
+    round2: Path,
+    field: str,
+    invalid: str,
+) -> None:
+    anchor = _cap_anchor(round2)
+    if field == "reinstate_text":
+        edit = {"anchor": anchor, field: invalid}
+    else:
+        edit = _edit(anchor)
+        edit[field] = invalid
+
+    result = preflight_edits(str(round2), [edit])
+
+    assert result["batch_applicable"] is False
+    assert result["failure_phase"] == "validation"
+    assert result["refusal_code"] == "invalid_edit"
+    assert set(result["edits"][0]) == PREFLIGHT_DIAGNOSTIC_KEYS
+    assert result["edits"][0] == {
+        "edit_index": 0,
+        "change_unit_id": anchor["change_unit_id"],
+        "status": "blocked",
+        "operation": None,
+        "match_count": None,
+        "target_author": None,
+        "target_revision_ids": [],
+        "position_supported": None,
+        "refusal_code": "invalid_edit",
+    }
+
+
+def test_xml_whitespace_and_unicode_are_valid_insert_text(
+    round2: Path,
+) -> None:
+    edit = _edit(
+        _cap_anchor(round2),
+        insert_text="Line one\tLine two\nПрименимо — €250,000",
+    )
+
+    result = preflight_edits(str(round2), [edit])
+
+    assert result["batch_applicable"] is True
+    assert result["round_trip_check"]["status"] == "passed"
+
+
+def test_preflight_includes_surgery_and_round_trip_failures(
+    round2: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     apply_module = importlib.import_module("veqtor_docx.apply")
-    original_read_bytes = Path.read_bytes
-    temp_reads = {"count": 0}
+    monkeypatch.setattr(
+        apply_module,
+        "_round_trip_verdict",
+        lambda *_args: ApplyError("round_trip_failed", "simulated mismatch"),
+    )
 
-    def flaky_read_bytes(self: Path) -> bytes:
-        if str(self).endswith(".veqtor-tmp"):
-            temp_reads["count"] += 1
-            if temp_reads["count"] == 2:
-                raise OSError("simulated temp read failure")
-        return original_read_bytes(self)
+    result = preflight_edits(str(round2), [_edit(_cap_anchor(round2))])
 
-    monkeypatch.setattr(apply_module.Path, "read_bytes", flaky_read_bytes)
-    out = tmp_path / "counter.docx"
-
-    with pytest.raises(ApplyError) as err:
-        apply_edits(str(round2), str(out), [_edit(_cap_anchor(round2))])
-
-    assert err.value.code == "output_unreadable"
-    assert err.value.metadata == {
-        "observed_source_sha256": hashlib.sha256(round2.read_bytes()).hexdigest()
+    assert result["batch_applicable"] is False
+    assert result["refusal_code"] == "round_trip_failed"
+    assert result["candidate_sha256"] is None
+    assert len(result["observed_candidate_sha256"]) == 64
+    assert result["failure_phase"] == "round_trip"
+    assert result["blocking_edit_index"] is None
+    assert result["edits"][0]["status"] == "planned"
+    assert result["edits"][0]["position_supported"] is None
+    assert result["round_trip_check"] == {
+        "status": "failed",
+        "comparison": ROUND_TRIP_COMPARISON_CURRENT,
+        "collateral_changes": [],
     }
-    assert not out.exists()
-    assert not list(tmp_path.glob("*.veqtor-tmp"))
+
+
+def test_preflight_preserves_planned_edits_without_inventing_zero_match_target(
+    round2: Path,
+) -> None:
+    good = _edit(_cap_anchor(round2))
+    bad = {**good, "delete_text": "text that does not exist anywhere"}
+
+    result = preflight_edits(str(round2), [good, bad, good])
+
+    assert result["batch_applicable"] is False
+    assert result["failure_phase"] == "matching"
+    assert result["blocking_edit_index"] == 1
+    assert result["edits"][0]["status"] == "planned"
+    assert result["edits"][0]["match_count"] == 1
+    assert set(result["edits"][0]) == PREFLIGHT_DIAGNOSTIC_KEYS
+    assert set(result["edits"][1]) == PREFLIGHT_DIAGNOSTIC_KEYS
+    assert result["edits"][1] == {
+        "edit_index": 1,
+        "change_unit_id": bad["anchor"]["change_unit_id"],
+        "status": "blocked",
+        "operation": None,
+        "match_count": 0,
+        "target_author": None,
+        "target_revision_ids": [],
+        "position_supported": False,
+        "refusal_code": "delete_text_not_found",
+    }
+    assert result["edits"][2] == {
+        "edit_index": 2,
+        "change_unit_id": good["anchor"]["change_unit_id"],
+        "status": "not_evaluated",
+        "operation": None,
+        "match_count": None,
+        "target_author": None,
+        "target_revision_ids": [],
+        "position_supported": None,
+        "refusal_code": None,
+    }
+
+
+def test_preflight_reports_counter_position_diagnostics(
+    round2: Path, tmp_path: Path
+) -> None:
+    blocked = tmp_path / "blocked-counter-position.docx"
+    with zipfile.ZipFile(round2) as source, zipfile.ZipFile(blocked, "w") as target:
+        for info in source.infolist():
+            payload = source.read(info)
+            if info.filename == "word/document.xml":
+                document = parse_xml(payload)
+                insertion = next(
+                    element
+                    for element in document.iter(w("ins"))
+                    if "USD 50,000"
+                    in "".join(node.text or "" for node in element.iter(w("t")))
+                )
+                following = etree.Element(w("del"))
+                following.set(w("id"), "999")
+                following.set(w("author"), "53")
+                run = etree.SubElement(following, w("r"))
+                deleted = etree.SubElement(run, w("delText"))
+                deleted.text = "adjacent revision"
+                insertion.addnext(following)
+                payload = (
+                    b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n'
+                    + etree.tostring(document)
+                )
+            target.writestr(info, payload)
+
+    extracted = extract_redlines(str(blocked))
+    unit = next(
+        item
+        for item in extracted["change_units"]
+        if item.get("new_text") and "USD 50,000" in item["new_text"]
+    )
+    result = preflight_edits(
+        str(blocked),
+        [
+            {
+                "anchor": {
+                    "change_unit_id": unit["change_unit_id"],
+                    "file_sha256": extracted["file_sha256"],
+                },
+                "delete_text": "USD 50,000",
+                "insert_text": "USD 250,000",
+            }
+        ],
+    )
+
+    assert result["batch_applicable"] is False
+    assert result["refusal_code"] == "counter_position_unsupported"
+    assert result["blocking_edit_index"] == 0
+    assert result["edits"] == [
+        {
+            "edit_index": 0,
+            "change_unit_id": unit["change_unit_id"],
+            "status": "blocked",
+            "operation": "counter",
+            "match_count": 1,
+            "target_author": "53",
+            "target_revision_ids": [insertion.get(w("id"))],
+            "position_supported": False,
+            "refusal_code": "counter_position_unsupported",
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("atom_tag", "rendered"),
+    [
+        ("noBreakHyphen", "-"),
+        ("tab", "\t"),
+        ("br", "\n"),
+    ],
+)
+def test_counter_matcher_recognizes_extracted_text_atoms_before_refusing_surgery(
+    round2: Path,
+    tmp_path: Path,
+    atom_tag: str,
+    rendered: str,
+) -> None:
+    source = tmp_path / f"counter-{atom_tag}.docx"
+    _atom_revision_docx(round2, source, kind="ins", atom_tag=atom_tag)
+    extracted = extract_redlines(str(source))
+    unit = next(
+        item
+        for item in extracted["change_units"]
+        if item.get("new_text") == f"Atom{rendered}Value"
+    )
+    result = preflight_edits(
+        str(source),
+        [
+            {
+                "anchor": {
+                    "change_unit_id": unit["change_unit_id"],
+                    "file_sha256": extracted["file_sha256"],
+                },
+                "delete_text": unit["new_text"],
+                "insert_text": "Replacement",
+            }
+        ],
+    )
+
+    assert result["batch_applicable"] is False
+    assert result["refusal_code"] == "unsupported_run_shape"
+    assert result["failure_phase"] == "surgery"
+    assert result["edits"][0]["operation"] == "counter"
+    assert result["edits"][0]["match_count"] == 1
+    assert result["edits"][0]["target_author"] == unit["author"]
+    assert len(result["edits"][0]["target_revision_ids"]) == 1
+    assert result["edits"][0]["target_revision_ids"][0] in unit["reference"][
+        "revision_ids"
+    ]
+
+
+@pytest.mark.parametrize(
+    "atom_tag",
+    ["t", "noBreakHyphen", "tab", "br"],
+)
+def test_runless_insertion_atoms_are_controlled_unsupported_shapes(
+    round2: Path,
+    tmp_path: Path,
+    atom_tag: str,
+) -> None:
+    source = tmp_path / f"runless-{atom_tag}.docx"
+    _runless_atom_revision_docx(round2, source, atom_tag=atom_tag)
+    extracted = extract_redlines(str(source))
+    unit = next(
+        item
+        for item in extracted["change_units"]
+        if (item.get("new_text") or "").startswith("Direct")
+    )
+
+    result = preflight_edits(
+        str(source),
+        [
+            {
+                "anchor": {
+                    "change_unit_id": unit["change_unit_id"],
+                    "file_sha256": extracted["file_sha256"],
+                },
+                "delete_text": unit["new_text"],
+                "insert_text": "Replacement",
+            }
+        ],
+    )
+
+    assert result["batch_applicable"] is False
+    assert result["refusal_code"] == "unsupported_run_shape"
+    assert result["failure_phase"] == "surgery"
+    assert result["edits"][0]["match_count"] == 1
+    assert result["edits"][0]["operation"] == "counter"
+    assert result["edits"][0]["target_author"] == unit["author"]
+
+
+@pytest.mark.parametrize("atom_tag", ["t", "noBreakHyphen", "tab", "br"])
+def test_runless_plain_atoms_are_controlled_unsupported_shapes(
+    round2: Path,
+    tmp_path: Path,
+    atom_tag: str,
+) -> None:
+    source = tmp_path / f"runless-plain-{atom_tag}.docx"
+    _runless_plain_atom_docx(round2, source, atom_tag=atom_tag)
+    anchor = _cap_anchor(source)
+    rendered = {"t": "Text", "noBreakHyphen": "-", "tab": "\t", "br": "\n"}[
+        atom_tag
+    ]
+    result = preflight_edits(
+        str(source),
+        [
+            {
+                "anchor": anchor,
+                "delete_text": f"Direct{rendered}Value",
+                "insert_text": "Replacement",
+            }
+        ],
+    )
+
+    assert result["batch_applicable"] is False
+    assert result["refusal_code"] == "unsupported_run_shape"
+    assert result["edits"][0]["match_count"] == 1
+    assert result["edits"][0]["operation"] == "replace"
+
+
+@pytest.mark.parametrize(
+    ("atom_tag", "rendered", "applicable"),
+    [
+        ("delText", "Text", True),
+        ("noBreakHyphen", "-", False),
+        ("tab", "\t", False),
+        ("br", "\n", False),
+    ],
+)
+def test_runless_deletion_atoms_have_total_reinstate_results(
+    round2: Path,
+    tmp_path: Path,
+    atom_tag: str,
+    rendered: str,
+    applicable: bool,
+) -> None:
+    source = tmp_path / f"runless-deletion-{atom_tag}.docx"
+    _runless_deletion_atom_docx(round2, source, atom_tag=atom_tag)
+    extracted = extract_redlines(str(source))
+    text = f"Direct{rendered}Value"
+    unit = next(item for item in extracted["change_units"] if item.get("old_text") == text)
+    result = preflight_edits(
+        str(source),
+        [
+            {
+                "anchor": {
+                    "change_unit_id": unit["change_unit_id"],
+                    "file_sha256": extracted["file_sha256"],
+                },
+                "reinstate_text": text,
+            }
+        ],
+    )
+
+    assert result["batch_applicable"] is applicable
+    assert result["edits"][0]["match_count"] == 1
+    assert result["edits"][0]["operation"] == "reinstate"
+    if not applicable:
+        assert result["refusal_code"] == "unsupported_run_shape"
+
+
+@pytest.mark.parametrize(
+    ("atom_tag", "rendered"),
+    [
+        ("noBreakHyphen", "-"),
+        ("tab", "\t"),
+        ("br", "\n"),
+    ],
+)
+def test_reinstate_matcher_recognizes_atoms_and_refuses_lossy_restoration(
+    round2: Path,
+    tmp_path: Path,
+    atom_tag: str,
+    rendered: str,
+) -> None:
+    source = tmp_path / f"reinstate-{atom_tag}.docx"
+    _atom_revision_docx(round2, source, kind="del", atom_tag=atom_tag)
+    extracted = extract_redlines(str(source))
+    unit = next(
+        item
+        for item in extracted["change_units"]
+        if item.get("old_text") == f"Atom{rendered}Value"
+    )
+    result = preflight_edits(
+        str(source),
+        [
+            {
+                "anchor": {
+                    "change_unit_id": unit["change_unit_id"],
+                    "file_sha256": extracted["file_sha256"],
+                },
+                "reinstate_text": unit["old_text"],
+            }
+        ],
+    )
+
+    assert result["batch_applicable"] is False
+    assert result["refusal_code"] == "unsupported_run_shape"
+    assert result["failure_phase"] == "matching"
+    assert result["edits"][0]["operation"] == "reinstate"
+    assert result["edits"][0]["match_count"] == 1
+    assert result["edits"][0]["target_author"] == unit["author"]
+    assert len(result["edits"][0]["target_revision_ids"]) == 1
+    assert result["edits"][0]["target_revision_ids"][0] in unit["reference"][
+        "revision_ids"
+    ]
+
+
+def test_atom_before_plain_target_does_not_shift_match_offsets(
+    round2: Path,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "atom-before-target.docx"
+    anchor = _cap_anchor(round2)
+
+    extracted = extract_redlines(str(round2))
+    unit = next(
+        item
+        for item in extracted["change_units"]
+        if item["change_unit_id"] == anchor["change_unit_id"]
+    )
+    revision_ids = set(unit["reference"]["revision_ids"])
+
+    def add_prefix(document: etree._Element) -> None:
+        wrapper = next(
+            element
+            for element in document.iter()
+            if element.get(w("id")) in revision_ids
+        )
+        paragraph = next(wrapper.iterancestors(w("p")))
+        insert_at = 1 if len(paragraph) and paragraph[0].tag == w("pPr") else 0
+        run = etree.Element(w("r"))
+        before = etree.SubElement(run, w("t"))
+        before.text = "Prefix"
+        etree.SubElement(run, w("noBreakHyphen"))
+        after = etree.SubElement(run, w("t"))
+        after.text = "Value "
+        paragraph.insert(insert_at, run)
+
+    _rewrite_document_xml(round2, source, add_prefix)
+    updated_anchor = _cap_anchor(source)
+    result = preflight_edits(str(source), [_edit(updated_anchor)])
+
+    assert result["batch_applicable"] is True
+    assert result["edits"][0]["match_count"] == 1
+
+
+@pytest.mark.parametrize(
+    "author",
+    [None, 7, "", "   ", "bad\x01author", "bad\x0bauthor", "\udcff", "x" * 256],
+)
+def test_public_edit_api_rejects_invalid_authors_without_raw_exceptions(
+    round2: Path,
+    tmp_path: Path,
+    author: object,
+) -> None:
+    edits = [_edit(_cap_anchor(round2))]
+    preflight = preflight_edits(str(round2), edits, author=author)  # type: ignore[arg-type]
+
+    assert preflight["batch_applicable"] is False
+    assert preflight["refusal_code"] == "invalid_author"
+    assert preflight["failure_phase"] == "validation"
+    assert preflight["tracked_change_author"] is None
+    with pytest.raises(ApplyError) as error:
+        apply_edits(
+            str(round2),
+            str(tmp_path / "never.docx"),
+            edits,
+            author=author,  # type: ignore[arg-type]
+        )
+    assert error.value.code == "invalid_author"
+    assert not (tmp_path / "never.docx").exists()
 
 
 def test_source_parse_failure_after_snapshot_carries_observed_sha(

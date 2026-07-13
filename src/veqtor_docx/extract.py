@@ -18,7 +18,6 @@ import hashlib
 import io
 import re
 import zipfile
-import zlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,8 +29,13 @@ from ._ooxml import (
     TEXT_REVISION_TAGS,
     UNSUPPORTED_REVISION_TAGS,
     DocxError,
+    UserPathError,
+    ZIP_READ_ERRORS,
+    current_text_atom,
     parse_xml,
+    resolve_user_path,
     run_text,
+    text_atom,
     w,
 )
 from .contracts import (
@@ -40,22 +44,10 @@ from .contracts import (
 )
 
 _MANUAL_NUMBER_RE = re.compile(r"^\s*(\d+(?:\.\d+)*[A-Za-z]?|\([a-z]\)|[A-Z]\.)[.\s]\s*")
-
-try:
-    import lzma as _lzma
-except ImportError:
-    _LZMA_READ_ERRORS: tuple[type[BaseException], ...] = ()
-else:
-    _LZMA_READ_ERRORS = (_lzma.LZMAError,)
-
-_ZIP_READ_ERRORS = (
-    EOFError,
-    OSError,
-    RuntimeError,
-    zipfile.BadZipFile,
-    zipfile.LargeZipFile,
-    zlib.error,
-) + _LZMA_READ_ERRORS
+_DOTTED_MANUAL_NUMBER_RE = re.compile(
+    r"^\s*(\d+(?:\.\d+)+[A-Za-z]?)(?:[.\s])\s*"
+)
+PARAGRAPH_CONTEXT_RADIUS = 240
 
 __all__ = ["DocxError", "extract_redlines"]
 
@@ -78,7 +70,7 @@ def _read_parts(payload: bytes, path: str, parts: tuple[str, ...]) -> dict[str, 
             return {
                 part: zf.read(part) if part in names else None for part in parts
             }
-    except _ZIP_READ_ERRORS as exc:
+    except ZIP_READ_ERRORS as exc:
         raise DocxError(f"cannot open {path}: {exc}") from exc
 
 
@@ -250,15 +242,53 @@ class _NumberingCounters:
         return label.rstrip(".") or None
 
 
+@dataclass(frozen=True)
+class _ReadingToken:
+    node: etree._Element
+    start: int
+    end: int
+
+
+@dataclass(frozen=True)
+class _ParagraphReading:
+    text: str
+    offsets_before: dict[int, int]
+    tokens: tuple[_ReadingToken, ...]
+
+
+def _current_node_text(node: etree._Element) -> str:
+    """One node's contribution to the accepted/current paragraph reading."""
+    return current_text_atom(node) or ""
+
+
+def _current_paragraph_reading(para: etree._Element) -> _ParagraphReading:
+    """Build one canonical string/offset map from the same OOXML traversal."""
+    parts: list[str] = []
+    offsets_before: dict[int, int] = {}
+    tokens: list[_ReadingToken] = []
+    offset = 0
+    for node in para.iter():
+        offsets_before[id(node)] = offset
+        contribution = _current_node_text(node)
+        if not contribution:
+            continue
+        start = offset
+        parts.append(contribution)
+        offset += len(contribution)
+        tokens.append(_ReadingToken(node, start, offset))
+    return _ParagraphReading("".join(parts), offsets_before, tuple(tokens))
+
+
 def _paragraph_new_text(para: etree._Element) -> str:
     """Paragraph text as it reads with insertions accepted and deletions gone."""
-    parts: list[str] = []
-    for node in para.iter(w("t")):
-        ancestors = {a.tag for a in node.iterancestors()}
-        if w("del") in ancestors or w("moveFrom") in ancestors:
-            continue
-        parts.append(node.text or "")
-    return "".join(parts)
+    return _current_paragraph_reading(para).text
+
+
+def _manual_label_from_text(text: str, *, dotted_only: bool = False) -> str | None:
+    """Return only an explicit leading manual label; never infer one."""
+    pattern = _DOTTED_MANUAL_NUMBER_RE if dotted_only else _MANUAL_NUMBER_RE
+    match = pattern.match(text.strip())
+    return match.group(1).rstrip(".") if match else None
 
 
 def _heading_from_text(text: str) -> tuple[str | None, str | None]:
@@ -266,10 +296,9 @@ def _heading_from_text(text: str) -> tuple[str | None, str | None]:
     stripped = text.strip()
     if not stripped:
         return None, None
-    label = None
     match = _MANUAL_NUMBER_RE.match(stripped)
-    if match:
-        label = match.group(1).rstrip(".")
+    label = _manual_label_from_text(stripped)
+    if match is not None:
         stripped = stripped[match.end():].strip()
     first_sentence = stripped.split(". ", 1)[0].strip().rstrip(".")
     return label, first_sentence[:120] or None
@@ -310,20 +339,19 @@ def _wrapper_text(element: etree._Element, kind: str) -> str:
     parts: list[str] = []
     for node in element.iter():
         tag = node.tag
-        if kind == "ins" and tag == w("t"):
+        value = text_atom(node, include_deleted_text=True)
+        if value is None:
+            continue
+        if kind == "ins" and tag != w("delText"):
             if _nested_del_author_differs(node, element) is False:
                 continue  # same-author retraction or moved away: hidden
-            parts.append(node.text or "")
+            parts.append(value)
         elif kind == "ins" and tag == w("delText"):
             # Counter-struck text still reads as part of their proposal.
             if _nested_del_author_differs(node, element):
-                parts.append(node.text or "")
-        elif kind == "del" and tag == w("delText"):
-            parts.append(node.text or "")
-        elif tag == w("tab"):
-            parts.append("\t")
-        elif tag in (w("br"), w("cr")):
-            parts.append("\n")
+                parts.append(value)
+        elif kind == "del" and tag != w("t"):
+            parts.append(value)
     return "".join(parts)
 
 
@@ -400,6 +428,44 @@ def _paragraph_stream(para: etree._Element) -> list[tuple[str, object]]:
     return items
 
 
+def _paragraph_context(
+    para: etree._Element,
+    group: list[_Wrapper],
+    new_text: str,
+) -> dict[str, object]:
+    """Bounded context around one unit in the paragraph's current reading."""
+    del new_text  # element identity, never text uniqueness, locates the unit
+    reading = _current_paragraph_reading(para)
+    current = reading.text
+    group_elements = {id(wrapper.element) for wrapper in group}
+    visible_spans = [
+        (token.start, token.end)
+        for token in reading.tokens
+        if any(
+            id(ancestor) in group_elements
+            for ancestor in token.node.iterancestors()
+        )
+    ]
+    if visible_spans:
+        start = min(span[0] for span in visible_spans)
+        end = max(span[1] for span in visible_spans)
+    else:
+        start = min(
+            reading.offsets_before.get(id(group[0].element), len(current)),
+            len(current),
+        )
+        end = start
+    before_start = max(0, start - PARAGRAPH_CONTEXT_RADIUS)
+    after_end = min(len(current), end + PARAGRAPH_CONTEXT_RADIUS)
+    return {
+        "before": current[before_start:start],
+        "after": current[end:after_end],
+        "manual_label": _manual_label_from_text(current, dotted_only=True),
+        "truncated_before": before_start > 0,
+        "truncated_after": after_end < len(current),
+    }
+
+
 def _group_units(items: list[tuple[str, object]]) -> list[list[_Wrapper]]:
     """Group directly adjacent ins/del wrappers into logical change units.
 
@@ -428,6 +494,46 @@ def _group_units(items: list[tuple[str, object]]) -> list[list[_Wrapper]]:
     return groups
 
 
+def _group_change_fields(group: list[_Wrapper]) -> dict[str, object] | None:
+    """Return the canonical, position-independent facts for one group.
+
+    Extraction and edit anchoring share this classifier.  In particular,
+    apply must not rediscover a unit by a revision id: OOXML revision ids can
+    be duplicated by document merges and by third-party producers.
+    """
+    ins_text = "".join(item.text for item in group if item.kind == "ins")
+    del_text = "".join(item.text for item in group if item.kind == "del")
+    countering = any(item.nested_in for item in group)
+    if countering:
+        change_type = "counter"
+    elif ins_text and del_text:
+        change_type = "replace"
+    elif ins_text:
+        change_type = "insert"
+    elif del_text:
+        change_type = "delete"
+    else:
+        return None
+
+    dates = [item.date for item in group if item.date]
+    countered_by = [
+        nested.get(w("id"))
+        for item in group
+        if item.kind == "ins"
+        for nested in _foreign_nested_dels(item.element)
+        if nested.get(w("id"))
+    ]
+    return {
+        "change_type": change_type,
+        "author": group[0].author,
+        "date": min(dates) if dates else None,
+        "old_text": del_text or None,
+        "new_text": ins_text or None,
+        "revision_ids": [item.rev_id for item in group if item.rev_id],
+        "countered_by": countered_by,
+    }
+
+
 def extract_redlines(path: str) -> dict:
     """Extract tracked changes from ``path`` as deterministic change units.
 
@@ -435,9 +541,12 @@ def extract_redlines(path: str) -> dict:
     derive from that single byte snapshot, so the hash always names the
     bytes the facts came from.
     """
+    try:
+        path = resolve_user_path(path)
+    except UserPathError as exc:
+        raise DocxError(str(exc)) from exc
     # MCP clients pass user-written paths; "~/Deals/x.docx" must just work,
     # and references must carry the openable expanded path.
-    path = str(Path(path).expanduser())
     try:
         payload = Path(path).read_bytes()
     except OSError as exc:
@@ -483,7 +592,7 @@ def _extract_snapshot(payload: bytes, path: str, file_sha256: str) -> dict:
     def bump(key: str) -> None:
         unsupported[key] = unsupported.get(key, 0) + 1
 
-    for para in body.iter(w("p")):
+    for paragraph_index, para in enumerate(body.iter(w("p"))):
         ppr = para.find(w("pPr"))
         style_id = None
         para_numpr: tuple[str, int] | None = None
@@ -534,49 +643,34 @@ def _extract_snapshot(payload: bytes, path: str, file_sha256: str) -> dict:
             if kind == "move":
                 bump(etree.QName(payload.tag).localname)
 
-        for group in _group_units(items):
-            ins_text = "".join(item.text for item in group if item.kind == "ins")
-            del_text = "".join(item.text for item in group if item.kind == "del")
-            countering = any(item.nested_in for item in group)
-            if countering:
-                # A cross-author strike inside someone's pending insertion:
-                # old_text is the countered proposal text, not contract text.
-                change_type = "counter"
-            elif ins_text and del_text:
-                change_type = "replace"
-            elif ins_text:
-                change_type = "insert"
-            elif del_text:
-                change_type = "delete"
-            else:
+        for group_index, group in enumerate(_group_units(items)):
+            fields = _group_change_fields(group)
+            if fields is None:
                 continue  # empty wrappers carry no reviewable text
-            dates = [item.date for item in group if item.date]
             unit = {
                 "change_unit_id": f"cu_{len(change_units) + 1:03d}",
                 "file_sha256": file_sha256,
-                "change_type": change_type,
-                "author": group[0].author,
-                "date": min(dates) if dates else None,
+                "change_type": fields["change_type"],
+                "author": fields["author"],
+                "date": fields["date"],
                 "clause_anchor": anchor,
-                "old_text": del_text or None,
-                "new_text": ins_text or None,
+                "paragraph_context": _paragraph_context(
+                    para, group, str(fields["new_text"] or "")
+                ),
+                "old_text": fields["old_text"],
+                "new_text": fields["new_text"],
                 "reference": {
                     "path": path,
                     "part_name": DOCUMENT_PART,
-                    "revision_ids": [item.rev_id for item in group if item.rev_id],
+                    "paragraph_index": paragraph_index,
+                    "group_index": group_index,
+                    "revision_ids": fields["revision_ids"],
                 },
             }
-            countered_by = [
-                nested.get(w("id"))
-                for item in group
-                if item.kind == "ins"
-                for nested in _foreign_nested_dels(item.element)
-                if nested.get(w("id"))
-            ]
-            if countered_by:
+            if fields["countered_by"]:
                 # This unit's proposal has been struck (fully or in part) by
                 # another author; the strikes are separate "counter" units.
-                unit["countered_by"] = countered_by
+                unit["countered_by"] = fields["countered_by"]
             change_units.append(unit)
 
     # One classification pass over every revision element. Run-level ins/del

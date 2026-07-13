@@ -80,11 +80,38 @@ APPLY_OPERATIONS_V1 = frozenset(
 )
 
 ROUND_TRIP_STATUS_PASSED = "passed"
-ROUND_TRIP_STATUSES_V1 = frozenset({ROUND_TRIP_STATUS_PASSED})
+ROUND_TRIP_STATUS_FAILED = "failed"
+ROUND_TRIP_STATUSES_V1 = frozenset(
+    {ROUND_TRIP_STATUS_PASSED, ROUND_TRIP_STATUS_FAILED}
+)
 ROUND_TRIP_COMPARISON_CURRENT = "ooxml_semantic_diff_outside_touched_anchors"
 ROUND_TRIP_COMPARISONS_V1 = frozenset(
     {
         "exact",
         ROUND_TRIP_COMPARISON_CURRENT,
+    }
+)
+
+PREFLIGHT_EDIT_STATUS_APPLICABLE = "applicable"
+PREFLIGHT_EDIT_STATUS_BLOCKED = "blocked"
+PREFLIGHT_EDIT_STATUS_PLANNED = "planned"
+PREFLIGHT_EDIT_STATUS_NOT_EVALUATED = "not_evaluated"
+PREFLIGHT_EDIT_STATUSES_V1 = frozenset(
+    {
+        PREFLIGHT_EDIT_STATUS_APPLICABLE,
+        PREFLIGHT_EDIT_STATUS_BLOCKED,
+        PREFLIGHT_EDIT_STATUS_PLANNED,
+        PREFLIGHT_EDIT_STATUS_NOT_EVALUATED,
+    }
+)
+PREFLIGHT_FAILURE_PHASES_V1 = frozenset(
+    {
+        "validation",
+        "source",
+        "matching",
+        "planning",
+        "surgery",
+        "serialization",
+        "round_trip",
     }
 )

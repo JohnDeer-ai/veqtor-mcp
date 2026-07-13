@@ -11,6 +11,7 @@ import inspect
 import json
 import lzma
 import os
+import re
 import stat
 import subprocess
 import zipfile
@@ -447,7 +448,7 @@ def test_journal_write_failure_is_visible_without_failing_tool(tmp_path: Path) -
     assert len(result["rounds"]) == 4
     assert result["record_id"] is None
     assert result["record_status"] == "write_failed"
-    assert "journal_corrupt" in result["record_error"]
+    assert result["record_error"] == "journal_corrupt"
 
 
 def test_sidecar_is_private_and_ignored_in_external_git(tmp_path: Path) -> None:
@@ -623,7 +624,7 @@ def test_sidecar_symlink_is_refused_without_cross_matter_append(tmp_path: Path) 
 
     assert len(result["rounds"]) == 4
     assert result["record_status"] == "write_failed"
-    assert "sidecar_symlink" in result["record_error"]
+    assert result["record_error"] == "sidecar_symlink"
     after = records.read_records(str(matter_a), max_records=10)["total_count"]
     assert after == before
     with pytest.raises(records.DecisionRecordError) as err:
@@ -642,7 +643,7 @@ def test_journal_symlink_is_refused(tmp_path: Path) -> None:
     result = server.list_rounds(str(matter))
 
     assert result["record_status"] == "write_failed"
-    assert "journal_symlink" in result["record_error"]
+    assert result["record_error"] == "journal_symlink"
     assert target.read_text(encoding="utf-8") == ""
 
 
@@ -668,7 +669,7 @@ def test_journal_hardlink_is_refused_without_external_append(tmp_path: Path) -> 
     result = server.list_rounds(str(matter))
 
     assert result["record_status"] == "write_failed"
-    assert "journal_hardlink" in result["record_error"]
+    assert result["record_error"] == "journal_hardlink"
     assert target.read_text(encoding="utf-8") == ""
 
 
@@ -683,7 +684,7 @@ def test_gitignore_hardlink_is_refused_without_external_change(tmp_path: Path) -
     result = server.list_rounds(str(matter))
 
     assert result["record_status"] == "write_failed"
-    assert "gitignore_hardlink" in result["record_error"]
+    assert result["record_error"] == "gitignore_hardlink"
     assert target.read_text(encoding="utf-8") == "sentinel\n"
     assert (sidecar / records.GITIGNORE_NAME).read_text(encoding="utf-8") == "sentinel\n"
     assert (sidecar / records.GITIGNORE_NAME).stat().st_ino == target.stat().st_ino
@@ -701,7 +702,7 @@ def test_gitignore_symlink_is_refused_before_append(tmp_path: Path) -> None:
     result = server.list_rounds(str(matter))
 
     assert result["record_status"] == "write_failed"
-    assert "gitignore_symlink" in result["record_error"]
+    assert result["record_error"] == "gitignore_symlink"
     assert not (sidecar / records.JOURNAL_NAME).exists()
 
 
@@ -714,7 +715,7 @@ def test_gitignore_fifo_is_refused_without_blocking(tmp_path: Path) -> None:
     result = server.list_rounds(str(matter))
 
     assert result["record_status"] == "write_failed"
-    assert "gitignore_not_file" in result["record_error"]
+    assert result["record_error"] == "gitignore_not_file"
     assert not (sidecar / records.JOURNAL_NAME).exists()
 
 
@@ -727,7 +728,7 @@ def test_gitignore_unexpected_content_is_refused(tmp_path: Path) -> None:
     result = server.list_rounds(str(matter))
 
     assert result["record_status"] == "write_failed"
-    assert "gitignore_invalid" in result["record_error"]
+    assert result["record_error"] == "gitignore_invalid"
     assert not (sidecar / records.JOURNAL_NAME).exists()
 
 
@@ -1077,7 +1078,85 @@ def test_late_apply_failure_records_offending_plan_metadata(
     assert error_record["provenance"]["observed_source_sha256"] == extracted["file_sha256"]
 
 
-def test_operation_wide_output_failure_records_observed_source_sha(
+@pytest.mark.parametrize("tool_name", ["preflight_edits", "apply_edits"])
+def test_unexpected_edit_failure_is_journaled_without_exception_details(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tool_name: str,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-2-counterparty-redline.docx"
+    _, anchor = _cap_from_tool(source)
+    secret = "private implementation detail from client matter"
+
+    def explode(*_args, **_kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(veqtor_docx, tool_name, explode)
+    edits = [
+        {
+            "anchor": anchor,
+            "delete_text": "USD 50,000",
+            "insert_text": "USD 250,000",
+        }
+    ]
+    with pytest.raises(veqtor_docx.DocxError) as error:
+        if tool_name == "preflight_edits":
+            server.preflight_edits(str(source), edits)
+        else:
+            server.apply_edits(str(source), str(matter / "never.docx"), edits)
+    assert str(error.value) == "internal_error: unexpected tool failure"
+    assert secret not in str(error.value)
+
+    raw = records.read_records(str(matter), max_records=20, include_payload=True)
+    failure = next(
+        item
+        for item in reversed(raw["records"])
+        if item["tool_name"] == tool_name
+        and item["result"].get("error_code") == "internal_error"
+    )
+    assert failure["result"] == {
+        "status": "error",
+        "error_code": "internal_error",
+        "error": "unexpected internal failure",
+    }
+    assert secret not in json.dumps(failure, ensure_ascii=False)
+    assert failure["provenance"]["anchors"] == [anchor]
+    assert not (matter / "never.docx").exists()
+
+
+def test_unexpected_list_rounds_failure_is_journaled_without_exception_details(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matter = _matter(tmp_path)
+    secret = "private list-rounds implementation detail"
+
+    def explode(*_args, **_kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(veqtor_docx, "list_rounds", explode)
+    with pytest.raises(veqtor_docx.DocxError) as error:
+        server.list_rounds(str(matter))
+    assert str(error.value) == "internal_error: unexpected tool failure"
+    assert secret not in str(error.value)
+
+    raw = records.read_records(str(matter), max_records=20, include_payload=True)
+    failure = next(
+        item
+        for item in reversed(raw["records"])
+        if item["tool_name"] == "list_rounds"
+        and item["result"].get("error_code") == "internal_error"
+    )
+    assert failure["result"] == {
+        "status": "error",
+        "error_code": "internal_error",
+        "error": "unexpected internal failure",
+    }
+    assert secret not in json.dumps(failure, ensure_ascii=False)
+
+
+def test_operation_wide_publish_failure_records_observed_source_sha(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1085,17 +1164,10 @@ def test_operation_wide_output_failure_records_observed_source_sha(
     source = matter / "round-2-counterparty-redline.docx"
     extracted, anchor = _cap_from_tool(source)
     apply_module = importlib.import_module("veqtor_docx.apply")
-    original_read_bytes = Path.read_bytes
-    temp_reads = {"count": 0}
+    def deny_publish(_source: str, _destination: str) -> None:
+        raise PermissionError("simulated publish failure")
 
-    def flaky_read_bytes(self: Path) -> bytes:
-        if str(self).endswith(".veqtor-tmp"):
-            temp_reads["count"] += 1
-            if temp_reads["count"] == 2:
-                raise OSError("simulated temp read failure")
-        return original_read_bytes(self)
-
-    monkeypatch.setattr(apply_module.Path, "read_bytes", flaky_read_bytes)
+    monkeypatch.setattr(apply_module.os, "link", deny_publish)
     output = tmp_path / "never.docx"
     with pytest.raises(veqtor_docx.ApplyError) as err:
         server.apply_edits(
@@ -1110,7 +1182,7 @@ def test_operation_wide_output_failure_records_observed_source_sha(
             ],
         )
 
-    assert err.value.code == "output_unreadable"
+    assert err.value.code == "output_unwritable"
     assert err.value.metadata == {
         "observed_source_sha256": extracted["file_sha256"]
     }
@@ -1159,9 +1231,13 @@ def test_operation_wide_round_trip_failure_has_no_invented_edit_index(
         )
 
     assert err.value.code == "round_trip_failed"
-    assert err.value.metadata == {
-        "observed_source_sha256": extracted["file_sha256"]
-    }
+    assert err.value.metadata["observed_source_sha256"] == extracted[
+        "file_sha256"
+    ]
+    assert err.value.metadata["failure_phase"] == "round_trip"
+    assert len(err.value.metadata["observed_candidate_sha256"]) == 64
+    assert err.value.metadata["planned_edits"][0]["status"] == "planned"
+    assert "edit_index" not in err.value.metadata
     assert not output.exists()
     full = records.read_records(str(matter), max_records=10, include_payload=True)
     error_record = next(
@@ -1512,9 +1588,12 @@ def test_output_archive_write_failure_records_observed_source_sha(
         )
 
     assert err.value.code == "output_unwritable"
-    assert err.value.metadata == {
-        "observed_source_sha256": extracted["file_sha256"]
-    }
+    assert err.value.metadata["observed_source_sha256"] == extracted[
+        "file_sha256"
+    ]
+    assert err.value.metadata["failure_phase"] == "serialization"
+    assert err.value.metadata["planned_edits"][0]["status"] == "planned"
+    assert "observed_candidate_sha256" not in err.value.metadata
     assert not output.exists()
     assert not list(matter.glob("*.veqtor-tmp"))
     full = records.read_records(str(matter), max_records=10, include_payload=True)
@@ -1538,10 +1617,10 @@ def test_candidate_reextraction_failure_keeps_snapshot_shas_distinct(
     source = matter / "round-2-counterparty-redline.docx"
     extracted, anchor = _cap_from_tool(source)
     apply_module = importlib.import_module("veqtor_docx.apply")
-    original_write = apply_module._write_output_archive
+    original_serialize = apply_module._output_archive_bytes
     candidate_sha: dict[str, str] = {}
 
-    def write_unextractable_candidate(tmp_path, infos, parts):
+    def serialize_unextractable_candidate(infos, parts):
         candidate_parts = dict(parts)
         styles = candidate_parts["word/styles.xml"]
         marker = b'w:outlineLvl w:val="1"'
@@ -1551,15 +1630,14 @@ def test_candidate_reextraction_failure_keeps_snapshot_shas_distinct(
             b'w:outlineLvl w:val="not-a-number"',
             1,
         )
-        original_write(tmp_path, infos, candidate_parts)
-        candidate_sha["value"] = hashlib.sha256(
-            Path(tmp_path).read_bytes()
-        ).hexdigest()
+        payload = original_serialize(infos, candidate_parts)
+        candidate_sha["value"] = hashlib.sha256(payload).hexdigest()
+        return payload
 
     monkeypatch.setattr(
         apply_module,
-        "_write_output_archive",
-        write_unextractable_candidate,
+        "_output_archive_bytes",
+        serialize_unextractable_candidate,
     )
     output = matter / "never.docx"
     with pytest.raises(veqtor_docx.DocxError) as err:
@@ -1576,10 +1654,13 @@ def test_candidate_reextraction_failure_keeps_snapshot_shas_distinct(
         )
 
     assert candidate_sha["value"] != extracted["file_sha256"]
-    assert getattr(err.value, "metadata") == {
-        "observed_candidate_sha256": candidate_sha["value"],
-        "observed_source_sha256": extracted["file_sha256"],
-    }
+    assert err.value.metadata["observed_candidate_sha256"] == candidate_sha["value"]
+    assert err.value.metadata["observed_source_sha256"] == extracted[
+        "file_sha256"
+    ]
+    assert err.value.metadata["failure_phase"] == "round_trip"
+    assert err.value.metadata["planned_edits"][0]["status"] == "planned"
+    assert err.value.metadata["round_trip_check"]["status"] == "failed"
     assert not output.exists()
     assert not list(matter.glob("*.veqtor-tmp"))
 
@@ -1615,7 +1696,7 @@ def test_candidate_reextraction_failure_keeps_snapshot_shas_distinct(
     ]
 
 
-def test_cleanup_failure_preserves_original_recorded_apply_error(
+def test_in_memory_round_trip_failure_creates_no_temp_artifact(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1650,11 +1731,15 @@ def test_cleanup_failure_preserves_original_recorded_apply_error(
         )
 
     assert err.value.code == "round_trip_failed"
-    assert err.value.metadata == {
-        "observed_source_sha256": extracted["file_sha256"]
-    }
+    assert err.value.metadata["observed_source_sha256"] == extracted[
+        "file_sha256"
+    ]
+    assert err.value.metadata["failure_phase"] == "round_trip"
+    assert len(err.value.metadata["observed_candidate_sha256"]) == 64
+    assert err.value.metadata["planned_edits"][0]["status"] == "planned"
+    assert "edit_index" not in err.value.metadata
     assert not output.exists()
-    assert len(list(matter.glob("*.veqtor-tmp"))) == 1
+    assert not list(matter.glob("*.veqtor-tmp"))
     full = records.read_records(str(matter), max_records=10, include_payload=True)
     error_record = next(
         record
@@ -1841,10 +1926,13 @@ def test_invalid_cursor_is_rejected_before_any_history_fast_path(
     before_exists = journal.exists()
     before_bytes = journal.read_bytes() if before_exists else None
 
-    with pytest.raises(records.DecisionRecordError) as err:
+    with pytest.raises(veqtor_docx.DocxError) as err:
         server.export_decision_record(str(matter), before_record_id="bad")
 
     assert err.value.code == "invalid_before_record_id"
+    assert str(err.value) == (
+        "invalid_before_record_id: decision-record operation refused"
+    )
     assert journal.exists() is before_exists
     assert (journal.read_bytes() if journal.exists() else None) == before_bytes
 
@@ -1982,6 +2070,94 @@ def test_compact_export_omits_clause_and_change_text(tmp_path: Path) -> None:
     match = verify_record["result"]["matches"]["sample"][0]
     assert "clause" not in match
     assert "clause_sha256" in match
+
+
+def test_compact_match_does_not_hash_absent_clause() -> None:
+    summary = records._observed_match_summary(
+        {
+            "part_name": "word/document.xml",
+            "revision_ids": ["17"],
+            "side": "new",
+            "clause": None,
+        }
+    )
+
+    assert summary is not None
+    assert summary["clause_sha256"] is None
+
+
+def test_preflight_and_apply_records_preserve_configured_author(
+    tmp_path: Path,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-2-counterparty-redline.docx"
+    extracted, anchor = _cap_from_tool(source)
+    edits = [
+        {
+            "anchor": anchor,
+            "delete_text": "USD 50,000",
+            "insert_text": "USD 250,000",
+        }
+    ]
+    preflight = server.preflight_edits(str(source), edits)
+    output = matter / "round-3.docx"
+    applied = server.apply_edits(str(source), str(output), edits)
+
+    assert preflight["tracked_change_author"] == server._tracked_change_author()
+    assert applied["tracked_change_author"] == server._tracked_change_author()
+    assert applied["source_sha256"] == extracted["file_sha256"]
+    compact = records.read_records(str(matter), max_records=10)
+    for tool_name in ("preflight_edits", "apply_edits"):
+        record = next(
+            item for item in compact["records"] if item["tool_name"] == tool_name
+        )
+        assert record["result"]["tracked_change_author"] == (
+            server._tracked_change_author()
+        )
+        assert record["provenance"]["tracked_change_author"] == (
+            server._tracked_change_author()
+        )
+
+
+def test_controlled_apply_refusal_records_configured_author(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-2-counterparty-redline.docx"
+    _, anchor = _cap_from_tool(source)
+    monkeypatch.setattr(server, "_tracked_change_author", lambda: "John Deer")
+
+    with pytest.raises(veqtor_docx.ApplyError) as err:
+        server.apply_edits(
+            str(source),
+            str(matter / "never.docx"),
+            [
+                {
+                    "anchor": anchor,
+                    "delete_text": "text that does not exist anywhere",
+                    "insert_text": "replacement",
+                }
+            ],
+        )
+
+    assert err.value.code == "delete_text_not_found"
+    raw = records.read_records(str(matter), max_records=10, include_payload=True)
+    refused = next(
+        record
+        for record in raw["records"]
+        if record["tool_name"] == "apply_edits"
+        and record["result"]["status"] == "error"
+    )
+    assert refused["provenance"]["tracked_change_author"] == "John Deer"
+    compact = records.read_records(str(matter), max_records=10)
+    refused_compact = next(
+        record
+        for record in compact["records"]
+        if record["tool_name"] == "apply_edits"
+        and record["result"]["status"] == "error"
+    )
+    assert refused_compact["provenance"]["tracked_change_author"] == "John Deer"
 
 
 def test_compact_export_omits_client_asserted_anchor_fields(tmp_path: Path) -> None:
@@ -2195,7 +2371,22 @@ def test_docx_producer_domains_are_shared_with_v1_projection() -> None:
     }
     assert docx_contracts.MATCH_SIDES_V1 == {"old", "new"}
     assert docx_contracts.DOCUMENT_PART_V1 == "word/document.xml"
-    assert docx_contracts.ROUND_TRIP_STATUSES_V1 == {"passed"}
+    assert docx_contracts.ROUND_TRIP_STATUSES_V1 == {"passed", "failed"}
+    assert docx_contracts.PREFLIGHT_EDIT_STATUSES_V1 == {
+        "applicable",
+        "blocked",
+        "planned",
+        "not_evaluated",
+    }
+    assert docx_contracts.PREFLIGHT_FAILURE_PHASES_V1 == {
+        "validation",
+        "source",
+        "matching",
+        "planning",
+        "surgery",
+        "serialization",
+        "round_trip",
+    }
     assert docx_contracts.ROUND_TRIP_COMPARISON_CURRENT == (
         "ooxml_semantic_diff_outside_touched_anchors"
     )
@@ -2728,6 +2919,37 @@ def test_unexpected_compact_projection_failure_is_controlled(
     assert "PRIVATE_PROJECTION_FAILURE" not in str(err.value)
 
 
+def test_schema_readable_preflight_status_list_does_not_poison_compact_export(
+    tmp_path: Path,
+) -> None:
+    matter = tmp_path / "matter"
+    matter.mkdir()
+    result = {
+        "status": "ok",
+        "batch_applicable": False,
+        "edits": [{"edit_index": 0, "status": []}],
+    }
+
+    written = records.write_record(
+        workspace=matter,
+        tool_name="preflight_edits",
+        input_payload={},
+        result=result,
+        provenance={},
+    )
+
+    assert written["record_status"] == "written"
+    raw = records.read_records(str(matter), max_records=1, include_payload=True)
+    assert raw["records"][0]["result"] == result
+    compact = records.read_records(
+        str(matter), max_records=1, include_payload=False
+    )
+    edits = compact["records"][0]["result"]["edits"]
+    assert edits["count"] == 1
+    assert edits["sample"] == []
+    assert edits["truncated"] is True
+
+
 def test_compact_projection_is_total_for_schema_readable_nested_json() -> None:
     sentinel = "PRIVATE_TOTALITY_SENTINEL_57"
     shapes: list[object] = [
@@ -2759,6 +2981,19 @@ def test_compact_projection_is_total_for_schema_readable_nested_json() -> None:
             "status": "ok",
             "output_sha256": "a" * 64,
             "applied": [],
+            "round_trip_check": {},
+        },
+        "preflight_edits": {
+            "status": "ok",
+            "source_sha256": "a" * 64,
+            "candidate_sha256": "b" * 64,
+            "observed_candidate_sha256": None,
+            "batch_applicable": True,
+            "blocking_edit_index": None,
+            "refusal_code": None,
+            "failure_phase": None,
+            "tracked_change_author": "Veqtor MCP",
+            "edits": [],
             "round_trip_check": {},
         },
         "verify_quote": {
@@ -2797,6 +3032,15 @@ def test_compact_projection_is_total_for_schema_readable_nested_json() -> None:
             "edit_index": 0,
             "anchors": [],
             "applied": [],
+            "round_trip_check": {},
+        },
+        "preflight_edits": {
+            "source_path": "/matter/source.docx",
+            "source_sha256": "a" * 64,
+            "tracked_change_author": "Veqtor MCP",
+            "anchors": [],
+            "batch_applicable": True,
+            "failure_phase": None,
             "round_trip_check": {},
         },
         "verify_quote": {
@@ -2857,9 +3101,10 @@ def test_compact_projection_is_total_for_schema_readable_nested_json() -> None:
                         pytest.fail(
                             f"compact projection was not total for {case}: {exc}"
                         )
-                    assert sentinel not in json.dumps(
-                        compact, ensure_ascii=False
-                    ), case
+                    if field != "tracked_change_author" or shape != sentinel:
+                        assert sentinel not in json.dumps(
+                            compact, ensure_ascii=False
+                        ), case
 
 
 def test_compact_item_projectors_are_total_for_nested_json_types() -> None:
@@ -2910,6 +3155,27 @@ def test_compact_item_projectors_are_total_for_nested_json_types() -> None:
                 "clause": None,
             },
             ("part_name", "revision_ids", "side", "clause"),
+        ),
+        (
+            records._preflight_edit_summary,
+            {
+                "edit_index": 0,
+                "status": "applicable",
+                "change_unit_id": "cu_001",
+                "operation": "replace",
+                "match_count": 1,
+                "position_supported": True,
+                "refusal_code": None,
+            },
+            (
+                "edit_index",
+                "status",
+                "change_unit_id",
+                "operation",
+                "match_count",
+                "position_supported",
+                "refusal_code",
+            ),
         ),
         (
             records._round_trip_summary,
@@ -3228,8 +3494,7 @@ def test_unterminated_record_is_corrupt_and_blocks_append(tmp_path: Path) -> Non
     )
     assert result["record_status"] == "write_failed"
     assert result["record_id"] is None
-    assert "journal_corrupt" in result["record_error"]
-    assert "unterminated journal record" in result["record_error"]
+    assert result["record_error"] == "journal_corrupt"
     assert journal.read_bytes() == before
 
 
@@ -3337,8 +3602,7 @@ def test_invalid_record_schema_fails_before_sidecar_and_recovers(
 
     assert failed["record_status"] == "write_failed"
     assert failed["record_id"] is None
-    assert "record_invalid" in failed["record_error"]
-    assert reason in failed["record_error"]
+    assert failed["record_error"] == "record_invalid"
     assert not (matter / records.SIDECAR_DIR).exists()
 
     recovered = records.write_record(
@@ -3403,6 +3667,7 @@ def test_v1_historical_tool_specs_are_frozen_and_cover_writable_tools() -> None:
         "list_rounds": ("tool_observation.v1", "list_rounds"),
         "extract_redlines": ("tool_observation.v1", "extract_redlines"),
         "verify_quote": ("verification.v1", "verify_quote"),
+        "preflight_edits": ("verification.v1", "preflight_edits"),
         "apply_edits": ("decision.v1", "apply_edits"),
         "export_decision_record": (
             records.ACCESS_RECORD_TYPE,
@@ -3416,6 +3681,21 @@ def test_v1_historical_tool_specs_are_frozen_and_cover_writable_tools() -> None:
 
     assert actual == expected
     assert records.WRITABLE_TOOL_NAMES <= records.V1_HISTORICAL_TOOL_SPECS.keys()
+
+
+def test_api_historical_pair_list_matches_v1_registry() -> None:
+    api = (Path(__file__).parents[1] / "API.md").read_text(encoding="utf-8")
+    section = api.split("The permanent pairs introduced by this release are:", 1)[
+        1
+    ].split("The pair is forward-compatible", 1)[0]
+    documented = dict(re.findall(r"- `([^`]+)` → `([^`]+)`[.;]", section))
+    expected = {
+        tool_name: spec.record_type
+        for tool_name, spec in records.V1_HISTORICAL_TOOL_SPECS.items()
+    }
+
+    assert "The six historical `(tool_name, record_type)` pairs" in api
+    assert documented == expected
 
 
 def test_v1_read_limits_are_not_narrowed() -> None:
@@ -3555,8 +3835,7 @@ def test_retired_tool_history_remains_readable_but_is_not_writable(
     )
 
     assert failed["record_status"] == "write_failed"
-    assert "record_invalid" in failed["record_error"]
-    assert "invalid tool_name" in failed["record_error"]
+    assert failed["record_error"] == "record_invalid"
     assert journal.read_bytes() == before
     assert compact["payloads"] == "compact"
     assert compact["records"][0]["tool_name"] == "verify_quote"
@@ -3667,8 +3946,7 @@ def test_unknown_tool_is_refused_before_sidecar_creation(tmp_path: Path) -> None
 
     assert failed["record_status"] == "write_failed"
     assert failed["record_id"] is None
-    assert "record_invalid" in failed["record_error"]
-    assert "invalid tool_name" in failed["record_error"]
+    assert failed["record_error"] == "record_invalid"
     assert not (matter / records.SIDECAR_DIR).exists()
 
 
@@ -3741,8 +4019,7 @@ def test_semantically_invalid_tool_type_pair_is_corrupt_and_blocks_append(
         provenance={},
     )
     assert failed["record_status"] == "write_failed"
-    assert "journal_corrupt" in failed["record_error"]
-    assert reason in failed["record_error"]
+    assert failed["record_error"] == "journal_corrupt"
     assert journal.read_bytes() == before
 
 
@@ -3779,8 +4056,7 @@ def test_record_id_capacity_refuses_append_without_poisoning_journal(
 
     assert failed["record_status"] == "write_failed"
     assert failed["record_id"] is None
-    assert "record_invalid" in failed["record_error"]
-    assert "invalid record_id" in failed["record_error"]
+    assert failed["record_error"] == "record_invalid"
     assert journal.read_bytes() == before
     loaded = records.read_records(str(matter), max_records=10, include_payload=True)
     assert loaded["records"][0]["record_id"] == maximum_id
@@ -3888,34 +4164,33 @@ def test_inconsistent_final_snapshot_is_refused_without_journal_mutation(
 
     assert failed["record_status"] == "write_failed"
     assert failed["record_id"] is None
-    assert "record_invalid" in failed["record_error"]
-    assert "result_sha256 mismatch" in failed["record_error"]
+    assert failed["record_error"] == "record_invalid"
     assert journal.read_bytes() == before
     assert records.read_records(str(matter), max_records=10)["total_count"] == 1
 
 
 @pytest.mark.parametrize(
-    ("payload", "reason"),
+    ("payload", "reasons"),
     [
         (
             b"[" * 10_000 + b"0" + b"]" * 10_000,
-            "JSON decoder rejected input",
+            ("JSON decoder rejected input", "maximum depth"),
         ),
-        (b"1" * 5_000, "JSON integer exceeds"),
+        (b"1" * 5_000, ("JSON integer exceeds",)),
         (
             b"[" * (records.MAX_JOURNAL_DEPTH + 1)
             + b"0"
             + b"]" * (records.MAX_JOURNAL_DEPTH + 1),
-            "maximum depth",
+            ("maximum depth",),
         ),
         (
             b"["
             + b",".join([b"0"] * records.MAX_JOURNAL_NODES)
             + b"]",
-            "maximum node count",
+            ("maximum node count",),
         ),
-        (b'{"value":1,"value":2}', "duplicate JSON object key"),
-        (b"NaN", "non-finite JSON number"),
+        (b'{"value":1,"value":2}', ("duplicate JSON object key",)),
+        (b"NaN", ("non-finite JSON number",)),
     ],
     ids=[
         "decoder_recursion",
@@ -3929,7 +4204,7 @@ def test_inconsistent_final_snapshot_is_refused_without_journal_mutation(
 def test_bounded_json_failures_are_classified_and_block_append(
     tmp_path: Path,
     payload: bytes,
-    reason: str,
+    reasons: tuple[str, ...],
 ) -> None:
     matter = tmp_path / "matter"
     matter.mkdir()
@@ -3943,7 +4218,7 @@ def test_bounded_json_failures_are_classified_and_block_append(
         records.read_records(str(matter), max_records=10)
 
     assert err.value.code == "journal_corrupt"
-    assert reason in str(err.value)
+    assert any(reason in str(err.value) for reason in reasons)
     result = records.write_record(
         workspace=matter,
         tool_name="list_rounds",
@@ -3953,8 +4228,7 @@ def test_bounded_json_failures_are_classified_and_block_append(
     )
     assert result["record_status"] == "write_failed"
     assert result["record_id"] is None
-    assert "journal_corrupt" in result["record_error"]
-    assert reason in result["record_error"]
+    assert result["record_error"] == "journal_corrupt"
     assert journal.read_bytes() == before
 
 
@@ -3982,8 +4256,7 @@ def test_oversized_journal_line_is_classified_and_blocks_append(
         provenance={},
     )
     assert result["record_status"] == "write_failed"
-    assert "journal_corrupt" in result["record_error"]
-    assert "journal record exceeds" in result["record_error"]
+    assert result["record_error"] == "journal_corrupt"
     assert journal.read_bytes() == before
 
 
@@ -4030,8 +4303,7 @@ def test_invalid_unicode_new_record_is_a_symmetric_best_effort_failure(
 
     assert result["record_status"] == "write_failed"
     assert result["record_id"] is None
-    assert "record_invalid" in result["record_error"]
-    assert "invalid Unicode scalar value" in result["record_error"]
+    assert result["record_error"] == "record_invalid"
     assert surrogate not in result["record_error"]
     assert not (matter / records.SIDECAR_DIR).exists()
 
@@ -4070,8 +4342,7 @@ def test_invalid_new_json_values_fail_before_sidecar_creation(
     )
 
     assert result["record_status"] == "write_failed"
-    assert "record_invalid" in result["record_error"]
-    assert reason in result["record_error"]
+    assert result["record_error"] == "record_invalid"
     assert not (matter / records.SIDECAR_DIR).exists()
 
 
@@ -4088,8 +4359,7 @@ def test_oversized_new_record_fails_before_sidecar_creation(tmp_path: Path) -> N
     )
 
     assert result["record_status"] == "write_failed"
-    assert "record_invalid" in result["record_error"]
-    assert "journal record exceeds" in result["record_error"]
+    assert result["record_error"] == "record_invalid"
     assert not (matter / records.SIDECAR_DIR).exists()
 
 
@@ -4252,8 +4522,7 @@ def test_surrogate_corrupt_journal_blocks_further_append(tmp_path: Path) -> None
 
     assert result["record_status"] == "write_failed"
     assert result["record_id"] is None
-    assert "journal_corrupt" in result["record_error"]
-    assert "invalid Unicode scalar value" in result["record_error"]
+    assert result["record_error"] == "journal_corrupt"
     assert journal.read_bytes() == before
 
 
