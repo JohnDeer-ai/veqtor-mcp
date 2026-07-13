@@ -6,7 +6,7 @@ from __future__ import annotations
 
 PROJECT_NAME = "veqtor-mcp"
 DIST_NAME = "veqtor_mcp"
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 BUILD_PYTHON_VERSION = "3.12.13"
 BUILD_UV_VERSION = "0.11.28"
 BUILD_HATCHLING_VERSION = "1.31.0"

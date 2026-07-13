@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -13,10 +14,15 @@ import pytest
 
 ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
+import check_acceptance_evidence as evidence_module  # noqa: E402
 from check_acceptance_evidence import (  # noqa: E402
     EvidenceError,
+    MAX_PACKET_INTEGER_DIGITS,
     SCHEMA_VERSION,
+    _canonical_packet_bytes,
     _load_packet,
+    _packet_digest,
+    _parse_packet,
     validate_evidence,
 )
 from release_contract import FIVE_EDIT_OUTPUT_SHA256  # noqa: E402
@@ -27,6 +33,7 @@ CANDIDATE_TREE = "b" * 40
 PRODUCER_BUILD = "source-snapshot-v1-sha256:" + "c" * 64
 CORPUS_SHA = "d" * 64
 OUTPUT_SHA = FIVE_EDIT_OUTPUT_SHA256
+RUNTIME_VERSION = "0.1.1"
 
 
 def _packet() -> dict:
@@ -68,6 +75,26 @@ def _packet() -> dict:
             "collateral_change_count": 0,
             "output_sha256": OUTPUT_SHA,
         },
+        "installed_two_export": {
+            "first_access_count": 0,
+            "second_access_count": 1,
+            "first_event_absent_from_windows": True,
+            "current_event_outside_own_snapshot": True,
+            "runtime_producer_build": PRODUCER_BUILD,
+            "runtime_version": RUNTIME_VERSION,
+        },
+        "desktop_rehearsal": {
+            "verdict": "passed",
+            "client": "claude_desktop_fresh_copy",
+            "fresh_copy": True,
+            "event_omitted_from_records": True,
+            "current_event_not_in_access_count": True,
+            "raw_vs_compact_explained": True,
+            "runtime_producer_build": PRODUCER_BUILD,
+            "runtime_version": RUNTIME_VERSION,
+            "transcript_sha256": "e" * 64,
+            "raw_journal_sha256": "f" * 64,
+        },
     }
 
 
@@ -105,7 +132,7 @@ def test_complete_exact_candidate_evidence_passes() -> None:
             lambda packet: packet["payment_preflight"].update(
                 {"match_count": 0}
             ),
-            "expected refusal",
+            "payment_preflight.match_count does not equal",
         ),
         (
             lambda packet: packet["five_edit_batch"].update(
@@ -119,6 +146,32 @@ def test_complete_exact_candidate_evidence_passes() -> None:
             ),
             "output fingerprint differs",
         ),
+        (
+            lambda packet: packet.pop("desktop_rehearsal"),
+            "fields differ",
+        ),
+        (
+            lambda packet: packet["desktop_rehearsal"].update(
+                {"verdict": "failed"}
+            ),
+            "Desktop rehearsal did not pass",
+        ),
+        (
+            lambda packet: packet["installed_two_export"].update(
+                {"second_access_count": 0}
+            ),
+            "installed_two_export.second_access_count does not equal",
+        ),
+        (
+            lambda packet: packet["desktop_rehearsal"].update(
+                {
+                    "runtime_producer_build": (
+                        "source-snapshot-v1-sha256:" + "0" * 64
+                    )
+                }
+            ),
+            "Desktop runtime build does not equal",
+        ),
     ],
     ids=[
         "extra_private_field",
@@ -127,6 +180,10 @@ def test_complete_exact_candidate_evidence_passes() -> None:
         "payment",
         "collateral",
         "wrong_output_sha",
+        "missing_desktop",
+        "desktop_failed",
+        "two_export_failed",
+        "desktop_wrong_build",
     ],
 )
 def test_incomplete_or_non_private_shape_fails(mutate, message: str) -> None:
@@ -134,6 +191,74 @@ def test_incomplete_or_non_private_shape_fails(mutate, message: str) -> None:
     mutate(packet)
     with pytest.raises(EvidenceError, match=message):
         _validate(packet)
+
+
+def test_v1_packet_is_rejected_before_shape_validation() -> None:
+    packet = _packet()
+    packet["schema_version"] = "veqtor_release_acceptance.v1"
+    packet.pop("desktop_rehearsal")
+    packet.pop("installed_two_export")
+
+    with pytest.raises(EvidenceError, match="schema version is unsupported"):
+        _validate(packet)
+
+
+def test_runtime_versions_and_builds_are_candidate_bound() -> None:
+    for section in ("installed_two_export", "desktop_rehearsal"):
+        packet = _packet()
+        packet[section]["runtime_version"] = "0.1.0"
+        with pytest.raises(EvidenceError, match="runtime version does not equal"):
+            _validate(packet)
+
+
+@pytest.mark.parametrize(
+    ("section", "field", "value"),
+    [
+        ("payment_preflight", "match_count", 1.0),
+        ("installed_two_export", "first_access_count", 0.0),
+        ("installed_two_export", "second_access_count", 1.0),
+    ],
+)
+def test_exact_count_fields_reject_json_floats(
+    section: str,
+    field: str,
+    value: float,
+) -> None:
+    packet = _packet()
+    packet[section][field] = value
+
+    with pytest.raises(EvidenceError, match="not an integer count"):
+        _validate(packet)
+
+
+def test_canonical_packet_loader_has_one_transport_representation(
+    tmp_path: Path,
+) -> None:
+    packet = _packet()
+    canonical = _canonical_packet_bytes(packet)
+    evidence = tmp_path / "evidence.json"
+    evidence.write_bytes(canonical)
+
+    assert _load_packet(evidence) == packet
+    for suffix_or_payload in (
+        canonical + b"\n",
+        b" " + canonical,
+        json.dumps(packet).encode("utf-8"),
+    ):
+        evidence.write_bytes(suffix_or_payload)
+        with pytest.raises(EvidenceError, match="canonical compact JSON"):
+            _load_packet(evidence)
+
+
+def test_expected_digest_binds_the_canonical_packet_bytes() -> None:
+    canonical = _canonical_packet_bytes(_packet())
+    expected = hashlib.sha256(canonical).hexdigest()
+
+    assert _packet_digest(canonical, expected) == expected
+    with pytest.raises(EvidenceError, match="differs from expected"):
+        _packet_digest(canonical, "0" * 64)
+    with pytest.raises(EvidenceError, match="lowercase hex digest"):
+        _packet_digest(canonical, "not-a-digest")
 
 
 def test_evidence_loader_is_bounded_and_rejects_duplicate_keys(tmp_path: Path) -> None:
@@ -146,3 +271,54 @@ def test_evidence_loader_is_bounded_and_rejects_duplicate_keys(tmp_path: Path) -
     oversized.write_bytes(json.dumps(_packet()).encode() + b" " * (64 * 1024))
     with pytest.raises(EvidenceError, match="size limit"):
         _load_packet(oversized)
+
+    non_finite = tmp_path / "non-finite.json"
+    non_finite.write_bytes(b'{"value":NaN}')
+    with pytest.raises(EvidenceError, match="non-finite"):
+        _load_packet(non_finite)
+
+
+def test_evidence_json_integer_digit_limit_is_sign_independent() -> None:
+    assert MAX_PACKET_INTEGER_DIGITS == 128
+    positive = _parse_packet(
+        b'{"value":' + b"9" * MAX_PACKET_INTEGER_DIGITS + b"}"
+    )
+    negative = _parse_packet(
+        b'{"value":-' + b"9" * MAX_PACKET_INTEGER_DIGITS + b"}"
+    )
+
+    assert positive["value"] > 0
+    assert negative["value"] < 0
+
+
+@pytest.mark.parametrize("digit_count", [129, 5001])
+def test_evidence_json_integer_digit_limit_is_controlled(digit_count: int) -> None:
+    payload = b'{"value":' + b"9" * digit_count + b"}"
+
+    with pytest.raises(EvidenceError, match="integer exceeds 128 digits"):
+        _parse_packet(payload)
+
+
+def test_evidence_cli_rejects_huge_integer_without_traceback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    evidence = tmp_path / "huge-integer.json"
+    evidence.write_bytes(b'{"value":' + b"9" * 5001 + b"}")
+
+    def clean_candidate(_source_root: Path, *arguments: str) -> str:
+        if arguments == ("status", "--porcelain", "--untracked-files=all"):
+            return ""
+        if arguments == ("rev-parse", "HEAD"):
+            return CANDIDATE_SHA
+        if arguments == ("rev-parse", "HEAD^{tree}"):
+            return CANDIDATE_TREE
+        raise AssertionError(f"unexpected git arguments: {arguments}")
+
+    monkeypatch.setattr(evidence_module, "_git", clean_candidate)
+
+    assert evidence_module.main([str(evidence), "--source-root", str(ROOT)]) == 1
+    stderr = capsys.readouterr().err
+    assert "acceptance evidence failed: evidence packet integer exceeds 128 digits" in stderr
+    assert "Traceback" not in stderr

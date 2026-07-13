@@ -110,6 +110,10 @@ def _write_concurrent_record(workspace: str, index: int) -> dict:
     )
 
 
+def _export_concurrent_record(workspace: str, _index: int) -> dict:
+    return server.export_decision_record(workspace, max_records=1)
+
+
 def test_with_record_preserves_explicit_empty_record_result(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1873,12 +1877,67 @@ def test_export_missing_journal_returns_empty_and_records_export(tmp_path: Path)
     assert exported["access_count"] == 0
     assert exported["truncated"] is False
     assert exported["record_status"] == "written"
+    assert exported["record_id"] == "dr_001"
     assert exported["payloads"] == "compact"
+    assert exported["records_scope"] == "substantive_records_only"
+    assert exported["total_count_scope"] == "substantive_records_before_cursor"
+    assert exported["access_events_recorded_locally"] is True
+    assert exported["access_events_in_records"] is False
+    assert exported["access_count_scope"] == (
+        "all_prior_access_events_before_current_export"
+    )
+    assert exported["access_count_includes_current_export"] is False
+    assert exported["current_export_event"] == {
+        "record_id": "dr_001",
+        "record_type": records.ACCESS_RECORD_TYPE,
+        "record_status": "written",
+        "recorded_locally": True,
+        "included_in_records": False,
+        "included_in_total_count": False,
+        "included_in_access_count": False,
+    }
 
     reread = records.read_records(str(matter), max_records=10, include_access_events=True)
     assert reread["total_count"] == 1
     assert reread["access_count"] == 1
     assert reread["records"][0]["tool_name"] == "export_decision_record"
+    assert reread["records"][0]["record_id"] == "dr_001"
+    assert reread["records"][0]["record_type"] == records.ACCESS_RECORD_TYPE
+    assert reread["records"][0]["result"]["records_scope"] == (
+        "substantive_records_only"
+    )
+    assert reread["records"][0]["result"]["access_events_in_records"] is False
+    raw = records.read_records(
+        str(matter),
+        max_records=10,
+        include_access_events=True,
+        include_payload=True,
+    )
+    raw_result = raw["records"][0]["result"]
+    assert raw_result["assurance"]["raw_journal_result"] == (
+        "tool_specific_summary_not_verbatim_live_response"
+    )
+    assert "current_export_event" not in raw_result
+    assert raw["records"][0]["tool_result_sha256"] == records._stable_digest(
+        raw_result
+    )
+
+
+def test_export_reports_when_current_access_event_is_disabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matter = tmp_path / "empty-matter"
+    matter.mkdir()
+    monkeypatch.setenv(records.DISABLE_ENV, "1")
+
+    exported = server.export_decision_record(str(matter))
+
+    assert exported["record_id"] is None
+    assert exported["record_status"] == "disabled"
+    assert exported["access_events_recorded_locally"] is False
+    assert exported["current_export_event"]["recorded_locally"] is False
+    assert not (matter / records.SIDECAR_DIR).exists()
 
 
 def test_export_excludes_access_events_and_supports_cursor(tmp_path: Path) -> None:
@@ -1889,16 +1948,137 @@ def test_export_excludes_access_events_and_supports_cursor(tmp_path: Path) -> No
     newest = server.export_decision_record(str(matter), max_records=1)
     assert [record["record_id"] for record in newest["records"]] == ["dr_003"]
     assert newest["next_before_record_id"] == "dr_003"
+    assert newest["record_id"] == "dr_004"
+    assert newest["current_export_event"]["included_in_access_count"] is False
 
     second_export = server.export_decision_record(str(matter), max_records=1)
     assert [record["record_id"] for record in second_export["records"]] == ["dr_003"]
     assert second_export["access_count"] == 1
+    assert second_export["record_id"] == "dr_005"
+    assert second_export["current_export_event"]["record_id"] == "dr_005"
+    assert second_export["access_count_includes_current_export"] is False
 
     previous = server.export_decision_record(
         str(matter), max_records=1, before_record_id=newest["next_before_record_id"]
     )
     assert [record["record_id"] for record in previous["records"]] == ["dr_002"]
     assert previous["next_before_record_id"] == "dr_002"
+
+
+def test_concurrent_exports_atomically_count_all_prior_access_events(
+    tmp_path: Path,
+) -> None:
+    matter = tmp_path / "empty-matter"
+    matter.mkdir()
+
+    with ProcessPoolExecutor(max_workers=8) as pool:
+        exported = list(
+            pool.map(
+                _export_concurrent_record,
+                [str(matter)] * 8,
+                range(8),
+            )
+        )
+
+    assert all(item["record_status"] == "written" for item in exported)
+    assert len({item["record_id"] for item in exported}) == 8
+    raw = records.read_records(
+        str(matter),
+        max_records=20,
+        include_access_events=True,
+        include_payload=True,
+    )
+    events = {record["record_id"]: record for record in raw["records"]}
+    for item in exported:
+        event = events[item["record_id"]]
+        prior_event_count = sum(
+            other_id < item["record_id"] for other_id in events
+        )
+        assert item["access_count"] == prior_event_count
+        assert event["result"]["access_count"] == prior_event_count
+        assert event["result"]["total_count"] == item["total_count"]
+        assert event["result"]["returned_count"] == item["returned_count"]
+        assert event["result"]["truncated"] == item["truncated"]
+        assert event["result"]["next_before_record_id"] == item[
+            "next_before_record_id"
+        ]
+
+
+def test_export_write_failure_before_snapshot_falls_back_to_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matter = tmp_path / "matter"
+    matter.mkdir()
+    assert records.write_record(
+        workspace=matter,
+        tool_name="list_rounds",
+        input_payload={"folder": str(matter)},
+        result={"status": "ok", "folder": str(matter), "rounds": [], "skipped": []},
+        provenance={"rounds": [], "skipped": []},
+    )["record_status"] == "written"
+    journal = matter / records.SIDECAR_DIR / records.JOURNAL_NAME
+    before = journal.read_bytes()
+
+    def fail_open(*_args, **_kwargs):
+        raise OSError(errno.EROFS, "simulated read-only journal")
+
+    monkeypatch.setattr(records, "_open_journal_for_append", fail_open)
+    exported = server.export_decision_record(str(matter))
+
+    assert exported["record_status"] == "write_failed"
+    assert exported["record_error"] == "internal_error"
+    assert exported["total_count"] == 1
+    assert exported["access_count"] == 0
+    assert [record["record_id"] for record in exported["records"]] == ["dr_001"]
+    assert journal.read_bytes() == before
+
+
+def test_export_fsync_failure_returns_frozen_snapshot_without_retry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matter = tmp_path / "matter"
+    matter.mkdir()
+    assert records.write_record(
+        workspace=matter,
+        tool_name="list_rounds",
+        input_payload={"folder": str(matter)},
+        result={"status": "ok", "folder": str(matter), "rounds": [], "skipped": []},
+        provenance={"rounds": [], "skipped": []},
+    )["record_status"] == "written"
+    real_fsync = records.os.fsync
+    failed = False
+
+    def fail_journal_fsync(fd: int) -> None:
+        nonlocal failed
+        if not failed and stat.S_ISREG(os.fstat(fd).st_mode):
+            failed = True
+            raise OSError(errno.EIO, "simulated journal fsync failure")
+        real_fsync(fd)
+
+    monkeypatch.setattr(records.os, "fsync", fail_journal_fsync)
+    exported = server.export_decision_record(str(matter))
+
+    assert exported["record_status"] == "write_failed"
+    assert exported["record_id"] is None
+    assert exported["total_count"] == 1
+    assert exported["access_count"] == 0
+    assert [record["record_id"] for record in exported["records"]] == ["dr_001"]
+
+    monkeypatch.setattr(records.os, "fsync", real_fsync)
+    raw = records.read_records(
+        str(matter),
+        max_records=10,
+        include_access_events=True,
+        include_payload=True,
+    )
+    assert raw["access_count"] == 1
+    assert [record["record_id"] for record in raw["records"]] == [
+        "dr_001",
+        "dr_002",
+    ]
+    assert raw["records"][1]["result"]["access_count"] == 0
 
 
 @pytest.mark.parametrize(

@@ -20,6 +20,10 @@ existing matter folder, unless disabled by
 `0600` files). Before every append the server validates or restores
 `.veqtor/.gitignore`; symlink, hardlink, non-regular, or unexpected ignore
 targets are refused before the journal is touched.
+Read-only calls — list, extract, verify, preflight and decision-record export —
+also normally attempt to append provenance, with the outcome reported in
+`record_status`. In particular, export is a read of the document history but
+normally writes its own local `access_event.v1` after the response snapshot.
 The v1 journal is a best-effort local provenance history, not a transactional
 audit log: mutation tools may complete with `record_status: "write_failed"`,
 so check `record_status` before treating a record as durable. `written` means
@@ -305,7 +309,7 @@ Output:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "build": "source-snapshot-v1-sha256:example"
   },
   "batch_applicable": true,
@@ -347,7 +351,7 @@ for example:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "build": "source-snapshot-v1-sha256:example"
   },
   "batch_applicable": false,
@@ -464,8 +468,9 @@ rewrites:
   stays visible; extraction reports your `counter` unit and marks theirs
   `countered_by`), with the replacement inserted after theirs;
 - reinstate: `{"anchor": ..., "reinstate_text": "..."}` restores text hidden
-  inside exactly one counterparty deletion, as a visible insertion placed
-  before it.
+  inside exactly one counterparty deletion as a visible tracked insertion
+  placed before the preserved deletion. This is not Word Reject: Veqtor does
+  not accept, reject or remove the counterparty deletion.
 
 Edit objects use a closed schema. Replace/delete accepts only `anchor`, a
 non-empty string `delete_text`, and optional string `insert_text`; an empty
@@ -538,7 +543,7 @@ Output:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "build": "source-snapshot-v1-sha256:example"
   },
   "applied": [
@@ -577,7 +582,14 @@ search in v1.
 
 The export reads `.veqtor/decision-records.jsonl` for the workspace and returns
 chronological substantive records. Access events from `export_decision_record`
-itself are recorded in the journal but omitted from the default export window.
+itself are recorded in the journal but omitted from the MCP `records` array and
+`total_count`. The response snapshot is taken first and the current access
+event is appended second. Consequently the first export reports
+`access_count: 0`, its returned `record_id` may be the next visible id gap, and
+the second export reports the first event in `access_count` while still
+omitting it from `records`. The explicit scope fields and
+`current_export_event` below are authoritative; check `recorded_locally` rather
+than assuming a write succeeded.
 To protect context and privacy, the MCP export is always compact: verbatim `input`
 payloads, paths, clause headings, raw error text and free-form provenance are
 replaced by digests. Only format-validated identifiers, hashes and counters
@@ -616,12 +628,24 @@ send `include_payload` do not enable full mode; the unrecognized argument may be
 ignored by the current transport and the result remains explicitly
 `payloads: "compact"`. An `extract_redlines` record is already a summary and
 does not contain every old/new text.
+There are three distinct result layers: (1) the live MCP response, (2) the
+private raw journal record, whose `result` is a tool-specific normalized
+result or summary rather than a verbatim copy of that live response, and (3)
+the privacy-minimized compact projection in the exported `records` array. The
+raw journal is therefore not a guaranteed superset from which the exact live
+response can be reconstructed.
 Responses are capped to the newest `max_records` entries (default 50). If
 `truncated` is true, call again with
 `before_record_id: next_before_record_id` to page earlier. `total_count` is the
 number of substantive records visible in the current cursor window, not a
-global all-time count; `access_count` reports export/access events in the
-journal.
+global all-time count; `access_count` reports all access events present before
+the current export append and is independent of the substantive cursor.
+
+Every valid compact verification match contains `part_name`, `revision_ids`,
+`side` and `clause_sha256`. When a matched clause label/heading exists,
+`clause_sha256` is its canonical-JSON digest after that value is omitted for
+privacy. When no label or heading exists, the key is still present with value
+`null`. It is never a digest of the clause body or the verified quotation.
 
 Input:
 
@@ -638,15 +662,25 @@ Output:
 ```json
 {
   "workspace": {"sha256": "example-workspace-digest", "omitted": true},
-  "total_count": 4,
-  "access_count": 1,
-  "returned_count": 4,
+  "total_count": 1,
+  "access_count": 3,
+  "returned_count": 1,
   "truncated": false,
   "next_before_record_id": null,
   "payloads": "compact",
+  "records_scope": "substantive_records_only",
+  "total_count_scope": "substantive_records_before_cursor",
+  "access_events_recorded_locally": true,
+  "access_events_in_records": false,
+  "access_count_scope": "all_prior_access_events_before_current_export",
+  "access_count_includes_current_export": false,
   "assurance": {
     "journal_model": "best_effort_local_provenance",
     "model_payload": "compact_only",
+    "raw_journal_visibility": "private_local_only",
+    "raw_journal_result": "tool_specific_summary_not_verbatim_live_response",
+    "compact_projection": "privacy_minimized_view_not_raw_journal",
+    "access_event_policy": "raw_journal_only_excluded_from_default_compact_records",
     "tamper_evident": false,
     "hash_chain": false,
     "record_id_guarantee": "strictly_increasing_only",
@@ -662,7 +696,7 @@ Output:
       "created_at": "2026-07-09T12:00:00Z",
       "tool_name": "verify_quote",
       "workspace": {"sha256": "example-workspace-digest", "omitted": true},
-      "producer": {"name": "veqtor-mcp", "version": "0.1.0", "build": "source-snapshot-v1-sha256:..."},
+      "producer": {"name": "veqtor-mcp", "version": "0.1.1", "build": "source-snapshot-v1-sha256:..."},
       "payloads": "compact",
       "input": {"sha256": "example-input-digest", "omitted": true},
       "result": {
@@ -672,13 +706,15 @@ Output:
           "count": 1,
           "sha256": "example-matches-digest",
           "sample": [{
+            "part_name": "word/document.xml",
             "revision_ids": {
               "count": 2,
               "sha256": "example-revision-id-digest",
               "sample": ["17", "18"],
               "truncated": false
             },
-            "side": "new"
+            "side": "new",
+            "clause_sha256": null
           }],
           "truncated": false
         }
@@ -696,6 +732,15 @@ Output:
       "tool_result_sha256": "example-full-tool-result-digest"
     }
   ],
+  "current_export_event": {
+    "record_id": "dr_005",
+    "record_type": "access_event.v1",
+    "record_status": "written",
+    "recorded_locally": true,
+    "included_in_records": false,
+    "included_in_total_count": false,
+    "included_in_access_count": false
+  },
   "record_id": "dr_005",
   "record_status": "written"
 }
@@ -710,11 +755,15 @@ renumbered or rewritten. `producer_identity` covers imported Python source
 files only, not the interpreter, dependencies, native libraries, configuration
 or complete installed artifact.
 
-`result_sha256` fingerprints the stored record result (compact summaries for
-tools such as `extract_redlines`), not the compact export projection;
-`tool_result_sha256` fingerprints the normalized full tool outcome before
-record compaction. These are content fingerprints for re-checking and
-debugging, not tamper-evidence.
+`result_sha256` fingerprints the tool-specific result actually stored in the
+raw journal, not the later compact export projection. For ordinary document
+tools, `tool_result_sha256` fingerprints the normalized operation result before
+record metadata and any tool-specific result compaction. For an export access
+event, the stored export summary is itself the operation result passed to the
+journal writer, so both digests cover that summary; the newly assigned access
+event id and final live-response metadata do not yet exist at that point.
+These are content fingerprints for re-checking and debugging, not
+tamper-evidence or a way to reconstruct omitted content.
 
 ### Canonical JSON v1
 

@@ -107,8 +107,19 @@ defense-in-depth: malformed inputs must fail before unbounded allocation.
   recover, and only when the exact lightweight tag still names a candidate that
   remains an ancestor of `main`.
 - The guard accepts recovery only for the exact tag and ancestor relationship
-  and never retargets it. Artifact names include both run ID and attempt number,
-  so a previous attempt's bits cannot satisfy a later attempt.
+  and never retargets it. It first inspects the current trusted `main`, then
+  detached-checks out the approved candidate before installing or running that
+  candidate. Artifact names include both run ID and attempt number, so a
+  previous attempt's bits cannot satisfy a later attempt.
+- Draft recovery enumerates every authenticated release-list page, including
+  drafts, and requires at most one release for the exact tag. Creation captures
+  the returned release id; asset upload, verification and publication continue
+  by that id instead of the published-only tag lookup. Duplicate exact-tag
+  drafts fail closed before any release mutation.
+- An interrupted draft upload may replace only an expected asset on that exact
+  draft. Unexpected asset names, invalid asset ids or ambiguous releases fail
+  closed; an already-published immutable release is verified without mutation.
+- Every authenticated release API call pins the documented GitHub API version.
 - Write-scoped publication consumes the artifacts produced by read-only CI and
   does not generate new release content.
 
@@ -164,20 +175,72 @@ and rolls back the complete batch after an expected publication failure.
   `counter_position_unsupported`; the supported five-edit batch passes
   preflight/apply with zero collateral change and the exact output SHA recorded
   in `scripts/release_contract.py`.
+- The installed-wheel smoke performs two live MCP exports. It proves the first
+  export's access-event id is absent from both compact `records` windows,
+  `access_count` advances from 0 to 1 only on the second snapshot, and the
+  second current event is again explicitly outside its own snapshot.
+- A fresh-copy Claude Desktop rehearsal is release-blocking. Run export twice
+  (the second call with a small `max_records` window), then ask the client to
+  explain the id gap, `total_count`, `access_count`, the current access event,
+  and the difference between the private raw journal and compact projection.
+  PASS requires it to say that the first event exists locally but is omitted
+  from `records`, and that the current event is not yet in `access_count`.
+  Keep the raw transcript private and retain only the path-free verdict in the
+  review packet.
 
 Private and real-corpus evidence stays outside the repository. The reviewer
-receives only a path-free JSON packet containing candidate/tree/build ids,
-test counts, before/after corpus-tree digests, refusal/status codes, edit counts
-and output fingerprints. No filenames, local paths, quotes or document text are
-allowed by the packet schema. Validate it against the clean exact candidate:
+receives only a path-free `veqtor_release_acceptance.v2` JSON packet containing
+candidate/tree/build ids, test counts, before/after corpus-tree digests,
+refusal/status codes, edit counts and output fingerprints. It also contains:
+
+- `installed_two_export`: the observed 0→1 access counts, both exclusion
+  assertions, and the installed runtime version and `producer.build`;
+- `desktop_rehearsal`: `verdict: "passed"`, the fresh-copy client identity,
+  all three required explanation assertions, the runtime version/build, and
+  SHA-256 digests of the retained private transcript and raw journal.
+
+Every field is required and exact; v1 packets are rejected. No filenames,
+local paths, quotes or document text are allowed by the packet schema. The
+packet has one accepted byte representation: UTF-8 JSON produced with sorted
+keys, `ensure_ascii=False`, `allow_nan=False`, separators `(",", ":")`, and no
+trailing newline or whitespace. Create this canonical compact packet only after
+both live gates have run against the final clean commit that will be promoted,
+then validate it against that exact candidate:
 
 ```bash
 uv run --frozen python scripts/check_acceptance_evidence.py \
-  --source-root . /secure/external/veqtor-v0.1-acceptance.json
+  --source-root . /secure/external/veqtor-v0.1.1-acceptance.json
 ```
 
-The private operator retains raw transcripts and corpus manifests outside git;
-the public review records only the validator PASS plus the I1-I8 table.
+The validator rejects every non-canonical representation and prints the SHA-256
+of the exact packet bytes. The private operator retains the packet, raw
+transcripts and corpus manifests outside git. The public review records only
+that digest, validator PASS and the I1-I8 table. Before dispatch, capture the
+same digest from the canonical file:
+
+```bash
+EVIDENCE_PACKET=/secure/external/veqtor-v0.1.1-acceptance.json
+EVIDENCE_SHA256=$(shasum -a 256 "$EVIDENCE_PACKET" | awk '{print $1}')
+```
+
+Dispatch the release with the same path-free packet. After trust, tag and
+ancestry checks, the read-only root `guard` detached-checks out the exact
+candidate and runs that candidate's validator with its locked dependencies.
+This validation completes before reusable CI and any write-scoped publication
+job; it is not a boundary that runs before candidate code:
+
+```bash
+gh workflow run release.yml \
+  -f version=0.1.1 \
+  -f commit_sha="$(git rev-parse HEAD)" \
+  -f acceptance_evidence="$(<"$EVIDENCE_PACKET")" \
+  -f acceptance_evidence_sha256="$EVIDENCE_SHA256"
+```
+
+The workflow materializes the string input and verifies this expected digest
+before installing candidate dependencies. The candidate validator independently
+checks the same digest, canonical bytes, closed schema, exact commit/tree and
+runtime source identity before reusable CI begins.
 
 ## Promotion order
 

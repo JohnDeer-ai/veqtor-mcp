@@ -13,10 +13,14 @@ on:
         description: Full main-branch commit SHA to promote
         required: true
         type: string
-      private_dogfood_passed:
-        description: Private dogfood passed locally against this exact commit
+      acceptance_evidence:
+        description: Path-free veqtor_release_acceptance.v2 JSON for this commit
         required: true
-        type: boolean
+        type: string
+      acceptance_evidence_sha256:
+        description: SHA-256 of the exact canonical acceptance evidence bytes
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -37,12 +41,11 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-      - name: Verify trusted main tip, package version and local attestation
+      - name: Verify trusted main tip and package version
         shell: bash
         env:
           COMMIT_SHA: ${{ inputs.commit_sha }}
           VERSION: ${{ inputs.version }}
-          PRIVATE_DOGFOOD_PASSED: ${{ inputs.private_dogfood_passed }}
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = "refs/heads/main"
@@ -72,7 +75,48 @@ jobs:
           esac
           PACKAGE_VERSION=$(git show "$COMMIT_SHA:pyproject.toml" | python3 -c 'import sys, tomllib; print(tomllib.load(sys.stdin.buffer)["project"]["version"])')
           test "$VERSION" = "$PACKAGE_VERSION"
-          test "$PRIVATE_DOGFOOD_PASSED" = "true"
+      - name: Check out the exact trusted candidate
+        shell: bash
+        env:
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          git checkout --detach "$COMMIT_SHA"
+          test "$(git rev-parse HEAD)" = "$COMMIT_SHA"
+      - name: Seal exact acceptance evidence bytes
+        shell: bash
+        env:
+          ACCEPTANCE_EVIDENCE: ${{ inputs.acceptance_evidence }}
+          ACCEPTANCE_EVIDENCE_SHA256: ${{ inputs.acceptance_evidence_sha256 }}
+        run: |
+          set -euo pipefail
+          [[ "$ACCEPTANCE_EVIDENCE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          umask 077
+          EVIDENCE_FILE="$RUNNER_TEMP/veqtor-release-acceptance.json"
+          printf '%s' "$ACCEPTANCE_EVIDENCE" > "$EVIDENCE_FILE"
+          ACTUAL_EVIDENCE_SHA256=$(sha256sum "$EVIDENCE_FILE" | cut -d ' ' -f 1)
+          test "$ACTUAL_EVIDENCE_SHA256" = "$ACCEPTANCE_EVIDENCE_SHA256"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12.13"
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: "0.11.28"
+      - name: Install locked runtime for evidence validation
+        run: uv sync --frozen --no-dev --python 3.12.13
+      - name: Validate exact-candidate acceptance evidence
+        shell: bash
+        env:
+          ACCEPTANCE_EVIDENCE_SHA256: ${{ inputs.acceptance_evidence_sha256 }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$COMMIT_SHA"
+          EVIDENCE_FILE="$RUNNER_TEMP/veqtor-release-acceptance.json"
+          uv run --frozen --no-dev --python 3.12.13 \
+            python scripts/check_acceptance_evidence.py \
+            --expected-sha256 "$ACCEPTANCE_EVIDENCE_SHA256" \
+            --source-root . "$EVIDENCE_FILE"
 
   verify:
     name: Run complete reusable CI

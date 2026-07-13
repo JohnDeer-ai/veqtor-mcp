@@ -18,14 +18,15 @@ consumer = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(consumer)
 
 COMMIT = "a" * 40
-NOTES = ROOT / ".github" / "release-notes" / "v0.1.0.md"
+VERSION = consumer.CONTRACT_VERSION
+NOTES = ROOT / ".github" / "release-notes" / f"v{VERSION}.md"
 
 
 def _release_fixture(tmp_path: Path, *, immutable: bool = True):
     dist = tmp_path / "dist"
     dist.mkdir()
-    wheel = dist / "veqtor_mcp-0.1.0-py3-none-any.whl"
-    sdist = dist / "veqtor_mcp-0.1.0.tar.gz"
+    wheel = dist / f"veqtor_mcp-{VERSION}-py3-none-any.whl"
+    sdist = dist / f"veqtor_mcp-{VERSION}.tar.gz"
     wheel.write_bytes(b"wheel")
     sdist.write_bytes(b"sdist")
     manifest = dist / "SHA256SUMS.txt"
@@ -43,8 +44,8 @@ def _release_fixture(tmp_path: Path, *, immutable: bool = True):
         for name, payload in payloads.items()
     ]
     release = {
-        "tag_name": "v0.1.0",
-        "name": "Veqtor v0.1.0 Alpha",
+        "tag_name": f"v{VERSION}",
+        "name": f"Veqtor v{VERSION} Alpha",
         "body": NOTES.read_text(),
         "draft": False,
         "prerelease": True,
@@ -67,7 +68,7 @@ def test_public_consumer_verifies_flat_bytes_metadata_and_artifacts(tmp_path: Pa
 
     consumer.verify(
         repository="example/veqtor",
-        version="0.1.0",
+        version=VERSION,
         commit_sha=COMMIT,
         dist_dir=dist,
         source_root=ROOT,
@@ -88,7 +89,7 @@ def test_public_consumer_rejects_mutable_release(tmp_path: Path) -> None:
     with pytest.raises(consumer.ConsumerVerificationError, match="metadata"):
         consumer.verify(
             repository="example/veqtor",
-            version="0.1.0",
+            version=VERSION,
             commit_sha=COMMIT,
             dist_dir=dist,
             source_root=ROOT,
@@ -109,7 +110,7 @@ def test_public_consumer_rejects_changed_asset_bytes(tmp_path: Path) -> None:
     with pytest.raises(consumer.ConsumerVerificationError, match="bytes differ"):
         consumer.verify(
             repository="example/veqtor",
-            version="0.1.0",
+            version=VERSION,
             commit_sha=COMMIT,
             dist_dir=dist,
             source_root=ROOT,
@@ -133,7 +134,7 @@ def test_public_consumer_rejects_duplicate_assets(tmp_path: Path) -> None:
     with pytest.raises(consumer.ConsumerVerificationError, match="asset set"):
         consumer.verify(
             repository="example/veqtor",
-            version="0.1.0",
+            version=VERSION,
             commit_sha=COMMIT,
             dist_dir=dist,
             source_root=ROOT,

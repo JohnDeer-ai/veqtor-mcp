@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Ratchets for the trusted release workflow ordering and write boundary."""
 
+import os
 import re
+import subprocess
 from pathlib import Path
 
 
@@ -42,6 +44,95 @@ def test_release_guard_precedes_execution_of_requested_commit() -> None:
     assert "needs: guard" in verify
     assert "ref: ${{ inputs.commit_sha }}" in verify
     assert "secrets: inherit" not in workflow
+    assert "private_dogfood_passed" not in workflow
+    assert "acceptance_evidence:" in workflow
+    assert "acceptance_evidence_sha256:" in workflow
+    assert "veqtor_release_acceptance.v2" in workflow
+    assert "scripts/check_acceptance_evidence.py" in guard
+    assert 'printf \'%s\' "$ACCEPTANCE_EVIDENCE"' in guard
+    assert '[[ "$ACCEPTANCE_EVIDENCE_SHA256" =~ ^[0-9a-f]{64}$ ]]' in guard
+    assert 'sha256sum "$EVIDENCE_FILE"' in guard
+    assert (
+        'test "$ACTUAL_EVIDENCE_SHA256" = "$ACCEPTANCE_EVIDENCE_SHA256"'
+        in guard
+    )
+    assert '--expected-sha256 "$ACCEPTANCE_EVIDENCE_SHA256"' in guard
+    assert "uv sync --frozen --no-dev --python 3.12.13" in guard
+    detach = 'git checkout --detach "$COMMIT_SHA"'
+    head_assertion = 'test "$(git rev-parse HEAD)" = "$COMMIT_SHA"'
+    assert detach in guard
+    assert guard.count(head_assertion) == 2
+    assert (
+        guard.index('test "$VERSION" = "$PACKAGE_VERSION"')
+        < guard.index(detach)
+        < guard.index('printf \'%s\' "$ACCEPTANCE_EVIDENCE"')
+        < guard.index("uv sync --frozen")
+        < guard.rindex(head_assertion)
+        < guard.index("scripts/check_acceptance_evidence.py")
+    )
+
+
+def test_detached_checkout_models_tagged_ancestor_recovery(tmp_path: Path) -> None:
+    repository = tmp_path / "recovery"
+    subprocess.run(
+        ["git", "init", "--initial-branch=main", str(repository)],
+        check=True,
+        capture_output=True,
+    )
+    marker = repository / "marker.txt"
+    marker.write_text("candidate\n", encoding="utf-8")
+    subprocess.run(["git", "add", "marker.txt"], cwd=repository, check=True)
+    commit_env = {
+        "GIT_AUTHOR_NAME": "Veqtor test",
+        "GIT_AUTHOR_EMAIL": "test@example.invalid",
+        "GIT_COMMITTER_NAME": "Veqtor test",
+        "GIT_COMMITTER_EMAIL": "test@example.invalid",
+    }
+    subprocess.run(
+        ["git", "commit", "-m", "candidate"],
+        cwd=repository,
+        check=True,
+        capture_output=True,
+        env={**os.environ, **commit_env},
+    )
+    candidate = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repository, text=True
+    ).strip()
+    subprocess.run(["git", "tag", "v0.1.1", candidate], cwd=repository, check=True)
+    subprocess.run(
+        ["git", "commit", "--allow-empty", "-m", "successor"],
+        cwd=repository,
+        check=True,
+        capture_output=True,
+        env={**os.environ, **commit_env},
+    )
+    successor = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repository, text=True
+    ).strip()
+
+    subprocess.run(
+        ["git", "merge-base", "--is-ancestor", candidate, successor],
+        cwd=repository,
+        check=True,
+    )
+    assert subprocess.check_output(
+        ["git", "rev-parse", f"{candidate}^{{tree}}"],
+        cwd=repository,
+        text=True,
+    ) == subprocess.check_output(
+        ["git", "rev-parse", f"{successor}^{{tree}}"],
+        cwd=repository,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "checkout", "--detach", candidate],
+        cwd=repository,
+        check=True,
+        capture_output=True,
+    )
+    assert subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repository, text=True
+    ).strip() == candidate
 
 
 def test_release_promotion_is_exact_sha_retry_safe_and_write_scoped() -> None:
@@ -63,6 +154,17 @@ def test_release_promotion_is_exact_sha_retry_safe_and_write_scoped() -> None:
     assert 'test "$VERIFIED_ATTEMPT" = "$GITHUB_RUN_ATTEMPT"' in publish
     assert "sha256sum dist/* >" not in publish
     assert "--target" not in publish
+    promotion = (
+        ROOT / ".github" / "scripts" / "promote_release.py"
+    ).read_text()
+    assert 'GITHUB_API_VERSION = "2026-03-10"' in promotion
+    assert 'GITHUB_API_HEADER = f"X-GitHub-Api-Version:' in promotion
+    assert "--paginate" in promotion
+    assert "--slurp" in promotion
+    assert "multiple releases exist for the approved tag" in promotion
+    assert "releases/tags/" not in promotion
+    assert "release upload" not in promotion
+    assert "release edit" not in promotion
 
     assert "needs: [guard, verify]" in attempt_guard
     assert "actions: read" in attempt_guard
@@ -154,7 +256,26 @@ def test_recovery_contract_distinguishes_new_dispatch_from_advanced_main() -> No
     assert "An incomplete rerun" in releasing
     assert "Re-run all jobs" in releasing
     assert "run ID and attempt number" in releasing
+    assert re.search(r"continue\s+by that id", releasing)
+    assert "every authenticated release-list page" in releasing
+    assert re.search(r"Duplicate exact-tag\s+drafts fail closed", releasing)
     assert "selective job reruns fail closed" not in releasing
+
+
+def test_product_acceptance_requires_two_export_live_rehearsal() -> None:
+    releasing = (ROOT / "RELEASING.md").read_text()
+    smoke = (ROOT / "scripts" / "installed_wheel_smoke.py").read_text()
+
+    assert "installed-wheel smoke performs two live MCP exports" in releasing
+    assert (
+        "fresh-copy Claude Desktop rehearsal is release-blocking" in releasing
+    )
+    assert "first event exists locally but is omitted" in releasing
+    assert "first_access_id" in smoke
+    assert 'exported_again["access_count"] == 1' in smoke
+    assert 'record["record_type"] != "access_event.v1"' in smoke
+    assert "`installed_two_export`" in releasing
+    assert "`desktop_rehearsal`" in releasing
 
 
 def test_guard_is_the_only_root_of_the_release_job_graph() -> None:
@@ -185,7 +306,7 @@ def test_all_release_actions_are_pinned_to_full_commit_shas() -> None:
 def test_release_documents_use_only_the_canonical_project_slug() -> None:
     documents = [
         ROOT / "README.md",
-        ROOT / ".github" / "release-notes" / "v0.1.0.md",
+        ROOT / ".github" / "release-notes" / "v0.1.1.md",
     ]
     combined = "\n".join(path.read_text() for path in documents)
 

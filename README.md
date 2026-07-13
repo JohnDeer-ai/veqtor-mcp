@@ -20,7 +20,7 @@ tamper-evident audit system.
 Install the versioned GitHub release with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv tool install "git+https://github.com/JohnDeer-ai/veqtor-mcp@v0.1.0"
+uv tool install "git+https://github.com/JohnDeer-ai/veqtor-mcp@v0.1.1"
 veqtor-mcp --version
 veqtor-mcp doctor
 ```
@@ -107,10 +107,11 @@ the background. Text returned by a tool enters the MCP client conversation and
 may be sent to the user's model provider under that provider's terms.
 
 Unless `VEQTOR_DISABLE_DECISION_RECORD=1`, tools append a private local journal
-at `<matter>/.veqtor/decision-records.jsonl`. Read-only document calls,
-including `preflight_edits`, still write provenance there. The raw journal may
-contain verbatim matter text; do not commit or share it. MCP exposes only a
-bounded compact projection.
+at `<matter>/.veqtor/decision-records.jsonl`. Read-only calls, including
+`preflight_edits` and decision-record export, still normally write provenance
+there. The raw journal may contain verbatim matter text; do not commit or share
+it. MCP exposes only a bounded compact projection, and export access events are
+reported by their own scope fields rather than included in `records`.
 
 Decision records are best-effort local provenance. Their hashes are
 re-checkable fingerprints, not authentication. The journal is not a hash chain,
@@ -164,10 +165,12 @@ minimum-version tests, Gitleaks, artifact validation, an independent byte-for-
 byte rebuild and installed-wheel smoke,
 and verifies that SHA is already in `main`. Private dogfood is a local gate
 against the same SHA and is attested through the protected `release`
-environment approval. Only the final write-scoped job creates the `v0.1.0` tag
+environment approval. Only the final write-scoped job creates the `v0.1.1` tag
 and GitHub Release, using the exact artifacts built by the read-only CI job.
 That job rechecks the approved `main` SHA, creates the tag atomically through
-the Git Data API, verifies its target and publishes only with `--verify-tag`.
+the Git Data API and verifies its target. It enumerates all release pages,
+creates or uniquely recovers the exact-tag draft, and uploads, verifies and
+publishes assets by release id; an ambiguous exact-tag state fails closed.
 The repository release environment must require reviewer approval and allow
 deployments only from `main`; a repository ruleset must prevent updates or
 deletion of `v*` tags. GitHub Immutable Releases must be enabled, and the

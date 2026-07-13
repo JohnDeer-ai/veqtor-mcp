@@ -399,6 +399,12 @@ def _decision_record_assurance() -> dict[str, Any]:
     return {
         "journal_model": "best_effort_local_provenance",
         "model_payload": "compact_only",
+        "raw_journal_visibility": "private_local_only",
+        "raw_journal_result": "tool_specific_summary_not_verbatim_live_response",
+        "compact_projection": "privacy_minimized_view_not_raw_journal",
+        "access_event_policy": (
+            "raw_journal_only_excluded_from_default_compact_records"
+        ),
         "tamper_evident": False,
         "hash_chain": False,
         "record_id_guarantee": "strictly_increasing_only",
@@ -407,6 +413,16 @@ def _decision_record_assurance() -> dict[str, Any]:
         "round_trip_scope": (
             "ooxml_semantic_diff_outside_touched_anchors_not_docx_byte_identity"
         ),
+    }
+
+
+def _decision_record_export_scope() -> dict[str, Any]:
+    return {
+        "records_scope": records.EXPORT_RECORDS_SCOPE,
+        "total_count_scope": records.EXPORT_TOTAL_COUNT_SCOPE,
+        "access_events_in_records": False,
+        "access_count_scope": records.EXPORT_ACCESS_COUNT_SCOPE,
+        "access_count_includes_current_export": False,
     }
 
 
@@ -570,11 +586,12 @@ def apply_edits(source_path: str, output_path: str, edits: list[dict]) -> dict:
     must occur exactly once in the anchored clause: in untouched text it
     becomes a plain tracked replace/delete; entirely inside one counterparty
     pending insertion it becomes a visible counter (their proposal stays,
-    struck through, with our replacement after it). ``reinstate_text``
-    visibly restores text from a counterparty deletion. Several edits may
-    target one paragraph if their spans do not overlap. Edits are atomic and
-    fail closed: a hash mismatch, missing or ambiguous match, or unsupported
-    overlap returns an error and writes nothing. After writing, the server
+    struck through, with our replacement after it). ``reinstate_text`` adds a
+    visible tracked insertion before the preserved counterparty deletion; it
+    does not accept, reject or remove that deletion. Several edits may target
+    one paragraph if their spans do not overlap. Edits are atomic and fail
+    closed: a hash mismatch, missing or ambiguous match, or unsupported overlap
+    returns an error and writes nothing. After writing, the server
     re-extracts the output and checks the documented round trip: exactly the
     prior change units plus the proposed edits, with an OOXML semantic diff
     outside the touched anchors. This is not a byte-identity check of the DOCX
@@ -725,38 +742,58 @@ def export_decision_record(
     or rewritten. ``producer.build`` identifies imported Python source files,
     not the complete binary environment. MCP returns only a compact projection;
     the raw local journal may contain private matter text and is never returned
-    by this tool.
+    by this tool. When local journaling is enabled and its write succeeds, each
+    export appends an ``access_event.v1`` to that private raw journal after
+    taking the response snapshot. That event is intentionally excluded from
+    ``records`` and ``total_count``; it first appears in ``access_count`` on the
+    next export, so gaps in record ids are normal. A raw journal record may hold
+    a tool-specific result summary, while this response is a privacy-minimized
+    compact projection rather than a copy of the raw journal or the complete
+    live tool response.
     """
     def operation(root, input_payload):
-        result = records.read_records(
-            workspace,
-            max_records,
-            before_record_id,
-            include_payload=False,
-        )
         assurance = _decision_record_assurance()
-        export_summary = {
-            "status": records.RESULT_STATUS_OK,
-            "workspace": result["workspace"],
-            "total_count": result["total_count"],
-            "access_count": result["access_count"],
-            "returned_count": len(result["records"]),
-            "truncated": result["truncated"],
-            "next_before_record_id": result["next_before_record_id"],
-            "payloads": result["payloads"],
-            "assurance": assurance,
-        }
-        meta = records.write_record(
+        export_scope = _decision_record_export_scope()
+
+        def export_summary(result):
+            return {
+                "status": records.RESULT_STATUS_OK,
+                "workspace": result["workspace"],
+                "total_count": result["total_count"],
+                "access_count": result["access_count"],
+                "returned_count": len(result["records"]),
+                "truncated": result["truncated"],
+                "next_before_record_id": result["next_before_record_id"],
+                "payloads": result["payloads"],
+                "assurance": assurance,
+                **export_scope,
+            }
+
+        result, meta = records.export_records_with_access_event(
             workspace=root,
-            tool_name="export_decision_record",
+            max_records=max_records,
+            before_record_id=before_record_id,
             input_payload=input_payload,
-            result=export_summary,
-            provenance={"workspace": result["workspace"]},
+            result_factory=export_summary,
         )
+        current_export_event = {
+            "record_id": meta["record_id"],
+            "record_type": records.ACCESS_RECORD_TYPE,
+            "record_status": meta["record_status"],
+            "recorded_locally": meta["record_status"] == "written",
+            "included_in_records": False,
+            "included_in_total_count": False,
+            "included_in_access_count": False,
+        }
         return {
             **result,
             "returned_count": len(result["records"]),
             "assurance": assurance,
+            **export_scope,
+            "access_events_recorded_locally": current_export_event[
+                "recorded_locally"
+            ],
+            "current_export_event": current_export_event,
             **meta,
         }
 

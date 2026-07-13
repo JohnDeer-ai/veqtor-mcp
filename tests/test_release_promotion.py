@@ -21,10 +21,11 @@ SPEC.loader.exec_module(promotion)
 
 COMMIT = "a" * 40
 REPOSITORY = "example/veqtor"
-TAG = "v0.1.0"
-NOTES_PATH = ROOT / ".github" / "release-notes" / "v0.1.0.md"
+VERSION = promotion.CONTRACT_VERSION
+TAG = f"v{VERSION}"
+NOTES_PATH = ROOT / ".github" / "release-notes" / f"v{VERSION}.md"
 NOTES = NOTES_PATH.read_text(encoding="utf-8")
-TITLE = "Veqtor v0.1.0 Alpha"
+TITLE = f"Veqtor v{VERSION} Alpha"
 
 
 def _completed(args: list[str], returncode: int = 0, payload=None):
@@ -51,8 +52,8 @@ def _assets(paths: list[Path]) -> list[dict]:
 def _artifacts(tmp_path: Path) -> tuple[Path, Path, list[Path]]:
     dist = tmp_path / "dist"
     dist.mkdir(parents=True)
-    wheel = dist / "veqtor_mcp-0.1.0-py3-none-any.whl"
-    sdist = dist / "veqtor_mcp-0.1.0.tar.gz"
+    wheel = dist / f"veqtor_mcp-{VERSION}-py3-none-any.whl"
+    sdist = dist / f"veqtor_mcp-{VERSION}.tar.gz"
     wheel.write_bytes(b"wheel")
     sdist.write_bytes(b"sdist")
     sums = dist / "SHA256SUMS.txt"
@@ -79,19 +80,88 @@ class FakeGitHub:
         immutable_enabled: bool = True,
         release_title: str = TITLE,
         prerelease: bool = True,
+        duplicate_releases: int = 0,
+        release_on_second_page: bool = False,
+        create_ok: bool = True,
     ) -> None:
-        self.assets = assets
+        self.expected_assets = {asset["name"]: dict(asset) for asset in assets}
         self.tag_exists = tag_exists
         self.tag_sha = tag_sha
         self.tag_kind = tag_kind
-        self.release_state = release_state
         self.upload_ok = upload_ok
         self.main_sha = main_sha
         self.comparison_status = comparison_status
         self.immutable_enabled = immutable_enabled
         self.release_title = release_title
         self.prerelease = prerelease
+        self.release_on_second_page = release_on_second_page
+        self.create_ok = create_ok
         self.calls: list[list[str]] = []
+        self.upload_calls: list[tuple[str, Path]] = []
+        self.releases: list[dict] = []
+        self.next_release_id = 100
+        self.next_asset_id = 1000
+        if release_state != "absent":
+            self.releases.append(
+                self._new_release(release_state, assets=[*assets])
+            )
+        for _ in range(duplicate_releases):
+            self.releases.append(
+                self._new_release(release_state, assets=[*assets])
+            )
+
+    @property
+    def release_state(self) -> str:
+        if not self.releases:
+            return "absent"
+        return "draft" if self.releases[0]["draft"] else "published"
+
+    def _stored_assets(self, assets: list[dict]) -> list[dict]:
+        stored = []
+        for asset in assets:
+            item = dict(asset)
+            item.setdefault("id", self.next_asset_id)
+            self.next_asset_id += 1
+            stored.append(item)
+        return stored
+
+    def _new_release(self, state: str, *, assets: list[dict]) -> dict:
+        release = {
+            "id": self.next_release_id,
+            "upload_url": (
+                f"https://uploads.github.com/repos/{REPOSITORY}/releases/"
+                f"{self.next_release_id}/assets{{?name,label}}"
+            ),
+            "tag_name": TAG,
+            "name": self.release_title,
+            "body": NOTES,
+            "prerelease": self.prerelease,
+            "draft": state == "draft",
+            "immutable": state == "published",
+            "assets": self._stored_assets(assets),
+        }
+        self.next_release_id += 1
+        return release
+
+    def _release_by_id(self, release_id: int) -> dict:
+        return next(
+            release for release in self.releases if release["id"] == release_id
+        )
+
+    def upload_asset(self, upload_url: str, path: Path) -> dict:
+        self.upload_calls.append((upload_url, path))
+        if not self.upload_ok:
+            raise promotion.PromotionError("draft asset upload failed")
+        release_id = int(upload_url.split("/releases/", 1)[1].split("/", 1)[0])
+        asset = dict(self.expected_assets[path.name])
+        asset["id"] = self.next_asset_id
+        self.next_asset_id += 1
+        self._release_by_id(release_id)["assets"].append(asset)
+        return asset
+
+    @staticmethod
+    def _endpoint(args: list[str]) -> str | None:
+        return next((item for item in args if item.startswith("repos/")), None)
 
     def __call__(self, args):
         args = list(args)
@@ -118,33 +188,37 @@ class FakeGitHub:
             if not self.tag_exists:
                 return _completed(args, 1)
             return _completed(args, payload=_ref(self.tag_sha, self.tag_kind))
-        if "release create" in joined:
-            if self.release_state == "absent":
-                self.release_state = "draft"
-                return _completed(args)
-            return _completed(args, 1)
-        if "release upload" in joined:
-            if not self.upload_ok:
-                return _completed(args, 1)
-            return _completed(args)
-        if "release edit" in joined:
-            self.release_state = "published"
-            return _completed(args)
-        if "/releases/tags/" in joined:
-            if self.release_state == "absent":
-                return _completed(args, 1)
-            return _completed(
-                args,
-                payload={
-                    "tag_name": TAG,
-                    "name": self.release_title,
-                    "body": NOTES,
-                    "prerelease": self.prerelease,
-                    "draft": self.release_state == "draft",
-                    "immutable": self.release_state == "published",
-                    "assets": self.assets,
-                },
+        endpoint = self._endpoint(args)
+        if endpoint is not None and "releases?per_page=100" in endpoint:
+            pages = (
+                [[], self.releases]
+                if self.release_on_second_page
+                else [self.releases]
             )
+            return _completed(args, payload=pages)
+        if (
+            endpoint == f"repos/{REPOSITORY}/releases"
+            and "--method POST" in joined
+        ):
+            if not self.create_ok:
+                return _completed(args, 1)
+            release = self._new_release("draft", assets=[])
+            self.releases.append(release)
+            return _completed(args, payload=release)
+        if endpoint is not None and "/releases/assets/" in endpoint:
+            asset_id = int(endpoint.rsplit("/", 1)[1])
+            for release in self.releases:
+                release["assets"] = [
+                    asset for asset in release["assets"] if asset.get("id") != asset_id
+                ]
+            return _completed(args)
+        if endpoint is not None and "/releases/" in endpoint:
+            release_id = int(endpoint.rsplit("/", 1)[1])
+            release = self._release_by_id(release_id)
+            if "--method PATCH" in joined:
+                release["draft"] = False
+                release["immutable"] = True
+            return _completed(args, payload=release)
         raise AssertionError(f"unexpected command: {args}")
 
 
@@ -152,8 +226,9 @@ def _promote(tmp_path: Path, fake: FakeGitHub) -> None:
     dist, sums, _ = _artifacts(tmp_path)
     promotion.promote(
         runner=fake,
+        asset_uploader=fake.upload_asset,
         repository=REPOSITORY,
-        version="0.1.0",
+        version=VERSION,
         commit_sha=COMMIT,
         dist_dir=dist,
         checksums=sums,
@@ -166,8 +241,9 @@ def test_new_release_is_uploaded_as_draft_verified_and_published(tmp_path: Path)
     fake = FakeGitHub(_assets(paths))
     promotion.promote(
         runner=fake,
+        asset_uploader=fake.upload_asset,
         repository=REPOSITORY,
-        version="0.1.0",
+        version=VERSION,
         commit_sha=COMMIT,
         dist_dir=dist,
         checksums=sums,
@@ -175,12 +251,19 @@ def test_new_release_is_uploaded_as_draft_verified_and_published(tmp_path: Path)
     )
 
     assert fake.release_state == "published"
-    assert any("release upload" in " ".join(call) for call in fake.calls)
-    assert any("--clobber" in call for call in fake.calls)
-    create = next(call for call in fake.calls if "release create" in " ".join(call))
-    assert "--prerelease" in create
-    assert create[create.index("--title") + 1] == TITLE
-    assert create[create.index("--notes-file") + 1] == str(NOTES_PATH)
+    create = next(
+        call
+        for call in fake.calls
+        if "--method POST" in " ".join(call)
+        and f"repos/{REPOSITORY}/releases" in call
+    )
+    assert "prerelease=true" in create
+    assert f"name={TITLE}" in create
+    assert f"body=@{NOTES_PATH}" in create
+    uploads = fake.upload_calls
+    assert len(uploads) == 3
+    assert all("/releases/100/assets?name=" in url for url, _ in uploads)
+    assert not any("/releases/tags/" in " ".join(call) for call in fake.calls)
 
 
 def test_separately_approved_dispatch_accepts_exact_existing_tag_and_draft(
@@ -194,8 +277,9 @@ def test_separately_approved_dispatch_accepts_exact_existing_tag_and_draft(
     )
     promotion.promote(
         runner=fake,
+        asset_uploader=fake.upload_asset,
         repository=REPOSITORY,
-        version="0.1.0",
+        version=VERSION,
         commit_sha=COMMIT,
         dist_dir=dist,
         checksums=sums,
@@ -205,6 +289,149 @@ def test_separately_approved_dispatch_accepts_exact_existing_tag_and_draft(
 
     assert fake.release_state == "published"
     assert any("git/ref/tags/" in " ".join(call) for call in fake.calls)
+    assert any("--paginate --slurp" in " ".join(call) for call in fake.calls)
+
+
+def test_draft_recovery_reads_every_release_page(tmp_path: Path) -> None:
+    dist, sums, paths = _artifacts(tmp_path)
+    fake = FakeGitHub(
+        _assets(paths),
+        tag_exists=True,
+        release_state="draft",
+        release_on_second_page=True,
+    )
+
+    promotion.promote(
+        runner=fake,
+        asset_uploader=fake.upload_asset,
+        repository=REPOSITORY,
+        version=VERSION,
+        commit_sha=COMMIT,
+        dist_dir=dist,
+        checksums=sums,
+        notes_path=NOTES_PATH,
+    )
+
+    assert fake.release_state == "published"
+    assert not any(
+        "--method POST" in " ".join(call)
+        and f"repos/{REPOSITORY}/releases" in call
+        for call in fake.calls
+    )
+
+
+def test_duplicate_exact_tag_releases_fail_closed_before_mutation(
+    tmp_path: Path,
+) -> None:
+    _, _, paths = _artifacts(tmp_path)
+    fake = FakeGitHub(
+        _assets(paths),
+        tag_exists=True,
+        release_state="draft",
+        duplicate_releases=1,
+    )
+
+    with pytest.raises(promotion.PromotionError, match="multiple releases"):
+        _promote(tmp_path / "run", fake)
+
+    assert not fake.upload_calls
+    assert not any("--method PATCH" in " ".join(call) for call in fake.calls)
+
+
+def test_partial_draft_asset_is_replaced_by_asset_and_release_id(
+    tmp_path: Path,
+) -> None:
+    dist, sums, paths = _artifacts(tmp_path)
+    fake = FakeGitHub(
+        _assets(paths),
+        tag_exists=True,
+        release_state="draft",
+    )
+    fake.releases[0]["assets"][0]["digest"] = "sha256:" + "0" * 64
+
+    promotion.promote(
+        runner=fake,
+        asset_uploader=fake.upload_asset,
+        repository=REPOSITORY,
+        version=VERSION,
+        commit_sha=COMMIT,
+        dist_dir=dist,
+        checksums=sums,
+        notes_path=NOTES_PATH,
+    )
+
+    assert fake.release_state == "published"
+    assert any("/releases/assets/" in " ".join(call) for call in fake.calls)
+    assert fake.upload_calls
+
+
+def test_every_authenticated_api_call_pins_the_api_version(tmp_path: Path) -> None:
+    _, _, paths = _artifacts(tmp_path)
+    fake = FakeGitHub(_assets(paths))
+
+    _promote(tmp_path / "run", fake)
+
+    api_calls = [call for call in fake.calls if call[:2] == ["gh", "api"]]
+    assert api_calls
+    assert all(promotion.GITHUB_API_HEADER in call for call in api_calls)
+
+
+def test_asset_upload_uses_validated_upload_url_and_header_auth(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "asset.whl"
+    path.write_bytes(b"wheel")
+    captured = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        @staticmethod
+        def read() -> bytes:
+            return json.dumps({"name": path.name}).encode()
+
+    def open_url(request, *, timeout):
+        captured["request"] = request
+        captured["timeout"] = timeout
+        return Response()
+
+    monkeypatch.setenv("GH_TOKEN", "secret-token")
+    monkeypatch.setattr(promotion, "urlopen", open_url)
+
+    result = promotion._default_asset_uploader(
+        "https://uploads.github.com/repos/example/veqtor/releases/100/"
+        "assets?name=asset.whl",
+        path,
+    )
+
+    request = captured["request"]
+    assert result == {"name": path.name}
+    assert captured["timeout"] == 60
+    assert request.get_header("Authorization") == "Bearer secret-token"
+    assert request.get_header("X-github-api-version") == "2026-03-10"
+    assert request.data == b"wheel"
+
+
+def test_asset_upload_rejects_untrusted_release_upload_url(tmp_path: Path) -> None:
+    path = tmp_path / "asset.whl"
+    path.write_bytes(b"wheel")
+    payload = {
+        "id": 100,
+        "upload_url": "https://example.invalid/assets{?name,label}",
+    }
+
+    with pytest.raises(promotion.PromotionError, match="unexpected upload_url"):
+        promotion._draft_asset_upload_url(
+            payload,
+            REPOSITORY,
+            100,
+            path,
+        )
 
 
 @pytest.mark.parametrize(
@@ -236,7 +463,7 @@ def test_interrupted_draft_upload_never_publishes(tmp_path: Path) -> None:
         _promote(tmp_path / "run", fake)
 
     assert fake.release_state == "draft"
-    assert not any("release edit" in " ".join(call) for call in fake.calls)
+    assert not any("--method PATCH" in " ".join(call) for call in fake.calls)
 
 
 def test_existing_published_release_is_verified_without_mutation(tmp_path: Path) -> None:
@@ -244,16 +471,17 @@ def test_existing_published_release_is_verified_without_mutation(tmp_path: Path)
     fake = FakeGitHub(_assets(paths), release_state="published")
     promotion.promote(
         runner=fake,
+        asset_uploader=fake.upload_asset,
         repository=REPOSITORY,
-        version="0.1.0",
+        version=VERSION,
         commit_sha=COMMIT,
         dist_dir=dist,
         checksums=sums,
         notes_path=NOTES_PATH,
     )
 
-    assert not any("release upload" in " ".join(call) for call in fake.calls)
-    assert not any("release edit" in " ".join(call) for call in fake.calls)
+    assert not fake.upload_calls
+    assert not any("--method PATCH" in " ".join(call) for call in fake.calls)
 
 
 def test_existing_published_release_with_wrong_asset_fails_closed(tmp_path: Path) -> None:
@@ -265,7 +493,7 @@ def test_existing_published_release_with_wrong_asset_fails_closed(tmp_path: Path
     with pytest.raises(promotion.PromotionError, match="do not match"):
         _promote(tmp_path / "run", fake)
 
-    assert not any("release upload" in " ".join(call) for call in fake.calls)
+    assert not fake.upload_calls
 
 
 def test_recovery_after_main_advances_requires_later_attempt_and_ancestry(
@@ -281,8 +509,9 @@ def test_recovery_after_main_advances_requires_later_attempt_and_ancestry(
 
     promotion.promote(
         runner=fake,
+        asset_uploader=fake.upload_asset,
         repository=REPOSITORY,
-        version="0.1.0",
+        version=VERSION,
         commit_sha=COMMIT,
         dist_dir=dist,
         checksums=sums,
@@ -322,8 +551,9 @@ def test_unsafe_recovery_state_fails_closed(tmp_path: Path, attempt: int) -> Non
         dist, sums, _ = _artifacts(tmp_path / "run")
         promotion.promote(
             runner=fake,
+            asset_uploader=fake.upload_asset,
             repository=REPOSITORY,
-            version="0.1.0",
+            version=VERSION,
             commit_sha=COMMIT,
             dist_dir=dist,
             checksums=sums,
@@ -352,7 +582,7 @@ def test_immutable_setting_is_required_before_tag_creation(tmp_path: Path) -> No
 
 @pytest.mark.parametrize(
     ("title", "prerelease"),
-    [("Veqtor v0.1.0", True), (TITLE, False)],
+    [(f"Veqtor v{VERSION}", True), (TITLE, False)],
 )
 def test_published_release_requires_exact_alpha_metadata(
     tmp_path: Path,
@@ -384,8 +614,9 @@ def test_checksum_manifest_requires_flat_exact_names(tmp_path: Path) -> None:
     with pytest.raises(promotion.PromotionError, match="flat names"):
         promotion.promote(
             runner=fake,
+            asset_uploader=fake.upload_asset,
             repository=REPOSITORY,
-            version="0.1.0",
+            version=VERSION,
             commit_sha=COMMIT,
             dist_dir=dist,
             checksums=sums,

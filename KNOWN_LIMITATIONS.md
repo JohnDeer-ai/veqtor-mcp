@@ -45,6 +45,8 @@ contract is intentionally narrow.
 - Author identity is fixed at server start. If it matches a counterparty's
   revision author, some counter/reinstate requests are treated as edits to the
   configured party's own revision and refused.
+- Reinstate is a visible tracked insertion before the preserved counterparty
+  deletion. It does not perform Word Reject and does not remove that deletion.
 - Matching uses the same current-reading atoms as extraction, including tabs,
   breaks and non-breaking hyphens. A span that touches one of those element
   atoms is identified truthfully but refused as `unsupported_run_shape` when
@@ -58,6 +60,13 @@ contract is intentionally narrow.
   malicious process running as the same user is outside scope.
 - The raw journal may contain matter text and has no rotation or aggregate size
   cap in v0.1.
+- Read-only list, extract, verify and preflight calls normally append local
+  provenance too. Decision-record export normally appends an access event after
+  taking its response snapshot, so observation is not side-effect free unless
+  decision records are disabled.
+- Access-event summaries written by builds before 0.1.1 may undercount prior
+  access events when multiple exports ran concurrently. Existing journal
+  entries are historical evidence and are not rewritten or migrated.
 - Journals containing `preflight_edits` require Veqtor 0.1.0 or newer. Downgrade
   to 0.0.0 is unsupported.
 

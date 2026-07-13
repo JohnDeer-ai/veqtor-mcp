@@ -6,6 +6,39 @@ All notable changes to Veqtor MCP are documented here.
 Publication dates are authoritative in each version's immutable GitHub Release
 through its `published_at` timestamp.
 
+## 0.1.1
+
+Veqtor v0.1.1 Alpha release contents.
+
+### Added
+
+- Self-describing decision-record export fields for substantive-record scope,
+  access-event persistence and current-snapshot count semantics.
+- A two-export installed-wheel smoke and release-blocking Claude Desktop
+  rehearsal gate for access-event and raw-versus-compact explanations.
+- A closed `veqtor_release_acceptance.v2` packet binds both live gates and
+  their runtime identities to the exact release candidate; promotion seals its
+  canonical bytes with an explicitly approved SHA-256 and validates the packet
+  in the read-only guard before reusable CI and publication.
+
+### Changed
+
+- Interrupted GitHub draft promotion now enumerates all release pages, requires
+  one exact-tag match and uploads, verifies and publishes by release id.
+- Model-facing assurance now distinguishes the live response, private raw
+  journal result and privacy-minimized compact projection.
+- Decision-record export now takes its response snapshot and appends the
+  matching access event under one journal lock, so concurrent exports report
+  every access event ordered before their own event.
+- Documentation clarifies reinstate behavior, compact `clause_sha256` meaning
+  and provenance writes caused by read-only operations.
+
+### Compatibility
+
+- The `decision_record.v1` historical tool pairs and compact projections remain
+  backward-readable; new export-result fields are additive.
+- The published immutable `v0.1.0` release remains unchanged.
+
 ## 0.1.0
 
 Veqtor v0.1.0 Alpha release contents.

@@ -68,8 +68,15 @@ V1_OK_STATUSES = frozenset({RESULT_STATUS_OK})
 PAYLOAD_COMPACT = "compact"
 PAYLOAD_FULL = "full"
 V1_EXPORT_PAYLOADS = frozenset({PAYLOAD_COMPACT, PAYLOAD_FULL})
+EXPORT_RECORDS_SCOPE = "substantive_records_only"
+EXPORT_TOTAL_COUNT_SCOPE = "substantive_records_before_cursor"
+EXPORT_ACCESS_COUNT_SCOPE = "all_prior_access_events_before_current_export"
+V1_EXPORT_RECORDS_SCOPES = frozenset({EXPORT_RECORDS_SCOPE})
+V1_EXPORT_TOTAL_COUNT_SCOPES = frozenset({EXPORT_TOTAL_COUNT_SCOPE})
+V1_EXPORT_ACCESS_COUNT_SCOPES = frozenset({EXPORT_ACCESS_COUNT_SCOPE})
 
 Clock = Callable[[], datetime]
+ExportResultFactory = Callable[[dict[str, Any]], dict[str, Any]]
 
 
 def _safe_error_text(value: object, *, max_length: int | None = None) -> str:
@@ -901,19 +908,27 @@ def _append_locked(sidecar_fd: int, path: Path, record: dict[str, Any]) -> str:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         try:
             records = _load_records(handle, path)
-            record_id = _next_record_id(records)
-            stored_record = {**record, "record_id": record_id}
-            try:
-                line = _validated_record_bytes(stored_record)
-            except (_JsonBoundaryError, _RecordSchemaError) as exc:
-                raise DecisionRecordError("record_invalid", str(exc)) from exc
-            handle.seek(0, os.SEEK_END)
-            handle.write(line + b"\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-            return record_id
+            return _append_to_loaded_journal(handle, records, record)
         finally:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _append_to_loaded_journal(
+    handle: Any,
+    records: list[dict[str, Any]],
+    record: dict[str, Any],
+) -> str:
+    record_id = _next_record_id(records)
+    stored_record = {**record, "record_id": record_id}
+    try:
+        line = _validated_record_bytes(stored_record)
+    except (_JsonBoundaryError, _RecordSchemaError) as exc:
+        raise DecisionRecordError("record_invalid", str(exc)) from exc
+    handle.seek(0, os.SEEK_END)
+    handle.write(line + b"\n")
+    handle.flush()
+    os.fsync(handle.fileno())
+    return record_id
 
 
 def _record_error(exc: BaseException) -> str:
@@ -1519,7 +1534,7 @@ def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
         }
     if projection_kind == "export_decision_record":
         next_before = result.get("next_before_record_id")
-        return {
+        summary = {
             "status": _known_value(result.get("status"), V1_OK_STATUSES),
             "total_count": _nonnegative_int(result.get("total_count")),
             "access_count": _nonnegative_int(result.get("access_count")),
@@ -1530,6 +1545,29 @@ def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
             ),
             "payloads": _known_value(result.get("payloads"), V1_EXPORT_PAYLOADS),
         }
+        if "records_scope" in result:
+            summary.update(
+                {
+                    "records_scope": _known_value(
+                        result.get("records_scope"), V1_EXPORT_RECORDS_SCOPES
+                    ),
+                    "total_count_scope": _known_value(
+                        result.get("total_count_scope"),
+                        V1_EXPORT_TOTAL_COUNT_SCOPES,
+                    ),
+                    "access_events_in_records": _strict_bool(
+                        result.get("access_events_in_records")
+                    ),
+                    "access_count_scope": _known_value(
+                        result.get("access_count_scope"),
+                        V1_EXPORT_ACCESS_COUNT_SCOPES,
+                    ),
+                    "access_count_includes_current_export": _strict_bool(
+                        result.get("access_count_includes_current_export")
+                    ),
+                }
+            )
+        return summary
     raise _RecordSchemaError("invalid tool_name")
 
 
@@ -1689,13 +1727,11 @@ def _compact_records(selected: list[dict[str, Any]]) -> list[dict[str, Any]]:
         ) from exc
 
 
-def _read_records(
-    workspace: str,
-    max_records: int | None = None,
-    before_record_id: str | None = None,
-    include_access_events: bool = False,
-    include_payload: bool = False,
-) -> dict[str, Any]:
+def _read_options(
+    max_records: int | None,
+    before_record_id: str | None,
+    include_payload: bool,
+) -> tuple[int, int | None]:
     if type(include_payload) is not bool:
         raise DecisionRecordError(
             "invalid_include_payload", "include_payload must be a boolean"
@@ -1708,7 +1744,49 @@ def _read_records(
         )
     else:
         limit = min(max_records, MAX_MAX_RECORDS)
-    before_record_number = _parse_before_record_id(before_record_id)
+    return limit, _parse_before_record_id(before_record_id)
+
+
+def _records_snapshot(
+    root: Path,
+    records: list[dict[str, Any]],
+    *,
+    limit: int,
+    before_record_number: int | None,
+    include_access_events: bool,
+    include_payload: bool,
+) -> dict[str, Any]:
+    selected, total, truncated, next_before = _window_records(
+        records,
+        limit=limit,
+        before_record_number=before_record_number,
+        include_access_events=include_access_events,
+    )
+    access_count = sum(
+        1 for record in records if record.get("record_type") == ACCESS_RECORD_TYPE
+    )
+    output_records = selected if include_payload else _compact_records(selected)
+    return {
+        "workspace": str(root) if include_payload else _path_digest(str(root)),
+        "total_count": total,
+        "access_count": access_count,
+        "truncated": truncated,
+        "next_before_record_id": next_before,
+        "records": output_records,
+        "payloads": PAYLOAD_FULL if include_payload else PAYLOAD_COMPACT,
+    }
+
+
+def _read_records(
+    workspace: str,
+    max_records: int | None = None,
+    before_record_id: str | None = None,
+    include_access_events: bool = False,
+    include_payload: bool = False,
+) -> dict[str, Any]:
+    limit, before_record_number = _read_options(
+        max_records, before_record_id, include_payload
+    )
     root, expected_identity = _canonical_workspace(workspace)
     with _sidecar_for_read(root, expected_identity=expected_identity) as sidecar_info:
         if sidecar_info is None:
@@ -1741,25 +1819,14 @@ def _read_records(
             finally:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
-    selected, total, truncated, next_before = _window_records(
+    return _records_snapshot(
+        root,
         records,
         limit=limit,
         before_record_number=before_record_number,
         include_access_events=include_access_events,
+        include_payload=include_payload,
     )
-    access_count = sum(
-        1 for record in records if record.get("record_type") == ACCESS_RECORD_TYPE
-    )
-    output_records = selected if include_payload else _compact_records(selected)
-    return {
-        "workspace": str(root) if include_payload else _path_digest(str(root)),
-        "total_count": total,
-        "access_count": access_count,
-        "truncated": truncated,
-        "next_before_record_id": next_before,
-        "records": output_records,
-        "payloads": PAYLOAD_FULL if include_payload else PAYLOAD_COMPACT,
-    }
 
 
 def read_records(
@@ -1784,3 +1851,69 @@ def read_records(
         raise DecisionRecordError(
             "workspace_unreadable", "workspace cannot be read"
         ) from exc
+
+
+def export_records_with_access_event(
+    *,
+    workspace: Path,
+    max_records: int | None,
+    before_record_id: str | None,
+    input_payload: dict[str, Any],
+    result_factory: ExportResultFactory,
+    clock: Clock = utc_now,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Atomically snapshot compact records and append the matching access event."""
+    limit, before_record_number = _read_options(
+        max_records, before_record_id, False
+    )
+    root, _ = _canonical_workspace(workspace)
+    if disabled():
+        return (
+            read_records(str(root), max_records, before_record_id),
+            {"record_id": None, "record_status": "disabled"},
+        )
+
+    snapshot: dict[str, Any] | None = None
+    try:
+        with _sidecar_for_write(root) as (sidecar, sidecar_fd):
+            path = sidecar / JOURNAL_NAME
+            with _open_journal_for_append(sidecar_fd, path) as handle:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+                try:
+                    loaded = _load_records(handle, path)
+                    snapshot = _records_snapshot(
+                        root,
+                        loaded,
+                        limit=limit,
+                        before_record_number=before_record_number,
+                        include_access_events=False,
+                        include_payload=False,
+                    )
+                    result = result_factory(snapshot)
+                    record = _base_record(
+                        tool_name="export_decision_record",
+                        workspace=root,
+                        input_payload=input_payload,
+                        result=result,
+                        tool_result=None,
+                        provenance={"workspace": snapshot["workspace"]},
+                        clock=clock,
+                    )
+                    try:
+                        _preflight_record(record)
+                    except (_JsonBoundaryError, _RecordSchemaError) as exc:
+                        raise DecisionRecordError("record_invalid", str(exc)) from exc
+                    record_id = _append_to_loaded_journal(handle, loaded, record)
+                finally:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    except Exception as exc:
+        # Once a snapshot exists, an append or fsync failure has unknown commit
+        # status. Return that frozen snapshot and never re-read or retry the append.
+        if snapshot is None:
+            snapshot = read_records(str(root), max_records, before_record_id)
+        return snapshot, {
+            "record_id": None,
+            "record_status": "write_failed",
+            "record_error": _record_error(exc),
+        }
+    return snapshot, {"record_id": record_id, "record_status": "written"}

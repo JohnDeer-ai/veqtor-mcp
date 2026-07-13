@@ -12,6 +12,7 @@ from mcp.shared.memory import create_connected_server_and_client_session
 
 from veqtor_docx import generate_demo_rounds
 from veqtor_mcp import __version__
+from veqtor_mcp.records import SOURCE_SNAPSHOT_IDENTITY
 from veqtor_mcp.server import mcp
 
 
@@ -22,8 +23,8 @@ def _payload(result) -> dict:
     return json.loads(result.content[0].text)
 
 
-async def smoke() -> None:
-    assert __version__ == "0.1.0"
+async def smoke() -> dict:
+    assert __version__ == "0.1.1"
     with tempfile.TemporaryDirectory(prefix="veqtor-wheel-smoke-") as tmp:
         matter = Path(tmp) / "matter"
         generate_demo_rounds(matter)
@@ -90,7 +91,45 @@ async def smoke() -> None:
             )
             assert exported["returned_count"] == len(exported["records"])
             assert exported["assurance"]["tamper_evident"] is False
+            assert exported["access_count"] == 0
+            assert exported["access_events_recorded_locally"] is True
+            assert exported["access_events_in_records"] is False
+            first_access_id = exported["current_export_event"]["record_id"]
+            assert first_access_id == exported["record_id"]
+            assert all(
+                record["record_id"] != first_access_id
+                for record in exported["records"]
+            )
+
+            exported_again = _payload(
+                await session.call_tool(
+                    "export_decision_record",
+                    {"workspace": str(matter), "max_records": 3},
+                )
+            )
+            assert exported_again["total_count"] == exported["total_count"]
+            assert exported_again["access_count"] == 1
+            assert (
+                exported_again["access_count_includes_current_export"] is False
+            )
+            assert exported_again["returned_count"] == 3
+            assert all(
+                record["record_type"] != "access_event.v1"
+                and record["record_id"] != first_access_id
+                for record in exported_again["records"]
+            )
+            assert exported_again["current_export_event"]["record_id"] == (
+                f"dr_{int(first_access_id.removeprefix('dr_')) + 1:03d}"
+            )
+            return {
+                "first_access_count": exported["access_count"],
+                "second_access_count": exported_again["access_count"],
+                "first_event_absent_from_windows": True,
+                "current_event_outside_own_snapshot": True,
+                "runtime_producer_build": SOURCE_SNAPSHOT_IDENTITY,
+                "runtime_version": __version__,
+            }
 
 
 if __name__ == "__main__":
-    asyncio.run(smoke())
+    print(json.dumps(asyncio.run(smoke()), sort_keys=True))

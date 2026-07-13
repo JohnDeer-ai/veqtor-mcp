@@ -56,12 +56,22 @@ async def test_tools_are_exposed_and_callable(demo_dir: Path) -> None:
         export_tool = next(
             tool for tool in tools.tools if tool.name == "export_decision_record"
         )
+        apply_tool = next(
+            tool for tool in tools.tools if tool.name == "apply_edits"
+        )
         for tool_name in ("preflight_edits", "apply_edits"):
             tool = next(tool for tool in tools.tools if tool.name == tool_name)
             assert "author" not in tool.inputSchema["properties"]
         assert "include_payload" not in export_tool.inputSchema["properties"]
+        assert "does not accept, reject or remove" in apply_tool.description
         assert "not a tamper-evident audit log" in export_tool.description
         assert "not authentication or a hash chain" in export_tool.description
+        assert "access_event.v1" in export_tool.description
+        assert "first" in export_tool.description
+        assert "access_count" in export_tool.description
+        assert re.search(
+            r"privacy-minimized\s+compact projection", export_tool.description
+        )
 
         listed = await session.call_tool("list_rounds", {"folder": str(demo_dir)})
         assert not listed.isError
@@ -98,6 +108,14 @@ async def test_tools_are_exposed_and_callable(demo_dir: Path) -> None:
         assert export_payload["assurance"] == {
             "journal_model": "best_effort_local_provenance",
             "model_payload": "compact_only",
+            "raw_journal_visibility": "private_local_only",
+            "raw_journal_result": (
+                "tool_specific_summary_not_verbatim_live_response"
+            ),
+            "compact_projection": "privacy_minimized_view_not_raw_journal",
+            "access_event_policy": (
+                "raw_journal_only_excluded_from_default_compact_records"
+            ),
             "tamper_evident": False,
             "hash_chain": False,
             "record_id_guarantee": "strictly_increasing_only",
@@ -106,6 +124,25 @@ async def test_tools_are_exposed_and_callable(demo_dir: Path) -> None:
             "round_trip_scope": (
                 "ooxml_semantic_diff_outside_touched_anchors_not_docx_byte_identity"
             ),
+        }
+        assert export_payload["records_scope"] == "substantive_records_only"
+        assert export_payload["total_count_scope"] == (
+            "substantive_records_before_cursor"
+        )
+        assert export_payload["access_events_recorded_locally"] is True
+        assert export_payload["access_events_in_records"] is False
+        assert export_payload["access_count_scope"] == (
+            "all_prior_access_events_before_current_export"
+        )
+        assert export_payload["access_count_includes_current_export"] is False
+        assert export_payload["current_export_event"] == {
+            "record_id": export_payload["record_id"],
+            "record_type": "access_event.v1",
+            "record_status": "written",
+            "recorded_locally": True,
+            "included_in_records": False,
+            "included_in_total_count": False,
+            "included_in_access_count": False,
         }
 
 
@@ -434,7 +471,7 @@ def test_blank_author_keeps_version_and_makes_doctor_and_startup_diagnostic() ->
     )
 
     assert version.returncode == 0
-    assert version.stdout.strip() == "veqtor-mcp 0.1.0"
+    assert version.stdout.strip() == "veqtor-mcp 0.1.1"
     assert "Traceback" not in version.stderr
     assert doctor.returncode == 2
     diagnosis = json.loads(doctor.stdout)
@@ -452,13 +489,13 @@ def test_blank_author_keeps_version_and_makes_doctor_and_startup_diagnostic() ->
 def test_cli_version_and_doctor(monkeypatch, capsys) -> None:
     monkeypatch.setattr(server.sys, "argv", ["veqtor-mcp", "--version"])
     server.main()
-    assert capsys.readouterr().out.strip() == "veqtor-mcp 0.1.0"
+    assert capsys.readouterr().out.strip() == "veqtor-mcp 0.1.1"
 
     monkeypatch.setattr(server.sys, "argv", ["veqtor-mcp", "doctor"])
     server.main()
     doctor = json.loads(capsys.readouterr().out)
     assert doctor["name"] == "veqtor-mcp"
-    assert doctor["version"] == "0.1.0"
+    assert doctor["version"] == "0.1.1"
     assert doctor["build"] == records.SOURCE_SNAPSHOT_IDENTITY
     assert doctor["tracked_change_author"] == server._tracked_change_author()
     assert doctor["configuration_error"] is None
@@ -525,21 +562,26 @@ async def test_every_unexpected_tool_failure_is_sanitized_and_journaled(
         for key, value in arguments.items()
     }
     sentinel = f"PRIVATE_IMPLEMENTATION_SENTINEL_{tool_name}"
-    original = getattr(core_owner, tool_name if core_owner is veqtor_docx else "read_records")
+    core_name = (
+        tool_name
+        if core_owner is veqtor_docx
+        else "export_records_with_access_event"
+    )
+    original = getattr(core_owner, core_name)
 
     def explode(*_args, **_kwargs):
         raise RuntimeError(sentinel)
 
     monkeypatch.setattr(
         core_owner,
-        tool_name if core_owner is veqtor_docx else "read_records",
+        core_name,
         explode,
     )
     async with create_connected_server_and_client_session(mcp._mcp_server) as session:
         result = await session.call_tool(tool_name, resolved_arguments)
     monkeypatch.setattr(
         core_owner,
-        tool_name if core_owner is veqtor_docx else "read_records",
+        core_name,
         original,
     )
 
