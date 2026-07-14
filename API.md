@@ -17,13 +17,16 @@ All DOCX-reading tools share one two-stage fail-closed ZIP boundary. Before any
 decoder is created, Veqtor bounds the 50 MiB compressed input, 2,000 members,
 4 MiB central directory and every declared member/aggregate size, rejects
 duplicates, encryption, ZIP64 and compression methods other than `STORED` and
-`DEFLATED`, and reconciles the central and local layouts. It then stream-decodes
-every member from the immutable input snapshot with bounded input and output
-chunks, counting actual output and CRC and requiring an exact DEFLATE end of
-stream. Standard 32-bit data descriptors with and without their optional
-signature are accepted only when their CRC, sizes and boundary agree exactly;
-gaps, overlaps, prefixes, trailing compressed data and inconsistent metadata
-are refused.
+`DEFLATED`, and reconciles the security-relevant central and local fields and
+layout. It then validates every member from the immutable input snapshot:
+DEFLATED data uses bounded input and output chunks, while STORED data is a
+bounded direct span. Both paths count actual output and CRC, and DEFLATE also
+requires an exact DEFLATE end of stream. Standard 32-bit data descriptors with
+and without their optional signature are accepted only when their CRC, sizes and
+boundary agree exactly. Gaps, overlaps, prefixes, trailing compressed data and
+disagreement in the raw name, flags, method, CRC or sizes are refused.
+Well-formed non-ZIP64 local and central extra fields may differ because they do
+not select the decoded member bytes.
 
 The expanded envelope remains 100 MiB total, 25 MiB per XML member, 50 MiB per
 other member, and at most 200:1 compression for a member larger than 10 MiB.

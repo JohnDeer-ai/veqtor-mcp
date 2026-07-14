@@ -19,16 +19,19 @@ contract is intentionally narrow.
   limited to 500 candidate DOCX files and 500 MiB of aggregate candidate input.
   Image-heavy, unusually complex or very large legitimate matters may
   therefore be refused. The Alpha does not expose an override for these safety
-  defaults. Declared metadata is bounded before decoder creation; actual
-  member output, aggregate output, CRC and DEFLATE end-of-stream are checked
-  during bounded streaming of every member, including parts a particular tool
-  does not otherwise consume.
+  defaults. Declared metadata is bounded before decoder creation. Every member,
+  including parts a particular tool does not otherwise consume, has its actual
+  output, aggregate output and CRC checked: DEFLATED data is streamed in bounded
+  chunks with an exact end-of-stream check, while STORED data is a bounded
+  direct span.
 - The supported DOCX container subset is intentionally narrow: unencrypted,
   non-ZIP64 ZIP packages using only `STORED` or `DEFLATED` members. Standard
   32-bit data descriptors are supported with or without their optional
-  signature. LZMA, BZIP2, Zstandard, unknown methods, ZIP64 members,
-  inconsistent local/central/descriptor metadata, prefixes, gaps, overlaps and
-  trailing compressed data are refused rather than decoded approximately.
+  signature. LZMA, BZIP2, Zstandard, unknown methods, ZIP64 members, descriptor
+  mismatches, or disagreement between local and central raw names, flags,
+  methods, CRCs or sizes are refused, as are prefixes, gaps, overlaps and
+  trailing compressed data. Other well-formed non-ZIP64 extra fields may differ
+  between the local and central records.
 - XML parts containing a `DOCTYPE` declaration are refused; Veqtor does not
   load DTDs or expand custom XML entities.
 - ZIP packages with duplicate member names are refused as ambiguous; no tool

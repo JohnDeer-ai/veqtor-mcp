@@ -46,7 +46,7 @@ def test_docs_disambiguate_reinstate_and_compact_clause_digest() -> None:
     assert "observation is not side-effect free" in limitations
 
 
-def test_docs_describe_the_actual_streamed_zip_boundary() -> None:
+def test_docs_describe_the_actual_bounded_zip_boundary() -> None:
     api = (ROOT / "API.md").read_text()
     limitations = (ROOT / "KNOWN_LIMITATIONS.md").read_text()
     security = (ROOT / "SECURITY.md").read_text()
@@ -54,8 +54,11 @@ def test_docs_describe_the_actual_streamed_zip_boundary() -> None:
     assert "only `STORED` or `DEFLATED`" in limitations
     assert re.search(r"Standard\s+32-bit data descriptors", limitations)
     assert "actual output and CRC" in api
+    assert "DEFLATED data uses bounded input and output chunks" in api
+    assert "STORED data is a\nbounded direct span" in api
+    assert "non-ZIP64 local and central extra fields may differ" in api
     assert re.search(r"exact DEFLATE end of\s+stream", api)
-    assert "no package member is\ntrusted solely" in security
+    assert re.search(r"no package member is\s+trusted solely", security)
     for code in (
         "resource_limit_exceeded",
         "unsupported_compression",

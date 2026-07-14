@@ -15,9 +15,9 @@ Veqtor v0.1.2 Alpha release contents.
 - Fail-closed DOCX/ZIP resource limits covering container size, expanded size,
   member count, individual parts, parsed XML node count, extracted change
   units, bounded round-folder scans and suspicious compression ratios.
-- A single payload-aware DOCX archive boundary reconciles local headers,
-  central entries and 32-bit data descriptors, accepts only unencrypted
-  `STORED`/`DEFLATED` members, and verifies actual streamed output, CRC and the
+- A single payload-aware DOCX archive boundary reconciles security-relevant
+  local, central and 32-bit data-descriptor fields, accepts only unencrypted
+  `STORED`/`DEFLATED` members, and verifies actual bounded output, CRC and the
   true DEFLATE end-of-stream before any document fact or edit is accepted.
 - Safe XML parsing that refuses `DOCTYPE` declarations instead of loading DTDs
   or expanding custom entities.
