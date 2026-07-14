@@ -9,6 +9,8 @@ from pathlib import Path
 from ._ooxml import (
     DOCUMENT_PART,
     DocxError,
+    ExpandedOutputBudget,
+    ExpandedOutputBudgetExceeded,
     ResourceLimitError,
     TEXT_REVISION_TAGS,
     UserPathError,
@@ -21,6 +23,8 @@ from ._ooxml import (
 
 MAX_ROUND_CANDIDATES = 500
 MAX_ROUND_TOTAL_INPUT_BYTES = 500 * 1024 * 1024
+MAX_ROUND_TOTAL_EXPANDED_BYTES = 500 * 1024 * 1024
+_ROUND_EXPANDED_LIMIT = "round_total_expanded_bytes"
 
 
 class RoundError(DocxError):
@@ -31,7 +35,11 @@ class RoundError(DocxError):
         self.code = code
 
 
-def _round_facts(path: Path) -> tuple[str, int, int]:
+def _round_facts(
+    path: Path,
+    *,
+    expanded_budget: ExpandedOutputBudget,
+) -> tuple[str, int, int]:
     """sha256, revision count, and size from one byte snapshot of the file."""
     try:
         payload = read_docx_payload(path)
@@ -40,7 +48,13 @@ def _round_facts(path: Path) -> tuple[str, int, int]:
     except OSError as exc:
         raise RoundError("file_unreadable", "cannot read DOCX bytes") from exc
     try:
-        package = load_validated_docx(payload, capture=(DOCUMENT_PART,))
+        package = load_validated_docx(
+            payload,
+            capture=(DOCUMENT_PART,),
+            expanded_budget=expanded_budget,
+        )
+    except ExpandedOutputBudgetExceeded:
+        raise
     except ResourceLimitError as exc:
         raise RoundError(exc.code, exc.detail) from exc
     except DocxError as exc:
@@ -114,9 +128,23 @@ def list_rounds(folder: str) -> dict:
     rounds: list[dict] = []
     skipped: list[dict] = []
     total_input_bytes = 0
+    expanded_budget = ExpandedOutputBudget(
+        allowed_bytes=MAX_ROUND_TOTAL_EXPANDED_BYTES,
+        limit=_ROUND_EXPANDED_LIMIT,
+    )
     for path in candidates:
         try:
-            digest, revision_count, input_bytes = _round_facts(path)
+            digest, revision_count, input_bytes = _round_facts(
+                path,
+                expanded_budget=expanded_budget,
+            )
+        except ExpandedOutputBudgetExceeded as exc:
+            raise RoundError(
+                exc.code,
+                "candidate DOCX files exceed the "
+                f"{MAX_ROUND_TOTAL_EXPANDED_BYTES // (1024 * 1024)} MiB "
+                "aggregate expanded-output limit; split the folder and retry",
+            ) from exc
         except RoundError as exc:
             skipped.append({"filename": path.name, "reason": exc.code})
             continue

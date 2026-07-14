@@ -95,6 +95,47 @@ class ResourceLimitError(DocxError):
         self.metadata = {"limit": limit, **measurements}
 
 
+class ExpandedOutputBudgetExceeded(ResourceLimitError):
+    """The shared output budget for one larger operation is exhausted."""
+
+
+@dataclass
+class ExpandedOutputBudget:
+    """Monotonically account for actual ZIP-member output across packages."""
+
+    allowed_bytes: int
+    limit: str
+    consumed_bytes: int = 0
+
+    def __post_init__(self) -> None:
+        if self.allowed_bytes < 0:
+            raise ValueError("expanded output budget must not be negative")
+        if self.consumed_bytes < 0 or self.consumed_bytes > self.allowed_bytes:
+            raise ValueError("expanded output consumption is outside its budget")
+
+    @property
+    def remaining_bytes(self) -> int:
+        """Return the output still permitted before the first refused byte."""
+        return max(0, self.allowed_bytes - self.consumed_bytes)
+
+    def consume(self, byte_count: int) -> None:
+        """Charge actual output, refusing at exactly one byte over the limit."""
+        if byte_count < 0:
+            raise ValueError("expanded output charge must not be negative")
+        observed = self.consumed_bytes + byte_count
+        if observed > self.allowed_bytes:
+            observed = self.allowed_bytes + 1
+            self.consumed_bytes = observed
+            raise ExpandedOutputBudgetExceeded(
+                self.limit,
+                "decoded ZIP members exceed the aggregate expanded-output limit",
+                allowed_bytes=self.allowed_bytes,
+                observed_bytes=observed,
+                observed_at_least=True,
+            )
+        self.consumed_bytes = observed
+
+
 class ArchiveValidationError(DocxError):
     """A stable refusal for a structurally ambiguous ZIP package."""
 
@@ -747,6 +788,7 @@ def _decode_deflated_member(
     *,
     total_before: int,
     capture: bool,
+    expanded_budget: ExpandedOutputBudget | None,
 ) -> tuple[bytes | None, int]:
     try:
         decoder = zlib.decompressobj(-zlib.MAX_WBITS)
@@ -773,6 +815,8 @@ def _decode_deflated_member(
             _member_size_limit(entry.filename)[1] - member_bytes + 1,
             MAX_DOCX_UNCOMPRESSED_BYTES - total_before - member_bytes + 1,
         )
+        if expanded_budget is not None:
+            max_output = min(max_output, expanded_budget.remaining_bytes + 1)
         if max_output <= 0:
             _observe_member_output(
                 entry,
@@ -791,13 +835,10 @@ def _decode_deflated_member(
                 member_name=entry.filename,
             ) from exc
         pending = decoder.unconsumed_tail
-        if decoder.unused_data:
-            raise ArchiveValidationError(
-                "trailing bytes follow the DEFLATE stream",
-                member_name=entry.filename,
-            )
         if output:
             member_bytes += len(output)
+            if expanded_budget is not None:
+                expanded_budget.consume(len(output))
             _observe_member_output(
                 entry,
                 member_bytes=member_bytes,
@@ -806,6 +847,11 @@ def _decode_deflated_member(
             crc = zlib.crc32(output, crc)
             if captured is not None:
                 captured.append(output)
+        if decoder.unused_data:
+            raise ArchiveValidationError(
+                "trailing bytes follow the DEFLATE stream",
+                member_name=entry.filename,
+            )
         if decoder.eof:
             if pending or compressed_position != end:
                 raise ArchiveValidationError(
@@ -842,8 +888,11 @@ def _decode_stored_member(
     *,
     total_before: int,
     capture: bool,
+    expanded_budget: ExpandedOutputBudget | None,
 ) -> tuple[bytes | None, int]:
     member_bytes = end - start
+    if expanded_budget is not None:
+        expanded_budget.consume(member_bytes)
     _observe_member_output(
         entry,
         member_bytes=member_bytes,
@@ -865,6 +914,7 @@ def load_validated_docx(
     payload: bytes,
     *,
     capture: Collection[str] | None,
+    expanded_budget: ExpandedOutputBudget | None = None,
 ) -> ValidatedDocx:
     """Validate every member and retain only the requested uncompressed bytes."""
     validate_docx_payload_size(payload)
@@ -910,6 +960,7 @@ def load_validated_docx(
                 end,
                 total_before=total_expanded,
                 capture=should_capture,
+                expanded_budget=expanded_budget,
             )
         else:
             part, member_bytes = _decode_deflated_member(
@@ -919,6 +970,7 @@ def load_validated_docx(
                 end,
                 total_before=total_expanded,
                 capture=should_capture,
+                expanded_budget=expanded_budget,
             )
         total_expanded += member_bytes
         if part is not None:

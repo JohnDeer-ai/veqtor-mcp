@@ -10,7 +10,20 @@ from pathlib import Path
 import pytest
 
 from veqtor_docx import RoundError, extract_redlines, list_rounds
+from veqtor_docx import _ooxml
 from veqtor_docx import rounds as rounds_module
+
+
+_DOCUMENT_XML = b'''<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body><w:p><w:r><w:t>Round</w:t></w:r></w:p></w:body>
+</w:document>
+'''
+
+
+def _write_round(path: Path, *, compression: int = zipfile.ZIP_DEFLATED) -> None:
+    with zipfile.ZipFile(path, "w", compression) as archive:
+        archive.writestr("word/document.xml", _DOCUMENT_XML)
 
 
 def _with_unsupported_document_compression(payload: bytes) -> bytes:
@@ -68,6 +81,64 @@ def _with_invalid_utf8_member_name(payload: bytes) -> bytes:
 def test_public_alpha_round_folder_envelope_is_frozen() -> None:
     assert rounds_module.MAX_ROUND_CANDIDATES == 500
     assert rounds_module.MAX_ROUND_TOTAL_INPUT_BYTES == 500 * 1024 * 1024
+    assert rounds_module.MAX_ROUND_TOTAL_EXPANDED_BYTES == 500 * 1024 * 1024
+
+
+def test_aggregate_round_expansion_limit_is_inclusive_and_resets_per_scan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_round(tmp_path / "round-1.docx")
+    _write_round(tmp_path / "round-2.docx")
+    exact_total = 2 * len(_DOCUMENT_XML)
+    monkeypatch.setattr(
+        rounds_module,
+        "MAX_ROUND_TOTAL_EXPANDED_BYTES",
+        exact_total,
+    )
+
+    first = list_rounds(str(tmp_path))
+    second = list_rounds(str(tmp_path))
+
+    assert len(first["rounds"]) == 2
+    assert len(second["rounds"]) == 2
+
+    monkeypatch.setattr(
+        rounds_module,
+        "MAX_ROUND_TOTAL_EXPANDED_BYTES",
+        exact_total - 1,
+    )
+    with pytest.raises(RoundError) as error:
+        list_rounds(str(tmp_path))
+
+    assert error.value.code == "resource_limit_exceeded"
+    assert "aggregate expanded-output limit" in str(error.value)
+    assert "split the folder and retry" in str(error.value)
+
+
+def test_deflate_budget_refuses_at_the_first_byte_over_limit(tmp_path: Path) -> None:
+    source = tmp_path / "round.docx"
+    _write_round(source)
+    budget = _ooxml.ExpandedOutputBudget(
+        allowed_bytes=len(_DOCUMENT_XML) - 1,
+        limit="test_expanded_bytes",
+    )
+
+    with pytest.raises(_ooxml.ExpandedOutputBudgetExceeded) as error:
+        _ooxml.load_validated_docx(
+            source.read_bytes(),
+            capture=(_ooxml.DOCUMENT_PART,),
+            expanded_budget=budget,
+        )
+
+    assert budget.consumed_bytes == len(_DOCUMENT_XML)
+    assert budget.remaining_bytes == 0
+    assert error.value.metadata == {
+        "limit": "test_expanded_bytes",
+        "allowed_bytes": len(_DOCUMENT_XML) - 1,
+        "observed_bytes": len(_DOCUMENT_XML),
+        "observed_at_least": True,
+    }
 
 
 def test_lists_rounds_in_filename_order(demo_dir: Path) -> None:
@@ -183,7 +254,7 @@ def test_candidate_count_is_bounded_before_any_docx_is_read(
         (tmp_path / f"round-{index}.docx").write_bytes(b"placeholder")
     monkeypatch.setattr(rounds_module, "MAX_ROUND_CANDIDATES", 2)
 
-    def fail_read(_path: Path):
+    def fail_read(_path: Path, *, expanded_budget):
         raise AssertionError("candidate was read before folder preflight")
 
     monkeypatch.setattr(rounds_module, "_round_facts", fail_read)
@@ -205,7 +276,7 @@ def test_aggregate_round_input_is_bounded(
         (tmp_path / f"round-{index}.docx").write_bytes(b"invaliddoc")
     monkeypatch.setattr(rounds_module, "MAX_ROUND_TOTAL_INPUT_BYTES", 19)
 
-    def fail_read(_path: Path):
+    def fail_read(_path: Path, *, expanded_budget):
         raise AssertionError("candidate was read before aggregate preflight")
 
     monkeypatch.setattr(rounds_module, "_round_facts", fail_read)
@@ -225,7 +296,7 @@ def test_unexpected_file_failure_is_not_leaked_as_a_successful_skip(
     (folder / "round.docx").write_bytes(b"placeholder")
     sentinel = "private client sentinel"
 
-    def explode(_path: Path):
+    def explode(_path: Path, *, expanded_budget):
         raise RuntimeError(sentinel)
 
     monkeypatch.setattr(rounds_module, "_round_facts", explode)
