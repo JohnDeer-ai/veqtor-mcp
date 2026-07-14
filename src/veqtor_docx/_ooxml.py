@@ -531,31 +531,6 @@ def validate_docx_central_directory(payload: bytes) -> _CentralDirectory:
     )
 
 
-def validate_docx_archive(
-    archive: zipfile.ZipFile,
-) -> list[zipfile.ZipInfo]:
-    """Retain the declared-metadata check for internal compatibility."""
-    infos = archive.infolist()
-    entries = tuple(
-        _CentralEntry(
-            filename=info.filename,
-            raw_filename=info.orig_filename.encode(
-                "utf-8" if info.flag_bits & _ZIP_UTF8_FLAG else "cp437"
-            ),
-            flags=info.flag_bits,
-            compress_type=info.compress_type,
-            crc=info.CRC,
-            compress_size=info.compress_size,
-            file_size=info.file_size,
-            local_header_offset=info.header_offset,
-            extra=info.extra,
-        )
-        for info in infos
-    )
-    _validate_declared_entries(entries)
-    return infos
-
-
 def _compare_zip_infos(
     entries: tuple[_CentralEntry, ...],
     infos: tuple[zipfile.ZipInfo, ...],
