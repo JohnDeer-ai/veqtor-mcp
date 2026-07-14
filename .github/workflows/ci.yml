@@ -4,7 +4,9 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
   workflow_call:
     inputs:
       ref:
@@ -186,3 +188,18 @@ jobs:
       - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
         env:
           GITHUB_TOKEN: ${{ github.token }}
+
+  required:
+    name: Required CI gate
+    if: ${{ always() }}
+    needs: [test, min-versions, artifact, reproduce, gitleaks]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every CI job
+        shell: bash
+        run: |
+          test "${{ needs.test.result }}" = "success"
+          test "${{ needs.min-versions.result }}" = "success"
+          test "${{ needs.artifact.result }}" = "success"
+          test "${{ needs.reproduce.result }}" = "success"
+          test "${{ needs.gitleaks.result }}" = "success"

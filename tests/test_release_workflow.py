@@ -255,6 +255,39 @@ def test_independent_rebuild_is_a_required_secretless_ci_job() -> None:
     assert "secrets:" not in reproduce
 
 
+def test_ci_runs_once_per_change_and_exposes_one_required_gate() -> None:
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+    jobs = _jobs(workflow)
+
+    assert re.search(
+        r"on:\n  push:\n    branches: \[main\]\n"
+        r"  pull_request:\n    branches: \[main\]\n  workflow_call:",
+        workflow,
+    )
+    assert set(jobs) == {
+        "test",
+        "min-versions",
+        "artifact",
+        "reproduce",
+        "gitleaks",
+        "required",
+    }
+
+    required = jobs["required"]
+    assert "name: Required CI gate" in required
+    assert "if: ${{ always() }}" in required
+    assert "needs: [test, min-versions, artifact, reproduce, gitleaks]" in required
+    for dependency in (
+        "test",
+        "min-versions",
+        "artifact",
+        "reproduce",
+        "gitleaks",
+    ):
+        assertion = 'test "${{ needs.' + dependency + '.result }}" = "success"'
+        assert assertion in required
+
+
 def test_release_artifacts_are_scoped_to_the_current_run_attempt() -> None:
     ci = (ROOT / ".github/workflows/ci.yml").read_text()
     release = (ROOT / ".github/workflows/release.yml").read_text()

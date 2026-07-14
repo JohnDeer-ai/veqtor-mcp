@@ -153,6 +153,15 @@ defense-in-depth: malformed inputs must fail before unbounded allocation.
 - The protected `release` and `pypi` environments, exact PyPI Trusted Publisher,
   protected `v*` ruleset and GitHub Immutable Releases are configured and
   verified before the candidate reaches public `main`.
+- The `main` ruleset requires a pull request and the stable `Required CI gate`
+  check before merge. That gate succeeds only when the complete test matrix,
+  minimum-dependency lane, artifact build and smoke, independent rebuild and
+  history secret scan all succeed. Feature branches run this graph through the
+  pull-request event only; the direct push event is limited to `main`.
+- Ruleset bypass is disabled. While Veqtor has one maintainer, environment
+  self-review may remain enabled as an explicit human confirmation rather than
+  a second-person approval; it must not be described as independent review.
+  Disable self-review when a trusted second release reviewer is available.
 - The `release` environment provides `RELEASE_ADMIN_READ_TOKEN`, limited to
   read-only Administration access for this repository, so tag reservation and
   final publication can verify the immutable-release setting without extending
@@ -407,6 +416,7 @@ only then publishes the immutable GitHub Release.
 ```text
 test implementation tip
 → create and independently review public squash
+→ require pull requests and `Required CI gate` in the protected `main` ruleset
 → configure protected `release` and `pypi` environments
 → configure the exact pending PyPI Trusted Publisher
 → verify Immutable Releases, tag policy and repository security settings
