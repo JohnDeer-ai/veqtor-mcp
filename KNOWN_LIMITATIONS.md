@@ -15,8 +15,13 @@ contract is intentionally narrow.
   remain at or below 50 MiB. Parsed XML parts are limited to 100,000 structural
   items (elements, attributes, namespace declarations, comments and processing
   instructions), and one extraction is limited to 10,000 change units. A
-  `list_rounds` scan is
-  limited to 500 candidate DOCX files and 500 MiB of aggregate candidate input.
+  `list_rounds` scan is limited to 500 candidate DOCX files, 500 MiB of
+  aggregate candidate input and 500 MiB of aggregate actual expanded output.
+  DEFLATED decoder output and STORED direct-span bytes are charged even if that
+  file is later skipped; packages refused during container preflight before any
+  member-output processing consume no expanded-output budget.
+  Exceeding the shared scan budget refuses the whole call without a partial
+  result, so large round folders must be split before retrying.
   Image-heavy, unusually complex or very large legitimate matters may
   therefore be refused. The Alpha does not expose an override for these safety
   defaults. Declared metadata is bounded before decoder creation. Every member,

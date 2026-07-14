@@ -34,10 +34,16 @@ CRC checked: DEFLATED data is streamed through bounded input/output chunks and
 must reach its real end of stream, while STORED data is a bounded direct span.
 Descriptor boundaries are verified, and no package member is trusted solely
 because its central-directory sizes look safe. Parsed XML node
-counts are checked before full tree construction, and edit-batch limits before
-document mutation or output publication. These controls do not make Veqtor a
-sandbox against another malicious process running as the same operating-system
-user or prove that every parser dependency is vulnerability-free.
+counts are checked before full tree construction. A `list_rounds` folder scan
+also has one cumulative 500 MiB actual expanded-output budget: DEFLATED decoder
+output and STORED direct-span bytes remain charged when a package is rejected
+by a later CRC, XML or required-part check. A container-preflight refusal before
+any member-output processing consumes zero; attempting member-output processing
+beyond the budget fails the complete call without returning partial rounds.
+Edit-batch limits are checked before document mutation or output publication.
+These controls do not make Veqtor a sandbox against another malicious process
+running as the same operating-system user or prove that every parser dependency
+is vulnerability-free.
 
 Tool results enter the MCP client conversation and may be sent to the selected
 model provider. The raw `.veqtor/decision-records.jsonl` journal may contain

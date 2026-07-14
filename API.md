@@ -28,8 +28,10 @@ disagreement in the raw name, flags, method, CRC or sizes are refused.
 Well-formed non-ZIP64 local and central extra fields may differ because they do
 not select the decoded member bytes.
 
-The expanded envelope remains 100 MiB total, 25 MiB per XML member, 50 MiB per
-other member, and at most 200:1 compression for a member larger than 10 MiB.
+The per-package expanded envelope remains 100 MiB total, 25 MiB per XML member,
+50 MiB per other member, and at most 200:1 compression for a member larger than
+10 MiB. One `list_rounds` call additionally has a 500 MiB aggregate budget for
+actual expanded member output across the complete folder scan.
 Any XML part Veqtor parses is limited to 100,000 structural items: elements,
 attributes, namespace declarations, comments and processing instructions;
 extraction is limited to 10,000 change units. Generated candidates must remain
@@ -44,9 +46,11 @@ Limit violations use `resource_limit_exceeded`; a forbidden ZIP method uses
 CRC, descriptor or end-of-stream disagreement uses `file_unextractable`. The
 Python API exception metadata identifies the safe limit or member measurement;
 the MCP error text exposes the stable code and safe detail. `list_rounds`
-preserves resource, compression and encryption reasons in `skipped` and maps
-structural archive failures to `invalid_docx`, while direct tools refuse the
-operation with their corresponding code.
+preserves per-file resource, compression and encryption reasons in `skipped`
+and maps structural archive failures to `invalid_docx`, while direct tools
+refuse the operation with their corresponding code. Exceeding the shared
+folder-scan output budget refuses the whole call instead of returning a partial
+round list.
 
 M3 decision records are written by the server, not by the model. MCP tool calls
 write a local JSONL sidecar in `.veqtor/decision-records.jsonl` inside the
@@ -149,14 +153,21 @@ Input:
 }
 ```
 
-Output. Rounds are sorted by filename (the deterministic v1 round order);
+Output. Rounds use case-insensitive filename order with the exact filename as a
+tie-break (the deterministic v1 round order);
 Word lock files (`~$*`) are ignored, the scan is non-recursive, and files
 that cannot be read as DOCX are reported in `skipped` with a stable reason code
 instead of failing the call. Unexpected implementation failures are not
 converted into successful skips and never expose their exception text. One
-scan accepts at most 500 candidate DOCX files and 500 MiB of aggregate candidate
-file size at scan time; exceeding either folder-level bound refuses the call with
-`resource_limit_exceeded`:
+scan accepts at most 500 candidate DOCX files, 500 MiB of aggregate candidate
+file size at scan time and 500 MiB of aggregate actual expanded output.
+DEFLATED decoder output and STORED direct-span bytes are charged, including
+output from a file that is later reported in `skipped`; a package refused during
+container preflight before any member-output processing consumes no output
+budget.
+Exceeding a folder-level bound refuses the whole call with
+`resource_limit_exceeded`, returns no partial round list and advises splitting
+the folder before retrying:
 
 ```json
 {

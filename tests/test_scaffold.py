@@ -56,6 +56,15 @@ def test_docs_describe_the_actual_bounded_zip_boundary() -> None:
     assert "actual output and CRC" in api
     assert "DEFLATED data uses bounded input and output chunks" in api
     assert "STORED data is a\nbounded direct span" in api
+    assert "500 MiB of aggregate actual expanded output" in api
+    assert re.search(r"DEFLATED decoder output and STORED direct-span bytes", api)
+    assert re.search(r"returns no partial round list", api)
+    assert re.search(r"container preflight before any\s+member-output processing", limitations)
+    assert "Exceeding the shared scan budget" in limitations
+    assert re.search(r"one cumulative 500 MiB actual expanded-output budget", security)
+    assert re.search(r"STORED direct-span bytes remain charged", security)
+    assert re.search(r"rejected\s+by a later CRC, XML or required-part", security)
+    assert re.search(r"beyond the budget fails the complete call", security)
     assert "non-ZIP64 local and central extra fields may differ" in api
     assert re.search(r"exact DEFLATE end of\s+stream", api)
     assert re.search(r"no package member is\s+trusted solely", security)

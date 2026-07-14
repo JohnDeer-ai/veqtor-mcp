@@ -202,10 +202,17 @@ The DOCX archive ratchet sends forged local/central sizes and CRCs, truncated or
 trailing DEFLATE streams, descriptor mismatches, encryption and forbidden
 compression methods through list, extract, verify, preflight and apply. It also
 proves those production input paths do not fall back to `ZipFile.read` or a
-read-mode `ZipFile.open`. The OOXML mutation ratchet exercises duplicate, moved
-and oversized revision ids, bounded numbering-label fallbacks, and
-nonconforming run layouts through the same five paths. A successful apply must
-create the expected unit in the exact anchored paragraph; merely returning
+read-mode `ZipFile.open`. The round-folder ratchet proves a single cumulative
+actual-output budget across multiple packages, including DEFLATED and STORED
+members, uncaptured members and packages rejected after member-output processing
+by CRC, XML or required-part checks. It proves container-preflight refusals
+before any member-output processing consume zero, while the first attempted
+output byte beyond the budget stops filename-ordered work, returns an MCP error
+without partial rounds and writes exactly one error decision record. The OOXML
+mutation ratchet exercises
+duplicate, moved and oversized revision ids, bounded numbering-label fallbacks,
+and nonconforming run layouts through the same five paths. A successful apply
+must create the expected unit in the exact anchored paragraph; merely returning
 success or avoiding a raw exception is not enough.
 
 The finite boundary covers list, extract, verify, preflight, apply, decision-

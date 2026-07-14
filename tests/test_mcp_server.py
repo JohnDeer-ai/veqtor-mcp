@@ -79,6 +79,7 @@ async def test_tools_are_exposed_and_callable(demo_dir: Path) -> None:
         export_tool = next(
             tool for tool in tools.tools if tool.name == "export_decision_record"
         )
+        list_tool = next(tool for tool in tools.tools if tool.name == "list_rounds")
         apply_tool = next(
             tool for tool in tools.tools if tool.name == "apply_edits"
         )
@@ -86,6 +87,9 @@ async def test_tools_are_exposed_and_callable(demo_dir: Path) -> None:
             tool = next(tool for tool in tools.tools if tool.name == tool_name)
             assert "author" not in tool.inputSchema["properties"]
         assert "include_payload" not in export_tool.inputSchema["properties"]
+        assert "actual expanded-output limits" in list_tool.description
+        assert "split the folder and retry" in list_tool.description
+        assert "without returning a partial round list" in list_tool.description
         assert "does not accept, reject or remove" in apply_tool.description
         assert "not a tamper-evident audit log" in export_tool.description
         assert "not authentication or a hash chain" in export_tool.description
@@ -535,7 +539,7 @@ async def test_tool_errors_are_reported_not_raised(demo_dir: Path) -> None:
 
 
 @pytest.mark.anyio
-async def test_round_scan_budget_exhaustion_is_a_stable_protocol_error(
+async def test_round_scan_budget_overrun_is_a_stable_protocol_error(
     demo_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

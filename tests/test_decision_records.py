@@ -1161,7 +1161,7 @@ def test_unexpected_list_rounds_failure_is_journaled_without_exception_details(
     assert secret not in json.dumps(failure, ensure_ascii=False)
 
 
-def test_round_scan_budget_exhaustion_is_recorded_as_an_expected_error(
+def test_round_scan_budget_overrun_is_recorded_as_an_expected_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

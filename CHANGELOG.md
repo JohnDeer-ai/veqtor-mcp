@@ -14,7 +14,10 @@ Veqtor v0.1.2 Alpha release contents.
 
 - Fail-closed DOCX/ZIP resource limits covering container size, expanded size,
   member count, individual parts, parsed XML node count, extracted change
-  units, bounded round-folder scans and suspicious compression ratios.
+  units, suspicious compression ratios and round-folder scans bounded by both
+  aggregate input and aggregate actual expanded member output. Folder output
+  remains charged for packages rejected after member-output processing, and
+  exceeding the shared budget returns no partial round list.
 - A single payload-aware DOCX archive boundary reconciles security-relevant
   local, central and 32-bit data-descriptor fields, accepts only unencrypted
   `STORED`/`DEFLATED` members, and verifies actual bounded output, CRC and the

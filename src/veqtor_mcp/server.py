@@ -438,6 +438,9 @@ def list_rounds(folder: str) -> dict:
     which rounds/files are available in a negotiation. Rounds are sorted by
     filename; each entry carries the file's sha256 and the raw count of
     tracked revisions inside. Unreadable files are reported in ``skipped``.
+    Folder-level candidate, input and actual expanded-output limits bound the
+    complete scan. If a shared limit is exceeded, split the folder and retry;
+    the call fails without returning a partial round list.
     """
     def operation(workspace, input_payload):
         try:
