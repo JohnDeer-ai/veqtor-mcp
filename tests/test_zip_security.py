@@ -440,6 +440,136 @@ def test_corrupt_zip_layout_is_rejected_on_every_surface(
     )
 
 
+@pytest.mark.parametrize(
+    "payload_factory",
+    [_wrong_crc, _truncated_deflate, _trailing_deflate],
+    ids=["crc", "truncated", "trailing"],
+)
+def test_late_decode_refusals_keep_their_expanded_output_charged(
+    payload_factory,
+) -> None:
+    budget = _ooxml.ExpandedOutputBudget(
+        allowed_bytes=len(_DOCUMENT_XML),
+        limit="test_expanded_bytes",
+    )
+
+    with pytest.raises(DocxError):
+        _ooxml.load_validated_docx(
+            payload_factory(),
+            capture=(_ooxml.DOCUMENT_PART,),
+            expanded_budget=budget,
+        )
+
+    assert budget.consumed_bytes == len(_DOCUMENT_XML)
+
+
+def test_forged_size_refusal_charges_the_first_extra_output_byte() -> None:
+    actual = _DOCUMENT_XML + b"extra output"
+    declared_crc = zlib.crc32(_DOCUMENT_XML) & 0xFFFFFFFF
+    payload = _single_member_docx(
+        actual,
+        central_crc=declared_crc,
+        local_crc=declared_crc,
+        central_file_size=len(_DOCUMENT_XML),
+        local_file_size=len(_DOCUMENT_XML),
+    )
+    budget = _ooxml.ExpandedOutputBudget(
+        allowed_bytes=len(actual),
+        limit="test_expanded_bytes",
+    )
+
+    with pytest.raises(DocxError):
+        _ooxml.load_validated_docx(
+            payload,
+            capture=(_ooxml.DOCUMENT_PART,),
+            expanded_budget=budget,
+        )
+
+    assert budget.consumed_bytes == len(_DOCUMENT_XML) + 1
+
+
+def test_multichunk_deflate_refuses_at_the_first_byte_over_shared_budget() -> None:
+    content = b"x" * (3 * _ooxml.ZIP_DECODE_CHUNK_BYTES)
+    allowed = _ooxml.ZIP_DECODE_CHUNK_BYTES + 17
+    budget = _ooxml.ExpandedOutputBudget(
+        allowed_bytes=allowed,
+        limit="test_expanded_bytes",
+    )
+
+    with pytest.raises(_ooxml.ExpandedOutputBudgetExceeded) as error:
+        _ooxml.load_validated_docx(
+            _single_member_docx(content),
+            capture=(_ooxml.DOCUMENT_PART,),
+            expanded_budget=budget,
+        )
+
+    assert budget.consumed_bytes == allowed + 1
+    assert error.value.metadata["observed_bytes"] == allowed + 1
+
+
+def test_predecode_refusal_does_not_charge_expanded_output() -> None:
+    budget = _ooxml.ExpandedOutputBudget(
+        allowed_bytes=0,
+        limit="test_expanded_bytes",
+    )
+
+    with pytest.raises(_ooxml.UnsupportedCompressionError):
+        _ooxml.load_validated_docx(
+            _single_member_docx(method=zipfile.ZIP_LZMA),
+            capture=(_ooxml.DOCUMENT_PART,),
+            expanded_budget=budget,
+        )
+
+    assert budget.consumed_bytes == 0
+
+
+def test_uncaptured_members_are_charged_to_the_expanded_output_budget() -> None:
+    extra = b"uncaptured member output"
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(_ooxml.DOCUMENT_PART, _DOCUMENT_XML)
+        archive.writestr("custom/uncaptured.bin", extra)
+    expected = len(_DOCUMENT_XML) + len(extra)
+    budget = _ooxml.ExpandedOutputBudget(
+        allowed_bytes=expected,
+        limit="test_expanded_bytes",
+    )
+
+    package = _ooxml.load_validated_docx(
+        buffer.getvalue(),
+        capture=(_ooxml.DOCUMENT_PART,),
+        expanded_budget=budget,
+    )
+
+    assert set(package.parts) == {_ooxml.DOCUMENT_PART}
+    assert package.expanded_bytes == expected
+    assert budget.consumed_bytes == expected
+
+
+def test_stored_member_budget_refuses_before_crc_work(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _single_member_docx(method=zipfile.ZIP_STORED)
+    budget = _ooxml.ExpandedOutputBudget(
+        allowed_bytes=len(_DOCUMENT_XML) - 1,
+        limit="test_expanded_bytes",
+    )
+
+    def fail_crc(*_args, **_kwargs):
+        raise AssertionError("STORED CRC ran after aggregate budget exhaustion")
+
+    monkeypatch.setattr(_ooxml.zlib, "crc32", fail_crc)
+    with pytest.raises(_ooxml.ExpandedOutputBudgetExceeded) as error:
+        _ooxml.load_validated_docx(
+            payload,
+            capture=(_ooxml.DOCUMENT_PART,),
+            expanded_budget=budget,
+        )
+
+    assert error.value.metadata["observed_bytes"] == len(_DOCUMENT_XML)
+    assert budget.consumed_bytes == len(_DOCUMENT_XML)
+
+
 @pytest.mark.parametrize("extra_location", ["local", "central"])
 def test_member_level_zip64_extra_is_rejected(
     extra_location: str,

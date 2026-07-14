@@ -13,6 +13,7 @@ from mcp.client.session import ClientSession
 from mcp.shared.memory import create_connected_server_and_client_session
 
 import veqtor_docx
+from veqtor_docx import rounds as rounds_module
 from veqtor_mcp import __version__
 from veqtor_mcp import records
 from veqtor_mcp import server
@@ -531,6 +532,29 @@ async def test_tool_errors_are_reported_not_raised(demo_dir: Path) -> None:
     ) as session:
         broken = await session.call_tool("list_rounds", {"folder": str(demo_dir / "nope")})
         assert broken.isError
+
+
+@pytest.mark.anyio
+async def test_round_scan_budget_exhaustion_is_a_stable_protocol_error(
+    demo_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(rounds_module, "MAX_ROUND_TOTAL_EXPANDED_BYTES", 0)
+
+    async with create_connected_server_and_client_session(
+        mcp._mcp_server
+    ) as session:
+        result = await session.call_tool(
+            "list_rounds",
+            {"folder": str(demo_dir)},
+        )
+
+    text = _error_text(result)
+    assert result.isError
+    assert "resource_limit_exceeded" in text
+    assert "aggregate expanded-output limit" in text
+    assert "split the folder and retry" in text
+    assert '"rounds"' not in text
 
 
 @pytest.mark.anyio

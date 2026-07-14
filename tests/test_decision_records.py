@@ -25,6 +25,7 @@ import veqtor_docx
 from veqtor_docx import _ooxml
 from veqtor_docx import contracts as docx_contracts
 from veqtor_docx import generate_demo_rounds
+from veqtor_docx import rounds as rounds_module
 from veqtor_mcp import records
 from veqtor_mcp import server
 
@@ -1158,6 +1159,43 @@ def test_unexpected_list_rounds_failure_is_journaled_without_exception_details(
         "error": "unexpected internal failure",
     }
     assert secret not in json.dumps(failure, ensure_ascii=False)
+
+
+def test_round_scan_budget_exhaustion_is_recorded_as_an_expected_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matter = _matter(tmp_path)
+    monkeypatch.setattr(rounds_module, "MAX_ROUND_TOTAL_EXPANDED_BYTES", 0)
+    before = records.read_records(
+        str(matter),
+        max_records=20,
+        include_payload=True,
+    )["records"]
+    before_ids = {item["record_id"] for item in before}
+
+    with pytest.raises(veqtor_docx.RoundError) as error:
+        server.list_rounds(str(matter))
+
+    assert error.value.code == "resource_limit_exceeded"
+    assert "aggregate expanded-output limit" in str(error.value)
+    raw = records.read_records(str(matter), max_records=20, include_payload=True)
+    new_list_records = [
+        item
+        for item in raw["records"]
+        if item["record_id"] not in before_ids and item["tool_name"] == "list_rounds"
+    ]
+    assert len(new_list_records) == 1
+    failure = new_list_records[0]
+    assert failure["result"] == {
+        "status": "error",
+        "error_code": "resource_limit_exceeded",
+        "error": (
+            "resource_limit_exceeded: candidate DOCX files exceed the 0 MiB aggregate "
+            "expanded-output limit; split the folder and retry"
+        ),
+    }
+    assert failure["provenance"] == {"folder": str(matter)}
 
 
 def test_operation_wide_publish_failure_records_observed_source_sha(

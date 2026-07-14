@@ -35,6 +35,11 @@ class RoundError(DocxError):
         self.code = code
 
 
+def _round_filename_key(path: Path) -> tuple[str, str]:
+    """Return a case-insensitive order with an exact-name tie-break."""
+    return path.name.casefold(), path.name
+
+
 def _round_facts(
     path: Path,
     *,
@@ -119,7 +124,7 @@ def list_rounds(folder: str) -> dict:
                     f"{MAX_ROUND_TOTAL_INPUT_BYTES // (1024 * 1024)} MiB "
                     "aggregate input limit",
                 )
-        candidates.sort(key=lambda path: path.name.casefold())
+        candidates.sort(key=_round_filename_key)
     except RoundError:
         raise
     except OSError as exc:
