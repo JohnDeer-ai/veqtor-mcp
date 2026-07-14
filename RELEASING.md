@@ -189,11 +189,15 @@ message, path or document content and are replaced by a context-free
 Expected decision-record filesystem failures use stable codes without absolute
 paths.
 
-The OOXML mutation ratchet exercises duplicate, moved and oversized revision
-ids, bounded numbering-label fallbacks, and nonconforming run layouts through
-list, extract, verify, preflight and apply. A successful apply must create the
-expected unit in the exact anchored paragraph; merely returning success or
-avoiding a raw exception is not enough.
+The DOCX archive ratchet sends forged local/central sizes and CRCs, truncated or
+trailing DEFLATE streams, descriptor mismatches, encryption and forbidden
+compression methods through list, extract, verify, preflight and apply. It also
+proves those production input paths do not fall back to `ZipFile.read` or a
+read-mode `ZipFile.open`. The OOXML mutation ratchet exercises duplicate, moved
+and oversized revision ids, bounded numbering-label fallbacks, and
+nonconforming run layouts through the same five paths. A successful apply must
+create the expected unit in the exact anchored paragraph; merely returning
+success or avoiding a raw exception is not enough.
 
 The finite boundary covers list, extract, verify, preflight, apply, decision-
 record export and synthetic-round generation. A path that cannot resolve to a

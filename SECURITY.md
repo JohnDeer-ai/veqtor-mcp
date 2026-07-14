@@ -28,12 +28,15 @@ fix-time SLA is provided.
 
 Veqtor is a local stdio MCP server for a single-user macOS/Linux workspace. It
 validates document anchors, source hashes, output publication and private
-sidecar targets. Archive-declared limits are checked before member
-decompression, parsed XML node counts before full tree construction, and
-edit-batch limits before document mutation or output publication. These
-controls do not make Veqtor a sandbox against another malicious process running
-as the same operating-system user or prove that every parser dependency is
-vulnerability-free.
+sidecar targets. ZIP metadata, methods, encryption flags and layout are checked
+before decoder creation. Every accepted member is then streamed through a
+bounded `STORED`/`DEFLATED` reader that counts actual output and verifies CRC,
+descriptor boundaries and the real DEFLATE end-of-stream; no package member is
+trusted solely because its central-directory sizes look safe. Parsed XML node
+counts are checked before full tree construction, and edit-batch limits before
+document mutation or output publication. These controls do not make Veqtor a
+sandbox against another malicious process running as the same operating-system
+user or prove that every parser dependency is vulnerability-free.
 
 Tool results enter the MCP client conversation and may be sent to the selected
 model provider. The raw `.veqtor/decision-records.jsonl` journal may contain

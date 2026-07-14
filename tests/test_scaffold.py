@@ -46,6 +46,25 @@ def test_docs_disambiguate_reinstate_and_compact_clause_digest() -> None:
     assert "observation is not side-effect free" in limitations
 
 
+def test_docs_describe_the_actual_streamed_zip_boundary() -> None:
+    api = (ROOT / "API.md").read_text()
+    limitations = (ROOT / "KNOWN_LIMITATIONS.md").read_text()
+    security = (ROOT / "SECURITY.md").read_text()
+
+    assert "only `STORED` or `DEFLATED`" in limitations
+    assert re.search(r"Standard\s+32-bit data descriptors", limitations)
+    assert "actual output and CRC" in api
+    assert re.search(r"exact DEFLATE end of\s+stream", api)
+    assert "no package member is\ntrusted solely" in security
+    for code in (
+        "resource_limit_exceeded",
+        "unsupported_compression",
+        "encrypted_docx",
+        "file_unextractable",
+    ):
+        assert f"`{code}`" in api
+
+
 def test_export_example_matches_compact_count_and_gap_contract() -> None:
     api = (ROOT / "API.md").read_text()
     export_section = api.split("## `export_decision_record`", 1)[1].split(

@@ -15,6 +15,10 @@ Veqtor v0.1.2 Alpha release contents.
 - Fail-closed DOCX/ZIP resource limits covering container size, expanded size,
   member count, individual parts, parsed XML node count, extracted change
   units, bounded round-folder scans and suspicious compression ratios.
+- A single payload-aware DOCX archive boundary reconciles local headers,
+  central entries and 32-bit data descriptors, accepts only unencrypted
+  `STORED`/`DEFLATED` members, and verifies actual streamed output, CRC and the
+  true DEFLATE end-of-stream before any document fact or edit is accepted.
 - Safe XML parsing that refuses `DOCTYPE` declarations instead of loading DTDs
   or expanding custom entities.
 - Bounded computed and manual numbering labels that omit oversized templates,
@@ -24,8 +28,8 @@ Veqtor v0.1.2 Alpha release contents.
   detection.
 - A two-level tracked text-revision nesting boundary that preserves ordinary
   counter markup while refusing recursive text amplification.
-- Consistent pre-decompression refusal of ambiguous ZIP packages containing
-  duplicate member names across list, extract, verify, preflight and apply.
+- Consistent pre-decoder refusal of duplicate names, encryption, ZIP64 and
+  unsupported ZIP methods across list, extract, verify, preflight and apply.
 - Atomic edit-batch limits for edit count, per-edit text and total inserted
   text, with stable structured refusals.
 - Ordered public promotion that durably reserves the protected exact tag,
@@ -43,6 +47,9 @@ Veqtor v0.1.2 Alpha release contents.
 - Public documentation now separates community-supported Alpha expectations,
   private security reporting and the concise user-facing roadmap from internal
   acceptance details.
+- Apply validates and expands the immutable source package once, then reuses
+  that exact package snapshot for baseline extraction and mutation planning;
+  the serialized candidate remains a separate round-trip validation pass.
 - The public project identity names Ilya Shilov as creator and maintainer while
   retaining `JohnDeer-ai` as the GitHub handle.
 

@@ -156,9 +156,9 @@ it.
 
 Decision records are best-effort local provenance. Their hashes are
 re-checkable fingerprints, not authentication. The supported threat model is a
-single-user local workspace. Bounded DOCX/ZIP inputs reduce resource
-amplification but do not turn Veqtor into a sandbox for hostile same-user
-processes.
+single-user local workspace. Veqtor bounds and verifies the actual streamed
+output of every accepted DOCX/ZIP member, but this does not turn it into a
+sandbox for hostile same-user processes.
 
 ## Supported surface
 

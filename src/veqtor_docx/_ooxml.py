@@ -29,9 +29,9 @@ DOCUMENT_PART = DOCUMENT_PART_V1
 MAX_TRACKED_CHANGE_AUTHOR_LENGTH = 255
 
 # Public-Alpha resource envelope.  DOCX packages are ZIP archives, so their
-# compressed size is not enough to bound the work needed to inspect them.  All
-# archive limits are checked from the central directory before any member is
-# decompressed.
+# compressed size is not enough to bound the work needed to inspect them.
+# Declared metadata is checked before decoder creation; actual output, CRC and
+# end-of-stream are checked while every member is decoded within hard bounds.
 MIB = 1024 * 1024
 MAX_DOCX_INPUT_BYTES = 50 * MIB
 MAX_DOCX_ZIP_MEMBERS = 2_000
