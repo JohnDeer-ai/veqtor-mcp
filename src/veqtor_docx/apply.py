@@ -61,21 +61,22 @@ from dataclasses import dataclass
 from lxml import etree
 
 from ._ooxml import (
+    ArchiveValidationError,
     DOCUMENT_PART,
     MOVE_REVISION_TAGS,
     ResourceLimitError,
     TEXT_REVISION_TAGS,
     UserPathError,
+    ValidatedDocx,
     ZIP_READ_ERRORS,
     current_text_atom,
     is_xml_text_compatible,
+    load_validated_docx,
     parse_xml,
     read_docx_payload,
     resolve_user_path,
     text_atom,
     tracked_change_author_validation_error,
-    validate_docx_archive,
-    validate_docx_central_directory,
     validate_docx_payload_size,
     w,
 )
@@ -96,6 +97,7 @@ from .contracts import (
 from .extract import (
     DocxError,
     _extract_from_bytes,
+    _extract_validated,
     _group_change_fields,
     _group_units,
     _paragraph_stream,
@@ -617,22 +619,17 @@ def _relabel_candidate_snapshot_metadata(
 def _read_source_archive(
     payload: bytes,
     source: str,
-) -> tuple[list[zipfile.ZipInfo], dict[str, bytes]]:
+) -> ValidatedDocx:
     """Read every source member or return one provenance-bearing refusal."""
     try:
-        validate_docx_central_directory(payload)
-        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
-            infos = validate_docx_archive(archive)
-            parts = {
-                info.filename: archive.read(info)
-                for info in infos
-            }
+        return load_validated_docx(payload, capture=None)
+    except ArchiveValidationError as exc:
+        raise ApplyError(exc.code, exc.detail, **exc.metadata) from exc
     except ZIP_READ_ERRORS as exc:
         raise ApplyError(
             "file_unextractable",
             f"cannot read every member of source archive {source}",
         ) from exc
-    return infos, parts
 
 
 def _output_archive_bytes(
@@ -1305,10 +1302,12 @@ def _prepare_candidate(
             metadata.setdefault("failure_phase", "validation")
         raise
     try:
-        baseline = _extract_from_bytes(source_payload, source)
+        package = _read_source_archive(source_payload, source)
+        baseline = _extract_validated(package, source, source_sha)
         units_by_id = {u["change_unit_id"]: u for u in baseline["change_units"]}
 
-        infos, parts = _read_source_archive(source_payload, source)
+        infos = list(package.infos)
+        parts = dict(package.parts)
         # Untouched source bytes for the structural half of the round-trip proof.
         source_document_bytes = parts[DOCUMENT_PART]
         document = parse_xml(parts[DOCUMENT_PART])

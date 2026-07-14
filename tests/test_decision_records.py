@@ -9,7 +9,6 @@ import hashlib
 import importlib
 import inspect
 import json
-import lzma
 import os
 import re
 import stat
@@ -23,6 +22,7 @@ import pytest
 
 import veqtor_mcp
 import veqtor_docx
+from veqtor_docx import _ooxml
 from veqtor_docx import contracts as docx_contracts
 from veqtor_docx import generate_demo_rounds
 from veqtor_mcp import records
@@ -1331,6 +1331,7 @@ def test_source_archive_crc_failure_records_observed_source_sha(
 ) -> None:
     matter = _matter(tmp_path)
     source = matter / "round-2-counterparty-redline.docx"
+    _extracted, anchor = _cap_from_tool(source)
     sentinel = b"UNUSED-CRC-MEMBER-CONTENT"
     with zipfile.ZipFile(source, "a", zipfile.ZIP_STORED) as archive:
         archive.writestr("unused-provenance-member.bin", sentinel)
@@ -1342,7 +1343,7 @@ def test_source_archive_crc_failure_records_observed_source_sha(
         payload[:offset] + b"X" + payload[offset + 1 :]
     )
 
-    extracted, anchor = _cap_from_tool(source)
+    observed = hashlib.sha256(source.read_bytes()).hexdigest()
     output = matter / "never.docx"
     with pytest.raises(veqtor_docx.ApplyError) as err:
         server.apply_edits(
@@ -1359,7 +1360,10 @@ def test_source_archive_crc_failure_records_observed_source_sha(
 
     assert err.value.code == "file_unextractable"
     assert err.value.metadata == {
-        "observed_source_sha256": extracted["file_sha256"]
+        "member_name": "unused-provenance-member.bin",
+        "declared_bytes": len(sentinel),
+        "observed_bytes": len(sentinel),
+        "observed_source_sha256": observed,
     }
     assert not output.exists()
     full = records.read_records(str(matter), max_records=10, include_payload=True)
@@ -1369,9 +1373,7 @@ def test_source_archive_crc_failure_records_observed_source_sha(
         if record["tool_name"] == "apply_edits"
         and record["result"]["status"] == "error"
     )
-    assert error_record["provenance"]["observed_source_sha256"] == extracted[
-        "file_sha256"
-    ]
+    assert error_record["provenance"]["observed_source_sha256"] == observed
     assert "edit_index" not in error_record["provenance"]
 
 
@@ -1391,13 +1393,15 @@ def test_encrypted_required_member_failures_are_recorded_for_all_tools(
     with pytest.raises(veqtor_docx.DocxError) as extract_error:
         server.extract_redlines(str(source))
     assert getattr(extract_error.value, "metadata") == {
+        "member_name": "word/document.xml",
         "observed_source_sha256": observed
     }
 
     with pytest.raises(veqtor_docx.VerifyError) as verify_error:
         server.verify_quote(str(source), anchor, "anything")
-    assert verify_error.value.code == "file_unextractable"
+    assert verify_error.value.code == "encrypted_docx"
     assert verify_error.value.metadata == {
+        "member_name": "word/document.xml",
         "claimed_source_sha256": observed,
         "observed_source_sha256": observed,
     }
@@ -1415,6 +1419,7 @@ def test_encrypted_required_member_failures_are_recorded_for_all_tools(
             ],
         )
     assert getattr(apply_error.value, "metadata") == {
+        "member_name": "word/document.xml",
         "observed_source_sha256": observed
     }
     assert not output.exists()
@@ -1434,18 +1439,9 @@ def test_encrypted_required_member_failures_are_recorded_for_all_tools(
         assert record["provenance"]["observed_source_sha256"] == observed
 
 
-@pytest.mark.parametrize(
-    "decompressor_error",
-    [
-        zlib.error("simulated deflate failure"),
-        lzma.LZMAError("simulated LZMA failure"),
-    ],
-    ids=["zlib", "lzma"],
-)
 def test_source_archive_decompressor_failures_are_recorded(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    decompressor_error: BaseException,
 ) -> None:
     matter = _matter(tmp_path)
     source = matter / "round-2-counterparty-redline.docx"
@@ -1453,14 +1449,17 @@ def test_source_archive_decompressor_failures_are_recorded(
     with zipfile.ZipFile(source, "a", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(member_name, b"compressed content")
     extracted, anchor = _cap_from_tool(source)
-    original_read = zipfile.ZipFile.read
+    original_decode = _ooxml._decode_deflated_member
 
-    def fail_member_read(self, member, pwd=None):
-        if isinstance(member, zipfile.ZipInfo) and member.filename == member_name:
-            raise decompressor_error
-        return original_read(self, member, pwd)
+    def fail_member_decode(payload, entry, start, end, **kwargs):
+        if entry.filename == member_name:
+            raise _ooxml.ArchiveValidationError(
+                "simulated DEFLATE failure",
+                member_name=member_name,
+            ) from zlib.error("simulated deflate failure")
+        return original_decode(payload, entry, start, end, **kwargs)
 
-    monkeypatch.setattr(zipfile.ZipFile, "read", fail_member_read)
+    monkeypatch.setattr(_ooxml, "_decode_deflated_member", fail_member_decode)
     output = matter / "never.docx"
     with pytest.raises(veqtor_docx.ApplyError) as err:
         server.apply_edits(
@@ -1477,6 +1476,7 @@ def test_source_archive_decompressor_failures_are_recorded(
 
     assert err.value.code == "file_unextractable"
     assert err.value.metadata == {
+        "member_name": member_name,
         "observed_source_sha256": extracted["file_sha256"]
     }
     assert not output.exists()

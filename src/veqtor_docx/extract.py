@@ -15,9 +15,7 @@ so any claim can be re-checked against the source document.
 from __future__ import annotations
 
 import hashlib
-import io
 import re
-import zipfile
 from dataclasses import dataclass
 
 from lxml import etree
@@ -30,15 +28,15 @@ from ._ooxml import (
     UNSUPPORTED_REVISION_TAGS,
     DocxError,
     UserPathError,
+    ValidatedDocx,
     ZIP_READ_ERRORS,
     current_text_atom,
+    load_validated_docx,
     parse_xml,
     read_docx_payload,
     resolve_user_path,
     run_text,
     text_atom,
-    validate_docx_archive,
-    validate_docx_central_directory,
     validate_docx_payload_size,
     w,
 )
@@ -71,20 +69,18 @@ class _Style:
     based_on: str | None = None
 
 
-def _read_parts(payload: bytes, path: str, parts: tuple[str, ...]) -> dict[str, bytes | None]:
-    """Read the named parts from one in-memory snapshot of the package."""
+def _load_extraction_package(payload: bytes, path: str) -> ValidatedDocx:
+    """Validate one package snapshot and retain the extraction parts."""
     try:
-        validate_docx_central_directory(payload)
-        with zipfile.ZipFile(io.BytesIO(payload)) as zf:
-            infos = validate_docx_archive(zf)
-            names = {info.filename for info in infos}
-            if DOCUMENT_PART not in names:
-                raise DocxError(f"no {DOCUMENT_PART} in {path}")
-            return {
-                part: zf.read(part) if part in names else None for part in parts
-            }
+        package = load_validated_docx(
+            payload,
+            capture=(DOCUMENT_PART, "word/styles.xml", "word/numbering.xml"),
+        )
     except ZIP_READ_ERRORS as exc:
         raise DocxError(f"cannot open {path}: {exc}") from exc
+    if DOCUMENT_PART not in package.member_names:
+        raise DocxError(f"no {DOCUMENT_PART} in {path}")
+    return package
 
 
 def _parse_styles(data: bytes | None) -> dict[str, _Style]:
@@ -658,7 +654,29 @@ def _extract_from_bytes(payload: bytes, path: str) -> dict:
     validate_docx_payload_size(payload)
     file_sha256 = hashlib.sha256(payload).hexdigest()
     try:
-        return _extract_snapshot(payload, path, file_sha256)
+        package = _load_extraction_package(payload, path)
+    except DocxError as exc:
+        metadata = getattr(exc, "metadata", None)
+        if not isinstance(metadata, dict):
+            metadata = {}
+            exc.metadata = metadata
+        metadata.setdefault("observed_source_sha256", file_sha256)
+        raise
+    except (IndexError, KeyError, OverflowError, TypeError, ValueError) as exc:
+        error = DocxError(f"cannot extract {path}: invalid OOXML value")
+        error.metadata = {"observed_source_sha256": file_sha256}
+        raise error from exc
+    return _extract_validated(package, path, file_sha256)
+
+
+def _extract_validated(
+    package: ValidatedDocx,
+    path: str,
+    file_sha256: str,
+) -> dict:
+    """Extract facts from an already validated hash-identified package."""
+    try:
+        return _extract_snapshot(package, path, file_sha256)
     except DocxError as exc:
         metadata = getattr(exc, "metadata", None)
         if not isinstance(metadata, dict):
@@ -672,15 +690,21 @@ def _extract_from_bytes(payload: bytes, path: str) -> dict:
         raise error from exc
 
 
-def _extract_snapshot(payload: bytes, path: str, file_sha256: str) -> dict:
-    """Decode a hash-identified package snapshot behind one error boundary."""
-    parts = _read_parts(
-        payload, path, (DOCUMENT_PART, "word/styles.xml", "word/numbering.xml")
-    )
-    document = parse_xml(parts[DOCUMENT_PART])
+def _extract_snapshot(
+    package: ValidatedDocx,
+    path: str,
+    file_sha256: str,
+) -> dict:
+    """Decode validated parts behind one deterministic OOXML boundary."""
+    document_payload = package.parts.get(DOCUMENT_PART)
+    if document_payload is None:
+        raise DocxError(f"no {DOCUMENT_PART} in {path}")
+    document = parse_xml(document_payload)
     _validate_text_revision_nesting(document)
-    styles = _resolve_styles(_parse_styles(parts["word/styles.xml"]))
-    numbering = _NumberingCounters(_parse_numbering(parts["word/numbering.xml"]))
+    styles = _resolve_styles(_parse_styles(package.parts.get("word/styles.xml")))
+    numbering = _NumberingCounters(
+        _parse_numbering(package.parts.get("word/numbering.xml"))
+    )
 
     body = document.find(w("body"))
     if body is None:

@@ -4,8 +4,6 @@
 from __future__ import annotations
 
 import hashlib
-import io
-import zipfile
 from pathlib import Path
 
 from ._ooxml import (
@@ -15,16 +13,12 @@ from ._ooxml import (
     TEXT_REVISION_TAGS,
     UserPathError,
     ZIP_READ_ERRORS,
+    load_validated_docx,
     parse_xml,
     read_docx_payload,
     resolve_user_path,
-    validate_docx_archive,
-    validate_docx_central_directory,
 )
 
-_SUPPORTED_DOCX_COMPRESSION = frozenset(
-    {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}
-)
 MAX_ROUND_CANDIDATES = 500
 MAX_ROUND_TOTAL_INPUT_BYTES = 500 * 1024 * 1024
 
@@ -46,39 +40,22 @@ def _round_facts(path: Path) -> tuple[str, int, int]:
     except OSError as exc:
         raise RoundError("file_unreadable", "cannot read DOCX bytes") from exc
     try:
-        validate_docx_central_directory(payload)
+        package = load_validated_docx(payload, capture=(DOCUMENT_PART,))
     except ResourceLimitError as exc:
         raise RoundError(exc.code, exc.detail) from exc
     except DocxError as exc:
-        raise RoundError("invalid_docx", "invalid DOCX package") from exc
-    try:
-        archive = zipfile.ZipFile(io.BytesIO(payload))
+        code = getattr(exc, "code", "invalid_docx")
+        if code not in {"unsupported_compression", "encrypted_docx"}:
+            code = "invalid_docx"
+        detail = getattr(exc, "detail", "invalid DOCX package")
+        raise RoundError(code, detail) from exc
     except ZIP_READ_ERRORS as exc:
         raise RoundError("invalid_docx", "invalid DOCX package") from exc
-    with archive:
-        try:
-            validate_docx_archive(archive)
-        except ResourceLimitError as exc:
-            raise RoundError(exc.code, exc.detail) from exc
-        except DocxError as exc:
-            raise RoundError("invalid_docx", "invalid DOCX package") from exc
-        try:
-            document_info = archive.getinfo(DOCUMENT_PART)
-        except KeyError as exc:
-            raise RoundError(
-                "missing_document_part", "DOCX has no main document part"
-            ) from exc
-        if document_info.flag_bits & 0x1:
-            raise RoundError("encrypted_docx", "main document part is encrypted")
-        if document_info.compress_type not in _SUPPORTED_DOCX_COMPRESSION:
-            raise RoundError(
-                "unsupported_compression",
-                "main document part uses unsupported ZIP compression",
-            )
-        try:
-            document_payload = archive.read(document_info)
-        except ZIP_READ_ERRORS as exc:
-            raise RoundError("invalid_docx", "cannot read main document part") from exc
+    if DOCUMENT_PART not in package.member_names:
+        raise RoundError(
+            "missing_document_part", "DOCX has no main document part"
+        )
+    document_payload = package.parts[DOCUMENT_PART]
     try:
         document = parse_xml(document_payload)
     except ResourceLimitError as exc:
