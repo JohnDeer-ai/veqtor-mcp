@@ -1497,6 +1497,7 @@ def test_duplicate_source_archive_members_are_rejected_before_rewrite(
 ) -> None:
     matter = _matter(tmp_path)
     source = matter / "round-2-counterparty-redline.docx"
+    _extracted, anchor = _cap_from_tool(source)
     member_name = "duplicate-unused-member.bin"
     first_content = b"FIRST-DUPLICATE-CONTENT"
     second_content = b"SECOND-DUPLICATE-CONTENT"
@@ -1523,6 +1524,7 @@ def test_duplicate_source_archive_members_are_rejected_before_rewrite(
     data_offset = first.header_offset + 30 + name_length + extra_length
     payload[data_offset] ^= 0x01
     source.write_bytes(payload)
+    duplicate_sha = hashlib.sha256(source.read_bytes()).hexdigest()
 
     with zipfile.ZipFile(source, "r") as archive:
         duplicates = [
@@ -1532,9 +1534,8 @@ def test_duplicate_source_archive_members_are_rejected_before_rewrite(
             archive.read(duplicates[0])
         assert archive.read(duplicates[1]) == second_content
 
-    extracted, anchor = _cap_from_tool(source)
     output = matter / "never.docx"
-    with pytest.raises(veqtor_docx.ApplyError) as err:
+    with pytest.raises(veqtor_docx.DocxError) as err:
         server.apply_edits(
             str(source),
             str(output),
@@ -1549,7 +1550,7 @@ def test_duplicate_source_archive_members_are_rejected_before_rewrite(
 
     assert err.value.code == "file_unextractable"
     assert err.value.metadata == {
-        "observed_source_sha256": extracted["file_sha256"]
+        "observed_source_sha256": duplicate_sha
     }
     assert not output.exists()
     full = records.read_records(str(matter), max_records=10, include_payload=True)
@@ -1559,9 +1560,7 @@ def test_duplicate_source_archive_members_are_rejected_before_rewrite(
         if record["tool_name"] == "apply_edits"
         and record["result"]["status"] == "error"
     )
-    assert error_record["provenance"]["observed_source_sha256"] == extracted[
-        "file_sha256"
-    ]
+    assert error_record["provenance"]["observed_source_sha256"] == duplicate_sha
 
 
 def test_output_archive_write_failure_records_observed_source_sha(

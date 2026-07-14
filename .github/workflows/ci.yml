@@ -19,6 +19,7 @@ env:
   VERIFY_REF: ${{ inputs.ref || github.sha }}
   SOURCE_DATE_EPOCH: "1580601600"
   DIST_ARTIFACT_NAME: veqtor-mcp-dist-${{ github.run_id }}-${{ github.run_attempt }}
+  PYPI_ARTIFACT_NAME: veqtor-mcp-pypi-dist-${{ github.run_id }}-${{ github.run_attempt }}
 
 jobs:
   test:
@@ -89,6 +90,16 @@ jobs:
         run: uv sync --frozen --all-extras --python 3.12.13
       - name: Audit dependency licenses
         run: uv run --frozen pip-licenses --partial-match --fail-on "GPL;AGPL;LGPL;SSPL;BUSL"
+      - name: Run pinned static analysis
+        run: uvx ruff==0.15.21 check .
+      - name: Audit the exact locked runtime dependency graph
+        run: |
+          LOCKED_REQUIREMENTS="$RUNNER_TEMP/veqtor-locked-runtime.txt"
+          uv export --frozen --no-dev --no-emit-project \
+            --format requirements-txt --output-file "$LOCKED_REQUIREMENTS"
+          uvx pip-audit==2.10.1 \
+            --requirement "$LOCKED_REQUIREMENTS" \
+            --require-hashes --disable-pip --progress-spinner off
       - name: Build wheel and sdist
         run: uv build --clear
       - name: Validate package metadata
@@ -113,7 +124,7 @@ jobs:
       - name: Smoke the wheel with exact declared minimums
         run: |
           uv venv /tmp/veqtor-wheel-min-smoke --python 3.12
-          uv pip install --python /tmp/veqtor-wheel-min-smoke/bin/python "mcp==1.14.0" "lxml==5.0.0"
+          uv pip install --python /tmp/veqtor-wheel-min-smoke/bin/python "mcp==1.23.0" "lxml==6.1.0"
           uv pip install --python /tmp/veqtor-wheel-min-smoke/bin/python --no-deps dist/*.whl
           cd /tmp
           /tmp/veqtor-wheel-min-smoke/bin/veqtor-mcp --version
@@ -123,6 +134,13 @@ jobs:
         with:
           name: ${{ env.DIST_ARTIFACT_NAME }}
           path: dist/*
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ env.PYPI_ARTIFACT_NAME }}
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
           if-no-files-found: error
 
   reproduce:
@@ -145,12 +163,17 @@ jobs:
         with:
           name: ${{ env.DIST_ARTIFACT_NAME }}
           path: approved-dist
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ env.PYPI_ARTIFACT_NAME }}
+          path: approved-pypi-dist
       - name: Check lock before executing the candidate
         run: uv lock --check
       - name: Rebuild independently and compare every artifact byte
         run: >-
           python3 scripts/check_reproducible_build.py
           --source-root . --approved-dir approved-dist
+          --mirror-dir approved-pypi-dist
 
   gitleaks:
     name: Scan repository history for secrets

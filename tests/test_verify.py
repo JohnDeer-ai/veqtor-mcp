@@ -7,6 +7,7 @@ import zipfile
 from pathlib import Path
 
 import pytest
+import veqtor_docx.extract as extract_module
 
 from veqtor_docx import VerifyError, extract_redlines, verify_quote
 from veqtor_docx.synthetic import CAP_R2
@@ -193,16 +194,16 @@ def test_verdict_and_hash_come_from_one_snapshot(demo_dir: Path, monkeypatch) ->
     )
 
     reads = {"count": 0}
-    original_read_bytes = Path.read_bytes
+    original_read_payload = extract_module.read_docx_payload
 
-    def swapping_read_bytes(self: Path) -> bytes:
-        if Path(self) == r2:
+    def swapping_read_payload(path: str) -> bytes:
+        if Path(path) == r2:
             reads["count"] += 1
             # First read sees round 2; any later read would see round 4.
             return payload_r2 if reads["count"] == 1 else payload_r4
-        return original_read_bytes(self)
+        return original_read_payload(path)
 
-    monkeypatch.setattr(Path, "read_bytes", swapping_read_bytes)
+    monkeypatch.setattr(extract_module, "read_docx_payload", swapping_read_payload)
     result = verify_quote(
         str(r2),
         {"change_unit_id": cap_unit["change_unit_id"], "file_sha256": sha_r2},

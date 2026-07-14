@@ -24,7 +24,7 @@ def _payload(result) -> dict:
 
 
 async def smoke() -> dict:
-    assert __version__ == "0.1.1"
+    assert __version__ == "0.1.2"
     with tempfile.TemporaryDirectory(prefix="veqtor-wheel-smoke-") as tmp:
         matter = Path(tmp) / "matter"
         generate_demo_rounds(matter)

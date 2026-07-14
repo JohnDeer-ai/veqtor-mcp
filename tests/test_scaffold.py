@@ -13,7 +13,7 @@ ROOT = Path(__file__).parents[1]
 
 
 def test_package_versions_match() -> None:
-    assert docx_version == "0.1.1"
+    assert docx_version == "0.1.2"
     assert mcp_version == docx_version
 
 
@@ -91,3 +91,25 @@ def test_current_release_changelog_is_status_neutral() -> None:
     assert "`published_at` timestamp" in changelog
     assert "only timeless release contents" in releasing
     assert "`published_at` timestamp" in releasing
+
+
+def test_public_readme_uses_parseable_version_pinned_claude_commands() -> None:
+    readme = (ROOT / "README.md").read_text()
+
+    assert (
+        "claude mcp add --transport stdio --scope user veqtor -- "
+        "uvx veqtor-mcp@0.1.2"
+    ) in readme
+    assert (
+        "claude mcp add --transport stdio --scope user veqtor "
+        '-e VEQTOR_TRACKED_CHANGE_AUTHOR="Your Name" -- '
+        "uvx veqtor-mcp@0.1.2"
+    ) in readme
+
+
+def test_pypi_long_description_has_no_repository_relative_links() -> None:
+    readme = (ROOT / "README.md").read_text()
+    targets = re.findall(r"\[[^\]]+\]\(([^)]+)\)", readme)
+
+    assert targets
+    assert all(target.startswith(("https://", "#")) for target in targets)

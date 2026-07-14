@@ -16,7 +16,7 @@ unit's ``new_text`` or ``old_text``. Matching is case-sensitive. Verdicts:
 
 Anything unresolvable — a hash mismatch, an unknown anchor, an empty quote —
 raises :class:`VerifyError` with a stable code instead of guessing.
-Whole-document search without an anchor is a later slice.
+Whole-document search without an anchor is not supported in v1.
 
 Provenance is atomic: the file is read exactly once, and the verdict, the
 hash comparison and ``checked_anchor.file_sha256`` all describe that single
@@ -103,19 +103,18 @@ def verify_quote(path: str, anchor: dict, quote: str) -> dict:
     try:
         extraction = extract_redlines(resolved)
     except DocxError as exc:
-        code = (
+        code = getattr(exc, "code", None) or (
             "file_unextractable" if Path(resolved).is_file() else "file_unreadable"
         )
         metadata: dict[str, object] = {}
         source_metadata = getattr(exc, "metadata", None)
         if isinstance(source_metadata, dict):
-            observed_sha = source_metadata.get("observed_source_sha256")
-            if isinstance(observed_sha, str):
-                metadata = {
-                    "claimed_source_sha256": claimed_sha,
-                    "observed_source_sha256": observed_sha,
-                }
-        raise VerifyError(code, str(exc), **metadata) from exc
+            metadata = dict(source_metadata)
+            metadata["claimed_source_sha256"] = claimed_sha
+        detail = getattr(exc, "detail", None)
+        if not isinstance(detail, str):
+            detail = str(exc)
+        raise VerifyError(code, detail, **metadata) from exc
     actual_sha = extraction["file_sha256"]
     if claimed_sha != actual_sha:
         raise VerifyError(

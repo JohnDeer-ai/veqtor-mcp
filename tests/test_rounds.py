@@ -65,6 +65,11 @@ def _with_invalid_utf8_member_name(payload: bytes) -> bytes:
     raise AssertionError("document central-directory record not found")
 
 
+def test_public_alpha_round_folder_envelope_is_frozen() -> None:
+    assert rounds_module.MAX_ROUND_CANDIDATES == 500
+    assert rounds_module.MAX_ROUND_TOTAL_INPUT_BYTES == 500 * 1024 * 1024
+
+
 def test_lists_rounds_in_filename_order(demo_dir: Path) -> None:
     result = list_rounds(str(demo_dir))
     assert [r["round_id"] for r in result["rounds"]] == [
@@ -168,6 +173,48 @@ def test_unreadable_folder_is_a_stable_refusal(
         list_rounds(str(tmp_path))
     assert error.value.code == "folder_unreadable"
     assert str(error.value) == "folder_unreadable: cannot enumerate folder"
+
+
+def test_candidate_count_is_bounded_before_any_docx_is_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for index in range(3):
+        (tmp_path / f"round-{index}.docx").write_bytes(b"placeholder")
+    monkeypatch.setattr(rounds_module, "MAX_ROUND_CANDIDATES", 2)
+
+    def fail_read(_path: Path):
+        raise AssertionError("candidate was read before folder preflight")
+
+    monkeypatch.setattr(rounds_module, "_round_facts", fail_read)
+
+    with pytest.raises(RoundError) as error:
+        list_rounds(str(tmp_path))
+
+    assert error.value.code == "resource_limit_exceeded"
+    assert str(error.value) == (
+        "resource_limit_exceeded: folder contains more than 2 candidate DOCX files"
+    )
+
+
+def test_aggregate_round_input_is_bounded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for index in range(2):
+        (tmp_path / f"round-{index}.docx").write_bytes(b"invaliddoc")
+    monkeypatch.setattr(rounds_module, "MAX_ROUND_TOTAL_INPUT_BYTES", 19)
+
+    def fail_read(_path: Path):
+        raise AssertionError("candidate was read before aggregate preflight")
+
+    monkeypatch.setattr(rounds_module, "_round_facts", fail_read)
+
+    with pytest.raises(RoundError) as error:
+        list_rounds(str(tmp_path))
+
+    assert error.value.code == "resource_limit_exceeded"
+    assert "aggregate input limit" in str(error.value)
 
 
 def test_unexpected_file_failure_is_not_leaked_as_a_successful_skip(

@@ -210,7 +210,14 @@ def test_replace_at_anchor_with_round_trip(round2: Path, tmp_path: Path) -> None
 
     before = extract_redlines(str(round2))
     after = extract_redlines(str(out))
-    strip = lambda u: (u["change_type"], u["author"], u["old_text"], u["new_text"])
+    def strip(unit: dict) -> tuple:
+        return (
+            unit["change_type"],
+            unit["author"],
+            unit["old_text"],
+            unit["new_text"],
+        )
+
     assert [strip(u) for u in before["change_units"]] == [
         strip(u) for u in after["change_units"] if u["author"] != DEFAULT_AUTHOR
     ]

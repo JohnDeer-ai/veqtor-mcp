@@ -9,9 +9,11 @@ import sys
 from pathlib import Path
 
 import pytest
+from mcp.client.session import ClientSession
 from mcp.shared.memory import create_connected_server_and_client_session
 
 import veqtor_docx
+from veqtor_mcp import __version__
 from veqtor_mcp import records
 from veqtor_mcp import server
 from veqtor_mcp.server import mcp
@@ -33,6 +35,26 @@ def _error_text(result) -> str:
     return "\n".join(
         block.text for block in result.content if hasattr(block, "text")
     )
+
+
+@pytest.mark.anyio
+async def test_protocol_initialization_reports_veqtor_version(monkeypatch) -> None:
+    initialize = ClientSession.initialize
+    observed_results = []
+
+    async def capture_initialize(session):
+        result = await initialize(session)
+        observed_results.append(result)
+        return result
+
+    monkeypatch.setattr(ClientSession, "initialize", capture_initialize)
+
+    async with create_connected_server_and_client_session(mcp._mcp_server):
+        pass
+
+    assert len(observed_results) == 1
+    assert observed_results[0].serverInfo.name == "veqtor"
+    assert observed_results[0].serverInfo.version == __version__
 
 
 @pytest.mark.anyio
@@ -471,7 +493,7 @@ def test_blank_author_keeps_version_and_makes_doctor_and_startup_diagnostic() ->
     )
 
     assert version.returncode == 0
-    assert version.stdout.strip() == "veqtor-mcp 0.1.1"
+    assert version.stdout.strip() == "veqtor-mcp 0.1.2"
     assert "Traceback" not in version.stderr
     assert doctor.returncode == 2
     diagnosis = json.loads(doctor.stdout)
@@ -489,13 +511,13 @@ def test_blank_author_keeps_version_and_makes_doctor_and_startup_diagnostic() ->
 def test_cli_version_and_doctor(monkeypatch, capsys) -> None:
     monkeypatch.setattr(server.sys, "argv", ["veqtor-mcp", "--version"])
     server.main()
-    assert capsys.readouterr().out.strip() == "veqtor-mcp 0.1.1"
+    assert capsys.readouterr().out.strip() == "veqtor-mcp 0.1.2"
 
     monkeypatch.setattr(server.sys, "argv", ["veqtor-mcp", "doctor"])
     server.main()
     doctor = json.loads(capsys.readouterr().out)
     assert doctor["name"] == "veqtor-mcp"
-    assert doctor["version"] == "0.1.1"
+    assert doctor["version"] == "0.1.2"
     assert doctor["build"] == records.SOURCE_SNAPSHOT_IDENTITY
     assert doctor["tracked_change_author"] == server._tracked_change_author()
     assert doctor["configuration_error"] is None

@@ -6,6 +6,54 @@ All notable changes to Veqtor MCP are documented here.
 Publication dates are authoritative in each version's immutable GitHub Release
 through its `published_at` timestamp.
 
+## 0.1.2
+
+Veqtor v0.1.2 Alpha release contents.
+
+### Added
+
+- Fail-closed DOCX/ZIP resource limits covering container size, expanded size,
+  member count, individual parts, parsed XML node count, extracted change
+  units, bounded round-folder scans and suspicious compression ratios.
+- Safe XML parsing that refuses `DOCTYPE` declarations instead of loading DTDs
+  or expanding custom entities.
+- Bounded computed and manual numbering labels that omit oversized templates,
+  manual labels, levels outside 0-8 and Roman counters outside 1-3999 instead
+  of amplifying work.
+- Linear-time paragraph-style inheritance resolution with fail-closed cycle
+  detection.
+- A two-level tracked text-revision nesting boundary that preserves ordinary
+  counter markup while refusing recursive text amplification.
+- Consistent pre-decompression refusal of ambiguous ZIP packages containing
+  duplicate member names across list, extract, verify, preflight and apply.
+- Atomic edit-batch limits for edit count, per-edit text and total inserted
+  text, with stable structured refusals.
+- Ordered public promotion that durably reserves the protected exact tag,
+  publishes the approved wheel and sdist through PyPI OIDC Trusted Publishing,
+  verifies their public bytes, provenance and `uvx` onboarding, and only then
+  publishes the matching immutable GitHub Release.
+- Clean-room installation and Claude Code registration through `uvx` with the
+  Veqtor version pinned, plus explicit user, local and project scope guidance.
+
+### Changed
+
+- MCP initialization now reports the Veqtor package version instead of the
+  installed MCP SDK version.
+- Minimum supported dependencies are raised to `lxml>=6.1` and `mcp>=1.23.0`.
+- Public documentation now separates community-supported Alpha expectations,
+  private security reporting and the concise user-facing roadmap from internal
+  acceptance details.
+- The public project identity names Ilya Shilov as creator and maintainer while
+  retaining `JohnDeer-ai` as the GitHub handle.
+
+### Compatibility
+
+- The six MCP tool names and existing `decision_record.v1` historical pairs
+  remain unchanged.
+- Documents and edit batches inside the new resource and XML-safety boundaries
+  retain the v0.1.1 extraction, verification, preflight, apply and
+  compact-export behavior.
+
 ## 0.1.1
 
 Veqtor v0.1.1 Alpha release contents.

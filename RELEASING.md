@@ -6,7 +6,8 @@ This contract defines the finite promotion boundary for Veqtor v0.1. A release
 candidate is accepted only when every invariant below passes against one exact
 commit. A review finding reopens the release only when it violates an invariant,
 contradicts a public claim, or demonstrates concrete privacy/reliability harm
-inside the threat model. Other hardening belongs in the post-v0.1 backlog.
+inside the threat model. The validator scripts and workflows are the executable
+source of truth when this document and implementation differ.
 
 ## Threat model
 
@@ -16,14 +17,20 @@ The v0.1 release gates protect against:
 - private paths or configured private markers in public sources or artifacts;
 - build-backend drift, malformed archives and ambiguous container structure;
 - oversized, sparse or otherwise resource-amplifying archive members;
-- interrupted or repeated GitHub release promotion;
-- replacement of a published tag or release asset;
+- DOCX/ZIP expansion, member and edit-batch resource amplification;
+- interrupted or repeated cross-registry promotion;
+- PyPI publication before a durable exact-tag reservation, from an untrusted
+  workflow, or with bytes that differ from the approved CI artifacts;
+- publication of an immutable GitHub Release before the public PyPI files and
+  provenance have been verified;
+- replacement of a reserved tag or published release asset;
 - parseable but unsupported OOXML returning an uncontrolled exception.
 
 The v0.1 gates do not claim to protect against a malicious maintainer who can
 change code, this contract and release approvals together; a compromised GitHub
 or hosted runner; or cryptographic provenance beyond GitHub's immutable-release
-attestation. Those require a separate signing and trusted-builder design.
+guarantee and PyPI Trusted Publisher attestations. Those require a separate
+signing and trusted-builder design.
 
 ## Invariants
 
@@ -84,25 +91,35 @@ defense-in-depth: malformed inputs must fail before unbounded allocation.
 - Build inputs (Python, uv, Hatchling and source epoch) are pinned, and two
   isolated clean builds of the exact tree are byte-identical.
 - Twine, current-dependency wheel smoke and minimum-dependency wheel smoke pass.
+- Ruff and the exact locked runtime dependency audit pass before build.
 - `SHA256SUMS.txt` contains only flat basenames and validates after the three
   release assets are copied into one clean directory.
+- One attempt-scoped wheel/sdist pair is byte-identical to the pair consumed by
+  GitHub Release publication and PyPI Trusted Publishing.
 
-### I5 — exact, recoverable promotion
+### I5 — durable exact-tag reservation and recoverable promotion
 
 - First promotion requires caller SHA, candidate SHA and `main` tip equality.
-- Tag creation is create-only and accepts only an exact lightweight tag.
-- Every publication attempt requires the full required pre-publication gate set
-  to have completed successfully for the same run, attempt and candidate SHA.
-  The proof is structural: publication consumes the attempt-scoped artifact
-  produced by that same completed gate graph.
-- Recovery may use a later attempt of the original workflow run, or a separately
-  approved dispatch while caller SHA, candidate SHA and `main` still identify
-  the same exact commit.
+- After the full required pre-publication gate set succeeds for the same run,
+  attempt and candidate SHA, the write-scoped `reserve_tag` job creates or
+  revalidates one exact lightweight `v<version>` tag. The current-attempt output
+  is emitted only after the tag is confirmed to name the approved commit.
+- Tag creation is create-only. The protected `v*` ruleset prevents update and
+  deletion, so reservation is durable: a later failure reserves that version as
+  a recovery anchor and never authorizes deleting or retargeting it.
+- PyPI publication structurally depends on the current attempt's reservation.
+  The immutable GitHub Release structurally depends on both that reservation
+  and successful public PyPI verification.
+- Every promotion attempt requires the full current-attempt gate set and the
+  attempt-scoped artifacts produced by that completed graph. Recovery may use a
+  later attempt of the original workflow run, or a separately approved dispatch
+  while caller SHA, candidate SHA and `main` still identify the same exact
+  commit.
 - Any rerun mode is acceptable only when it reconstructs that full current-
   attempt gate set. **Re-run all jobs** does so predictably; a selective rerun
   of the root `guard` also qualifies when GitHub reruns its complete dependent
   graph. An incomplete rerun has a missing current-attempt job proof or artifact
-  and therefore fails closed before publication.
+  and therefore fails closed before reservation or publication.
 - After `main` advances, only a later attempt of the original workflow run may
   recover, and only when the exact lightweight tag still names a candidate that
   remains an ancestor of `main`.
@@ -110,7 +127,15 @@ defense-in-depth: malformed inputs must fail before unbounded allocation.
   and never retargets it. It first inspects the current trusted `main`, then
   detached-checks out the approved candidate before installing or running that
   candidate. Artifact names include both run ID and attempt number, so a
-  previous attempt's bits cannot satisfy a later attempt.
+  later attempt must download its own artifacts. Pre-existing public registry
+  bytes are accepted only through the explicit equality checks below.
+- A PyPI retry may encounter one or both files uploaded by an earlier attempt.
+  `skip-existing` is acceptable only because the current consumer verifier
+  requires the exact file set, metadata and public bytes to equal the current
+  approved artifacts, and separately requires Trusted Publisher provenance for
+  the approved repository, workflow and environment. The current verifier uses
+  that trust boundary; it does not bind an attestation to a GitHub run ID or
+  attempt number.
 - Draft recovery enumerates every authenticated release-list page, including
   drafts, and requires at most one release for the exact tag. Creation captures
   the returned release id; asset upload, verification and publication continue
@@ -120,24 +145,36 @@ defense-in-depth: malformed inputs must fail before unbounded allocation.
   draft. Unexpected asset names, invalid asset ids or ambiguous releases fail
   closed; an already-published immutable release is verified without mutation.
 - Every authenticated release API call pins the documented GitHub API version.
-- Write-scoped publication consumes the artifacts produced by read-only CI and
-  does not generate new release content.
+  Write-scoped publication consumes artifacts produced by read-only CI and does
+  not generate new release content.
 
-### I6 — immutable Alpha release surface
+### I6 — ordered PyPI and immutable GitHub release surface
 
-- The protected `release` environment and immutable releases are configured
-  before dispatch.
-- The environment provides `RELEASE_ADMIN_READ_TOKEN`, limited to read-only
-  Administration access for this repository, so the preflight can verify the
-  immutable-release setting without extending the release token's authority.
-- Release title, prerelease flag and body equal the versioned Alpha contract.
-- Published tag and asset names, sizes and SHA-256 digests equal the approved
-  candidate, and the API reports `immutable: true`.
+- The protected `release` and `pypi` environments, exact PyPI Trusted Publisher,
+  protected `v*` ruleset and GitHub Immutable Releases are configured and
+  verified before the candidate reaches public `main`.
+- The `release` environment provides `RELEASE_ADMIN_READ_TOKEN`, limited to
+  read-only Administration access for this repository, so tag reservation and
+  final publication can verify the immutable-release setting without extending
+  the release token's authority.
+- PyPI trusts only `JohnDeer-ai/veqtor-mcp`, `.github/workflows/release.yml` and
+  the protected `pypi` environment. The publish job receives only OIDC
+  `id-token: write`; no long-lived PyPI token is stored.
+- After exact-tag reservation, PyPI receives the exact attempt-scoped wheel and
+  sdist already reproduced by CI. A tokenless consumer verifier downloads both
+  public files, requires byte equality with those artifacts, checks their
+  Trusted Publisher provenance and runs the version-pinned public `uvx`
+  onboarding path.
+- Only successful PyPI verification unlocks GitHub Release publication. The
+  final job creates or recovers the exact-tag draft, verifies its body and
+  assets, publishes it, and requires the API to report `immutable: true`.
+- Release title, prerelease flag, body, tag target, asset names, sizes and
+  SHA-256 digests equal the approved candidate. A tokenless consumer verifier
+  downloads the public GitHub assets, validates the flat checksum manifest and
+  reruns artifact verification.
 - Versioned changelog sections contain only timeless release contents, without
   a publication status or calendar date. The immutable GitHub Release
   `published_at` timestamp is the authoritative public release date.
-- A consumer verifier downloads the public assets without a write token,
-  validates the flat checksum manifest and reruns artifact verification.
 
 ### I7 — total DOCX operation boundary
 
@@ -153,9 +190,10 @@ Expected decision-record filesystem failures use stable codes without absolute
 paths.
 
 The OOXML mutation ratchet exercises duplicate, moved and oversized revision
-ids plus nonconforming run layouts through list, extract, verify, preflight and
-apply. A successful apply must create the expected unit in the exact anchored
-paragraph; merely returning success or avoiding a raw exception is not enough.
+ids, bounded numbering-label fallbacks, and nonconforming run layouts through
+list, extract, verify, preflight and apply. A successful apply must create the
+expected unit in the exact anchored paragraph; merely returning success or
+avoiding a raw exception is not enough.
 
 The finite boundary covers list, extract, verify, preflight, apply, decision-
 record export and synthetic-round generation. A path that cannot resolve to a
@@ -169,57 +207,172 @@ and rolls back the complete batch after an expected publication failure.
 
 - Public tests pass on Python 3.12, 3.13 and 3.14, including minimum direct
   dependencies.
-- Private dogfood passes against both a used corpus and a clean copy without
-  modifying the source corpus.
-- The real payment edit is refused in preflight as
-  `counter_position_unsupported`; the supported five-edit batch passes
-  preflight/apply with zero collateral change and the exact output SHA recorded
-  in `scripts/release_contract.py`.
-- The installed-wheel smoke performs two live MCP exports. It proves the first
-  export's access-event id is absent from both compact `records` windows,
-  `access_count` advances from 0 to 1 only on the second snapshot, and the
-  second current event is again explicitly outside its own snapshot.
-- A fresh-copy Claude Desktop rehearsal is release-blocking. Run export twice
-  (the second call with a small `max_records` window), then ask the client to
-  explain the id gap, `total_count`, `access_count`, the current access event,
-  and the difference between the private raw journal and compact projection.
-  PASS requires it to say that the first event exists locally but is omitted
-  from `records`, and that the current event is not yet in `access_count`.
-  Keep the raw transcript private and retain only the path-free verdict in the
-  review packet.
+- Private dogfood passes against both the maintained used corpus and its clean
+  copy without modifying either source corpus. Each run must report at least
+  four passing private tests; record the observed pass/skip counts and the same
+  retained corpus-manifest digest before and after each run.
+- The maintained private `payment_preflight` scenario is refused as
+  `counter_position_unsupported` with one match. The maintained
+  `five_edit_batch` scenario passes preflight and apply for all five edits,
+  reports a passing round trip and zero collateral changes, and produces the
+  exact output SHA-256 pinned in `scripts/release_contract.py`.
+- The installed wheel completes the six-tool synthetic smoke. Its two compact
+  exports report access counts 0 then 1, omit the first access event from both
+  returned record windows, and keep each current event outside its own
+  snapshot.
+- A fresh-copy Claude Desktop rehearsal exercises read, verify, preflight,
+  apply, re-extract and export against the exact installed candidate. It must
+  also explain the difference between the private raw journal and compact
+  projection, including both access-event exclusions above.
+- Any maintainer-only corpus, transcript and journal evidence stays outside the
+  repository. Only the canonical path-free acceptance packet may enter the
+  workflow input; it contains digests, counts, stable status codes and runtime
+  identity, never filenames, local paths, quotations or document text.
 
-Private and real-corpus evidence stays outside the repository. The reviewer
-receives only a path-free `veqtor_release_acceptance.v2` JSON packet containing
-candidate/tree/build ids, test counts, before/after corpus-tree digests,
-refusal/status codes, edit counts and output fingerprints. It also contains:
+The acceptance packet has one canonical byte representation and is exact-SHA,
+tree and build bound. Its executable schema remains in
+`scripts/check_acceptance_evidence.py`.
 
-- `installed_two_export`: the observed 0→1 access counts, both exclusion
-  assertions, and the installed runtime version and `producer.build`;
-- `desktop_rehearsal`: `verdict: "passed"`, the fresh-copy client identity,
-  all three required explanation assertions, the runtime version/build, and
-  SHA-256 digests of the retained private transcript and raw journal.
+### Construct the v2 acceptance packet
+
+Freeze one clean candidate before collecting evidence. These three values must
+come from that checkout and the same `producer_build` value must be copied into
+the packet root, `installed_two_export` and `desktop_rehearsal`:
+
+```bash
+test -z "$(git status --porcelain --untracked-files=all)"
+git rev-parse HEAD
+git rev-parse 'HEAD^{tree}'
+uv run --frozen python -c \
+  'from veqtor_mcp.records import SOURCE_SNAPSHOT_IDENTITY; print(SOURCE_SNAPSHOT_IDENTITY)'
+```
+
+Collect every section below against that exact candidate. Do not infer or
+pre-fill a passing result: copy observed counts, identities and digests from the
+retained evidence.
+
+| Packet section | Required source and accepted value |
+| --- | --- |
+| `public_matrix` | Required CI lanes for Python 3.12, 3.13, 3.14 and minimum direct dependencies all completed as `passed` for the candidate SHA. |
+| `private_dogfood.used` and `.clean` | Run `VEQTOR_PRIVATE_FIXTURE_DIR=... uv run --frozen pytest -m private tests/test_private_dogfood.py` separately for the maintained used corpus and clean copy. Record each pytest pass/skip count and a retained private corpus-manifest SHA-256 before and after; each pair must match. |
+| `payment_preflight` | From the maintained private acceptance scenario: `batch_applicable: false`, `refusal_code: "counter_position_unsupported"`, `match_count: 1`. |
+| `five_edit_batch` | From the maintained five-edit scenario: applicable preflight, successful apply of five edits, passing round trip, zero collateral changes and the fixed output digest shown below. |
+| `installed_two_export` | Copy the JSON fields printed by `scripts/installed_wheel_smoke.py` when run from the installed candidate wheel: access counts 0 then 1, both exclusion booleans `true`, and the installed version/build. |
+| `desktop_rehearsal` | Record the exact literals and booleans shown below plus the installed version/build and SHA-256 digests of the retained private transcript and raw journal. |
+
+The following is the complete, type-correct v2 working template. Its repeated
+sample digests are deliberately not candidate values and will fail exact-SHA
+validation. Replace the candidate SHA/tree/build, all private evidence digests,
+and the observed private pass/skip counts. Keep the fixed statuses, booleans,
+version and five-edit output digest exactly as shown unless the executable
+schema changes in a later release.
+
+<!-- acceptance-v2-template-begin -->
+```json
+{
+  "schema_version": "veqtor_release_acceptance.v2",
+  "candidate_sha": "0000000000000000000000000000000000000000",
+  "candidate_tree": "1111111111111111111111111111111111111111",
+  "producer_build": "source-snapshot-v1-sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "public_matrix": {
+    "python_3_12": "passed",
+    "python_3_13": "passed",
+    "python_3_14": "passed",
+    "minimum_direct": "passed"
+  },
+  "private_dogfood": {
+    "used": {
+      "passed": 4,
+      "skipped": 0,
+      "corpus_before_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "corpus_after_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+    },
+    "clean": {
+      "passed": 4,
+      "skipped": 0,
+      "corpus_before_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+      "corpus_after_sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+    }
+  },
+  "payment_preflight": {
+    "batch_applicable": false,
+    "refusal_code": "counter_position_unsupported",
+    "match_count": 1
+  },
+  "five_edit_batch": {
+    "preflight_applicable": true,
+    "apply_status": "ok",
+    "applied_count": 5,
+    "round_trip_status": "passed",
+    "collateral_change_count": 0,
+    "output_sha256": "123771a24f4a3f7e3ae6e9e4785c1e5ebd10edb9923ddcec8dcc0d340f886c41"
+  },
+  "installed_two_export": {
+    "first_access_count": 0,
+    "second_access_count": 1,
+    "first_event_absent_from_windows": true,
+    "current_event_outside_own_snapshot": true,
+    "runtime_producer_build": "source-snapshot-v1-sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "runtime_version": "0.1.2"
+  },
+  "desktop_rehearsal": {
+    "verdict": "passed",
+    "client": "claude_desktop_fresh_copy",
+    "fresh_copy": true,
+    "event_omitted_from_records": true,
+    "current_event_not_in_access_count": true,
+    "raw_vs_compact_explained": true,
+    "runtime_producer_build": "source-snapshot-v1-sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "runtime_version": "0.1.2",
+    "transcript_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+    "raw_journal_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+  }
+}
+```
+<!-- acceptance-v2-template-end -->
 
 Every field is required and exact; v1 packets are rejected. No filenames,
 local paths, quotes or document text are allowed by the packet schema. The
 packet has one accepted byte representation: UTF-8 JSON produced with sorted
 keys, `ensure_ascii=False`, `allow_nan=False`, separators `(",", ":")`, and no
-trailing newline or whitespace. Create this canonical compact packet only after
-both live gates have run against the final clean commit that will be promoted,
-then validate it against that exact candidate:
+trailing newline or whitespace. After replacing the sample values in a private
+working copy of the template, create the canonical compact file with:
+
+```bash
+WORKING_PACKET=/secure/external/veqtor-v0.1.2-acceptance.working.json
+EVIDENCE_PACKET=/secure/external/veqtor-v0.1.2-acceptance.json
+uv run --frozen python - "$WORKING_PACKET" "$EVIDENCE_PACKET" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+value = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+Path(sys.argv[2]).write_bytes(
+    json.dumps(
+        value,
+        allow_nan=False,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+)
+PY
+```
+
+Only after all required gates have run against the final clean commit, validate
+the canonical file against that exact candidate:
 
 ```bash
 uv run --frozen python scripts/check_acceptance_evidence.py \
-  --source-root . /secure/external/veqtor-v0.1.1-acceptance.json
+  --source-root . /secure/external/veqtor-v0.1.2-acceptance.json
 ```
 
 The validator rejects every non-canonical representation and prints the SHA-256
-of the exact packet bytes. The private operator retains the packet, raw
-transcripts and corpus manifests outside git. The public review records only
-that digest, validator PASS and the I1-I8 table. Before dispatch, capture the
-same digest from the canonical file:
+of the exact packet bytes. Retain supporting private material outside git.
+Before dispatch, capture the same digest from the canonical file:
 
 ```bash
-EVIDENCE_PACKET=/secure/external/veqtor-v0.1.1-acceptance.json
+EVIDENCE_PACKET=/secure/external/veqtor-v0.1.2-acceptance.json
 EVIDENCE_SHA256=$(shasum -a 256 "$EVIDENCE_PACKET" | awk '{print $1}')
 ```
 
@@ -231,7 +384,7 @@ job; it is not a boundary that runs before candidate code:
 
 ```bash
 gh workflow run release.yml \
-  -f version=0.1.1 \
+  -f version=0.1.2 \
   -f commit_sha="$(git rev-parse HEAD)" \
   -f acceptance_evidence="$(<"$EVIDENCE_PACKET")" \
   -f acceptance_evidence_sha256="$EVIDENCE_SHA256"
@@ -240,21 +393,33 @@ gh workflow run release.yml \
 The workflow materializes the string input and verifies this expected digest
 before installing candidate dependencies. The candidate validator independently
 checks the same digest, canonical bytes, closed schema, exact commit/tree and
-runtime source identity before reusable CI begins.
+runtime source identity before reusable CI begins. No public distribution is
+mutated until that CI graph and the current-attempt verifier both pass. The
+workflow then reserves the durable exact tag, publishes and verifies PyPI, and
+only then publishes the immutable GitHub Release.
 
 ## Promotion order
 
 ```text
 test implementation tip
 → create and independently review public squash
+→ configure protected `release` and `pypi` environments
+→ configure the exact pending PyPI Trusted Publisher
+→ verify Immutable Releases, tag policy and repository security settings
 → merge public squash
-→ make repository public
-→ configure protected release environment
-→ enable Immutable Releases and tag policy
 → dispatch exact-SHA workflow
-→ run consumer verifier
-→ install that release artifact for the demo
+→ run the full current-attempt gates
+→ reserve the protected exact lightweight tag
+→ publish and verify PyPI
+→ publish and verify the immutable GitHub Release
+→ install the exact public PyPI release for the demo
 ```
+
+If promotion stops after reservation, the protected tag remains the only
+permitted recovery anchor. If it stops during or after PyPI publication, a full
+rerun must revalidate the same tag and current-attempt artifacts, complete or
+verify the exact PyPI file set, and pass the public onboarding smoke before the
+GitHub Release can become visible and immutable.
 
 Once one exact-SHA review passes this contract, the v0.1 scope freezes. A later
 candidate must rerun the whole contract; a nonblocking improvement moves to the

@@ -42,6 +42,34 @@ def test_artifact_directory_requires_one_wheel_and_one_sdist(tmp_path: Path) -> 
     }
 
 
+def test_pypi_mirror_must_match_the_approved_distribution_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    approved = tmp_path / "approved"
+    mirror = tmp_path / "mirror"
+    approved.mkdir()
+    mirror.mkdir()
+    for directory in (approved, mirror):
+        (directory / "package.whl").write_bytes(b"wheel")
+        (directory / "package.tar.gz").write_bytes(b"sdist")
+
+    monkeypatch.setattr(rebuild, "_assert_toolchain", lambda: None)
+    monkeypatch.setattr(
+        rebuild,
+        "_build",
+        lambda source_root, output: rebuild._artifact_bytes(approved),
+    )
+
+    assert set(rebuild.verify(tmp_path, approved, mirror)) == {
+        "package.whl",
+        "package.tar.gz",
+    }
+    (mirror / "package.whl").write_bytes(b"changed")
+    with pytest.raises(rebuild.ReproducibilityError, match="bytes differ"):
+        rebuild.verify(tmp_path, approved, mirror)
+
+
 def test_cli_requires_an_approved_candidate_directory() -> None:
     completed = subprocess.run(
         [sys.executable, str(SCRIPT), "--source-root", str(ROOT)],

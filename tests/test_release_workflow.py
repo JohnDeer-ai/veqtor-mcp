@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Ratchets for the trusted release workflow ordering and write boundary."""
 
+import json
 import os
 import re
 import subprocess
@@ -137,10 +138,33 @@ def test_detached_checkout_models_tagged_ancestor_recovery(tmp_path: Path) -> No
 
 def test_release_promotion_is_exact_sha_retry_safe_and_write_scoped() -> None:
     workflow = (ROOT / ".github/workflows/release.yml").read_text()
-    attempt_guard = _job(workflow, "attempt_guard", "publish")
-    publish = _job(workflow, "publish", None)
+    attempt_guard = _job(workflow, "attempt_guard", "reserve_tag")
+    reserve_tag = _job(workflow, "reserve_tag", "publish")
+    publish = _job(workflow, "publish", "publish_pypi")
 
-    assert workflow.count("contents: write") == 1
+    write_jobs = {
+        name for name, body in _jobs(workflow).items() if "contents: write" in body
+    }
+    assert write_jobs == {"reserve_tag", "publish"}
+    assert "needs: [guard, verify, attempt_guard]" in reserve_tag
+    assert (
+        "if: ${{ needs.attempt_guard.outputs.verified_attempt == "
+        "format('{0}', github.run_attempt) }}"
+    ) in reserve_tag
+    assert "environment: release" in reserve_tag
+    assert "ref: ${{ inputs.commit_sha }}" in reserve_tag
+    assert "persist-credentials: false" in reserve_tag
+    assert "RELEASE_PHASE: reserve_tag" in reserve_tag
+    assert "RELEASE_ADMIN_READ_TOKEN" in reserve_tag
+    assert "contents: write" in reserve_tag
+    assert "id-token:" not in reserve_tag
+    assert "actions:" not in reserve_tag
+    assert "reserved_attempt: ${{ steps.reserve.outputs.reserved_attempt }}" in reserve_tag
+    assert "printf 'reserved_attempt=%s\\n' \"$GITHUB_RUN_ATTEMPT\"" in reserve_tag
+
+    assert (
+        "needs: [guard, verify, attempt_guard, reserve_tag, verify_pypi]" in publish
+    )
     assert "environment: release" in publish
     assert "group: release-${{ inputs.version }}" in workflow
     assert "cancel-in-progress: false" in workflow
@@ -149,9 +173,14 @@ def test_release_promotion_is_exact_sha_retry_safe_and_write_scoped() -> None:
     assert "python3 .github/scripts/promote_release.py" in publish
     assert "RELEASE_ADMIN_READ_TOKEN" in publish
     assert "python3 .github/scripts/verify_published_release.py" in publish
-    assert "needs: [guard, verify, attempt_guard]" in publish
     assert "needs.attempt_guard.outputs.verified_attempt" in publish
     assert 'test "$VERIFIED_ATTEMPT" = "$GITHUB_RUN_ATTEMPT"' in publish
+    assert "needs.reserve_tag.outputs.reserved_attempt" in publish
+    assert 'test "$RESERVED_ATTEMPT" = "$GITHUB_RUN_ATTEMPT"' in publish
+    assert "TAG_RESERVED_ATTEMPT: ${{ needs.reserve_tag.outputs.reserved_attempt }}" in publish
+    assert "contents: write" in publish
+    assert "id-token:" not in publish
+    assert "actions:" not in publish
     assert "sha256sum dist/* >" not in publish
     assert "--target" not in publish
     promotion = (
@@ -185,7 +214,27 @@ def test_read_only_artifact_job_owns_and_smokes_the_flat_manifest() -> None:
     assert "--source-root . --commit \"$VERIFY_REF\"" in artifact
     assert "name: ${{ env.DIST_ARTIFACT_NAME }}" in artifact
     assert "path: dist/*" in artifact
+    assert "name: ${{ env.PYPI_ARTIFACT_NAME }}" in artifact
+    assert "dist/*.whl" in artifact
+    assert "dist/*.tar.gz" in artifact
     assert "overwrite: true" not in artifact
+
+
+def test_artifact_build_has_pinned_static_and_locked_dependency_gates() -> None:
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+    artifact = _job(workflow, "artifact", "reproduce")
+
+    ruff = "uvx ruff==0.15.21 check ."
+    export = "uv export --frozen --no-dev --no-emit-project"
+    audit = "uvx pip-audit==2.10.1"
+    build = "uv build --clear"
+    assert ruff in artifact
+    assert export in artifact
+    assert "--format requirements-txt" in artifact
+    assert audit in artifact
+    assert '--requirement "$LOCKED_REQUIREMENTS"' in artifact
+    assert "--require-hashes --disable-pip --progress-spinner off" in artifact
+    assert artifact.index(ruff) < artifact.index(audit) < artifact.index(build)
 
 
 def test_independent_rebuild_is_a_required_secretless_ci_job() -> None:
@@ -200,23 +249,80 @@ def test_independent_rebuild_is_a_required_secretless_ci_job() -> None:
     assert "persist-credentials: false" in reproduce
     assert "check_reproducible_build.py" in reproduce
     assert "--approved-dir approved-dist" in reproduce
+    assert "--mirror-dir approved-pypi-dist" in reproduce
     assert "name: ${{ env.DIST_ARTIFACT_NAME }}" in reproduce
+    assert "name: ${{ env.PYPI_ARTIFACT_NAME }}" in reproduce
     assert "secrets:" not in reproduce
 
 
 def test_release_artifacts_are_scoped_to_the_current_run_attempt() -> None:
     ci = (ROOT / ".github/workflows/ci.yml").read_text()
     release = (ROOT / ".github/workflows/release.yml").read_text()
-    publish = _job(release, "publish", None)
+    publish = _job(release, "publish", "publish_pypi")
     identity = "veqtor-mcp-dist-${{ github.run_id }}-${{ github.run_attempt }}"
+    pypi_identity = (
+        "veqtor-mcp-pypi-dist-${{ github.run_id }}-${{ github.run_attempt }}"
+    )
 
     assert f"DIST_ARTIFACT_NAME: {identity}" in ci
     assert f"DIST_ARTIFACT_NAME: {identity}" in release
+    assert f"PYPI_ARTIFACT_NAME: {pypi_identity}" in ci
+    assert f"PYPI_ARTIFACT_NAME: {pypi_identity}" in release
     assert "name: ${{ env.DIST_ARTIFACT_NAME }}" in publish
     assert "name: veqtor-mcp-dist\n" not in ci
     assert "name: veqtor-mcp-dist\n" not in release
     assert "overwrite: true" not in ci
     assert "overwrite: true" not in release
+
+
+def test_pypi_publish_uses_exact_artifact_oidc_and_public_verification() -> None:
+    workflow = (ROOT / ".github/workflows/release.yml").read_text()
+    publish_pypi = _job(workflow, "publish_pypi", "verify_pypi")
+    verify_pypi = _job(workflow, "verify_pypi", None)
+
+    assert "needs: [attempt_guard, reserve_tag]" in publish_pypi
+    assert (
+        "if: ${{ needs.reserve_tag.outputs.reserved_attempt == "
+        "format('{0}', github.run_attempt) }}"
+    ) in publish_pypi
+    assert "name: pypi" in publish_pypi
+    assert "https://pypi.org/project/veqtor-mcp/${{ inputs.version }}/" in publish_pypi
+    assert publish_pypi.count("id-token: write") == 1
+    assert workflow.count("id-token: write") == 1
+    assert "contents:" not in publish_pypi
+    assert "actions:" not in publish_pypi
+    assert "secrets:" not in publish_pypi
+    assert "password:" not in publish_pypi
+    assert "user:" not in publish_pypi
+    assert publish_pypi.count("uses:") == 2
+    assert "name: ${{ env.PYPI_ARTIFACT_NAME }}" in publish_pypi
+    assert "path: dist" in publish_pypi
+    assert (
+        "pypa/gh-action-pypi-publish@"
+        "cef221092ed1bacb1cc03d23a2d87d1d172e277b"
+    ) in publish_pypi
+    assert "packages-dir: dist/" in publish_pypi
+    assert "attestations: true" in publish_pypi
+    assert "skip-existing: true" in publish_pypi
+
+    assert "needs: [publish_pypi]" in verify_pypi
+    assert "contents: read" in verify_pypi
+    assert "id-token:" not in verify_pypi
+    assert "ref: ${{ inputs.commit_sha }}" in verify_pypi
+    assert "persist-credentials: false" in verify_pypi
+    assert "name: ${{ env.PYPI_ARTIFACT_NAME }}" in verify_pypi
+    assert "verify_published_pypi.py" in verify_pypi
+    assert 'cd "$RUNNER_TEMP"' in verify_pypi
+    assert 'uvx "veqtor-mcp@$VERSION" --version' in verify_pypi
+    assert 'uvx "veqtor-mcp@$VERSION" doctor' in verify_pypi
+    assert (
+        'uvx --from "veqtor-mcp==$VERSION" veqtor-demo-rounds' in verify_pypi
+    )
+    assert '"$RUNNER_TEMP/veqtor-public-demo"' in verify_pypi
+    assert "-name '*.docx'" in verify_pypi
+    assert verify_pypi.index("verify_published_pypi.py") < verify_pypi.index(
+        'uvx "veqtor-mcp@$VERSION" --version'
+    )
 
 
 def test_release_build_inputs_are_pinned() -> None:
@@ -262,23 +368,54 @@ def test_recovery_contract_distinguishes_new_dispatch_from_advanced_main() -> No
     assert "selective job reruns fail closed" not in releasing
 
 
-def test_product_acceptance_requires_two_export_live_rehearsal() -> None:
+def test_product_acceptance_documents_complete_path_free_packet() -> None:
     releasing = (ROOT / "RELEASING.md").read_text()
     smoke = (ROOT / "scripts" / "installed_wheel_smoke.py").read_text()
 
-    assert "installed-wheel smoke performs two live MCP exports" in releasing
-    assert (
-        "fresh-copy Claude Desktop rehearsal is release-blocking" in releasing
-    )
-    assert "first event exists locally but is omitted" in releasing
+    assert "installed wheel completes the six-tool synthetic smoke" in releasing
+    assert "fresh-copy Claude Desktop rehearsal" in releasing
+    assert "Claude Code" not in releasing
+    assert "canonical path-free acceptance packet" in releasing
+    assert "never filenames, local paths, quotations or document text" in releasing
+    assert "Private dogfood passes" in releasing
+    assert "`payment_preflight`" in releasing
+    assert "`five_edit_batch`" in releasing
+    assert "scripts/installed_wheel_smoke.py" in releasing
+    assert "Do not infer or" in releasing
+    assert "Only after all required gates" in releasing
+
+    template = releasing.split("<!-- acceptance-v2-template-begin -->", 1)[1]
+    template = template.split("<!-- acceptance-v2-template-end -->", 1)[0]
+    packet = json.loads(template.split("```json\n", 1)[1].split("\n```", 1)[0])
+    assert set(packet) == {
+        "schema_version",
+        "candidate_sha",
+        "candidate_tree",
+        "producer_build",
+        "public_matrix",
+        "private_dogfood",
+        "payment_preflight",
+        "five_edit_batch",
+        "installed_two_export",
+        "desktop_rehearsal",
+    }
+    assert set(packet["private_dogfood"]) == {"used", "clean"}
+    assert packet["payment_preflight"] == {
+        "batch_applicable": False,
+        "refusal_code": "counter_position_unsupported",
+        "match_count": 1,
+    }
+    assert packet["five_edit_batch"]["applied_count"] == 5
+    assert packet["five_edit_batch"]["collateral_change_count"] == 0
+    assert packet["installed_two_export"]["first_access_count"] == 0
+    assert packet["installed_two_export"]["second_access_count"] == 1
+    assert packet["desktop_rehearsal"]["client"] == "claude_desktop_fresh_copy"
     assert "first_access_id" in smoke
     assert 'exported_again["access_count"] == 1' in smoke
     assert 'record["record_type"] != "access_event.v1"' in smoke
-    assert "`installed_two_export`" in releasing
-    assert "`desktop_rehearsal`" in releasing
 
 
-def test_guard_is_the_only_root_of_the_release_job_graph() -> None:
+def test_release_job_graph_has_one_root_and_orders_all_publication() -> None:
     workflow = (ROOT / ".github/workflows/release.yml").read_text()
     jobs = _jobs(workflow)
     roots = [
@@ -287,12 +424,36 @@ def test_guard_is_the_only_root_of_the_release_job_graph() -> None:
         if re.search(r"^    needs:", body, re.MULTILINE) is None
     ]
 
-    assert set(jobs) == {"guard", "verify", "attempt_guard", "publish"}
+    assert set(jobs) == {
+        "guard",
+        "verify",
+        "attempt_guard",
+        "reserve_tag",
+        "publish",
+        "publish_pypi",
+        "verify_pypi",
+    }
     assert roots == ["guard"]
+    assert "needs: guard" in jobs["verify"]
+    assert "needs: [guard, verify]" in jobs["attempt_guard"]
+    assert "needs: [guard, verify, attempt_guard]" in jobs["reserve_tag"]
+    assert "needs: [attempt_guard, reserve_tag]" in jobs["publish_pypi"]
+    assert "needs: [publish_pypi]" in jobs["verify_pypi"]
+    assert (
+        "needs: [guard, verify, attempt_guard, reserve_tag, verify_pypi]"
+        in jobs["publish"]
+    )
+    assert {
+        name for name, body in jobs.items() if "id-token: write" in body
+    } == {"publish_pypi"}
 
 
-def test_all_release_actions_are_pinned_to_full_commit_shas() -> None:
-    for relative in (".github/workflows/ci.yml", ".github/workflows/release.yml"):
+def test_all_release_actions_are_pinned_to_full_shas() -> None:
+    for relative in (
+        ".github/workflows/ci.yml",
+        ".github/workflows/codeql.yml",
+        ".github/workflows/release.yml",
+    ):
         workflow = (ROOT / relative).read_text()
         for line in workflow.splitlines():
             if "uses:" not in line or "./.github/" in line:
@@ -306,7 +467,7 @@ def test_all_release_actions_are_pinned_to_full_commit_shas() -> None:
 def test_release_documents_use_only_the_canonical_project_slug() -> None:
     documents = [
         ROOT / "README.md",
-        ROOT / ".github" / "release-notes" / "v0.1.1.md",
+        ROOT / ".github" / "release-notes" / "v0.1.2.md",
     ]
     combined = "\n".join(path.read_text() for path in documents)
 

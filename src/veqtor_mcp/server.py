@@ -38,6 +38,10 @@ def _tracked_change_author() -> str:
 
 
 mcp = FastMCP("veqtor")
+# FastMCP does not expose the low-level server's product-version argument.
+# Without setting it explicitly, MCP initialization reports the installed SDK
+# version instead of the Veqtor release version.
+mcp._mcp_server.version = __version__
 
 
 def _producer() -> dict[str, str]:

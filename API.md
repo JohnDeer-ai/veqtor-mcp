@@ -13,6 +13,25 @@ contract. The current FastMCP transport may ignore unrecognized object
 properties; clients must use the advertised tool schema. Strict rejection of
 unknown arguments is outside v1.
 
+All DOCX-reading tools share one fail-closed resource envelope before ZIP
+members are decompressed: 50 MiB compressed input, 2,000 members, 100 MiB total
+uncompressed content, 25 MiB per XML member, 50 MiB per other member, and a
+4 MiB central-directory ceiling plus a 200:1 compression-ratio ceiling for
+members larger than 10 MiB. Any XML part Veqtor parses is limited to 100,000
+structural items: elements, attributes, namespace declarations,
+comments and processing instructions; extraction is limited to 10,000 change
+units. Generated candidates must remain within the same 50 MiB compressed-size
+envelope. XML
+`DOCTYPE` declarations are refused rather than loading DTDs or expanding
+entities, and ZIP packages with duplicate member names are refused as
+ambiguous. Tracked text revisions may be nested at most two levels, preserving
+the normal insertion-plus-nested-deletion counter shape without allowing
+recursive text amplification. Limit violations use `resource_limit_exceeded`.
+The Python API exception metadata identifies the limit and allowed/observed
+measurement; the MCP error text exposes the stable code and safe detail.
+`list_rounds` reports the file as skipped with that reason code, while direct
+extraction and verification refuse the operation.
+
 M3 decision records are written by the server, not by the model. MCP tool calls
 write a local JSONL sidecar in `.veqtor/decision-records.jsonl` inside the
 existing matter folder, unless disabled by
@@ -118,7 +137,10 @@ Output. Rounds are sorted by filename (the deterministic v1 round order);
 Word lock files (`~$*`) are ignored, the scan is non-recursive, and files
 that cannot be read as DOCX are reported in `skipped` with a stable reason code
 instead of failing the call. Unexpected implementation failures are not
-converted into successful skips and never expose their exception text:
+converted into successful skips and never expose their exception text. One
+scan accepts at most 500 candidate DOCX files and 500 MiB of aggregate candidate
+file size at scan time; exceeding either folder-level bound refuses the call with
+`resource_limit_exceeded`:
 
 ```json
 {
@@ -159,7 +181,11 @@ its `old_text` quotes the countered proposal (not contract text), and the
 countered unit carries `countered_by` with the strike's revision ids.
 `clause_anchor` is best-effort (`null` when the document offers no
 outline/numbering signal; `label` is omitted rather than guessed when
-numbering cannot be resolved reliably). Revision markup the tool does not
+numbering cannot be resolved reliably). Computed numbering templates, rendered
+labels and explicit manual labels are each capped at 256 characters; Roman
+counters are rendered
+only for values 1-3999. Values outside those navigation-only boundaries omit
+the computed label without blocking extraction. Revision markup the tool does not
 decode — formatting changes, moves, paragraph-mark revisions — is counted in
 `unsupported_revisions`, never silently dropped. `revision_count` is the raw
 number of `w:ins`/`w:del` elements in `word/document.xml`. The extractor and
@@ -233,7 +259,7 @@ non-exact result. v1 verifies against the anchored change unit's `new_text`
 then `old_text` (`matches[].side` says which); matching is case-sensitive;
 `normalized` collapses whitespace runs and typographic quotes/dashes. A hash
 mismatch or unknown anchor is an error, never a verdict. Whole-document
-search without an anchor is a later slice.
+search without an anchor is not supported in v1.
 Any refusal after the document snapshot is readable, including an OOXML
 extraction failure, carries `observed_source_sha256` for the bytes that rejected
 the claim. The caller's claimed hash remains asserted input and is digested in
@@ -309,7 +335,7 @@ Output:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "build": "source-snapshot-v1-sha256:example"
   },
   "batch_applicable": true,
@@ -351,7 +377,7 @@ for example:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "build": "source-snapshot-v1-sha256:example"
   },
   "batch_applicable": false,
@@ -486,6 +512,9 @@ coerced:
 | `reinstate_text` present but not a non-empty string | `invalid_edit` |
 | Unknown edit or anchor field | `invalid_edit` |
 | Text containing an XML-incompatible character | `invalid_edit` |
+| More than 100 edits in one atomic batch | `resource_limit_exceeded` |
+| More than 20,000 new characters in one edit | `resource_limit_exceeded` |
+| More than 200,000 new characters across the batch | `resource_limit_exceeded` |
 
 `delete_text_missing` therefore means that no usable non-empty deletion string
 was supplied; it is not limited to the physical absence of the JSON key.
@@ -543,7 +572,7 @@ Output:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "build": "source-snapshot-v1-sha256:example"
   },
   "applied": [
@@ -696,7 +725,7 @@ Output:
       "created_at": "2026-07-09T12:00:00Z",
       "tool_name": "verify_quote",
       "workspace": {"sha256": "example-workspace-digest", "omitted": true},
-      "producer": {"name": "veqtor-mcp", "version": "0.1.1", "build": "source-snapshot-v1-sha256:..."},
+      "producer": {"name": "veqtor-mcp", "version": "0.1.2", "build": "source-snapshot-v1-sha256:..."},
       "payloads": "compact",
       "input": {"sha256": "example-input-digest", "omitted": true},
       "result": {

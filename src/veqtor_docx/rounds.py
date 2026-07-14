@@ -11,16 +11,22 @@ from pathlib import Path
 from ._ooxml import (
     DOCUMENT_PART,
     DocxError,
+    ResourceLimitError,
     TEXT_REVISION_TAGS,
     UserPathError,
     ZIP_READ_ERRORS,
     parse_xml,
+    read_docx_payload,
     resolve_user_path,
+    validate_docx_archive,
+    validate_docx_central_directory,
 )
 
 _SUPPORTED_DOCX_COMPRESSION = frozenset(
     {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}
 )
+MAX_ROUND_CANDIDATES = 500
+MAX_ROUND_TOTAL_INPUT_BYTES = 500 * 1024 * 1024
 
 
 class RoundError(DocxError):
@@ -31,17 +37,31 @@ class RoundError(DocxError):
         self.code = code
 
 
-def _round_facts(path: Path) -> tuple[str, int]:
-    """sha256 and revision count from one byte snapshot of the file."""
+def _round_facts(path: Path) -> tuple[str, int, int]:
+    """sha256, revision count, and size from one byte snapshot of the file."""
     try:
-        payload = path.read_bytes()
+        payload = read_docx_payload(path)
+    except ResourceLimitError as exc:
+        raise RoundError(exc.code, exc.detail) from exc
     except OSError as exc:
         raise RoundError("file_unreadable", "cannot read DOCX bytes") from exc
+    try:
+        validate_docx_central_directory(payload)
+    except ResourceLimitError as exc:
+        raise RoundError(exc.code, exc.detail) from exc
+    except DocxError as exc:
+        raise RoundError("invalid_docx", "invalid DOCX package") from exc
     try:
         archive = zipfile.ZipFile(io.BytesIO(payload))
     except ZIP_READ_ERRORS as exc:
         raise RoundError("invalid_docx", "invalid DOCX package") from exc
     with archive:
+        try:
+            validate_docx_archive(archive)
+        except ResourceLimitError as exc:
+            raise RoundError(exc.code, exc.detail) from exc
+        except DocxError as exc:
+            raise RoundError("invalid_docx", "invalid DOCX package") from exc
         try:
             document_info = archive.getinfo(DOCUMENT_PART)
         except KeyError as exc:
@@ -61,10 +81,12 @@ def _round_facts(path: Path) -> tuple[str, int]:
             raise RoundError("invalid_docx", "cannot read main document part") from exc
     try:
         document = parse_xml(document_payload)
+    except ResourceLimitError as exc:
+        raise RoundError(exc.code, exc.detail) from exc
     except DocxError as exc:
         raise RoundError("malformed_xml", "main document XML is malformed") from exc
     count = sum(1 for el in document.iter() if el.tag in TEXT_REVISION_TAGS)
-    return hashlib.sha256(payload).hexdigest(), count
+    return hashlib.sha256(payload).hexdigest(), count, len(payload)
 
 
 def list_rounds(folder: str) -> dict:
@@ -82,27 +104,53 @@ def list_rounds(folder: str) -> dict:
         raise RoundError("not_a_folder", "folder is not a directory")
 
     try:
-        candidates = sorted(
-            (
-                p
-                for p in root.iterdir()
-                if p.is_file()
-                and p.suffix.lower() == ".docx"
-                and not p.name.startswith("~$")
-            ),
-            key=lambda p: p.name.casefold(),
-        )
+        candidates: list[Path] = []
+        candidate_input_bytes = 0
+        for path in root.iterdir():
+            if (
+                not path.is_file()
+                or path.suffix.lower() != ".docx"
+                or path.name.startswith("~$")
+            ):
+                continue
+            if len(candidates) >= MAX_ROUND_CANDIDATES:
+                raise RoundError(
+                    "resource_limit_exceeded",
+                    "folder contains more than "
+                    f"{MAX_ROUND_CANDIDATES} candidate DOCX files",
+                )
+            candidates.append(path)
+            candidate_input_bytes += path.stat().st_size
+            if candidate_input_bytes > MAX_ROUND_TOTAL_INPUT_BYTES:
+                raise RoundError(
+                    "resource_limit_exceeded",
+                    "candidate DOCX files exceed the "
+                    f"{MAX_ROUND_TOTAL_INPUT_BYTES // (1024 * 1024)} MiB "
+                    "aggregate input limit",
+                )
+        candidates.sort(key=lambda path: path.name.casefold())
+    except RoundError:
+        raise
     except OSError as exc:
         raise RoundError("folder_unreadable", "cannot enumerate folder") from exc
 
     rounds: list[dict] = []
     skipped: list[dict] = []
+    total_input_bytes = 0
     for path in candidates:
         try:
-            digest, revision_count = _round_facts(path)
+            digest, revision_count, input_bytes = _round_facts(path)
         except RoundError as exc:
             skipped.append({"filename": path.name, "reason": exc.code})
             continue
+        total_input_bytes += input_bytes
+        if total_input_bytes > MAX_ROUND_TOTAL_INPUT_BYTES:
+            raise RoundError(
+                "resource_limit_exceeded",
+                "candidate DOCX files exceed the "
+                f"{MAX_ROUND_TOTAL_INPUT_BYTES // (1024 * 1024)} MiB "
+                "aggregate input limit",
+            )
         rounds.append(
             {
                 "round_id": f"round-{len(rounds) + 1:03d}",

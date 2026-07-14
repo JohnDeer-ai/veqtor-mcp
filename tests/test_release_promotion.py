@@ -236,6 +236,126 @@ def _promote(tmp_path: Path, fake: FakeGitHub) -> None:
     )
 
 
+def _reserve(fake: FakeGitHub, *, run_attempt: int = 1) -> None:
+    promotion.reserve_tag(
+        runner=fake,
+        repository=REPOSITORY,
+        version=VERSION,
+        commit_sha=COMMIT,
+        run_attempt=run_attempt,
+    )
+
+
+def test_reserve_tag_creates_only_the_exact_lightweight_tag() -> None:
+    fake = FakeGitHub([])
+
+    _reserve(fake)
+
+    assert fake.tag_exists is True
+    assert fake.tag_sha == COMMIT
+    assert fake.tag_kind == "commit"
+    assert fake.release_state == "absent"
+    assert not fake.upload_calls
+    assert any(
+        "--method POST" in " ".join(call)
+        and f"repos/{REPOSITORY}/git/refs" in call
+        for call in fake.calls
+    )
+    assert not any(
+        (endpoint := fake._endpoint(call)) is not None
+        and (
+            endpoint == f"repos/{REPOSITORY}/releases"
+            or endpoint.startswith(f"repos/{REPOSITORY}/releases/")
+        )
+        for call in fake.calls
+    )
+
+
+def test_reserved_tag_allows_same_attempt_publish_after_main_advances(
+    tmp_path: Path,
+) -> None:
+    dist, sums, paths = _artifacts(tmp_path)
+    fake = FakeGitHub(_assets(paths))
+    _reserve(fake, run_attempt=1)
+    assert fake.release_state == "absent"
+    fake.main_sha = "b" * 40
+
+    promotion.promote(
+        runner=fake,
+        asset_uploader=fake.upload_asset,
+        repository=REPOSITORY,
+        version=VERSION,
+        commit_sha=COMMIT,
+        dist_dir=dist,
+        checksums=sums,
+        notes_path=NOTES_PATH,
+        run_attempt=1,
+        allow_current_attempt_ancestor=True,
+    )
+
+    assert fake.release_state == "published"
+    assert any(f"{COMMIT}...main" in " ".join(call) for call in fake.calls)
+
+
+def test_reserve_phase_entrypoint_does_not_enter_release_publication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured = {}
+
+    def capture_reservation(**kwargs) -> None:
+        captured.update(kwargs)
+
+    def reject_publication(**_kwargs) -> None:
+        pytest.fail("reserve_tag phase entered release publication")
+
+    monkeypatch.setattr(promotion, "reserve_tag", capture_reservation)
+    monkeypatch.setattr(promotion, "promote", reject_publication)
+    monkeypatch.setenv("RELEASE_PHASE", "reserve_tag")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "3")
+    monkeypatch.setenv("GITHUB_REPOSITORY", REPOSITORY)
+    monkeypatch.setenv("VERSION", VERSION)
+    monkeypatch.setenv("COMMIT_SHA", COMMIT)
+
+    assert promotion.main() == 0
+    assert captured == {
+        "admin_runner": promotion._admin_runner,
+        "repository": REPOSITORY,
+        "version": VERSION,
+        "commit_sha": COMMIT,
+        "run_attempt": 3,
+    }
+
+
+@pytest.mark.parametrize(
+    ("reserved_attempt", "expected_allowance"),
+    [(None, False), ("2", False), ("3", True)],
+)
+def test_publish_phase_allows_ancestor_recovery_only_for_its_reservation(
+    monkeypatch: pytest.MonkeyPatch,
+    reserved_attempt: str | None,
+    expected_allowance: bool,
+) -> None:
+    captured = {}
+
+    def capture_publication(**kwargs) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(promotion, "promote", capture_publication)
+    monkeypatch.setenv("RELEASE_PHASE", "publish")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "3")
+    monkeypatch.setenv("GITHUB_REPOSITORY", REPOSITORY)
+    monkeypatch.setenv("VERSION", VERSION)
+    monkeypatch.setenv("COMMIT_SHA", COMMIT)
+    if reserved_attempt is None:
+        monkeypatch.delenv("TAG_RESERVED_ATTEMPT", raising=False)
+    else:
+        monkeypatch.setenv("TAG_RESERVED_ATTEMPT", reserved_attempt)
+
+    assert promotion.main() == 0
+    assert captured["run_attempt"] == 3
+    assert captured["allow_current_attempt_ancestor"] is expected_allowance
+
+
 def test_new_release_is_uploaded_as_draft_verified_and_published(tmp_path: Path) -> None:
     dist, sums, paths = _artifacts(tmp_path)
     fake = FakeGitHub(_assets(paths))
@@ -523,17 +643,17 @@ def test_recovery_after_main_advances_requires_later_attempt_and_ancestry(
     assert any(f"{COMMIT}...main" in " ".join(call) for call in fake.calls)
 
 
-def test_new_dispatch_cannot_recover_after_main_advances(tmp_path: Path) -> None:
+def test_same_attempt_ancestor_recovery_is_refused_by_default(tmp_path: Path) -> None:
     _, _, paths = _artifacts(tmp_path)
-    fake = FakeGitHub(
-        _assets(paths),
-        tag_exists=True,
-        release_state="draft",
-        main_sha="b" * 40,
-    )
+    fake = FakeGitHub(_assets(paths))
+    _reserve(fake, run_attempt=1)
+    fake.main_sha = "b" * 40
 
     with pytest.raises(promotion.PromotionError, match="later run attempt"):
         _promote(tmp_path / "run", fake)
+
+    assert fake.release_state == "absent"
+    assert not fake.upload_calls
 
 
 @pytest.mark.parametrize("attempt", [1, 2])
