@@ -6,14 +6,18 @@ build-backend = "hatchling.build"
 
 [project]
 name = "veqtor-mcp"
-version = "0.1.1"
-description = "Local contract DOCX toolchain for MCP-compatible LLM clients"
+version = "0.1.2"
+description = "Local MCP server for verifiable DOCX redline history and fail-closed tracked-change edits"
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
 license = "Apache-2.0"
 authors = [
   { name = "Ilya Shilov" }
 ]
+maintainers = [
+  { name = "Ilya Shilov" }
+]
+keywords = ["mcp", "docx", "redlining", "tracked-changes", "legal-tech"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
@@ -27,8 +31,8 @@ classifiers = [
   "Topic :: Text Processing",
 ]
 dependencies = [
-  "lxml>=5.0,<7",
-  "mcp>=1.14.0,<2",
+  "lxml>=6.1,<7",
+  "mcp>=1.23.0,<2",
 ]
 
 [project.urls]
@@ -36,6 +40,7 @@ Homepage = "https://github.com/JohnDeer-ai/veqtor-mcp"
 Repository = "https://github.com/JohnDeer-ai/veqtor-mcp"
 Issues = "https://github.com/JohnDeer-ai/veqtor-mcp/issues"
 Changelog = "https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/CHANGELOG.md"
+Security = "https://github.com/JohnDeer-ai/veqtor-mcp/security/policy"
 
 [project.optional-dependencies]
 dev = [
@@ -101,5 +106,5 @@ exclude = [
 testpaths = ["tests"]
 pythonpath = ["src"]
 markers = [
-  "private: local dogfood against private corpora (needs VEQTOR_PRIVATE_FIXTURE_DIR)",
+  "private: optional local structural checks against external DOCX corpora (needs VEQTOR_PRIVATE_FIXTURE_DIR)",
 ]

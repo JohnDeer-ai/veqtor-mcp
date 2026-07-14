@@ -15,33 +15,42 @@ so any claim can be re-checked against the source document.
 from __future__ import annotations
 
 import hashlib
-import io
 import re
-import zipfile
 from dataclasses import dataclass
-from pathlib import Path
 
 from lxml import etree
 
 from ._ooxml import (
     DOCUMENT_PART,
     MOVE_REVISION_TAGS,
+    ResourceLimitError,
     TEXT_REVISION_TAGS,
     UNSUPPORTED_REVISION_TAGS,
     DocxError,
     UserPathError,
+    ValidatedDocx,
     ZIP_READ_ERRORS,
     current_text_atom,
+    load_validated_docx,
     parse_xml,
+    read_docx_payload,
     resolve_user_path,
     run_text,
     text_atom,
+    validate_docx_payload_size,
     w,
 )
 from .contracts import (
     STRUCTURAL_REVISION_PARENT_NAMES_V1,
     TEXT_REVISION_SUFFIX_BY_NAME_V1,
 )
+
+MAX_NUMBERING_TEMPLATE_CHARS = 256
+MAX_RENDERED_NUMBERING_LABEL_CHARS = 256
+MAX_ROMAN_COUNTER = 3_999
+MAX_NUMBERING_LEVEL = 8
+MAX_CHANGE_UNITS = 10_000
+MAX_TEXT_REVISION_NESTING_DEPTH = 2
 
 _MANUAL_NUMBER_RE = re.compile(r"^\s*(\d+(?:\.\d+)*[A-Za-z]?|\([a-z]\)|[A-Z]\.)[.\s]\s*")
 _DOTTED_MANUAL_NUMBER_RE = re.compile(
@@ -60,18 +69,18 @@ class _Style:
     based_on: str | None = None
 
 
-def _read_parts(payload: bytes, path: str, parts: tuple[str, ...]) -> dict[str, bytes | None]:
-    """Read the named parts from one in-memory snapshot of the package."""
+def _load_extraction_package(payload: bytes, path: str) -> ValidatedDocx:
+    """Validate one package snapshot and retain the extraction parts."""
     try:
-        with zipfile.ZipFile(io.BytesIO(payload)) as zf:
-            names = set(zf.namelist())
-            if DOCUMENT_PART not in names:
-                raise DocxError(f"no {DOCUMENT_PART} in {path}")
-            return {
-                part: zf.read(part) if part in names else None for part in parts
-            }
+        package = load_validated_docx(
+            payload,
+            capture=(DOCUMENT_PART, "word/styles.xml", "word/numbering.xml"),
+        )
     except ZIP_READ_ERRORS as exc:
         raise DocxError(f"cannot open {path}: {exc}") from exc
+    if DOCUMENT_PART not in package.member_names:
+        raise DocxError(f"no {DOCUMENT_PART} in {path}")
+    return package
 
 
 def _parse_styles(data: bytes | None) -> dict[str, _Style]:
@@ -103,22 +112,40 @@ def _parse_styles(data: bytes | None) -> dict[str, _Style]:
     return styles
 
 
-def _resolve_style(styles: dict[str, _Style], style_id: str | None) -> _Style:
-    """Walk the basedOn chain and return the effective outline/numbering."""
-    resolved = _Style()
-    seen: set[str] = set()
-    current = style_id
-    while current and current not in seen:
-        seen.add(current)
-        style = styles.get(current)
-        if style is None:
-            break
-        if resolved.outline_lvl is None:
-            resolved.outline_lvl = style.outline_lvl
-        if resolved.num_id is None and style.num_id is not None:
-            resolved.num_id = style.num_id
-            resolved.ilvl = style.ilvl
-        current = style.based_on
+def _resolve_styles(styles: dict[str, _Style]) -> dict[str, _Style]:
+    """Resolve every acyclic basedOn chain once, nearest style taking priority."""
+    resolved: dict[str, _Style] = {}
+    for style_id in styles:
+        if style_id in resolved:
+            continue
+        path: list[str] = []
+        path_positions: dict[str, int] = {}
+        current: str | None = style_id
+        while current is not None and current in styles and current not in resolved:
+            if current in path_positions:
+                raise DocxError("style inheritance cycles are unsupported")
+            path_positions[current] = len(path)
+            path.append(current)
+            current = styles[current].based_on
+
+        inherited = resolved.get(current, _Style())
+        for current in reversed(path):
+            style = styles[current]
+            effective = _Style(
+                outline_lvl=(
+                    style.outline_lvl
+                    if style.outline_lvl is not None
+                    else inherited.outline_lvl
+                ),
+                num_id=(
+                    style.num_id
+                    if style.num_id is not None
+                    else inherited.num_id
+                ),
+                ilvl=(style.ilvl if style.num_id is not None else inherited.ilvl),
+            )
+            resolved[current] = effective
+            inherited = effective
     return resolved
 
 
@@ -148,6 +175,9 @@ def _parse_numbering(data: bytes | None) -> dict[str, _NumberingInstance]:
             ilvl_attr = lvl.get(w("ilvl"))
             if ilvl_attr is None:
                 continue
+            ilvl = int(ilvl_attr)
+            if not 0 <= ilvl <= MAX_NUMBERING_LEVEL:
+                continue
             level = _NumberingLevel()
             fmt = lvl.find(w("numFmt"))
             if fmt is not None:
@@ -158,7 +188,7 @@ def _parse_numbering(data: bytes | None) -> dict[str, _NumberingInstance]:
             start = lvl.find(w("start"))
             if start is not None and (val := start.get(w("val"))) is not None:
                 level.start = int(val)
-            levels[int(ilvl_attr)] = level
+            levels[ilvl] = level
         if abstract_id is not None:
             abstracts[abstract_id] = levels
     nums: dict[str, _NumberingInstance] = {}
@@ -168,9 +198,10 @@ def _parse_numbering(data: bytes | None) -> dict[str, _NumberingInstance]:
         if num_id is None or ref is None:
             continue
         overridden = frozenset(
-            int(val)
+            level
             for override in num.findall(w("lvlOverride"))
             if (val := override.get(w("ilvl"))) is not None
+            if 0 <= (level := int(val)) <= MAX_NUMBERING_LEVEL
         )
         nums[num_id] = _NumberingInstance(
             levels=abstracts.get(ref.get(w("val")), {}),
@@ -179,25 +210,70 @@ def _parse_numbering(data: bytes | None) -> dict[str, _NumberingInstance]:
     return nums
 
 
-def _format_counter(value: int, fmt: str) -> str:
+def _format_counter(value: int, fmt: str) -> str | None:
     if fmt == "lowerLetter":
         return chr(ord("a") + (value - 1) % 26)
     if fmt == "upperLetter":
         return chr(ord("A") + (value - 1) % 26)
     if fmt in ("lowerRoman", "upperRoman"):
+        if not 1 <= value <= MAX_ROMAN_COUNTER:
+            return None
         numerals = [
             (1000, "m"), (900, "cm"), (500, "d"), (400, "cd"), (100, "c"),
             (90, "xc"), (50, "l"), (40, "xl"), (10, "x"), (9, "ix"),
             (5, "v"), (4, "iv"), (1, "i"),
         ]
-        out = ""
+        parts: list[str] = []
         remaining = value
         for base, glyph in numerals:
-            while remaining >= base:
-                out += glyph
-                remaining -= base
+            count, remaining = divmod(remaining, base)
+            if count:
+                parts.append(glyph * count)
+        out = "".join(parts)
         return out.upper() if fmt == "upperRoman" else out
     return str(value)
+
+
+def _render_numbering_label(
+    template: str,
+    instance: _NumberingInstance,
+    counters: dict[int, int],
+) -> str | None:
+    """Render one bounded label, omitting unsupported numbering honestly."""
+    if len(template) > MAX_NUMBERING_TEMPLATE_CHARS:
+        return None
+
+    parts: list[str] = []
+    rendered_length = 0
+    cursor = 0
+    formatted: dict[int, str] = {}
+    for match in re.finditer(r"%(\d+)", template):
+        level_index = int(match.group(1)) - 1
+        if level_index in instance.overridden or level_index not in counters:
+            return None
+        replacement = formatted.get(level_index)
+        if replacement is None:
+            replacement = _format_counter(
+                counters[level_index],
+                instance.levels.get(level_index, _NumberingLevel()).fmt,
+            )
+            if replacement is None:
+                return None
+            formatted[level_index] = replacement
+
+        literal = template[cursor : match.start()]
+        rendered_length += len(literal) + len(replacement)
+        if rendered_length > MAX_RENDERED_NUMBERING_LABEL_CHARS:
+            return None
+        parts.extend((literal, replacement))
+        cursor = match.end()
+
+    tail = template[cursor:]
+    rendered_length += len(tail)
+    if rendered_length > MAX_RENDERED_NUMBERING_LABEL_CHARS:
+        return None
+    parts.append(tail)
+    return "".join(parts).rstrip(".") or None
 
 
 class _NumberingCounters:
@@ -225,35 +301,18 @@ class _NumberingCounters:
             del counters[deeper]
 
         template = levels[ilvl].text or f"%{ilvl + 1}."
-        referenced = [int(m) - 1 for m in re.findall(r"%(\d+)", template)]
-        for level_index in referenced:
-            if level_index in instance.overridden:
-                return None
-            if level_index not in counters:
-                return None
-        label = re.sub(
-            r"%(\d+)",
-            lambda m: _format_counter(
-                counters[int(m.group(1)) - 1],
-                levels.get(int(m.group(1)) - 1, _NumberingLevel()).fmt,
-            ),
+        return _render_numbering_label(
             template,
+            instance,
+            counters,
         )
-        return label.rstrip(".") or None
-
-
-@dataclass(frozen=True)
-class _ReadingToken:
-    node: etree._Element
-    start: int
-    end: int
 
 
 @dataclass(frozen=True)
 class _ParagraphReading:
     text: str
     offsets_before: dict[int, int]
-    tokens: tuple[_ReadingToken, ...]
+    visible_spans_by_revision: dict[int, tuple[int, int]]
 
 
 def _current_node_text(node: etree._Element) -> str:
@@ -265,7 +324,7 @@ def _current_paragraph_reading(para: etree._Element) -> _ParagraphReading:
     """Build one canonical string/offset map from the same OOXML traversal."""
     parts: list[str] = []
     offsets_before: dict[int, int] = {}
-    tokens: list[_ReadingToken] = []
+    visible_spans_by_revision: dict[int, tuple[int, int]] = {}
     offset = 0
     for node in para.iter():
         offsets_before[id(node)] = offset
@@ -275,20 +334,37 @@ def _current_paragraph_reading(para: etree._Element) -> _ParagraphReading:
         start = offset
         parts.append(contribution)
         offset += len(contribution)
-        tokens.append(_ReadingToken(node, start, offset))
-    return _ParagraphReading("".join(parts), offsets_before, tuple(tokens))
-
-
-def _paragraph_new_text(para: etree._Element) -> str:
-    """Paragraph text as it reads with insertions accepted and deletions gone."""
-    return _current_paragraph_reading(para).text
+        for ancestor in node.iterancestors():
+            if ancestor is para:
+                break
+            if ancestor.tag not in TEXT_REVISION_TAGS:
+                continue
+            key = id(ancestor)
+            existing = visible_spans_by_revision.get(key)
+            visible_spans_by_revision[key] = (
+                start if existing is None else min(existing[0], start),
+                offset if existing is None else max(existing[1], offset),
+            )
+    return _ParagraphReading(
+        "".join(parts),
+        offsets_before,
+        visible_spans_by_revision,
+    )
 
 
 def _manual_label_from_text(text: str, *, dotted_only: bool = False) -> str | None:
     """Return only an explicit leading manual label; never infer one."""
     pattern = _DOTTED_MANUAL_NUMBER_RE if dotted_only else _MANUAL_NUMBER_RE
-    match = pattern.match(text.strip())
-    return match.group(1).rstrip(".") if match else None
+    stripped = text.strip()
+    match = pattern.match(stripped)
+    if match is None:
+        return None
+    start, end = match.span(1)
+    while end > start and stripped[end - 1] == ".":
+        end -= 1
+    if end - start > MAX_RENDERED_NUMBERING_LABEL_CHARS:
+        return None
+    return stripped[start:end]
 
 
 def _heading_from_text(text: str) -> tuple[str | None, str | None]:
@@ -313,6 +389,26 @@ class _Wrapper:
     rev_id: str | None
     text: str
     nested_in: str | None = None  # containing w:ins id for cross-author counters
+
+
+def _validate_text_revision_nesting(document: etree._Element) -> None:
+    """Bound wrapper-text duplication before any revision text is materialized."""
+    depth = 0
+    for event, element in etree.iterwalk(document, events=("start", "end")):
+        if element.tag not in TEXT_REVISION_TAGS:
+            continue
+        if event == "start":
+            depth += 1
+            if depth > MAX_TEXT_REVISION_NESTING_DEPTH:
+                raise ResourceLimitError(
+                    "text_revision_nesting_depth",
+                    "tracked text revisions are nested too deeply",
+                    allowed_count=MAX_TEXT_REVISION_NESTING_DEPTH,
+                    observed_count=depth,
+                    observed_at_least=True,
+                )
+        else:
+            depth -= 1
 
 
 def _nested_del_author_differs(node: etree._Element, wrapper: etree._Element) -> bool | None:
@@ -429,22 +525,19 @@ def _paragraph_stream(para: etree._Element) -> list[tuple[str, object]]:
 
 
 def _paragraph_context(
-    para: etree._Element,
+    reading: _ParagraphReading,
     group: list[_Wrapper],
     new_text: str,
+    manual_label: str | None,
 ) -> dict[str, object]:
     """Bounded context around one unit in the paragraph's current reading."""
     del new_text  # element identity, never text uniqueness, locates the unit
-    reading = _current_paragraph_reading(para)
     current = reading.text
-    group_elements = {id(wrapper.element) for wrapper in group}
     visible_spans = [
-        (token.start, token.end)
-        for token in reading.tokens
-        if any(
-            id(ancestor) in group_elements
-            for ancestor in token.node.iterancestors()
-        )
+        span
+        for wrapper in group
+        if (span := reading.visible_spans_by_revision.get(id(wrapper.element)))
+        is not None
     ]
     if visible_spans:
         start = min(span[0] for span in visible_spans)
@@ -460,7 +553,7 @@ def _paragraph_context(
     return {
         "before": current[before_start:start],
         "after": current[end:after_end],
-        "manual_label": _manual_label_from_text(current, dotted_only=True),
+        "manual_label": manual_label,
         "truncated_before": before_start > 0,
         "truncated_after": after_end < len(current),
     }
@@ -548,7 +641,9 @@ def extract_redlines(path: str) -> dict:
     # MCP clients pass user-written paths; "~/Deals/x.docx" must just work,
     # and references must carry the openable expanded path.
     try:
-        payload = Path(path).read_bytes()
+        payload = read_docx_payload(path)
+    except ResourceLimitError:
+        raise
     except OSError as exc:
         raise DocxError(f"cannot read {path}: {exc}") from exc
     return _extract_from_bytes(payload, path)
@@ -556,9 +651,32 @@ def extract_redlines(path: str) -> dict:
 
 def _extract_from_bytes(payload: bytes, path: str) -> dict:
     """Extract from an in-memory snapshot; ``path`` is a label for output."""
+    validate_docx_payload_size(payload)
     file_sha256 = hashlib.sha256(payload).hexdigest()
     try:
-        return _extract_snapshot(payload, path, file_sha256)
+        package = _load_extraction_package(payload, path)
+    except DocxError as exc:
+        metadata = getattr(exc, "metadata", None)
+        if not isinstance(metadata, dict):
+            metadata = {}
+            exc.metadata = metadata
+        metadata.setdefault("observed_source_sha256", file_sha256)
+        raise
+    except (IndexError, KeyError, OverflowError, TypeError, ValueError) as exc:
+        error = DocxError(f"cannot extract {path}: invalid OOXML value")
+        error.metadata = {"observed_source_sha256": file_sha256}
+        raise error from exc
+    return _extract_validated(package, path, file_sha256)
+
+
+def _extract_validated(
+    package: ValidatedDocx,
+    path: str,
+    file_sha256: str,
+) -> dict:
+    """Extract facts from an already validated hash-identified package."""
+    try:
+        return _extract_snapshot(package, path, file_sha256)
     except DocxError as exc:
         metadata = getattr(exc, "metadata", None)
         if not isinstance(metadata, dict):
@@ -572,14 +690,21 @@ def _extract_from_bytes(payload: bytes, path: str) -> dict:
         raise error from exc
 
 
-def _extract_snapshot(payload: bytes, path: str, file_sha256: str) -> dict:
-    """Decode a hash-identified package snapshot behind one error boundary."""
-    parts = _read_parts(
-        payload, path, (DOCUMENT_PART, "word/styles.xml", "word/numbering.xml")
+def _extract_snapshot(
+    package: ValidatedDocx,
+    path: str,
+    file_sha256: str,
+) -> dict:
+    """Decode validated parts behind one deterministic OOXML boundary."""
+    document_payload = package.parts.get(DOCUMENT_PART)
+    if document_payload is None:
+        raise DocxError(f"no {DOCUMENT_PART} in {path}")
+    document = parse_xml(document_payload)
+    _validate_text_revision_nesting(document)
+    styles = _resolve_styles(_parse_styles(package.parts.get("word/styles.xml")))
+    numbering = _NumberingCounters(
+        _parse_numbering(package.parts.get("word/numbering.xml"))
     )
-    document = parse_xml(parts[DOCUMENT_PART])
-    styles = _parse_styles(parts["word/styles.xml"])
-    numbering = _NumberingCounters(_parse_numbering(parts["word/numbering.xml"]))
 
     body = document.find(w("body"))
     if body is None:
@@ -616,7 +741,7 @@ def _extract_snapshot(payload: bytes, path: str, file_sha256: str) -> dict:
                         int(ilvl_el.get(w("val"))) if ilvl_el is not None else 0,
                     )
 
-        resolved = _resolve_style(styles, style_id)
+        resolved = styles.get(style_id, _Style())
         outline = para_outline if para_outline is not None else resolved.outline_lvl
         if para_numpr is not None:
             numpr = None if para_numpr[0] == "0" else para_numpr
@@ -629,8 +754,25 @@ def _extract_snapshot(payload: bytes, path: str, file_sha256: str) -> dict:
         # not it is a heading; that is how rendered labels stay correct.
         computed_label = numbering.label(*numpr) if numpr else None
 
+        items = _paragraph_stream(para)
+        for kind, item in items:
+            if kind == "move":
+                bump(etree.QName(item.tag).localname)
+        groups = _group_units(items)
+        paragraph_reading = (
+            _current_paragraph_reading(para)
+            if outline is not None or groups
+            else None
+        )
+        context_manual_label = (
+            _manual_label_from_text(paragraph_reading.text, dotted_only=True)
+            if paragraph_reading is not None
+            else None
+        )
+
         if outline is not None:
-            manual_label, heading = _heading_from_text(_paragraph_new_text(para))
+            assert paragraph_reading is not None
+            manual_label, heading = _heading_from_text(paragraph_reading.text)
             label = computed_label or manual_label
             anchor = (
                 {"label": label, "heading": heading}
@@ -638,15 +780,19 @@ def _extract_snapshot(payload: bytes, path: str, file_sha256: str) -> dict:
                 else None
             )
 
-        items = _paragraph_stream(para)
-        for kind, payload in items:
-            if kind == "move":
-                bump(etree.QName(payload.tag).localname)
-
-        for group_index, group in enumerate(_group_units(items)):
+        for group_index, group in enumerate(groups):
             fields = _group_change_fields(group)
             if fields is None:
                 continue  # empty wrappers carry no reviewable text
+            if len(change_units) >= MAX_CHANGE_UNITS:
+                raise ResourceLimitError(
+                    "change_unit_count",
+                    "DOCX contains too many extracted change units",
+                    allowed_count=MAX_CHANGE_UNITS,
+                    observed_count=len(change_units) + 1,
+                    observed_at_least=True,
+                )
+            assert paragraph_reading is not None
             unit = {
                 "change_unit_id": f"cu_{len(change_units) + 1:03d}",
                 "file_sha256": file_sha256,
@@ -655,7 +801,10 @@ def _extract_snapshot(payload: bytes, path: str, file_sha256: str) -> dict:
                 "date": fields["date"],
                 "clause_anchor": anchor,
                 "paragraph_context": _paragraph_context(
-                    para, group, str(fields["new_text"] or "")
+                    paragraph_reading,
+                    group,
+                    str(fields["new_text"] or ""),
+                    context_manual_label,
                 ),
                 "old_text": fields["old_text"],
                 "new_text": fields["new_text"],

@@ -57,22 +57,27 @@ import tempfile
 import zipfile
 from collections import Counter
 from dataclasses import dataclass
-from pathlib import Path
 
 from lxml import etree
 
 from ._ooxml import (
+    ArchiveValidationError,
     DOCUMENT_PART,
     MOVE_REVISION_TAGS,
+    ResourceLimitError,
     TEXT_REVISION_TAGS,
     UserPathError,
+    ValidatedDocx,
     ZIP_READ_ERRORS,
     current_text_atom,
     is_xml_text_compatible,
+    load_validated_docx,
     parse_xml,
+    read_docx_payload,
     resolve_user_path,
     text_atom,
     tracked_change_author_validation_error,
+    validate_docx_payload_size,
     w,
 )
 from .contracts import (
@@ -92,16 +97,19 @@ from .contracts import (
 from .extract import (
     DocxError,
     _extract_from_bytes,
+    _extract_validated,
     _group_change_fields,
     _group_units,
     _paragraph_stream,
-    extract_redlines,
 )
 
 DEFAULT_AUTHOR = "Veqtor MCP"
 _PLAN_OPERATION_PLAIN = "plain"
 MAX_REVISION_ID = 2_147_483_647
 MAX_REVISION_ID_DIGITS = len(str(MAX_REVISION_ID))
+MAX_EDIT_BATCH_SIZE = 100
+MAX_NEW_TEXT_CHARS_PER_EDIT = 20_000
+MAX_NEW_TEXT_CHARS_PER_BATCH = 200_000
 _ANCHOR_KEYS = frozenset({"change_unit_id", "file_sha256"})
 _DELETE_EDIT_KEYS = frozenset({"anchor", "delete_text", "insert_text"})
 _REINSTATE_EDIT_KEYS = frozenset({"anchor", "reinstate_text"})
@@ -611,27 +619,17 @@ def _relabel_candidate_snapshot_metadata(
 def _read_source_archive(
     payload: bytes,
     source: str,
-) -> tuple[list[zipfile.ZipInfo], dict[str, bytes]]:
+) -> ValidatedDocx:
     """Read every source member or return one provenance-bearing refusal."""
     try:
-        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
-            infos = archive.infolist()
-            names = [info.filename for info in infos]
-            if len(names) != len(set(names)):
-                raise ApplyError(
-                    "file_unextractable",
-                    f"source archive {source} contains duplicate member names",
-                )
-            parts = {
-                info.filename: archive.read(info)
-                for info in infos
-            }
+        return load_validated_docx(payload, capture=None)
+    except ArchiveValidationError as exc:
+        raise ApplyError(exc.code, exc.detail, **exc.metadata) from exc
     except ZIP_READ_ERRORS as exc:
         raise ApplyError(
             "file_unextractable",
             f"cannot read every member of source archive {source}",
         ) from exc
-    return infos, parts
 
 
 def _output_archive_bytes(
@@ -691,6 +689,18 @@ def _validate_edit_shapes(
     MCP clients send loosely typed JSON; none of it may reach the OOXML layer
     as a raw TypeError/AttributeError — fail closed with an error code.
     """
+    if len(edits) > MAX_EDIT_BATCH_SIZE:
+        raise ApplyError(
+            "resource_limit_exceeded",
+            f"edit batch contains more than {MAX_EDIT_BATCH_SIZE} edits",
+            limit="edit_count",
+            allowed_count=MAX_EDIT_BATCH_SIZE,
+            observed_count=len(edits),
+            observed_source_sha256=observed_source_sha256,
+            failure_phase="validation",
+        )
+
+    total_new_text_chars = 0
     for index, edit in enumerate(edits):
         if not isinstance(edit, dict):
             raise ApplyError(
@@ -745,6 +755,17 @@ def _validate_edit_shapes(
                     f"edits[{index}].reinstate_text must be a non-empty string",
                     **_edit_error_metadata(edit, index, observed_source_sha256),
                 )
+            if len(reinstate_text) > MAX_NEW_TEXT_CHARS_PER_EDIT:
+                raise ApplyError(
+                    "resource_limit_exceeded",
+                    "reinstate_text exceeds the per-edit new-text limit",
+                    limit="new_text_chars_per_edit",
+                    allowed_chars=MAX_NEW_TEXT_CHARS_PER_EDIT,
+                    observed_chars=len(reinstate_text),
+                    failure_phase="validation",
+                    **_edit_error_metadata(edit, index, observed_source_sha256),
+                )
+            total_new_text_chars += len(reinstate_text)
             if not is_xml_text_compatible(reinstate_text):
                 raise ApplyError(
                     "invalid_edit",
@@ -782,6 +803,17 @@ def _validate_edit_shapes(
                     f"edits[{index}].insert_text must be a string",
                     **_edit_error_metadata(edit, index, observed_source_sha256),
                 )
+            if len(insert_text) > MAX_NEW_TEXT_CHARS_PER_EDIT:
+                raise ApplyError(
+                    "resource_limit_exceeded",
+                    "insert_text exceeds the per-edit new-text limit",
+                    limit="new_text_chars_per_edit",
+                    allowed_chars=MAX_NEW_TEXT_CHARS_PER_EDIT,
+                    observed_chars=len(insert_text),
+                    failure_phase="validation",
+                    **_edit_error_metadata(edit, index, observed_source_sha256),
+                )
+            total_new_text_chars += len(insert_text)
             if not is_xml_text_compatible(insert_text):
                 raise ApplyError(
                     "invalid_edit",
@@ -789,6 +821,16 @@ def _validate_edit_shapes(
                     "in XML",
                     **_edit_error_metadata(edit, index, observed_source_sha256),
                 )
+        if total_new_text_chars > MAX_NEW_TEXT_CHARS_PER_BATCH:
+            raise ApplyError(
+                "resource_limit_exceeded",
+                "edit batch exceeds the total new-text limit",
+                limit="new_text_chars_per_batch",
+                allowed_chars=MAX_NEW_TEXT_CHARS_PER_BATCH,
+                observed_chars=total_new_text_chars,
+                failure_phase="validation",
+                **_edit_error_metadata(edit, index, observed_source_sha256),
+            )
 
 
 def _resolve_anchor_paragraph(
@@ -851,24 +893,21 @@ def _match_delete_span(
     segments = _paragraph_segments(para)
     reading = _reading_text(segments)
 
-    matches = []
-    cursor = reading.find(delete_text)
-    while cursor != -1:
-        matches.append(cursor)
-        cursor = reading.find(delete_text, cursor + 1)
-    if not matches:
+    first_match = reading.find(delete_text)
+    if first_match == -1:
         raise ApplyError(
             "delete_text_not_found",
             "delete_text does not occur in the anchored clause's current reading",
             match_count=0,
         )
-    if len(matches) > 1:
+    second_match = reading.find(delete_text, first_match + 1)
+    if second_match != -1:
         raise ApplyError(
             "delete_text_ambiguous",
-            f"delete_text occurs {len(matches)} times in the anchored clause",
-            match_count=len(matches),
+            "delete_text occurs more than once in the anchored clause",
+            match_count=2,
         )
-    span = (matches[0], matches[0] + len(delete_text))
+    span = (first_match, first_match + len(delete_text))
 
     touched = [s for s in segments if s.start < span[1] and s.end > span[0]]
     # Matching follows the canonical current reading even when the underlying
@@ -1246,7 +1285,11 @@ def _prepare_candidate(
     # against, the baseline units and the parts being rewritten must all
     # describe the same bytes, even if the file changes underneath us.
     try:
-        source_payload = Path(source).read_bytes()
+        source_payload = read_docx_payload(source)
+    except ResourceLimitError as exc:
+        metadata = dict(exc.metadata)
+        metadata.setdefault("failure_phase", "source")
+        raise ApplyError(exc.code, exc.detail, **metadata) from exc
     except OSError as exc:
         raise ApplyError("file_unreadable", f"cannot read {source}: {exc}") from exc
     source_sha = hashlib.sha256(source_payload).hexdigest()
@@ -1259,10 +1302,12 @@ def _prepare_candidate(
             metadata.setdefault("failure_phase", "validation")
         raise
     try:
-        baseline = _extract_from_bytes(source_payload, source)
+        package = _read_source_archive(source_payload, source)
+        baseline = _extract_validated(package, source, source_sha)
         units_by_id = {u["change_unit_id"]: u for u in baseline["change_units"]}
 
-        infos, parts = _read_source_archive(source_payload, source)
+        infos = list(package.infos)
+        parts = dict(package.parts)
         # Untouched source bytes for the structural half of the round-trip proof.
         source_document_bytes = parts[DOCUMENT_PART]
         document = parse_xml(parts[DOCUMENT_PART])
@@ -1491,6 +1536,10 @@ def _prepare_candidate(
     candidate_payload: bytes | None = None
     try:
         candidate_payload = _output_archive_bytes(infos, parts)
+        validate_docx_payload_size(
+            candidate_payload,
+            limit="candidate_docx_bytes",
+        )
         try:
             result = _extract_from_bytes(candidate_payload, source)
         except DocxError as exc:

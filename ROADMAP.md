@@ -2,87 +2,46 @@
 
 # Roadmap
 
-## Thesis
+## Product direction
 
-Local open-source contract toolchain for LLMs: read, verify, apply, record.
+Veqtor is a local open-source trust layer for contract negotiation workflows:
+read document history, verify quoted wording, preflight a complete proposal,
+apply tracked changes fail-closed, and retain re-checkable provenance.
 
-The LLM decides what to say or propose. The toolchain reads, verifies, applies,
-and records document facts.
+The calling model decides what to analyze or propose. Veqtor supplies bounded
+document facts and deterministic writes; it does not claim legal correctness.
 
-## Milestones
+## Current public Alpha
 
-### M1 - Read
+- Local stdio MCP for macOS and Linux with Python 3.12-3.14.
+- Deterministic discovery of filename-ordered DOCX rounds.
+- Tracked-change extraction from `word/document.xml` with source hashes and
+  structural anchors.
+- Exact and normalized quote verification.
+- Atomic full-pipeline preflight and apply for tracked replace, delete, counter
+  and reinstate operations.
+- Private local decision records with compact export and explicit assurance
+  boundaries.
+- Bounded DOCX/ZIP processing and versioned installation from PyPI, with the
+  same verified wheel and sdist attached to GitHub Releases.
 
-Demo: ask Claude for negotiation history on a topic from a folder of DOCX rounds
-and get a timeline with verifiable references.
+## Next
 
-Includes:
+- Improve nested MCP schemas and output schemas for more generic clients.
+- Extend supported OOXML layouts based on reproducible public issues.
+- Improve round-to-round navigation without turning probabilistic matching
+  into evidence.
+- Refine installation, diagnostics and examples from external-user feedback.
 
-- Initial MCP tool API.
-- One-line install from git.
-- Synthetic English-language fixtures, including mixed numbering, long clauses,
-  comments, tracked changes, and table-like structures.
-- One private real-matter dogfood run.
+## Outside the Alpha
 
-Fallback: trace v1 may return per-round extracted facts with deterministic
-anchors; Claude stitches the story. Full semantic round matching is parking lot.
+- Legal advice or autonomous legal judgment.
+- A hosted service, account system, OAuth layer or custom chat UI.
+- A complete Word editor or silent text rewriting.
+- Cryptographic authorship, trusted timestamps or a tamper-proof audit trail.
+- Guaranteed semantic clause lineage across negotiation rounds.
+- SLA-backed commercial support.
 
-### M2 - Write
-
-Demo: Claude proposes counter wording and creates a new DOCX with real tracked
-changes.
-
-M2 gate:
-
-- Apply only at an anchor produced by the read path.
-- Ambiguous or missing anchor returns an explicit error and writes nothing.
-- Round-trip check: `extract_redlines(new.docx)` returns exactly the proposed
-  edits and no semantic/XML-structural changes outside the touched anchor
-  ranges. Byte-identical DOCX packages are not required because Word may
-  rewrite package metadata.
-
-### M3 - Trust
-
-Demo: deterministic `verify_quote`, slim decision record, and provenance for
-read/write actions.
-
-### M4 - Skill / Public Polish
-
-Demo: a versioned public Alpha that an external user can install, diagnose and
-run through negotiation history, full-pipeline preflight, counterproposal and
-compact provenance without a development checkout.
-
-v0.1 includes versioned GitHub wheel/sdist artifacts, Alpha metadata, installed-
-wheel MCP smoke, bounded paragraph context, configured tracked-change author,
-release documentation and a fresh-user Quickstart. PyPI publication remains a
-later distribution decision; the versioned GitHub release is canonical for
-v0.1.
-
-## Promotion Gates
-
-Each milestone must work with:
-
-- Synthetic public fixtures.
-- One private real matter locally.
-- Claude Code/Desktop through MCP.
-- One-line installation.
-- A documented demo command.
-
-## Kill Criteria
-
-- More than two weeks without a working Claude demo.
-- A feature cannot be explained as read, verify, apply, or record.
-- Generic DOCX editing becomes the product surface instead of negotiation
-  history and verifiable decision records.
-- M1 requires full semantic matching.
-- UI, auth, or hosted infrastructure appears before M4.
-- `ROADMAP.md` plus `API.md` exceed 5-6 pages.
-- A third process/planning document appears.
-
-## Parking Lot
-
-- Semantic cross-round matching.
-- Built-in LLM calls or MCP sampling.
-- Hosted service.
-- Custom chat UI.
-- PyPI Trusted Publishing after the GitHub Alpha channel is proven.
+Public priorities are driven by reproducible
+[GitHub Issues](https://github.com/JohnDeer-ai/veqtor-mcp/issues). Never attach
+real client documents or confidential matter text to an issue.

@@ -14,17 +14,36 @@ Do not open a public issue for a suspected vulnerability or include client
 documents, contract wording, local paths, journal contents, credentials or
 other private matter data in a report.
 
-Use GitHub's private vulnerability reporting / Security Advisory flow for
-`JohnDeer-ai/veqtor-mcp`. Include the affected version and build identity, a
-minimal synthetic reproduction, impact, and whether the issue crosses the
-document, filesystem, MCP-context or compact-export privacy boundary.
+Use [GitHub private vulnerability reporting](https://github.com/JohnDeer-ai/veqtor-mcp/security/advisories/new)
+for `JohnDeer-ai/veqtor-mcp`. Include the affected version and build identity,
+a minimal synthetic reproduction, impact, and whether the issue crosses the
+document, resource, filesystem, MCP-context or compact-export privacy boundary.
+
+Private vulnerability reports are the only supported confidential reporting
+channel for this community-supported Alpha. Ordinary bugs and feature requests
+belong in GitHub Issues and must use synthetic data. No response-time or
+fix-time SLA is provided.
 
 ## Security boundary
 
-Veqtor is a local stdio MCP server for a non-hostile single-user macOS/Linux
-workspace. It validates document anchors, source hashes, output publication and
-private sidecar targets, but it is not a sandbox against another malicious
-process running as the same operating-system user.
+Veqtor is a local stdio MCP server for a single-user macOS/Linux workspace. It
+validates document anchors, source hashes, output publication and private
+sidecar targets. ZIP metadata, methods, encryption flags and layout are checked
+before decoder creation. Every accepted member then has its actual output and
+CRC checked: DEFLATED data is streamed through bounded input/output chunks and
+must reach its real end of stream, while STORED data is a bounded direct span.
+Descriptor boundaries are verified, and no package member is trusted solely
+because its central-directory sizes look safe. Parsed XML node
+counts are checked before full tree construction. A `list_rounds` folder scan
+also has one cumulative 500 MiB actual expanded-output budget: DEFLATED decoder
+output and STORED direct-span bytes remain charged when a package is rejected
+by a later CRC, XML or required-part check. A container-preflight refusal before
+any member-output processing consumes zero; attempting member-output processing
+beyond the budget fails the complete call without returning partial rounds.
+Edit-batch limits are checked before document mutation or output publication.
+These controls do not make Veqtor a sandbox against another malicious process
+running as the same operating-system user or prove that every parser dependency
+is vulnerability-free.
 
 Tool results enter the MCP client conversation and may be sent to the selected
 model provider. The raw `.veqtor/decision-records.jsonl` journal may contain

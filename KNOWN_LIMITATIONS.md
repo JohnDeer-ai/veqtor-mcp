@@ -7,12 +7,55 @@ contract is intentionally narrow.
 
 ## Documents and revisions
 
+- Resource limits are part of the supported contract. Veqtor refuses a DOCX
+  larger than 50 MiB, more than 2,000 ZIP members, more than 100 MiB total
+  expanded content, an XML member larger than 25 MiB, another member larger
+  than 50 MiB, a ZIP central directory larger than 4 MiB, or a member above
+  10 MiB whose expansion ratio exceeds 200:1. A generated candidate must also
+  remain at or below 50 MiB. Parsed XML parts are limited to 100,000 structural
+  items (elements, attributes, namespace declarations, comments and processing
+  instructions), and one extraction is limited to 10,000 change units. A
+  `list_rounds` scan is limited to 500 candidate DOCX files, 500 MiB of
+  aggregate candidate input and 500 MiB of aggregate actual expanded output.
+  DEFLATED decoder output and STORED direct-span bytes are charged even if that
+  file is later skipped; packages refused during container preflight before any
+  member-output processing consume no expanded-output budget.
+  Exceeding the shared scan budget refuses the whole call without a partial
+  result, so large round folders must be split before retrying.
+  Image-heavy, unusually complex or very large legitimate matters may
+  therefore be refused. The Alpha does not expose an override for these safety
+  defaults. Declared metadata is bounded before decoder creation. Every member,
+  including parts a particular tool does not otherwise consume, has its actual
+  output, aggregate output and CRC checked: DEFLATED data is streamed in bounded
+  chunks with an exact end-of-stream check, while STORED data is a bounded
+  direct span.
+- The supported DOCX container subset is intentionally narrow: unencrypted,
+  non-ZIP64 ZIP packages using only `STORED` or `DEFLATED` members. Standard
+  32-bit data descriptors are supported with or without their optional
+  signature. LZMA, BZIP2, Zstandard, unknown methods, ZIP64 members, descriptor
+  mismatches, or disagreement between local and central raw names, flags,
+  methods, CRCs or sizes are refused, as are prefixes, gaps, overlaps and
+  trailing compressed data. Other well-formed non-ZIP64 extra fields may differ
+  between the local and central records.
+- XML parts containing a `DOCTYPE` declaration are refused; Veqtor does not
+  load DTDs or expand custom XML entities.
+- ZIP packages with duplicate member names are refused as ambiguous; no tool
+  silently chooses one duplicate OPC part over another.
 - Extraction and writing cover `word/document.xml`. Comments, headers,
   footers, footnotes and endnotes are not analyzed or edited.
 - Formatting, move, paragraph-mark and structural revision categories are
   counted but not all are converted into editable change units.
 - Complex adjacent or nested OOXML layouts may be refused with a stable error
   rather than rewritten approximately.
+- Tracked text revisions may be nested at most two levels. This supports the
+  ordinary counter shape (a deletion inside a pending insertion) while deeper
+  recursive revision nesting is refused.
+- Cyclic paragraph-style inheritance is refused rather than resolved
+  approximately.
+- Numbering is a navigation aid, not evidence. Numbering templates, computed
+  labels and explicit manual labels are capped at 256 characters, and Roman
+  labels are supported only for values 1-3999. Word numbering levels 0-8 are
+  supported; labels outside those bounds are omitted.
 - Revision ids are provenance, not unique document addresses. Edits are bound
   to hash-scoped paragraph/group positions and a full change-unit fingerprint;
   duplicate ids are handled structurally. New-id allocation supports ASCII
@@ -36,6 +79,9 @@ contract is intentionally narrow.
 
 ## Preflight and apply
 
+- One atomic batch accepts at most 100 edits, at most 20,000 characters of new
+  text per edit, and at most 200,000 new characters across the batch. A limit
+  refusal writes no output and applies no partial edit.
 - A successful preflight proves the shared document-processing pipeline for the
   same source bytes, build, configured author and edits. Apply can still fail if
   the source changes, the output exists, or publication encounters permissions,
@@ -73,5 +119,7 @@ contract is intentionally narrow.
 ## Platforms and delivery
 
 - Supported: macOS/Linux, Python 3.12-3.14, local stdio MCP.
+- The public Alpha is community-supported. Security fixes are provided only
+  for the latest tagged Alpha; response and fix times are not guaranteed.
 - Windows, hosted MCP, OAuth, a custom UI and SLA-backed support are not part of
   v0.1.

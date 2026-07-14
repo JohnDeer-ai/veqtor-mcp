@@ -6,6 +6,64 @@ All notable changes to Veqtor MCP are documented here.
 Publication dates are authoritative in each version's immutable GitHub Release
 through its `published_at` timestamp.
 
+## 0.1.2
+
+Veqtor v0.1.2 Alpha release contents.
+
+### Added
+
+- Fail-closed DOCX/ZIP resource limits covering container size, expanded size,
+  member count, individual parts, parsed XML node count, extracted change
+  units, suspicious compression ratios and round-folder scans bounded by both
+  aggregate input and aggregate actual expanded member output. Folder output
+  remains charged for packages rejected after member-output processing, and
+  exceeding the shared budget returns no partial round list.
+- A single payload-aware DOCX archive boundary reconciles security-relevant
+  local, central and 32-bit data-descriptor fields, accepts only unencrypted
+  `STORED`/`DEFLATED` members, and verifies actual bounded output, CRC and the
+  true DEFLATE end-of-stream before any document fact or edit is accepted.
+- Safe XML parsing that refuses `DOCTYPE` declarations instead of loading DTDs
+  or expanding custom entities.
+- Bounded computed and manual numbering labels that omit oversized templates,
+  manual labels, levels outside 0-8 and Roman counters outside 1-3999 instead
+  of amplifying work.
+- Linear-time paragraph-style inheritance resolution with fail-closed cycle
+  detection.
+- A two-level tracked text-revision nesting boundary that preserves ordinary
+  counter markup while refusing recursive text amplification.
+- Consistent pre-decoder refusal of duplicate names, encryption, ZIP64 and
+  unsupported ZIP methods across list, extract, verify, preflight and apply.
+- Atomic edit-batch limits for edit count, per-edit text and total inserted
+  text, with stable structured refusals.
+- Ordered public promotion that durably reserves the protected exact tag,
+  publishes the approved wheel and sdist through PyPI OIDC Trusted Publishing,
+  verifies their public bytes, provenance and `uvx` onboarding, and only then
+  publishes the matching immutable GitHub Release.
+- Clean-room installation and Claude Code registration through `uvx` with the
+  Veqtor version pinned, plus explicit user, local and project scope guidance.
+
+### Changed
+
+- MCP initialization now reports the Veqtor package version instead of the
+  installed MCP SDK version.
+- Minimum supported dependencies are raised to `lxml>=6.1` and `mcp>=1.23.0`.
+- Public documentation now separates community-supported Alpha expectations,
+  private security reporting and the concise user-facing roadmap from internal
+  acceptance details.
+- Apply validates and expands the immutable source package once, then reuses
+  that exact package snapshot for baseline extraction and mutation planning;
+  the serialized candidate remains a separate round-trip validation pass.
+- The public project identity names Ilya Shilov as creator and maintainer while
+  retaining `JohnDeer-ai` as the GitHub handle.
+
+### Compatibility
+
+- The six MCP tool names and existing `decision_record.v1` historical pairs
+  remain unchanged.
+- Documents and edit batches inside the new resource and XML-safety boundaries
+  retain the v0.1.1 extraction, verification, preflight, apply and
+  compact-export behavior.
+
 ## 0.1.1
 
 Veqtor v0.1.1 Alpha release contents.

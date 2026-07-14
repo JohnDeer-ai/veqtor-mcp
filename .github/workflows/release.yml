@@ -27,6 +27,7 @@ permissions:
 
 env:
   DIST_ARTIFACT_NAME: veqtor-mcp-dist-${{ github.run_id }}-${{ github.run_attempt }}
+  PYPI_ARTIFACT_NAME: veqtor-mcp-pypi-dist-${{ github.run_id }}-${{ github.run_attempt }}
 
 concurrency:
   group: release-${{ inputs.version }}
@@ -159,9 +160,36 @@ jobs:
             --attempt "$GITHUB_RUN_ATTEMPT"
           printf 'verified_attempt=%s\n' "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
 
-  publish:
-    name: Create tag and GitHub release
+  reserve_tag:
+    name: Reserve exact release tag
     needs: [guard, verify, attempt_guard]
+    if: ${{ needs.attempt_guard.outputs.verified_attempt == format('{0}', github.run_attempt) }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    outputs:
+      reserved_attempt: ${{ steps.reserve.outputs.reserved_attempt }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+          persist-credentials: false
+      - name: Reserve the create-only lightweight tag
+        id: reserve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ADMIN_TOKEN: ${{ secrets.RELEASE_ADMIN_READ_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+          RELEASE_PHASE: reserve_tag
+        run: |
+          python3 .github/scripts/promote_release.py
+          printf 'reserved_attempt=%s\n' "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Publish immutable GitHub release
+    needs: [guard, verify, attempt_guard, reserve_tag, verify_pypi]
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -171,6 +199,10 @@ jobs:
         env:
           VERIFIED_ATTEMPT: ${{ needs.attempt_guard.outputs.verified_attempt }}
         run: test "$VERIFIED_ATTEMPT" = "$GITHUB_RUN_ATTEMPT"
+      - name: Require the exact tag reservation from this attempt
+        env:
+          RESERVED_ATTEMPT: ${{ needs.reserve_tag.outputs.reserved_attempt }}
+        run: test "$RESERVED_ATTEMPT" = "$GITHUB_RUN_ATTEMPT"
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ inputs.commit_sha }}
@@ -185,9 +217,70 @@ jobs:
           RELEASE_ADMIN_TOKEN: ${{ secrets.RELEASE_ADMIN_READ_TOKEN }}
           VERSION: ${{ inputs.version }}
           COMMIT_SHA: ${{ inputs.commit_sha }}
+          TAG_RESERVED_ATTEMPT: ${{ needs.reserve_tag.outputs.reserved_attempt }}
         run: python3 .github/scripts/promote_release.py
       - name: Verify the published release as a public consumer
         env:
           VERSION: ${{ inputs.version }}
           COMMIT_SHA: ${{ inputs.commit_sha }}
         run: python3 .github/scripts/verify_published_release.py
+
+  publish_pypi:
+    name: Publish verified artifacts to PyPI
+    needs: [attempt_guard, reserve_tag]
+    if: ${{ needs.reserve_tag.outputs.reserved_attempt == format('{0}', github.run_attempt) }}
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/veqtor-mcp/${{ inputs.version }}/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ env.PYPI_ARTIFACT_NAME }}
+          path: dist
+      - name: Publish the exact verified wheel and sdist with Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+        with:
+          packages-dir: dist/
+          attestations: true
+          # A retry may find files uploaded by an earlier attempt. The public
+          # verifier still requires byte equality with the current approved
+          # artifacts and Trusted Publisher provenance for this repository,
+          # workflow, and environment; it does not bind that provenance to a
+          # particular run attempt.
+          skip-existing: true
+
+  verify_pypi:
+    name: Verify PyPI release as a public consumer
+    needs: [publish_pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ env.PYPI_ARTIFACT_NAME }}
+          path: dist
+      - name: Verify public PyPI bytes and Trusted Publisher provenance
+        env:
+          VERSION: ${{ inputs.version }}
+        run: python3 .github/scripts/verify_published_pypi.py
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: "0.11.28"
+      - name: Smoke the exact public PyPI onboarding path
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          cd "$RUNNER_TEMP"
+          uvx "veqtor-mcp@$VERSION" --version
+          uvx "veqtor-mcp@$VERSION" doctor
+          uvx --from "veqtor-mcp==$VERSION" veqtor-demo-rounds \
+            "$RUNNER_TEMP/veqtor-public-demo"
+          test "$(find "$RUNNER_TEMP/veqtor-public-demo" -maxdepth 1 -name '*.docx' | wc -l | tr -d ' ')" = 4

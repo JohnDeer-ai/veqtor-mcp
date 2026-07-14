@@ -288,8 +288,15 @@ def test_raw_core_metadata_identity_rejects_parser_blind_spots(mutation) -> None
         ),
         lambda payload: _insert_metadata_header(payload, b"X-Unapproved: value"),
         lambda payload: payload.replace(b"Author: Ilya Shilov", b"Author: Someone Else"),
+        lambda payload: payload.replace(
+            b"Maintainer: Ilya Shilov", b"Maintainer: Someone Else"
+        ),
+        lambda payload: payload.replace(
+            b"Keywords: docx,legal-tech,mcp,redlining,tracked-changes",
+            b"Keywords: private-client",
+        ),
     ],
-    ids=["dependency", "url", "unknown-header", "author"],
+    ids=["dependency", "url", "unknown-header", "author", "maintainer", "keywords"],
 )
 def test_full_metadata_contract_rejects_unapproved_headers_even_with_valid_record(
     tmp_path: Path, mutation

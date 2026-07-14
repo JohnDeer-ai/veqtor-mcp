@@ -2,91 +2,132 @@
 
 # Veqtor MCP
 
-> **v0.1 Alpha:** a local, developer-oriented MCP toolchain for tracked-change
-> negotiation workflows in Word DOCX files. Supported today on macOS and Linux
-> with Python 3.12-3.14. Review the [known limitations](KNOWN_LIMITATIONS.md)
-> before using it on a real matter.
+> **Public technical Alpha:** a local MCP server for verifiable DOCX negotiation
+> history and fail-closed tracked-change edits. Supported on macOS and Linux
+> with Python 3.12-3.14.
 
 Veqtor gives MCP-compatible AI clients deterministic tools to read contract
-redlines, verify quotations, dry-run proposed counters, create a new DOCX with
-real tracked changes, and record re-checkable local provenance. The model
-remains the legal-reasoning layer; Veqtor handles document facts and writes.
+redlines, verify quotations, dry-run complete counterproposal batches, create a
+new DOCX with real tracked changes, and keep re-checkable local provenance. The
+model remains the legal-reasoning layer; Veqtor handles document facts and
+writes.
 
-Veqtor is not legal advice, a generic DOCX editor, a hosted service, or a
-tamper-evident audit system.
+Veqtor is not legal advice, a generic Word editor, a hosted service, or a
+tamper-evident audit system. Review the
+[known limitations](https://github.com/JohnDeer-ai/veqtor-mcp/blob/v0.1.2/KNOWN_LIMITATIONS.md)
+before using it on a real matter.
 
-## Install
+## Install for Claude Code
 
-Install the versioned GitHub release with [uv](https://docs.astral.sh/uv/):
+Install [uv](https://docs.astral.sh/uv/) once, then register the exact Veqtor
+release for your user account:
 
 ```bash
-uv tool install "git+https://github.com/JohnDeer-ai/veqtor-mcp@v0.1.1"
-veqtor-mcp --version
-veqtor-mcp doctor
+claude mcp add --transport stdio --scope user veqtor -- uvx veqtor-mcp@0.1.2
 ```
 
-`doctor` reports the installed version/build, Python and platform support, the
-configured tracked-change author, and whether decision records are enabled.
+Open a new Claude Code session and verify the registration:
+
+```bash
+claude mcp get veqtor
+```
+
+`--scope user` makes the private local registration available to you in every
+project on this machine. It does not publish the configuration or make Veqtor a
+network service. To limit Veqtor to the current project instead, use:
+
+```bash
+claude mcp add --transport stdio --scope local veqtor -- uvx veqtor-mcp@0.1.2
+```
+
+For team-managed configuration, Claude Code also supports `--scope project`,
+which writes `.mcp.json` for review and version control. Do not use project
+scope for secrets or matter-specific paths.
+
+To set the tracked-change author when registering the server:
+
+```bash
+claude mcp add --transport stdio --scope user veqtor -e VEQTOR_TRACKED_CHANGE_AUTHOR="Your Name" -- uvx veqtor-mcp@0.1.2
+```
+
+If unset, the author is `Veqtor MCP`. The value is fixed when the server starts
+and cannot be changed by the model per edit.
+
+## Run or install from the terminal
+
+Run diagnostics without a persistent installation:
+
+```bash
+uvx veqtor-mcp@0.1.2 doctor
+```
+
+For a persistent isolated installation:
+
+```bash
+uv tool install "veqtor-mcp==0.1.2"
+"$(uv tool dir --bin)/veqtor-mcp" --version
+"$(uv tool dir --bin)/veqtor-mcp" doctor
+```
+
+Using `uv tool dir --bin` works even before the uv tool directory has been
+added to the shell `PATH`. `uv tool update-shell` can add it for later shells.
+The versioned wheel and sdist for independent verification are also attached to
+the matching [GitHub Release](https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/v0.1.2).
 
 ## Five-minute demo
 
-Generate four synthetic negotiation rounds:
+Create a disposable four-round synthetic negotiation:
 
 ```bash
-veqtor-demo-rounds ~/veqtor-demo-rounds
+uvx --from "veqtor-mcp==0.1.2" veqtor-demo-rounds ~/veqtor-demo-rounds
 ```
 
-Register the installed server with Claude Code:
-
-```bash
-claude mcp add veqtor -- ~/.local/bin/veqtor-mcp
-```
-
-Then ask:
+Then ask Claude:
 
 > Using the veqtor tools, what happened to the limitation of liability across
 > the rounds in ~/veqtor-demo-rounds?
 
-For a write workflow, ask the client to:
-
-1. extract the current redlines;
-2. verify any wording it will rely on;
-3. call `preflight_edits` on the complete atomic batch;
-4. call `apply_edits` only if `batch_applicable` is true;
-5. re-extract the output and export the decision record.
-
-The synthetic write prompt is:
+For a write workflow, ask:
 
 > Prepare our counterproposal as round-5-our-counter.docx: restore the 150%
 > affected Work Order liability cap and reinstate the willful misconduct
-> carve-out the counterparty deleted. Preflight the complete batch before
-> applying it.
+> carve-out the counterparty deleted. Verify the wording and preflight the
+> complete batch before applying it.
 
-Veqtor never overwrites the source or an existing output file. The synthetic
-four-round generator also preflights every target and rolls back the complete
-batch if publication cannot finish.
+The expected trust sequence is:
+
+1. extract the current redlines;
+2. verify every quotation used as evidence;
+3. preflight the complete atomic batch;
+4. apply only when `batch_applicable` is true;
+5. re-extract the output and export the decision record.
+
+Veqtor never overwrites the source or an existing output file. Use a disposable
+demo folder for write recordings; a successful write creates a new DOCX and a
+private `.veqtor` provenance folder.
 
 ## Claude Desktop
 
-GUI applications do not inherit the shell `PATH`, so use an absolute command
-path in `~/Library/Application Support/Claude/claude_desktop_config.json`:
+GUI applications may not inherit the shell `PATH`. First run `command -v uvx`,
+then use that absolute path in the macOS Claude Desktop configuration at
+`~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "veqtor": {
-      "command": "/Users/you/.local/bin/veqtor-mcp",
+      "command": "/absolute/path/to/uvx",
+      "args": ["veqtor-mcp@0.1.2"],
       "env": {
-        "VEQTOR_TRACKED_CHANGE_AUTHOR": "John Deer"
+        "VEQTOR_TRACKED_CHANGE_AUTHOR": "Your Name"
       }
     }
   }
 }
 ```
 
-Quit Claude Desktop fully and reopen it after changing the executable or its
-environment. The author is fixed for the server process and cannot be changed
-by the model per edit. If unset, it defaults to `Veqtor MCP`.
+Quit Claude Desktop fully and reopen it after changing the executable, version,
+or environment.
 
 ## Tool surface
 
@@ -95,10 +136,11 @@ by the model per edit. If unset, it defaults to `Veqtor MCP`.
   paragraph context and conservative manual labels.
 - `verify_quote`: anchored `exact`, `normalized`, or `not_found` verification.
 - `preflight_edits`: the complete apply pipeline as an in-memory dry-run.
-- `apply_edits`: atomic tracked replace/delete, counter and reinstate writes.
+- `apply_edits`: atomic tracked replace, delete, counter and reinstate writes.
 - `export_decision_record`: compact privacy-aware local provenance.
 
-The complete request, response and error contract is in [API.md](API.md).
+The complete request, response and error contract is in the
+[MCP Tool API](https://github.com/JohnDeer-ai/veqtor-mcp/blob/v0.1.2/API.md).
 
 ## Privacy and assurance boundary
 
@@ -110,17 +152,18 @@ Unless `VEQTOR_DISABLE_DECISION_RECORD=1`, tools append a private local journal
 at `<matter>/.veqtor/decision-records.jsonl`. Read-only calls, including
 `preflight_edits` and decision-record export, still normally write provenance
 there. The raw journal may contain verbatim matter text; do not commit or share
-it. MCP exposes only a bounded compact projection, and export access events are
-reported by their own scope fields rather than included in `records`.
+it.
 
 Decision records are best-effort local provenance. Their hashes are
-re-checkable fingerprints, not authentication. The journal is not a hash chain,
-not tamper-evident, and not a transactional audit log. The supported threat
-model is a non-hostile, single-user local macOS/Linux workspace.
+re-checkable fingerprints, not authentication. The supported threat model is a
+single-user local workspace. Veqtor bounds and verifies the actual output of
+every accepted DOCX/ZIP member (bounded streaming for DEFLATED data and a
+bounded direct span for STORED data), but this does not turn it into a sandbox
+for hostile same-user processes.
 
 ## Supported surface
 
-| Surface | v0.1 Alpha |
+| Surface | Public Alpha |
 |---|---|
 | Operating systems | macOS, Linux |
 | Python | 3.12, 3.13, 3.14 |
@@ -128,57 +171,46 @@ model is a non-hostile, single-user local macOS/Linux workspace.
 | Validated clients | Claude Code, Claude Desktop |
 | DOCX part | `word/document.xml` |
 | Writes | tracked replace, delete, counter, reinstate |
-| Distribution | versioned GitHub source and wheel/sdist release artifacts |
+| Distribution | PyPI plus matching GitHub wheel/sdist artifacts |
 
 Windows, hosted MCP, comments/headers/footnotes, accept/reject, semantic
-cross-round lineage and cryptographic audit guarantees are outside v0.1.
+cross-round lineage and cryptographic audit guarantees are outside the Alpha.
 
-## Development
+## Support
+
+Veqtor MCP is a community-supported public Alpha. Use
+[GitHub Issues](https://github.com/JohnDeer-ai/veqtor-mcp/issues) for
+reproducible bugs and feature requests, using synthetic documents only. Never
+post client wording, local paths, `.veqtor` journals, credentials, or real
+matter files. Report suspected vulnerabilities privately as described in
+[security policy](https://github.com/JohnDeer-ai/veqtor-mcp/security/policy).
+
+No response-time, compatibility, uptime, or fix-time SLA is provided.
+
+## Development and releases
 
 ```bash
 uv lock --check
 uv sync --frozen --all-extras
 uv run --frozen pytest -q
+uvx ruff==0.15.21 check .
+LOCKED_REQUIREMENTS="$(mktemp)"
+uv export --frozen --no-dev --no-emit-project \
+  --format requirements-txt --output-file "$LOCKED_REQUIREMENTS"
+uvx pip-audit==2.10.1 --requirement "$LOCKED_REQUIREMENTS" \
+  --require-hashes --disable-pip --progress-spinner off
 uv build --clear
 uvx twine check dist/*
-uv run --frozen python scripts/check_release_artifacts.py dist/*
+uv run --frozen python scripts/check_release_artifacts.py \
+  --source-root . --commit HEAD dist/*.whl dist/*.tar.gz
 ```
 
-The private dogfood suite is opt-in:
+Contributions use DCO sign-off; see the
+[contributing guide](https://github.com/JohnDeer-ai/veqtor-mcp/blob/v0.1.2/CONTRIBUTING.md).
+The exact-SHA immutable publication contract is documented in the
+[release guide](https://github.com/JohnDeer-ai/veqtor-mcp/blob/v0.1.2/RELEASING.md).
 
-```bash
-VEQTOR_PRIVATE_FIXTURE_DIR=/path/to/private/corpus uv run --frozen pytest -m private
-```
+## Maintainer
 
-Never add real client documents or derived confidential fixtures to the
-repository or its history. Contributions use DCO sign-off; see
-[CONTRIBUTING.md](CONTRIBUTING.md). Security reports should follow
-[SECURITY.md](SECURITY.md).
-
-## Release status
-
-Release notes are maintained in [CHANGELOG.md](CHANGELOG.md). The manual Release
-acceptance boundary and finite stop conditions are defined in
-[RELEASING.md](RELEASING.md). The manual Release
-workflow accepts one full commit SHA, reruns the complete public matrix,
-minimum-version tests, Gitleaks, artifact validation, an independent byte-for-
-byte rebuild and installed-wheel smoke,
-and verifies that SHA is already in `main`. Private dogfood is a local gate
-against the same SHA and is attested through the protected `release`
-environment approval. Only the final write-scoped job creates the `v0.1.1` tag
-and GitHub Release, using the exact artifacts built by the read-only CI job.
-That job rechecks the approved `main` SHA, creates the tag atomically through
-the Git Data API and verifies its target. It enumerates all release pages,
-creates or uniquely recovers the exact-tag draft, and uploads, verifies and
-publishes assets by release id; an ambiguous exact-tag state fails closed.
-The repository release environment must require reviewer approval and allow
-deployments only from `main`; a repository ruleset must prevent updates or
-deletion of `v*` tags. GitHub Immutable Releases must be enabled, and the
-environment must expose `RELEASE_ADMIN_READ_TOKEN`: a fine-grained token limited
-to this repository with read-only Administration permission, used only to
-fail closed when that setting is unavailable or disabled. Configure and verify
-all protections before the first workflow dispatch: merely referencing an
-absent environment from the workflow causes GitHub to create it without
-protection rules. After publication, a tokenless consumer check downloads the
-three public assets, verifies their bytes and portable checksums, and reruns the
-closed artifact-identity check.
+Veqtor MCP is an independent open-source project created and maintained by
+**Ilya Shilov** ([@JohnDeer-ai](https://github.com/JohnDeer-ai)).

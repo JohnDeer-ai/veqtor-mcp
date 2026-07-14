@@ -13,6 +13,45 @@ contract. The current FastMCP transport may ignore unrecognized object
 properties; clients must use the advertised tool schema. Strict rejection of
 unknown arguments is outside v1.
 
+All DOCX-reading tools share one two-stage fail-closed ZIP boundary. Before any
+decoder is created, Veqtor bounds the 50 MiB compressed input, 2,000 members,
+4 MiB central directory and every declared member/aggregate size, rejects
+duplicates, encryption, ZIP64 and compression methods other than `STORED` and
+`DEFLATED`, and reconciles the security-relevant central and local fields and
+layout. It then validates every member from the immutable input snapshot:
+DEFLATED data uses bounded input and output chunks, while STORED data is a
+bounded direct span. Both paths count actual output and CRC, and DEFLATE also
+requires an exact DEFLATE end of stream. Standard 32-bit data descriptors with
+and without their optional signature are accepted only when their CRC, sizes and
+boundary agree exactly. Gaps, overlaps, prefixes, trailing compressed data and
+disagreement in the raw name, flags, method, CRC or sizes are refused.
+Well-formed non-ZIP64 local and central extra fields may differ because they do
+not select the decoded member bytes.
+
+The per-package expanded envelope remains 100 MiB total, 25 MiB per XML member,
+50 MiB per other member, and at most 200:1 compression for a member larger than
+10 MiB. One `list_rounds` call additionally has a 500 MiB aggregate budget for
+actual expanded member output across the complete folder scan.
+Any XML part Veqtor parses is limited to 100,000 structural items: elements,
+attributes, namespace declarations, comments and processing instructions;
+extraction is limited to 10,000 change units. Generated candidates must remain
+within the same 50 MiB compressed-size envelope. XML `DOCTYPE` declarations are
+refused rather than loading DTDs or expanding entities. Tracked text revisions
+may be nested at most two levels, preserving the normal
+insertion-plus-nested-deletion counter shape without allowing recursive text
+amplification.
+
+Limit violations use `resource_limit_exceeded`; a forbidden ZIP method uses
+`unsupported_compression`, encryption uses `encrypted_docx`, and structural,
+CRC, descriptor or end-of-stream disagreement uses `file_unextractable`. The
+Python API exception metadata identifies the safe limit or member measurement;
+the MCP error text exposes the stable code and safe detail. `list_rounds`
+preserves per-file resource, compression and encryption reasons in `skipped`
+and maps structural archive failures to `invalid_docx`, while direct tools
+refuse the operation with their corresponding code. Exceeding the shared
+folder-scan output budget refuses the whole call instead of returning a partial
+round list.
+
 M3 decision records are written by the server, not by the model. MCP tool calls
 write a local JSONL sidecar in `.veqtor/decision-records.jsonl` inside the
 existing matter folder, unless disabled by
@@ -114,11 +153,21 @@ Input:
 }
 ```
 
-Output. Rounds are sorted by filename (the deterministic v1 round order);
+Output. Rounds use case-insensitive filename order with the exact filename as a
+tie-break (the deterministic v1 round order);
 Word lock files (`~$*`) are ignored, the scan is non-recursive, and files
 that cannot be read as DOCX are reported in `skipped` with a stable reason code
 instead of failing the call. Unexpected implementation failures are not
-converted into successful skips and never expose their exception text:
+converted into successful skips and never expose their exception text. One
+scan accepts at most 500 candidate DOCX files, 500 MiB of aggregate candidate
+file size at scan time and 500 MiB of aggregate actual expanded output.
+DEFLATED decoder output and STORED direct-span bytes are charged, including
+output from a file that is later reported in `skipped`; a package refused during
+container preflight before any member-output processing consumes no output
+budget.
+Exceeding a folder-level bound refuses the whole call with
+`resource_limit_exceeded`, returns no partial round list and advises splitting
+the folder before retrying:
 
 ```json
 {
@@ -159,7 +208,11 @@ its `old_text` quotes the countered proposal (not contract text), and the
 countered unit carries `countered_by` with the strike's revision ids.
 `clause_anchor` is best-effort (`null` when the document offers no
 outline/numbering signal; `label` is omitted rather than guessed when
-numbering cannot be resolved reliably). Revision markup the tool does not
+numbering cannot be resolved reliably). Computed numbering templates, rendered
+labels and explicit manual labels are each capped at 256 characters; Roman
+counters are rendered
+only for values 1-3999. Values outside those navigation-only boundaries omit
+the computed label without blocking extraction. Revision markup the tool does not
 decode — formatting changes, moves, paragraph-mark revisions — is counted in
 `unsupported_revisions`, never silently dropped. `revision_count` is the raw
 number of `w:ins`/`w:del` elements in `word/document.xml`. The extractor and
@@ -233,7 +286,7 @@ non-exact result. v1 verifies against the anchored change unit's `new_text`
 then `old_text` (`matches[].side` says which); matching is case-sensitive;
 `normalized` collapses whitespace runs and typographic quotes/dashes. A hash
 mismatch or unknown anchor is an error, never a verdict. Whole-document
-search without an anchor is a later slice.
+search without an anchor is not supported in v1.
 Any refusal after the document snapshot is readable, including an OOXML
 extraction failure, carries `observed_source_sha256` for the bytes that rejected
 the claim. The caller's claimed hash remains asserted input and is digested in
@@ -309,7 +362,7 @@ Output:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "build": "source-snapshot-v1-sha256:example"
   },
   "batch_applicable": true,
@@ -351,7 +404,7 @@ for example:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "build": "source-snapshot-v1-sha256:example"
   },
   "batch_applicable": false,
@@ -441,9 +494,12 @@ that field is present only when one specific edit or plan caused the refusal.
 If re-extraction of the in-memory candidate fails after its own SHA is known,
 that distinct digest is recorded as `observed_candidate_sha256`; it never
 replaces or masquerades as the apply source snapshot.
-CRC or other controlled failures while reading all source archive members use
+CRC, local/central/descriptor disagreement, truncated streams or other
+controlled structural failures while validating all source archive members use
 `file_unextractable`; candidate serialization or publication failures use
-`output_unwritable`.
+`output_unwritable`. Forbidden compression uses `unsupported_compression` and
+encrypted members use `encrypted_docx` before any corresponding decoder is
+created.
 New tracked-change ids are allocated only when every existing `w:id` uses the
 supported lexical form: one to ten ASCII decimal digits, with a numeric value
 no greater than `2147483647`. Leading zeroes are accepted within that ten-digit
@@ -452,11 +508,12 @@ Other values return `revision_id_unsupported`; an edit or batch that needs more
 ids than remain through `2147483647` returns `revision_id_exhausted` before any
 OOXML surgery. Neither condition reaches Python's unbounded integer conversion
 path or publishes a partial batch.
-Encrypted required members and decompressor failures are normalized through
-the same snapshot boundary. Before creating a candidate, apply reads each
-source member by its exact `ZipInfo` and rejects duplicate member names as
-`file_unextractable`; duplicate-name lookup is never allowed to substitute the
-last member's bytes for an earlier member.
+Before creating a candidate, apply eagerly validates the whole source package
+once and retains those same validated bytes for baseline extraction and OOXML
+surgery. Every member is checked even when extraction does not otherwise use
+it; duplicate-name lookup is never allowed to substitute the last member's
+bytes for an earlier member. The separately serialized candidate is then
+validated again as the exact round-trip snapshot that may be published.
 
 Three edit forms, all written as visible tracked changes — never silent
 rewrites:
@@ -486,6 +543,9 @@ coerced:
 | `reinstate_text` present but not a non-empty string | `invalid_edit` |
 | Unknown edit or anchor field | `invalid_edit` |
 | Text containing an XML-incompatible character | `invalid_edit` |
+| More than 100 edits in one atomic batch | `resource_limit_exceeded` |
+| More than 20,000 new characters in one edit | `resource_limit_exceeded` |
+| More than 200,000 new characters across the batch | `resource_limit_exceeded` |
 
 `delete_text_missing` therefore means that no usable non-empty deletion string
 was supplied; it is not limited to the physical absence of the JSON key.
@@ -543,7 +603,7 @@ Output:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "build": "source-snapshot-v1-sha256:example"
   },
   "applied": [
@@ -696,7 +756,7 @@ Output:
       "created_at": "2026-07-09T12:00:00Z",
       "tool_name": "verify_quote",
       "workspace": {"sha256": "example-workspace-digest", "omitted": true},
-      "producer": {"name": "veqtor-mcp", "version": "0.1.1", "build": "source-snapshot-v1-sha256:..."},
+      "producer": {"name": "veqtor-mcp", "version": "0.1.2", "build": "source-snapshot-v1-sha256:..."},
       "payloads": "compact",
       "input": {"sha256": "example-input-digest", "omitted": true},
       "result": {

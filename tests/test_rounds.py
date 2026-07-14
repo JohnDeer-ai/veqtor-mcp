@@ -10,7 +10,51 @@ from pathlib import Path
 import pytest
 
 from veqtor_docx import RoundError, extract_redlines, list_rounds
+from veqtor_docx import _ooxml
 from veqtor_docx import rounds as rounds_module
+
+
+_DOCUMENT_XML = b'''<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body><w:p><w:r><w:t>Round</w:t></w:r></w:p></w:body>
+</w:document>
+'''
+
+
+def _write_round(
+    path: Path,
+    *,
+    document: bytes = _DOCUMENT_XML,
+    compression: int = zipfile.ZIP_DEFLATED,
+    extra_members: tuple[tuple[str, bytes], ...] = (),
+) -> None:
+    with zipfile.ZipFile(path, "w", compression) as archive:
+        archive.writestr("word/document.xml", document)
+        for name, payload in extra_members:
+            archive.writestr(name, payload)
+
+
+def _with_bad_document_crc(payload: bytes) -> bytes:
+    """Make local/central CRC agree with each other but not decoded bytes."""
+    mutated = bytearray(payload)
+    with zipfile.ZipFile(BytesIO(payload)) as archive:
+        document = archive.getinfo("word/document.xml")
+    bad_crc = document.CRC ^ 1
+    mutated[document.header_offset + 14 : document.header_offset + 18] = (
+        bad_crc.to_bytes(4, "little")
+    )
+
+    cursor = 0
+    while (cursor := payload.find(b"PK\x01\x02", cursor)) >= 0:
+        name_length = int.from_bytes(payload[cursor + 28 : cursor + 30], "little")
+        extra_length = int.from_bytes(payload[cursor + 30 : cursor + 32], "little")
+        comment_length = int.from_bytes(payload[cursor + 32 : cursor + 34], "little")
+        name = payload[cursor + 46 : cursor + 46 + name_length].decode("utf-8")
+        if name == document.filename:
+            mutated[cursor + 16 : cursor + 20] = bad_crc.to_bytes(4, "little")
+            return bytes(mutated)
+        cursor += 46 + name_length + extra_length + comment_length
+    raise AssertionError("document central-directory record not found")
 
 
 def _with_unsupported_document_compression(payload: bytes) -> bytes:
@@ -63,6 +107,243 @@ def _with_invalid_utf8_member_name(payload: bytes) -> bytes:
             return bytes(mutated)
         cursor += 46 + name_length + extra_length + comment_length
     raise AssertionError("document central-directory record not found")
+
+
+def test_public_alpha_round_folder_envelope_is_frozen() -> None:
+    assert rounds_module.MAX_ROUND_CANDIDATES == 500
+    assert rounds_module.MAX_ROUND_TOTAL_INPUT_BYTES == 500 * 1024 * 1024
+    assert rounds_module.MAX_ROUND_TOTAL_EXPANDED_BYTES == 500 * 1024 * 1024
+
+
+def test_aggregate_round_expansion_limit_is_inclusive_and_resets_per_scan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_round(tmp_path / "round-1.docx")
+    _write_round(tmp_path / "round-2.docx")
+    exact_total = 2 * len(_DOCUMENT_XML)
+    monkeypatch.setattr(
+        rounds_module,
+        "MAX_ROUND_TOTAL_EXPANDED_BYTES",
+        exact_total,
+    )
+
+    first = list_rounds(str(tmp_path))
+    second = list_rounds(str(tmp_path))
+
+    assert len(first["rounds"]) == 2
+    assert len(second["rounds"]) == 2
+
+    monkeypatch.setattr(
+        rounds_module,
+        "MAX_ROUND_TOTAL_EXPANDED_BYTES",
+        exact_total - 1,
+    )
+    with pytest.raises(RoundError) as error:
+        list_rounds(str(tmp_path))
+
+    assert error.value.code == "resource_limit_exceeded"
+    assert "aggregate expanded-output limit" in str(error.value)
+    assert "split the folder and retry" in str(error.value)
+
+
+def test_deflate_budget_refuses_at_the_first_byte_over_limit(tmp_path: Path) -> None:
+    source = tmp_path / "round.docx"
+    _write_round(source)
+    budget = _ooxml.ExpandedOutputBudget(
+        allowed_bytes=len(_DOCUMENT_XML) - 1,
+        limit="test_expanded_bytes",
+    )
+
+    with pytest.raises(_ooxml.ExpandedOutputBudgetExceeded) as error:
+        _ooxml.load_validated_docx(
+            source.read_bytes(),
+            capture=(_ooxml.DOCUMENT_PART,),
+            expanded_budget=budget,
+        )
+
+    assert budget.consumed_bytes == len(_DOCUMENT_XML)
+    assert budget.remaining_bytes == 0
+    assert error.value.metadata == {
+        "limit": "test_expanded_bytes",
+        "allowed_bytes": len(_DOCUMENT_XML) - 1,
+        "observed_bytes": len(_DOCUMENT_XML),
+        "observed_at_least": True,
+    }
+
+
+@pytest.mark.parametrize(
+    "compression",
+    [zipfile.ZIP_DEFLATED, zipfile.ZIP_STORED],
+    ids=["deflated", "stored"],
+)
+def test_late_crc_skip_still_consumes_the_round_scan_budget(
+    compression: int,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bad = tmp_path / "00-bad-crc.docx"
+    good = tmp_path / "01-good.docx"
+    _write_round(bad, compression=compression)
+    bad.write_bytes(_with_bad_document_crc(bad.read_bytes()))
+    _write_round(good)
+    exact_total = 2 * len(_DOCUMENT_XML)
+
+    monkeypatch.setattr(
+        rounds_module,
+        "MAX_ROUND_TOTAL_EXPANDED_BYTES",
+        exact_total,
+    )
+    within_limit = list_rounds(str(tmp_path))
+    assert [item["filename"] for item in within_limit["rounds"]] == [good.name]
+    assert within_limit["skipped"] == [
+        {"filename": bad.name, "reason": "invalid_docx"}
+    ]
+
+    monkeypatch.setattr(
+        rounds_module,
+        "MAX_ROUND_TOTAL_EXPANDED_BYTES",
+        exact_total - 1,
+    )
+    with pytest.raises(RoundError, match="aggregate expanded-output limit"):
+        list_rounds(str(tmp_path))
+
+
+def test_multiple_late_refusals_accumulate_before_the_next_round(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bad_crc = tmp_path / "00-bad-crc.docx"
+    malformed = tmp_path / "01-malformed.docx"
+    good = tmp_path / "02-good.docx"
+    _write_round(bad_crc)
+    bad_crc.write_bytes(_with_bad_document_crc(bad_crc.read_bytes()))
+    malformed_output = b"<malformed"
+    _write_round(malformed, document=malformed_output)
+    _write_round(good)
+    exact_total = 2 * len(_DOCUMENT_XML) + len(malformed_output)
+
+    monkeypatch.setattr(
+        rounds_module,
+        "MAX_ROUND_TOTAL_EXPANDED_BYTES",
+        exact_total,
+    )
+    within_limit = list_rounds(str(tmp_path))
+    assert [item["filename"] for item in within_limit["rounds"]] == [good.name]
+    assert within_limit["skipped"] == [
+        {"filename": bad_crc.name, "reason": "invalid_docx"},
+        {"filename": malformed.name, "reason": "malformed_xml"},
+    ]
+
+    monkeypatch.setattr(
+        rounds_module,
+        "MAX_ROUND_TOTAL_EXPANDED_BYTES",
+        exact_total - 1,
+    )
+    with pytest.raises(RoundError, match="aggregate expanded-output limit"):
+        list_rounds(str(tmp_path))
+
+
+@pytest.mark.parametrize("late_refusal", ["malformed_xml", "missing_part"])
+def test_late_round_refusals_are_charged_before_the_next_file(
+    late_refusal: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    refused = tmp_path / "00-refused.docx"
+    good = tmp_path / "01-good.docx"
+    if late_refusal == "malformed_xml":
+        refused_output = b"<malformed"
+        _write_round(refused, document=refused_output)
+    else:
+        refused_output = b"missing document output"
+        with zipfile.ZipFile(refused, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("custom/data.bin", refused_output)
+    _write_round(good)
+    monkeypatch.setattr(
+        rounds_module,
+        "MAX_ROUND_TOTAL_EXPANDED_BYTES",
+        len(refused_output) + len(_DOCUMENT_XML) - 1,
+    )
+
+    with pytest.raises(RoundError, match="aggregate expanded-output limit"):
+        list_rounds(str(tmp_path))
+
+
+def test_predecode_skip_leaves_the_full_round_scan_budget_available(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    unsupported = tmp_path / "00-unsupported.docx"
+    good = tmp_path / "01-good.docx"
+    _write_round(unsupported)
+    unsupported.write_bytes(
+        _with_unsupported_document_compression(unsupported.read_bytes())
+    )
+    _write_round(good)
+    monkeypatch.setattr(
+        rounds_module,
+        "MAX_ROUND_TOTAL_EXPANDED_BYTES",
+        len(_DOCUMENT_XML),
+    )
+
+    result = list_rounds(str(tmp_path))
+
+    assert [item["filename"] for item in result["rounds"]] == [good.name]
+    assert result["skipped"] == [
+        {"filename": unsupported.name, "reason": "unsupported_compression"}
+    ]
+
+
+def test_round_scan_stops_in_filename_order_after_budget_exhaustion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for index in range(3):
+        _write_round(tmp_path / f"round-{index}.docx")
+    monkeypatch.setattr(
+        rounds_module,
+        "MAX_ROUND_TOTAL_EXPANDED_BYTES",
+        len(_DOCUMENT_XML) + 1,
+    )
+    observed: list[str] = []
+    original_read = rounds_module.read_docx_payload
+    original_iterdir = Path.iterdir
+
+    def shuffled_iterdir(path: Path):
+        if path == tmp_path:
+            return iter(
+                [
+                    tmp_path / "round-2.docx",
+                    tmp_path / "round-0.docx",
+                    tmp_path / "round-1.docx",
+                ]
+            )
+        return original_iterdir(path)
+
+    def observe_read(path: Path) -> bytes:
+        observed.append(path.name)
+        return original_read(path)
+
+    monkeypatch.setattr(Path, "iterdir", shuffled_iterdir)
+    monkeypatch.setattr(rounds_module, "read_docx_payload", observe_read)
+    with pytest.raises(RoundError, match="aggregate expanded-output limit"):
+        list_rounds(str(tmp_path))
+
+    assert observed == ["round-0.docx", "round-1.docx"]
+
+
+def test_filename_order_has_a_deterministic_casefold_tiebreak() -> None:
+    paths = [Path(name) for name in ("a.docx", "B.docx", "A.docx", "b.docx")]
+
+    assert [
+        path.name for path in sorted(paths, key=rounds_module._round_filename_key)
+    ] == [
+        "A.docx",
+        "a.docx",
+        "B.docx",
+        "b.docx",
+    ]
 
 
 def test_lists_rounds_in_filename_order(demo_dir: Path) -> None:
@@ -170,6 +451,48 @@ def test_unreadable_folder_is_a_stable_refusal(
     assert str(error.value) == "folder_unreadable: cannot enumerate folder"
 
 
+def test_candidate_count_is_bounded_before_any_docx_is_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for index in range(3):
+        (tmp_path / f"round-{index}.docx").write_bytes(b"placeholder")
+    monkeypatch.setattr(rounds_module, "MAX_ROUND_CANDIDATES", 2)
+
+    def fail_read(_path: Path, *, expanded_budget):
+        raise AssertionError("candidate was read before folder preflight")
+
+    monkeypatch.setattr(rounds_module, "_round_facts", fail_read)
+
+    with pytest.raises(RoundError) as error:
+        list_rounds(str(tmp_path))
+
+    assert error.value.code == "resource_limit_exceeded"
+    assert str(error.value) == (
+        "resource_limit_exceeded: folder contains more than 2 candidate DOCX files"
+    )
+
+
+def test_aggregate_round_input_is_bounded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for index in range(2):
+        (tmp_path / f"round-{index}.docx").write_bytes(b"invaliddoc")
+    monkeypatch.setattr(rounds_module, "MAX_ROUND_TOTAL_INPUT_BYTES", 19)
+
+    def fail_read(_path: Path, *, expanded_budget):
+        raise AssertionError("candidate was read before aggregate preflight")
+
+    monkeypatch.setattr(rounds_module, "_round_facts", fail_read)
+
+    with pytest.raises(RoundError) as error:
+        list_rounds(str(tmp_path))
+
+    assert error.value.code == "resource_limit_exceeded"
+    assert "aggregate input limit" in str(error.value)
+
+
 def test_unexpected_file_failure_is_not_leaked_as_a_successful_skip(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -178,7 +501,7 @@ def test_unexpected_file_failure_is_not_leaked_as_a_successful_skip(
     (folder / "round.docx").write_bytes(b"placeholder")
     sentinel = "private client sentinel"
 
-    def explode(_path: Path):
+    def explode(_path: Path, *, expanded_budget):
         raise RuntimeError(sentinel)
 
     monkeypatch.setattr(rounds_module, "_round_facts", explode)

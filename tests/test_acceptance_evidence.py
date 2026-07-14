@@ -33,7 +33,7 @@ CANDIDATE_TREE = "b" * 40
 PRODUCER_BUILD = "source-snapshot-v1-sha256:" + "c" * 64
 CORPUS_SHA = "d" * 64
 OUTPUT_SHA = FIVE_EDIT_OUTPUT_SHA256
-RUNTIME_VERSION = "0.1.1"
+RUNTIME_VERSION = "0.1.2"
 
 
 def _packet() -> dict:
@@ -109,6 +109,20 @@ def _validate(packet: dict) -> None:
 
 def test_complete_exact_candidate_evidence_passes() -> None:
     _validate(_packet())
+
+
+def test_documented_working_template_matches_executable_v2_schema() -> None:
+    releasing = (ROOT / "RELEASING.md").read_text()
+    template = releasing.split("<!-- acceptance-v2-template-begin -->", 1)[1]
+    template = template.split("<!-- acceptance-v2-template-end -->", 1)[0]
+    packet = json.loads(template.split("```json\n", 1)[1].split("\n```", 1)[0])
+
+    validate_evidence(
+        packet,
+        candidate_sha=packet["candidate_sha"],
+        candidate_tree=packet["candidate_tree"],
+        producer_build=packet["producer_build"],
+    )
 
 
 @pytest.mark.parametrize(

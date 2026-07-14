@@ -145,6 +145,87 @@ def _ensure_tag(
     _validate_ref(payload, commit_sha)
 
 
+def _ensure_candidate_tag(
+    runner: Runner,
+    repository: str,
+    tag: str,
+    commit_sha: str,
+    *,
+    run_attempt: int,
+    allow_current_attempt_ancestor: bool = False,
+) -> None:
+    main_ref = _api_json(
+        runner,
+        [f"repos/{repository}/git/ref/heads/main"],
+        "main reference lookup",
+    )
+    target = main_ref.get("object")
+    if not isinstance(target, dict) or target.get("type") != "commit":
+        raise PromotionError("main reference is not a commit")
+    main_sha = target.get("sha")
+
+    existing_tag = _api_result(
+        runner,
+        [f"repos/{repository}/git/ref/tags/{tag}"],
+    )
+    if existing_tag.returncode == 0:
+        _validate_ref(_checked_json(existing_tag, "existing tag lookup"), commit_sha)
+        if main_sha != commit_sha:
+            if run_attempt <= 1 and not allow_current_attempt_ancestor:
+                raise PromotionError("tag recovery requires a later run attempt")
+            comparison = _api_json(
+                runner,
+                [f"repos/{repository}/compare/{commit_sha}...main"],
+                "candidate ancestry lookup",
+            )
+            merge_base = comparison.get("merge_base_commit")
+            if (
+                comparison.get("status") not in {"ahead", "identical"}
+                or not isinstance(merge_base, dict)
+                or merge_base.get("sha") != commit_sha
+            ):
+                raise PromotionError("approved commit is no longer an ancestor of main")
+        return
+
+    if main_sha != commit_sha:
+        raise PromotionError("first promotion requires main at the approved commit")
+    _ensure_tag(runner, repository, tag, commit_sha)
+
+
+def reserve_tag(
+    *,
+    runner: Runner = _default_runner,
+    admin_runner: Runner | None = None,
+    repository: str,
+    version: str,
+    commit_sha: str,
+    run_attempt: int = 1,
+) -> None:
+    """Create the durable exact tag before either public distribution mutates."""
+    if not repository or not version:
+        raise PromotionError("repository and version are required")
+    if version != CONTRACT_VERSION:
+        raise PromotionError("version differs from the release contract")
+    if len(commit_sha) != 40 or any(
+        char not in "0123456789abcdef" for char in commit_sha
+    ):
+        raise PromotionError("commit SHA must be 40 lowercase hexadecimal characters")
+    settings = _api_json(
+        admin_runner or runner,
+        [f"repos/{repository}/immutable-releases"],
+        "immutable releases setting lookup",
+    )
+    if settings.get("enabled") is not True:
+        raise PromotionError("immutable releases are not enabled")
+    _ensure_candidate_tag(
+        runner,
+        repository,
+        f"v{version}",
+        commit_sha,
+        run_attempt=run_attempt,
+    )
+
+
 def _expected_assets(dist_dir: Path, checksums: Path) -> dict[str, dict[str, object]]:
     candidates = [*dist_dir.glob("*.whl"), *dist_dir.glob("*.tar.gz"), checksums]
     if len(candidates) != 3 or any(not path.is_file() for path in candidates):
@@ -476,6 +557,7 @@ def promote(
     checksums: Path,
     notes_path: Path,
     run_attempt: int = 1,
+    allow_current_attempt_ancestor: bool = False,
 ) -> None:
     if not repository or not version:
         raise PromotionError("repository and version are required")
@@ -499,41 +581,14 @@ def promote(
         raise PromotionError("immutable releases are not enabled")
 
     tag = f"v{version}"
-    main_ref = _api_json(
+    _ensure_candidate_tag(
         runner,
-        [f"repos/{repository}/git/ref/heads/main"],
-        "main reference lookup",
+        repository,
+        tag,
+        commit_sha,
+        run_attempt=run_attempt,
+        allow_current_attempt_ancestor=allow_current_attempt_ancestor,
     )
-    target = main_ref.get("object")
-    if not isinstance(target, dict) or target.get("type") != "commit":
-        raise PromotionError("main reference is not a commit")
-    main_sha = target.get("sha")
-
-    existing_tag = _api_result(
-        runner,
-        [f"repos/{repository}/git/ref/tags/{tag}"],
-    )
-    if existing_tag.returncode == 0:
-        _validate_ref(_checked_json(existing_tag, "existing tag lookup"), commit_sha)
-        if main_sha != commit_sha:
-            if run_attempt <= 1:
-                raise PromotionError("tag recovery requires a later run attempt")
-            comparison = _api_json(
-                runner,
-                [f"repos/{repository}/compare/{commit_sha}...main"],
-                "candidate ancestry lookup",
-            )
-            merge_base = comparison.get("merge_base_commit")
-            if (
-                comparison.get("status") not in {"ahead", "identical"}
-                or not isinstance(merge_base, dict)
-                or merge_base.get("sha") != commit_sha
-            ):
-                raise PromotionError("approved commit is no longer an ancestor of main")
-    else:
-        if main_sha != commit_sha:
-            raise PromotionError("first promotion requires main at the approved commit")
-        _ensure_tag(runner, repository, tag, commit_sha)
     expected = _expected_assets(dist_dir, checksums)
     asset_paths = {
         path.name: path
@@ -614,25 +669,46 @@ def promote(
 
 
 def main() -> int:
+    run_attempt = int(os.environ.get("GITHUB_RUN_ATTEMPT", "1"))
+    phase = os.environ.get("RELEASE_PHASE", "publish")
     try:
-        promote(
-            admin_runner=_admin_runner,
-            repository=os.environ.get("GITHUB_REPOSITORY", ""),
-            version=os.environ.get("VERSION", ""),
-            commit_sha=os.environ.get("COMMIT_SHA", ""),
-            dist_dir=Path(os.environ.get("DIST_DIR", "dist")),
-            checksums=Path(
-                os.environ.get("CHECKSUMS_PATH", "dist/SHA256SUMS.txt")
-            ),
-            notes_path=Path(
-                os.environ.get("RELEASE_NOTES_PATH", RELEASE_NOTES_PATH)
-            ),
-            run_attempt=int(os.environ.get("GITHUB_RUN_ATTEMPT", "1")),
-        )
+        if phase == "reserve_tag":
+            reserve_tag(
+                admin_runner=_admin_runner,
+                repository=os.environ.get("GITHUB_REPOSITORY", ""),
+                version=os.environ.get("VERSION", ""),
+                commit_sha=os.environ.get("COMMIT_SHA", ""),
+                run_attempt=run_attempt,
+            )
+        elif phase == "publish":
+            reserved_attempt = os.environ.get("TAG_RESERVED_ATTEMPT")
+            promote(
+                admin_runner=_admin_runner,
+                repository=os.environ.get("GITHUB_REPOSITORY", ""),
+                version=os.environ.get("VERSION", ""),
+                commit_sha=os.environ.get("COMMIT_SHA", ""),
+                dist_dir=Path(os.environ.get("DIST_DIR", "dist")),
+                checksums=Path(
+                    os.environ.get("CHECKSUMS_PATH", "dist/SHA256SUMS.txt")
+                ),
+                notes_path=Path(
+                    os.environ.get("RELEASE_NOTES_PATH", RELEASE_NOTES_PATH)
+                ),
+                run_attempt=run_attempt,
+                allow_current_attempt_ancestor=(
+                    reserved_attempt == str(run_attempt)
+                ),
+            )
+        else:
+            raise PromotionError("unknown release phase")
     except PromotionError as exc:
         print(f"release promotion refused: {exc}", file=sys.stderr)
         return 1
-    print("release promotion completed")
+    print(
+        "release tag reservation completed"
+        if phase == "reserve_tag"
+        else "release promotion completed"
+    )
     return 0
 
 

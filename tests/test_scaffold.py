@@ -13,7 +13,7 @@ ROOT = Path(__file__).parents[1]
 
 
 def test_package_versions_match() -> None:
-    assert docx_version == "0.1.1"
+    assert docx_version == "0.1.2"
     assert mcp_version == docx_version
 
 
@@ -44,6 +44,37 @@ def test_docs_disambiguate_reinstate_and_compact_clause_digest() -> None:
         r"does not perform Word Reject and does not\s+remove", limitations
     )
     assert "observation is not side-effect free" in limitations
+
+
+def test_docs_describe_the_actual_bounded_zip_boundary() -> None:
+    api = (ROOT / "API.md").read_text()
+    limitations = (ROOT / "KNOWN_LIMITATIONS.md").read_text()
+    security = (ROOT / "SECURITY.md").read_text()
+
+    assert "only `STORED` or `DEFLATED`" in limitations
+    assert re.search(r"Standard\s+32-bit data descriptors", limitations)
+    assert "actual output and CRC" in api
+    assert "DEFLATED data uses bounded input and output chunks" in api
+    assert "STORED data is a\nbounded direct span" in api
+    assert "500 MiB of aggregate actual expanded output" in api
+    assert re.search(r"DEFLATED decoder output and STORED direct-span bytes", api)
+    assert re.search(r"returns no partial round list", api)
+    assert re.search(r"container preflight before any\s+member-output processing", limitations)
+    assert "Exceeding the shared scan budget" in limitations
+    assert re.search(r"one cumulative 500 MiB actual expanded-output budget", security)
+    assert re.search(r"STORED direct-span bytes remain charged", security)
+    assert re.search(r"rejected\s+by a later CRC, XML or required-part", security)
+    assert re.search(r"beyond the budget fails the complete call", security)
+    assert "non-ZIP64 local and central extra fields may differ" in api
+    assert re.search(r"exact DEFLATE end of\s+stream", api)
+    assert re.search(r"no package member is\s+trusted solely", security)
+    for code in (
+        "resource_limit_exceeded",
+        "unsupported_compression",
+        "encrypted_docx",
+        "file_unextractable",
+    ):
+        assert f"`{code}`" in api
 
 
 def test_export_example_matches_compact_count_and_gap_contract() -> None:
@@ -91,3 +122,25 @@ def test_current_release_changelog_is_status_neutral() -> None:
     assert "`published_at` timestamp" in changelog
     assert "only timeless release contents" in releasing
     assert "`published_at` timestamp" in releasing
+
+
+def test_public_readme_uses_parseable_version_pinned_claude_commands() -> None:
+    readme = (ROOT / "README.md").read_text()
+
+    assert (
+        "claude mcp add --transport stdio --scope user veqtor -- "
+        "uvx veqtor-mcp@0.1.2"
+    ) in readme
+    assert (
+        "claude mcp add --transport stdio --scope user veqtor "
+        '-e VEQTOR_TRACKED_CHANGE_AUTHOR="Your Name" -- '
+        "uvx veqtor-mcp@0.1.2"
+    ) in readme
+
+
+def test_pypi_long_description_has_no_repository_relative_links() -> None:
+    readme = (ROOT / "README.md").read_text()
+    targets = re.findall(r"\[[^\]]+\]\(([^)]+)\)", readme)
+
+    assert targets
+    assert all(target.startswith(("https://", "#")) for target in targets)

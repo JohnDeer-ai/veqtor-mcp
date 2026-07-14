@@ -75,11 +75,17 @@ def _compare(expected: dict[str, bytes], observed: dict[str, bytes]) -> None:
             raise ReproducibilityError(f"rebuilt bytes differ for {name}")
 
 
-def verify(source_root: Path, approved_dir: Path) -> dict[str, str]:
+def verify(
+    source_root: Path,
+    approved_dir: Path,
+    mirror_dir: Path | None = None,
+) -> dict[str, str]:
     _assert_toolchain()
     with tempfile.TemporaryDirectory(prefix="veqtor-rebuild-") as temporary:
         root = Path(temporary)
         expected = _artifact_bytes(approved_dir)
+        if mirror_dir is not None:
+            _compare(expected, _artifact_bytes(mirror_dir))
         observed = _build(source_root, root / "independent")
         _compare(expected, observed)
     return {
@@ -92,9 +98,14 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source-root", type=Path, default=Path.cwd())
     parser.add_argument("--approved-dir", type=Path, required=True)
+    parser.add_argument("--mirror-dir", type=Path)
     options = parser.parse_args(argv)
     try:
-        digests = verify(options.source_root.resolve(), options.approved_dir)
+        digests = verify(
+            options.source_root.resolve(),
+            options.approved_dir,
+            options.mirror_dir,
+        )
     except (OSError, ReproducibilityError) as exc:
         print(f"reproducible build check failed: {exc}", file=sys.stderr)
         return 1

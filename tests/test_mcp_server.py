@@ -9,9 +9,12 @@ import sys
 from pathlib import Path
 
 import pytest
+from mcp.client.session import ClientSession
 from mcp.shared.memory import create_connected_server_and_client_session
 
 import veqtor_docx
+from veqtor_docx import rounds as rounds_module
+from veqtor_mcp import __version__
 from veqtor_mcp import records
 from veqtor_mcp import server
 from veqtor_mcp.server import mcp
@@ -36,6 +39,26 @@ def _error_text(result) -> str:
 
 
 @pytest.mark.anyio
+async def test_protocol_initialization_reports_veqtor_version(monkeypatch) -> None:
+    initialize = ClientSession.initialize
+    observed_results = []
+
+    async def capture_initialize(session):
+        result = await initialize(session)
+        observed_results.append(result)
+        return result
+
+    monkeypatch.setattr(ClientSession, "initialize", capture_initialize)
+
+    async with create_connected_server_and_client_session(mcp._mcp_server):
+        pass
+
+    assert len(observed_results) == 1
+    assert observed_results[0].serverInfo.name == "veqtor"
+    assert observed_results[0].serverInfo.version == __version__
+
+
+@pytest.mark.anyio
 async def test_tools_are_exposed_and_callable(demo_dir: Path) -> None:
     async with create_connected_server_and_client_session(
         mcp._mcp_server
@@ -56,6 +79,7 @@ async def test_tools_are_exposed_and_callable(demo_dir: Path) -> None:
         export_tool = next(
             tool for tool in tools.tools if tool.name == "export_decision_record"
         )
+        list_tool = next(tool for tool in tools.tools if tool.name == "list_rounds")
         apply_tool = next(
             tool for tool in tools.tools if tool.name == "apply_edits"
         )
@@ -63,6 +87,9 @@ async def test_tools_are_exposed_and_callable(demo_dir: Path) -> None:
             tool = next(tool for tool in tools.tools if tool.name == tool_name)
             assert "author" not in tool.inputSchema["properties"]
         assert "include_payload" not in export_tool.inputSchema["properties"]
+        assert "actual expanded-output limits" in list_tool.description
+        assert "split the folder and retry" in list_tool.description
+        assert "without returning a partial round list" in list_tool.description
         assert "does not accept, reject or remove" in apply_tool.description
         assert "not a tamper-evident audit log" in export_tool.description
         assert "not authentication or a hash chain" in export_tool.description
@@ -471,7 +498,7 @@ def test_blank_author_keeps_version_and_makes_doctor_and_startup_diagnostic() ->
     )
 
     assert version.returncode == 0
-    assert version.stdout.strip() == "veqtor-mcp 0.1.1"
+    assert version.stdout.strip() == "veqtor-mcp 0.1.2"
     assert "Traceback" not in version.stderr
     assert doctor.returncode == 2
     diagnosis = json.loads(doctor.stdout)
@@ -489,13 +516,13 @@ def test_blank_author_keeps_version_and_makes_doctor_and_startup_diagnostic() ->
 def test_cli_version_and_doctor(monkeypatch, capsys) -> None:
     monkeypatch.setattr(server.sys, "argv", ["veqtor-mcp", "--version"])
     server.main()
-    assert capsys.readouterr().out.strip() == "veqtor-mcp 0.1.1"
+    assert capsys.readouterr().out.strip() == "veqtor-mcp 0.1.2"
 
     monkeypatch.setattr(server.sys, "argv", ["veqtor-mcp", "doctor"])
     server.main()
     doctor = json.loads(capsys.readouterr().out)
     assert doctor["name"] == "veqtor-mcp"
-    assert doctor["version"] == "0.1.1"
+    assert doctor["version"] == "0.1.2"
     assert doctor["build"] == records.SOURCE_SNAPSHOT_IDENTITY
     assert doctor["tracked_change_author"] == server._tracked_change_author()
     assert doctor["configuration_error"] is None
@@ -509,6 +536,29 @@ async def test_tool_errors_are_reported_not_raised(demo_dir: Path) -> None:
     ) as session:
         broken = await session.call_tool("list_rounds", {"folder": str(demo_dir / "nope")})
         assert broken.isError
+
+
+@pytest.mark.anyio
+async def test_round_scan_budget_overrun_is_a_stable_protocol_error(
+    demo_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(rounds_module, "MAX_ROUND_TOTAL_EXPANDED_BYTES", 0)
+
+    async with create_connected_server_and_client_session(
+        mcp._mcp_server
+    ) as session:
+        result = await session.call_tool(
+            "list_rounds",
+            {"folder": str(demo_dir)},
+        )
+
+    text = _error_text(result)
+    assert result.isError
+    assert "resource_limit_exceeded" in text
+    assert "aggregate expanded-output limit" in text
+    assert "split the folder and retry" in text
+    assert '"rounds"' not in text
 
 
 @pytest.mark.anyio

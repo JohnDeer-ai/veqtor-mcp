@@ -41,7 +41,6 @@ from release_contract import (
     MAX_ARCHIVE_MEMBERS,
     MAX_ARCHIVE_METADATA_BYTES,
     MAX_NORMALIZATION_PASSES,
-    PROJECT_NAME,
     SDIST_MEMBERS,
     SDIST_SOURCE_MAP,
     SOURCE_DATE_EPOCH,
@@ -638,11 +637,26 @@ def _expected_metadata_headers(pyproject: dict) -> list[tuple[str, str]]:
         raise SystemExit("release author metadata is unsupported")
     if authors:
         headers.append(("Author", ", ".join(authors)))
+    maintainers = [item.get("name") for item in project.get("maintainers", [])]
+    if any(
+        not isinstance(maintainer, str) or not maintainer
+        for maintainer in maintainers
+    ):
+        raise SystemExit("release maintainer metadata is unsupported")
+    if maintainers:
+        headers.append(("Maintainer", ", ".join(maintainers)))
     license_expression = project.get("license")
     if not isinstance(license_expression, str):
         raise SystemExit("release license metadata is unsupported")
     headers.append(("License-Expression", license_expression))
     headers.extend(("License-File", name) for name in ("LICENSE", "NOTICE"))
+    keywords = project.get("keywords", [])
+    if not isinstance(keywords, list) or any(
+        not isinstance(keyword, str) or not keyword for keyword in keywords
+    ):
+        raise SystemExit("release keyword metadata is unsupported")
+    if keywords:
+        headers.append(("Keywords", ",".join(sorted(keywords))))
     headers.extend(
         ("Classifier", classifier)
         for classifier in project.get("classifiers", [])
