@@ -160,9 +160,10 @@ const description = 'Search Veqtor guides by commercial-contract topic, guide fo
   h1 {
     max-width: 17ch;
     margin-bottom: 1.2rem;
-    font-size: clamp(3rem, 6vw, 5.75rem);
+    font-size: var(--type-article-title);
     letter-spacing: var(--tracking-display);
-    line-height: 1.02;
+    line-height: 1.05;
+    text-wrap: balance;
   }
 
   .search-hero > p:last-child {
@@ -290,10 +291,6 @@ const description = 'Search Veqtor guides by commercial-contract topic, guide fo
 
     .guide-grid {
       grid-template-columns: 1fr;
-    }
-
-    h1 {
-      font-size: clamp(2.6rem, 14vw, 3.5rem);
     }
   }
 </style>

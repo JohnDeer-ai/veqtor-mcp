@@ -188,7 +188,7 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
     grid-template-columns: minmax(0, 1.5fr) minmax(16rem, 0.42fr);
     gap: clamp(2rem, 7vw, 7rem);
     align-items: end;
-    padding-block: clamp(4rem, 9vw, 8rem);
+    padding-block: clamp(4rem, 8vw, 7rem);
   }
 
   .kicker,
@@ -212,9 +212,10 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
   h1 {
     max-width: 18ch;
     margin-bottom: 1.6rem;
-    font-size: clamp(3rem, 6vw, 5.75rem);
+    font-size: var(--type-article-title);
     letter-spacing: var(--tracking-display);
-    line-height: 1.02;
+    line-height: 1.05;
+    text-wrap: balance;
   }
 
   .lede {
@@ -477,7 +478,7 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
     }
   }
 
-  @media (max-width: 740px) {
+  @media (max-width: 1080px) {
     .article-hero,
     .article-shell {
       grid-template-columns: 1fr;
@@ -504,10 +505,6 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
     .related__grid,
     .prev-next {
       grid-template-columns: 1fr;
-    }
-
-    h1 {
-      font-size: clamp(2.55rem, 14vw, 3.5rem);
     }
   }
 </style>

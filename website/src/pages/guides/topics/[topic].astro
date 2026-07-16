@@ -130,7 +130,7 @@ const { topic } = Astro.props as { topic: GuideTopic }
     grid-template-columns: minmax(0, 1.4fr) minmax(15rem, 0.45fr);
     gap: clamp(2rem, 8vw, 8rem);
     align-items: end;
-    padding-block: clamp(4rem, 9vw, 8rem);
+    padding-block: clamp(4rem, 8vw, 7rem);
   }
 
   .kicker,
@@ -153,9 +153,10 @@ const { topic } = Astro.props as { topic: GuideTopic }
   h1 {
     max-width: 16ch;
     margin-bottom: 1.5rem;
-    font-size: clamp(3rem, 6vw, 5.75rem);
+    font-size: var(--type-page-title);
     letter-spacing: var(--tracking-display);
-    line-height: 1.02;
+    line-height: 1.04;
+    text-wrap: balance;
   }
 
   .lede {
@@ -201,9 +202,9 @@ const { topic } = Astro.props as { topic: GuideTopic }
   .section-heading h2,
   .bridge h2 {
     margin-bottom: 1rem;
-    font-size: clamp(2rem, 4vw, 3.5rem);
+    font-size: var(--type-section-title);
     letter-spacing: var(--tracking-heading);
-    line-height: 1.06;
+    line-height: 1.08;
   }
 
   .pillar > div > p:not(.kicker),
@@ -312,7 +313,7 @@ const { topic } = Astro.props as { topic: GuideTopic }
     }
   }
 
-  @media (max-width: 720px) {
+  @media (max-width: 1080px) {
     .topic-hero,
     .pillar,
     .section-heading,
@@ -332,10 +333,6 @@ const { topic } = Astro.props as { topic: GuideTopic }
 
     .guide-grid {
       grid-template-columns: 1fr;
-    }
-
-    h1 {
-      font-size: clamp(2.6rem, 14vw, 3.5rem);
     }
   }
 </style>
