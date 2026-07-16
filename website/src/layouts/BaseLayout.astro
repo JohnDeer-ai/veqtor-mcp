@@ -1,0 +1,123 @@
+---
+import Header from '../components/Header.astro'
+import Footer from '../components/Footer.astro'
+import '../styles/global.css'
+
+interface Props {
+  title: string
+  twitterTitle?: string
+  description: string
+  canonicalPath: string
+  type?: 'website' | 'article'
+  image?: string
+  publishedTime?: string
+  modifiedTime?: string
+  structuredData?: Record<string, unknown> | Record<string, unknown>[]
+  noindex?: boolean
+}
+
+const {
+  title,
+  twitterTitle = title,
+  description,
+  canonicalPath,
+  type = 'website',
+  image = '/og.png',
+  publishedTime,
+  modifiedTime,
+  structuredData = [],
+  noindex = false,
+} = Astro.props
+
+const site = Astro.site ?? new URL('https://veqtor.pro')
+const canonical = new URL(canonicalPath, site)
+const imageUrl = new URL(image, site)
+const schemas = Array.isArray(structuredData) ? structuredData : [structuredData]
+const baseSchemas = [
+  {
+    '@type': 'Organization',
+    '@id': `${site.origin}/#organization`,
+    name: 'Veqtor',
+    url: site.origin,
+    logo: `${site.origin}/logo-512.png`,
+    founder: { '@id': `${site.origin}/author/ilya-shilov#person` },
+    sameAs: ['https://github.com/JohnDeer-ai/veqtor-mcp'],
+  },
+  {
+    '@type': 'WebSite',
+    '@id': `${site.origin}/#website`,
+    name: 'Veqtor',
+    url: site.origin,
+    publisher: { '@id': `${site.origin}/#organization` },
+    inLanguage: 'en',
+  },
+]
+const jsonLd = JSON.stringify({
+  '@context': 'https://schema.org',
+  '@graph': [...baseSchemas, ...schemas],
+}).replace(/</g, '\\u003c')
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#07060b" />
+    <meta name="color-scheme" content="dark" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="icon" href="/favicon-48x48.png" type="image/png" sizes="48x48" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <link rel="alternate" href="/llms.txt" type="text/plain" title="Veqtor for language models" />
+    {noindex && <meta name="robots" content="noindex, follow" />}
+
+    <meta property="og:site_name" content="Veqtor" />
+    <meta property="og:type" content={type} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={imageUrl} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Veqtor connects Claude to tracked changes in Microsoft Word documents" />
+    {publishedTime && <meta property="article:published_time" content={publishedTime} />}
+    {modifiedTime && <meta property="article:modified_time" content={modifiedTime} />}
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={twitterTitle} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={imageUrl} />
+    <script is:inline type="application/ld+json" set:html={jsonLd}></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+    <Header />
+    <main id="main-content">
+      <slot />
+    </main>
+    <Footer />
+    <script is:inline>
+      (() => {
+        const header = document.querySelector('[data-site-header]');
+        const toggle = document.querySelector('[data-nav-toggle]');
+        const nav = document.querySelector('[data-site-nav]');
+        if (header && toggle && nav) {
+          toggle.addEventListener('click', () => {
+            const open = toggle.getAttribute('aria-expanded') === 'true';
+            toggle.setAttribute('aria-expanded', String(!open));
+            header.classList.toggle('is-open', !open);
+          });
+          nav.querySelectorAll('a').forEach((link) => link.addEventListener('click', () => {
+            toggle.setAttribute('aria-expanded', 'false');
+            header.classList.remove('is-open');
+          }));
+        }
+      })();
+    </script>
+  </body>
+</html>

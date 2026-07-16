@@ -1,0 +1,70 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro'
+import PageHero from './PageHero.astro'
+import SiteCta from './SiteCta.astro'
+
+interface Section {
+  id: string
+  title: string
+  body: string[]
+  bullets?: string[]
+  note?: string
+}
+
+interface Props {
+  title: string
+  description: string
+  path: string
+  eyebrow: string
+  heading: string
+  lede: string
+  meta?: string
+  sections: Section[]
+  ctaTitle?: string
+  ctaBody?: string
+  structuredData?: Record<string, unknown> | Record<string, unknown>[]
+}
+
+const { title, description, path, eyebrow, heading, lede, meta, sections, ctaTitle, ctaBody, structuredData = [] } = Astro.props
+const pageSchema = {
+  '@type': 'WebPage',
+  '@id': `https://veqtor.pro${path}#webpage`,
+  url: `https://veqtor.pro${path}`,
+  name: title,
+  description,
+  isPartOf: { '@id': 'https://veqtor.pro/#website' },
+  about: { '@id': 'https://veqtor.pro/#software' },
+  inLanguage: 'en',
+}
+const extraSchemas = Array.isArray(structuredData) ? structuredData : [structuredData]
+---
+
+<BaseLayout title={title} description={description} canonicalPath={path} structuredData={[pageSchema, ...extraSchemas]}>
+  <PageHero eyebrow={eyebrow} title={heading} lede={lede} meta={meta} breadcrumbs={[{ label: heading }]}>
+    <div slot="actions" class="actions">
+      <a class="button button--primary" href="/demo">Watch the demo</a>
+      <a class="button button--secondary" href="/setup">Connection guide</a>
+    </div>
+  </PageHero>
+
+  <section class="section">
+    <div class="shell prose-shell">
+      <article class="prose">
+        {sections.map((section) => (
+          <section id={section.id}>
+            <h2>{section.title}</h2>
+            {section.body.map((paragraph) => <p>{paragraph}</p>)}
+            {section.bullets && <ul>{section.bullets.map((item) => <li>{item}</li>)}</ul>}
+            {section.note && <details class="notice technical-disclosure" data-copy-layer="technical"><summary>Show technical detail</summary><p>{section.note}</p></details>}
+          </section>
+        ))}
+      </article>
+      <aside class="side-index" aria-label="On this page">
+        <strong>On this page</strong>
+        {sections.map((section) => <a href={`#${section.id}`}>{section.title}</a>)}
+      </aside>
+    </div>
+  </section>
+
+  <SiteCta title={ctaTitle} body={ctaBody} />
+</BaseLayout>

@@ -1,0 +1,60 @@
+---
+import NarrativePage from '../components/NarrativePage.astro'
+
+const sections = [
+  {
+    id: 'local-process',
+    title: 'Veqtor runs on your computer',
+    body: [
+      'Veqtor is not a hosted document service. It runs on your computer, does not contain its own AI model, and does not upload whole Word documents in the background.',
+      'This does not mean every piece of contract text remains on your computer. Text that Veqtor returns to Claude enters the Claude conversation and may be processed by your AI provider under that provider’s terms. Check the settings and policies of the Claude product and account you use.',
+    ],
+  },
+  {
+    id: 'source-files',
+    title: 'Source documents are not overwritten',
+    body: [
+      'A successful edit creates a new Word document. Veqtor refuses to replace the source file and refuses to replace an existing output file with the same name.',
+      'Before writing, Veqtor can test the complete requested edit set in memory. If any requested edit cannot be completed, it refuses the whole set rather than producing a partial counterproposal.',
+    ],
+  },
+  {
+    id: 'activity-history',
+    title: 'The local activity history is useful, but not independent proof',
+    body: [
+      'Veqtor normally tries to save a private activity history inside the matter folder. It can help you review which tool ran, what was checked, and what was written. The raw history may contain contract wording, so it should be treated as confidential.',
+      'The history is an ordinary file on your computer. Someone with access to the computer could change it, and some actions may be missing if saving failed. Use it to review the work—not as independent proof of what happened.',
+    ],
+    note: 'The local journal is stored under <matter>/.veqtor/decision-records.jsonl unless VEQTOR_DISABLE_DECISION_RECORD=1. Read-only calls normally append provenance too.',
+  },
+  {
+    id: 'threat-model',
+    title: 'What this security promise assumes',
+    body: [
+      'The public Alpha is designed for a computer you control and use as a single user. It checks Word files against strict size and structure limits and refuses files it cannot interpret safely.',
+      'Veqtor cannot protect your computer from malicious software already running under your account. Do not use it as the only protection for untrusted files or on a machine you do not control.',
+    ],
+  },
+  {
+    id: 'reporting',
+    title: 'Report issues without client data',
+    body: [
+      'Use synthetic documents when filing public bug reports. Never post real contract wording, local paths, activity-history files, credentials or client documents in GitHub Issues.',
+      'Suspected vulnerabilities should be reported privately through the security policy in the GitHub repository.',
+    ],
+  },
+]
+---
+
+<NarrativePage
+  title="Veqtor Security & Privacy — Local Word Redline Tooling"
+  description="Understand where Veqtor runs, what document text may reach Claude, how source files and local activity records are handled, and the security limits of the public Alpha."
+  path="/security"
+  eyebrow="Security and privacy"
+  heading="Know what stays local—and what enters your Claude conversation."
+  lede="Veqtor does not upload whole documents on its own, but text returned to Claude may be processed by your AI provider. This protection assumes you are using a computer you control."
+  meta="Runs on your computer · No Veqtor-hosted upload"
+  sections={sections}
+  ctaTitle="Try Veqtor first with the synthetic sample contract."
+  ctaBody="The demo workflow lets you understand the boundary without using client data."
+/>

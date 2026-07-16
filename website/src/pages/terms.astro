@@ -1,0 +1,56 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro'
+import PageHero from '../components/PageHero.astro'
+
+const title = 'Terms of Use — Veqtor'
+const description = 'Terms for using the Veqtor information website and public technical Alpha, including open-source licensing, no legal advice, user responsibility, third-party services and support limits.'
+---
+
+<BaseLayout title={title} description={description} canonicalPath="/terms">
+  <PageHero
+    eyebrow="Terms of use"
+    title="Veqtor is open-source software, not legal advice."
+    lede="Use the public Alpha only after reviewing its limits, your organization’s rules and the result in Microsoft Word."
+    meta="Last updated · 16 July 2026"
+    breadcrumbs={[{ label: 'Terms' }]}
+    compact
+  />
+
+  <section class="section">
+    <div class="shell prose-shell">
+      <article class="prose">
+        <h2>1. Scope</h2>
+        <p>These terms apply to the veqtor.pro information website. The Veqtor source code and release artifacts are licensed separately under the Apache License 2.0, together with any notices included in the repository.</p>
+
+        <h2>2. No legal advice or professional relationship</h2>
+        <p>The website, guides, demo and software are provided for information and tooling. They do not provide legal advice, establish a lawyer-client relationship or determine that a contract position is legally or commercially suitable.</p>
+
+        <h2>3. Public Alpha</h2>
+        <p>Veqtor 0.1 is an early technical release with a narrow supported surface. It may refuse documents, omit unsupported document parts and contain defects. Read the known limitations before using it on a real matter.</p>
+
+        <h2>4. Your responsibility</h2>
+        <p>You are responsible for the documents, instructions and systems you use; the authority and confidentiality rules that apply; the accuracy of Claude’s reasoning and drafting; and the final review of every output before it is used, relied on or sent.</p>
+        <p>Use synthetic material in public bug reports. Do not publish client text, private paths, credentials or confidential local records.</p>
+
+        <h2>5. Third-party services</h2>
+        <p>Veqtor can be connected to Claude and depends on separate tools such as Python and uv. Those services and tools are supplied by third parties under their own terms. This project does not control their availability, data practices or output.</p>
+
+        <h2>6. Availability and support</h2>
+        <p>The project is community supported. No response time, fix time, uptime, compatibility or continued-availability commitment is provided.</p>
+
+        <h2>7. Website content</h2>
+        <p>The guides may discuss English-law cases and drafting practices, but they are general information and may become outdated. Obtain appropriate advice for the facts and law that apply to your matter.</p>
+
+        <h2>8. No warranty</h2>
+        <p>To the maximum extent permitted by applicable law, the website is provided “as is” and “as available,” without warranties about accuracy, completeness, fitness for a particular purpose or uninterrupted availability. The software license contains the terms that apply to the code and release artifacts.</p>
+
+        <h2>9. Changes</h2>
+        <p>The website and these terms may change. The date at the top identifies the current website terms; tagged software releases remain governed by the license and notices distributed with them.</p>
+
+        <h2>10. Contact</h2>
+        <p>For project questions, use the <a href="https://github.com/JohnDeer-ai/veqtor-mcp">Veqtor GitHub repository</a> without including confidential information.</p>
+      </article>
+      <aside class="side-index"><strong>Related</strong><a href="/limitations">Known limitations</a><a href="/privacy">Privacy</a><a href="/security">Security</a><a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/v0.1.2/LICENSE">Apache 2.0 license ↗</a></aside>
+    </div>
+  </section>
+</BaseLayout>

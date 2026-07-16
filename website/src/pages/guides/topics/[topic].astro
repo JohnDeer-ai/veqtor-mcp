@@ -1,0 +1,338 @@
+---
+import BaseLayout from '../../../layouts/BaseLayout.astro'
+import GuideCard from '../../../components/GuideCard.astro'
+import {
+  MCP_GUIDE_BRIDGE,
+  TOPICS,
+  topicStructuredData,
+  type GuideTopic,
+} from '../../../lib/guides'
+
+export function getStaticPaths() {
+  return TOPICS.map((topic) => ({
+    params: { topic: topic.id },
+    props: { topic },
+  }))
+}
+
+const { topic } = Astro.props as { topic: GuideTopic }
+---
+
+<BaseLayout
+  title={`${topic.label} Guides - Veqtor Contract Review Library`}
+  twitterTitle={topic.twitterTitle}
+  description={topic.description}
+  canonicalPath={topic.path}
+  structuredData={topicStructuredData(topic)}
+>
+  <div class="topic-page">
+    <div class="shell crumbs" aria-label="Breadcrumb">
+      <a href="/">Home</a><span>/</span><a href="/guides">Guides</a><span>/</span><b>{topic.label}</b>
+    </div>
+
+    <header class="topic-hero shell">
+      <div>
+        <p class="kicker">{topic.stage.label}</p>
+        <h1>{topic.label}</h1>
+        <p class="lede">{topic.pillar.lede}</p>
+      </div>
+      <aside>
+        <span>Topic map</span>
+        <strong>{topic.guides.length}</strong>
+        <p>one pillar guide + {topic.spokes.length} focused {topic.spokes.length === 1 ? 'article' : 'articles'}</p>
+      </aside>
+    </header>
+
+    <section class="pillar shell" aria-labelledby="pillar-heading">
+      <div>
+        <p class="kicker">Pillar guide</p>
+        <h2 id="pillar-heading">{topic.pillar.h1}</h2>
+        <p>{topic.pillar.lede}</p>
+        <a class="button button--primary" href={topic.pillar.path}>Read the pillar guide</a>
+      </div>
+      <ol aria-label={`${topic.label} reading order`}>
+        {topic.spokes.map((guide, index) => (
+          <li>
+            <a href={guide.path}>
+              <span>{String(index + 1).padStart(2, '0')}</span>
+              <strong>{guide.listing.title}</strong>
+              <span aria-hidden="true">→</span>
+            </a>
+          </li>
+        ))}
+      </ol>
+    </section>
+
+    <section class="section shell" aria-labelledby="all-guides-heading">
+      <div class="section-heading">
+        <div>
+          <p class="kicker">Complete topic</p>
+          <h2 id="all-guides-heading">All {topic.label.toLowerCase()} guides.</h2>
+        </div>
+        <p>Start with the main guide or open the specific clause question you need.</p>
+      </div>
+      <div class="guide-grid">
+        {topic.guides.map((guide) => <GuideCard guide={guide} />)}
+      </div>
+    </section>
+
+    <section class="bridge shell" aria-labelledby="topic-bridge-heading">
+      <div>
+        <p class="kicker">{MCP_GUIDE_BRIDGE.label}</p>
+        <h2 id="topic-bridge-heading">Know the rule. Then inspect what changed in the document.</h2>
+        <p>{MCP_GUIDE_BRIDGE.body}</p>
+      </div>
+      <a class="button button--primary" href={MCP_GUIDE_BRIDGE.href}>{MCP_GUIDE_BRIDGE.title}</a>
+    </section>
+  </div>
+</BaseLayout>
+
+<style>
+  .topic-page {
+    --ink: #eeedf5;
+    --muted: #aaa6b7;
+    --panel: #111019;
+    --panel-raised: #17151f;
+    --line: #302d3c;
+    --accent: #8f80ff;
+    --accent-soft: #c0b9ff;
+    color: var(--ink);
+  }
+
+  .shell {
+    width: min(1180px, calc(100% - 2.5rem));
+    margin-inline: auto;
+  }
+
+  .crumbs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+    padding-top: 1.4rem;
+    color: var(--muted);
+    font-family: var(--mono, ui-monospace, monospace);
+    font-size: 0.72rem;
+  }
+
+  .crumbs a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .crumbs b {
+    color: var(--ink);
+  }
+
+  .topic-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(15rem, 0.45fr);
+    gap: clamp(2rem, 8vw, 8rem);
+    align-items: end;
+    padding-block: clamp(4rem, 9vw, 8rem);
+  }
+
+  .kicker,
+  .topic-hero aside > span {
+    margin: 0 0 1rem;
+    color: var(--accent-soft);
+    font-family: var(--mono, ui-monospace, monospace);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+  }
+
+  h1,
+  h2,
+  p {
+    margin-top: 0;
+  }
+
+  h1 {
+    max-width: 16ch;
+    margin-bottom: 1.5rem;
+    font-size: clamp(3rem, 7vw, 6rem);
+    letter-spacing: -0.06em;
+    line-height: 0.96;
+  }
+
+  .lede {
+    max-width: 66ch;
+    margin-bottom: 0;
+    color: var(--muted);
+    font-size: clamp(1.05rem, 2vw, 1.28rem);
+    line-height: 1.65;
+  }
+
+  .topic-hero aside {
+    padding: 1.4rem;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 0.9rem;
+  }
+
+  .topic-hero aside strong {
+    display: block;
+    font-size: 4.7rem;
+    letter-spacing: -0.07em;
+    line-height: 0.9;
+  }
+
+  .topic-hero aside p {
+    margin-block: 0.8rem 0;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .pillar {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(17rem, 0.7fr);
+    gap: clamp(2rem, 7vw, 7rem);
+    padding: clamp(1.6rem, 4vw, 3rem);
+    background: linear-gradient(135deg, rgb(143 128 255 / 13%), transparent 55%), var(--panel-raised);
+    border: 1px solid var(--line);
+    border-radius: 1rem;
+  }
+
+  .pillar h2,
+  .section-heading h2,
+  .bridge h2 {
+    margin-bottom: 1rem;
+    font-size: clamp(2rem, 4.5vw, 3.8rem);
+    letter-spacing: -0.045em;
+    line-height: 1.03;
+  }
+
+  .pillar > div > p:not(.kicker),
+  .section-heading > p,
+  .bridge p {
+    color: var(--muted);
+    line-height: 1.65;
+  }
+
+  .pillar ol {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--line);
+  }
+
+  .pillar li a {
+    display: grid;
+    grid-template-columns: 2.2rem 1fr auto;
+    gap: 0.75rem;
+    align-items: center;
+    padding-block: 0.85rem;
+    color: var(--ink);
+    font-size: 0.84rem;
+    text-decoration: none;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .pillar li a > span {
+    color: var(--accent-soft);
+    font-family: var(--mono, ui-monospace, monospace);
+    font-size: 0.67rem;
+  }
+
+  .button {
+    display: inline-flex;
+    min-height: 3rem;
+    align-items: center;
+    justify-content: center;
+    padding: 0.72rem 1.1rem;
+    color: var(--ink);
+    font-size: 0.85rem;
+    font-weight: 700;
+    text-decoration: none;
+    border: 1px solid var(--line);
+    border-radius: 0.55rem;
+  }
+
+  .button--primary {
+    color: #0b0912;
+    background: var(--accent-soft);
+    border-color: var(--accent-soft);
+  }
+
+  .section {
+    padding-block: clamp(4rem, 9vw, 8rem);
+  }
+
+  .section-heading {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(15rem, 0.42fr);
+    gap: 2rem;
+    align-items: end;
+    margin-bottom: 2rem;
+  }
+
+  .section-heading h2 {
+    max-width: 17ch;
+    margin-bottom: 0;
+  }
+
+  .section-heading > p {
+    margin-bottom: 0;
+  }
+
+  .guide-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.9rem;
+  }
+
+  .bridge {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 2rem;
+    align-items: end;
+    margin-bottom: clamp(4rem, 9vw, 8rem);
+    padding: clamp(1.6rem, 4vw, 3rem);
+    background: linear-gradient(120deg, rgb(143 128 255 / 16%), transparent 62%), var(--panel-raised);
+    border: 1px solid var(--line);
+    border-radius: 1rem;
+  }
+
+  .bridge h2 {
+    max-width: 20ch;
+  }
+
+  .bridge p {
+    max-width: 65ch;
+    margin-bottom: 0;
+  }
+
+  @media (max-width: 900px) {
+    .guide-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 720px) {
+    .topic-hero,
+    .pillar,
+    .section-heading,
+    .bridge {
+      grid-template-columns: 1fr;
+    }
+
+    .bridge .button {
+      justify-self: start;
+    }
+  }
+
+  @media (max-width: 540px) {
+    .shell {
+      width: min(100% - 1.25rem, 1180px);
+    }
+
+    .guide-grid {
+      grid-template-columns: 1fr;
+    }
+
+    h1 {
+      font-size: clamp(2.6rem, 16vw, 4rem);
+    }
+  }
+</style>

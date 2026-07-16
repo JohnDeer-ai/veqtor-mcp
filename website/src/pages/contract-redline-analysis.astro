@@ -1,0 +1,48 @@
+---
+import NarrativePage from '../components/NarrativePage.astro'
+
+const sections = [
+  {
+    id: 'more-than-copy-paste',
+    title: 'Redline analysis needs the change—not just the resulting text',
+    body: [
+      'Copying a clause into chat hides which words were inserted, deleted or replaced and how the wording moved across drafts. That context is often the point of a negotiation.',
+      'Veqtor lets Claude inspect supported tracked changes directly in the Word files. Each change includes the file it came from and a small amount of nearby text, so Claude has a clearer source.',
+    ],
+  },
+  {
+    id: 'across-rounds',
+    title: 'Compare negotiation rounds in a declared order',
+    body: [
+      'Name the files 01, 02, 03 and so on. Veqtor uses that file-name order consistently and reports which documents it could or could not read.',
+      'The order helps organize the files. It does not prove which draft came first or decide automatically that a clause in one draft is the same clause in another. Claude may compare the material, but Veqtor does not claim to reconstruct the negotiation history by itself.',
+    ],
+  },
+  {
+    id: 'check-wording',
+    title: 'Check important wording before relying on it',
+    body: [
+      'When Claude quotes a tracked change, Veqtor can say whether the words match exactly, still match after ignoring repeated spaces and different quotation-mark or dash styles, or do not appear in that specific change. Veqtor does not search the entire document and declare an unrelated sentence verified.',
+    ],
+  },
+  {
+    id: 'from-analysis-to-output',
+    title: 'Move from analysis to a reviewable counterproposal',
+    body: [
+      'If you want to respond, Claude can prepare a proposed set of edits. Veqtor tests the full set before writing and creates a new Word document only if it can complete every requested edit using the parts of Word it supports.',
+      'Open the result in Word, inspect the tracked changes and make the final decision yourself.',
+    ],
+  },
+]
+---
+
+<NarrativePage
+  title="Contract Redline Analysis Across Word Drafts — Veqtor"
+  description="Ask Claude what changed across Word contract drafts, check important quotes against specific tracked changes, and create a separate counterproposal for review."
+  path="/contract-redline-analysis"
+  eyebrow="Contract redline analysis"
+  heading="Understand how the wording moved across the negotiation."
+  lede="Veqtor lets Claude read the tracked text changes it supports and clearly reports what it cannot determine or change."
+  meta="Drafts in filename order · Source files unchanged"
+  sections={sections}
+/>

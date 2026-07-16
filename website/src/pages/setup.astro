@@ -1,0 +1,149 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro'
+import PageHero from '../components/PageHero.astro'
+import SiteCta from '../components/SiteCta.astro'
+
+const title = 'Connect Veqtor to Claude Code or Claude Desktop'
+const description = 'Install Veqtor 0.1.2 locally for Claude Code on macOS or Linux, or configure Claude Desktop on macOS, then verify the connection with sample Word documents.'
+const desktopServerEntry = `"veqtor": {
+  "command": "/absolute/path/to/uvx",
+  "args": ["veqtor-mcp@0.1.2"]
+}`
+
+const desktopServersProperty = `"mcpServers": {
+  "veqtor": {
+    "command": "/absolute/path/to/uvx",
+    "args": ["veqtor-mcp@0.1.2"]
+  }
+}`
+
+const freshDesktopConfig = `{
+  "mcpServers": {
+    "veqtor": {
+      "command": "/absolute/path/to/uvx",
+      "args": ["veqtor-mcp@0.1.2"]
+    }
+  }
+}`
+
+const desktopAuthorSetting = `"env": {
+  "VEQTOR_TRACKED_CHANGE_AUTHOR": "Alex Morgan"
+}`
+---
+
+<BaseLayout title={title} description={description} canonicalPath="/setup">
+  <PageHero
+    eyebrow="Connect"
+    title="Connect Veqtor to Claude."
+    lede="Choose the Claude app you use. Claude Code takes one registration command after uv is installed. Claude Desktop on a Mac needs a short configuration edit."
+    meta="Veqtor 0.1.2 · macOS and Linux"
+    breadcrumbs={[{ label: 'Connect' }]}
+  />
+
+  <section class="section">
+    <div class="shell setup-layout">
+      <aside class="setup-nav" aria-label="Connection options">
+        <strong>Choose your app</strong>
+        <a href="#claude-code">Claude Code</a>
+        <a href="#claude-desktop">Claude Desktop on Mac</a>
+        <a href="#verify">Verify with sample documents</a>
+        <a href="#troubleshooting">Troubleshooting</a>
+      </aside>
+
+      <div class="prose setup-content">
+        <section id="before-you-start">
+          <p class="eyebrow">Before you start</p>
+          <h2>What you need</h2>
+          <ul>
+            <li>A Mac or Linux computer.</li>
+            <li>Claude Code on Mac or Linux, or Claude Desktop on a Mac.</li>
+            <li><a href="https://docs.astral.sh/uv/getting-started/installation/">uv installed</a> so Veqtor can run in an isolated Python environment.</li>
+          </ul>
+          <div class="notice"><strong>Windows is not supported in the public Alpha.</strong><p>Do not improvise a Windows installation for real matters; the current local record locking and release tests target Mac and Linux.</p></div>
+        </section>
+
+        <section id="claude-code">
+          <p class="eyebrow">Option A</p>
+          <h2>Claude Code on Mac or Linux</h2>
+          <p>Register the exact public release for your user account:</p>
+          <div class="code-block"><div class="code-block__head"><span>Terminal</span><span>One-time setup</span></div><pre><code>claude mcp add --transport stdio --scope user veqtor -- uvx veqtor-mcp@0.1.2</code></pre></div>
+          <p>Then confirm that Claude Code can see the registration:</p>
+          <div class="code-block"><div class="code-block__head"><span>Terminal</span><span>Verify</span></div><pre><code>claude mcp get veqtor</code></pre></div>
+          <p>Open a new Claude Code session after registering Veqtor. The user scope keeps this private local connection available across your projects on this computer. It does not make Veqtor a network service.</p>
+          <h3>Set the author shown in new tracked changes</h3>
+          <p>If you want Word to show your name as the author of new changes, register the server with this environment setting. Replace <code>Your Name</code> with your actual name:</p>
+          <div class="code-block"><div class="code-block__head"><span>Terminal</span><span>Optional</span></div><pre><code>claude mcp add --transport stdio --scope user veqtor \
+  -e VEQTOR_TRACKED_CHANGE_AUTHOR="Your Name" -- \
+  uvx veqtor-mcp@0.1.2</code></pre></div>
+          <p>If you do not set a name, Word will show <code>Veqtor MCP</code>. The author is fixed when the server starts and Claude cannot change it for an individual edit.</p>
+        </section>
+
+        <section id="claude-desktop">
+          <p class="eyebrow">Option B</p>
+          <h2>Claude Desktop on a Mac</h2>
+          <p>Desktop apps may not see the same terminal paths as your shell. First find the full path to <code>uvx</code>:</p>
+          <div class="code-block"><div class="code-block__head"><span>Terminal</span><span>Find uvx</span></div><pre><code>command -v uvx</code></pre></div>
+          <p>In Claude Desktop, open <strong>Settings → Developer → Edit Config</strong>. This opens <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>.</p>
+          <div class="notice"><strong>Back up the file before editing it.</strong><p>Duplicate it in Finder and keep the copy until the connection works. If the file already contains other servers or settings, preserve them. Do not replace the whole file with the examples below.</p></div>
+          <h3>If your file already contains <code>mcpServers</code></h3>
+          <p>Add only the <code>veqtor</code> entry inside the existing <code>mcpServers</code> object. Keep every other server and every setting outside that object. JSON entries next to each other need a comma between them.</p>
+          <div class="code-block"><div class="code-block__head"><span>Entry to add inside mcpServers</span><span>Preserve existing entries</span></div><pre><code set:text={desktopServerEntry}></code></pre></div>
+          <h3>If the file has other settings but no <code>mcpServers</code></h3>
+          <p>Add this property inside the file's outermost braces, alongside the existing root-level settings. Keep those settings and add a comma between adjacent root properties.</p>
+          <div class="code-block"><div class="code-block__head"><span>Root property to add</span><span>Preserve existing settings</span></div><pre><code set:text={desktopServersProperty}></code></pre></div>
+          <h3>If the file is empty</h3>
+          <p>Use this complete configuration. In either example, replace <code>/absolute/path/to/uvx</code> with the result from <code>command -v uvx</code>.</p>
+          <div class="code-block"><div class="code-block__head"><span>claude_desktop_config.json</span><span>New configuration only</span></div><pre><code set:text={freshDesktopConfig}></code></pre></div>
+          <h3>Choose the author shown in new tracked changes</h3>
+          <p>The examples above use the default author, <code>Veqtor MCP</code>. To show your own name in Word, add this <code>env</code> setting inside the <code>veqtor</code> entry, after the <code>args</code> line. Add a comma after the <code>args</code> line, and replace <code>Alex Morgan</code> with your actual name. Do not leave the example name in your configuration.</p>
+          <div class="code-block"><div class="code-block__head"><span>Optional author setting</span><span>Replace the example name</span></div><pre><code set:text={desktopAuthorSetting}></code></pre></div>
+          <p>Quit Claude Desktop fully and reopen it after changing the executable, version or author name.</p>
+          <h3>Confirm the Claude Desktop connection</h3>
+          <p>Start a new chat, click the <strong>+</strong> button beside the message box, then open <strong>Connectors</strong>. Veqtor should appear with its tools. You can also open <strong>Settings → Developer</strong> to see its connection status and logs. The <code>claude mcp get veqtor</code> command checks Claude Code only; it does not verify this Desktop configuration.</p>
+        </section>
+
+        <section id="verify">
+          <p class="eyebrow">First run</p>
+          <h2>Verify the connection with sample documents</h2>
+          <p>Create a fresh, disposable four-round negotiation:</p>
+          <div class="code-block"><div class="code-block__head"><span>Terminal</span><span>Synthetic documents</span></div><pre><code>uvx --from "veqtor-mcp==0.1.2" veqtor-demo-rounds ~/veqtor-demo-rounds</code></pre></div>
+          <p>In a new Claude session, ask:</p>
+          <blockquote>Using the Veqtor tools, what happened to the limitation of liability across the rounds in ~/veqtor-demo-rounds?</blockquote>
+          <p>If Claude identifies and explains the four rounds, the connection is working. Continue with the <a href="/demo">recorded demo</a> before trying a write workflow.</p>
+        </section>
+
+        <section id="troubleshooting">
+          <p class="eyebrow">Troubleshooting</p>
+          <h2>Common setup problems</h2>
+          <h3>Claude Code does not show Veqtor</h3>
+          <p>Run <code>claude mcp get veqtor</code> in Terminal. If the registration appears, close the current Claude Code session and start a new one.</p>
+          <h3>Claude Desktop does not show Veqtor</h3>
+          <p>Fully quit and reopen Claude Desktop, then check <strong>+ → Connectors</strong> in a new chat. Open <strong>Settings → Developer</strong> to check the connection status and server logs. Do not use <code>claude mcp get veqtor</code> for this check; it reads Claude Code registrations, not <code>claude_desktop_config.json</code>.</p>
+          <h3>Claude Desktop stopped showing another server</h3>
+          <p>Restore your backup, then add only the <code>veqtor</code> entry inside its existing <code>mcpServers</code> object. Preserve all other entries and root-level settings, and check the commas between JSON entries.</p>
+          <h3>Claude Desktop cannot start the server</h3>
+          <p>Use the absolute path returned by <code>command -v uvx</code>. Do not assume the desktop app inherits your shell path.</p>
+          <h3>Run local diagnostics</h3>
+          <div class="code-block"><div class="code-block__head"><span>Terminal</span><span>Diagnostics</span></div><pre><code>uvx veqtor-mcp@0.1.2 doctor</code></pre></div>
+          <h3>Still blocked?</h3>
+          <p>Search or open a <a href="https://github.com/JohnDeer-ai/veqtor-mcp/issues">GitHub Issue</a> using synthetic files only. Never post client wording, local paths, credentials or local activity records.</p>
+        </section>
+      </div>
+    </div>
+  </section>
+
+  <SiteCta title="Connection working? Learn the complete review sequence." primaryHref="/demo" primaryLabel="Watch the demo" secondaryHref="/docs" secondaryLabel="Open the docs" />
+</BaseLayout>
+
+<style>
+  .setup-layout { display: grid; gap: clamp(40px, 8vw, 100px); grid-template-columns: minmax(210px, .32fr) minmax(0, 1fr); }
+  .setup-nav, .setup-content { min-width: 0; }
+  .setup-content .code-block { max-width: 100%; }
+  .setup-nav { align-self: start; border-top: 1px solid var(--line-strong); position: sticky; top: 104px; }
+  .setup-nav strong, .setup-nav a { border-bottom: 1px solid var(--line); display: block; padding: 14px 0; }
+  .setup-nav strong { font-family: var(--mono); font-size: 10px; letter-spacing: .07em; text-transform: uppercase; }
+  .setup-nav a { color: var(--muted); font-size: 13px; text-decoration: none; }
+  .setup-nav a:hover { color: var(--ink); }
+  .setup-content section + section { border-top: 1px solid var(--line); margin-top: 70px; padding-top: 64px; }
+  @media (max-width: 760px) { .setup-layout { grid-template-columns: minmax(0, 1fr); } .setup-nav { position: static; } }
+</style>

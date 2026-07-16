@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://veqtor.pro/sitemap.xml

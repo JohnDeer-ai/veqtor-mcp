@@ -1,0 +1,54 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro'
+import PageHero from '../components/PageHero.astro'
+
+const title = 'Privacy — Veqtor'
+const description = 'How the Veqtor website and local open-source product handle information, including site visits, contract documents, Claude conversations, local activity history and external services.'
+---
+
+<BaseLayout title={title} description={description} canonicalPath="/privacy">
+  <PageHero
+    eyebrow="Privacy"
+    title="The website and the product have different privacy boundaries."
+    lede="This website does not accept contract uploads. The Veqtor product runs on your computer, while document text returned to Claude may be processed by the AI service you use."
+    meta="Last updated · 16 July 2026"
+    breadcrumbs={[{ label: 'Privacy' }]}
+    compact
+  />
+
+  <section class="section">
+    <div class="shell prose-shell">
+      <article class="prose">
+        <h2>1. About this notice</h2>
+        <p>This notice explains the privacy boundary of veqtor.pro and the separate local Veqtor software. Veqtor is an independent open-source project maintained by Ilya Shilov.</p>
+
+        <h2>2. Information handled by this website</h2>
+        <p>The site is a static information website. It has no account system, contract-upload form, newsletter form, advertising tracker or product analytics at launch.</p>
+        <p>The hosting provider may process ordinary request information needed to deliver and protect the site, such as an IP address, requested URL, browser information, time and security signals. That infrastructure processing is governed by the provider’s terms and privacy notice.</p>
+
+        <h2>3. Contract documents are not sent to this website</h2>
+        <p>veqtor.pro does not receive, store or review the Word documents you use with Veqtor. The demo video is served from this site, but the demo uses synthetic documents and contains no client data.</p>
+
+        <h2>4. How the local product works with Claude</h2>
+        <p>Veqtor runs as a local process and does not upload whole Word documents anywhere on its own. When Veqtor returns selected text or document facts to Claude, that information enters your Claude conversation and may be processed by the AI provider under the terms and settings of your account.</p>
+        <p>You are responsible for deciding whether your organization, client instructions and applicable law allow that use. Review the privacy and data controls of the Claude product you connect.</p>
+
+        <h2>5. Local activity history</h2>
+        <p>Veqtor normally tries to keep an activity history inside the matter folder on your computer. The history may contain contract wording. Keep it confidential, do not commit it to a public repository and do not attach it to a public support request.</p>
+
+        <h2>6. External links</h2>
+        <p>The site links to GitHub, uv documentation, LinkedIn, Telegram and other external services. Opening those links sends you to a service with its own privacy practices. Veqtor does not control those services.</p>
+
+        <h2>7. Public support</h2>
+        <p>GitHub Issues are public. Use synthetic documents and remove private wording, file paths, credentials and matter information before posting. Suspected security problems should be reported privately through the repository security policy.</p>
+
+        <h2>8. Changes</h2>
+        <p>This notice may change when the site or product changes. The date at the top identifies the current version.</p>
+
+        <h2>9. Contact</h2>
+        <p>For a privacy question about the project, open a suitably redacted issue in the <a href="https://github.com/JohnDeer-ai/veqtor-mcp">Veqtor GitHub repository</a>. Do not include client or contract information.</p>
+      </article>
+      <aside class="side-index"><strong>Related</strong><a href="/security">Security &amp; privacy boundary</a><a href="/limitations">Known limitations</a><a href="/terms">Terms</a><a href="https://github.com/JohnDeer-ai/veqtor-mcp/security/policy">Security policy ↗</a></aside>
+    </div>
+  </section>
+</BaseLayout>

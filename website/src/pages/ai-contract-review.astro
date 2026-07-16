@@ -1,0 +1,51 @@
+---
+import NarrativePage from '../components/NarrativePage.astro'
+
+const sections = [
+  {
+    id: 'what-this-means',
+    title: 'AI contract review is useful only when document facts remain checkable',
+    body: [
+      'Claude can explain clauses, compare positions and draft alternatives. The difficult part is keeping that reasoning connected to the actual tracked changes in the Word documents—and getting approved wording back into a file without manual retyping.',
+      'Veqtor addresses that document layer. It gives Claude narrow tools to read supported redlines, check a quotation against one specific change, test a proposed edit set and create a separate Word document for review.',
+    ],
+  },
+  {
+    id: 'not-an-autopilot',
+    title: 'Not an autonomous contract-review verdict',
+    body: [
+      'Veqtor does not score legal risk, choose a negotiation position or establish that a clause is legally correct. Claude supplies analysis and drafting; the user remains responsible for instructions, judgment and final review.',
+      'That separation matters. It is more honest to distinguish Claude’s analysis from the facts Veqtor read in the files.',
+    ],
+  },
+  {
+    id: 'practical-workflow',
+    title: 'A practical review workflow',
+    body: ['Order the drafts, ask Claude a normal question, check any wording that matters, request a counterproposal, and review the separate output in Word.'],
+    bullets: [
+      'Ask what changed across several negotiation drafts instead of rereading each file from the beginning.',
+      'Ask whether quoted wording really matches the tracked change it came from.',
+      'Ask for supported proposed edits as a new Word document—not a chat answer you must retype.',
+    ],
+  },
+  {
+    id: 'limits',
+    title: 'Use the Alpha within its limits',
+    body: [
+      'Veqtor works locally on Mac and Linux and supports a narrow set of tracked text changes in the main body of a Word document. It does not cover comments, headers, footnotes, automatic accept or reject, or every complex Word layout.',
+      'Review the known limitations before using it on a real matter. Start with the synthetic demo documents and never put client content in a public support request.',
+    ],
+  },
+]
+---
+
+<NarrativePage
+  title="AI Contract Review for Word Redlines — Veqtor"
+  description="Use Claude to analyze contract negotiations while Veqtor keeps supported Word redlines, quotations, proposed edits, and output files connected to the underlying documents."
+  path="/ai-contract-review"
+  eyebrow="AI contract review"
+  heading="Use Claude for contract analysis without losing the Word document."
+  lede="Veqtor handles the supported document operations. Claude handles reasoning and drafting. You review both before using the result."
+  meta="Claude explains · Veqtor works with Word · You review"
+  sections={sections}
+/>

@@ -1,0 +1,119 @@
+---
+import type { Guide } from '../lib/guides'
+
+interface Props {
+  guide: Guide
+  topicLabel?: string
+  searchable?: boolean
+  compact?: boolean
+}
+
+const { guide, topicLabel, searchable = false, compact = false } = Astro.props
+---
+
+<a
+  class:list={['guide-card', { 'guide-card--pillar': guide.kind === 'pillar', 'guide-card--compact': compact }]}
+  href={guide.path}
+  data-guide-card={searchable ? '' : undefined}
+  data-search={searchable ? guide.searchText : undefined}
+  data-topic={searchable ? guide.cluster : undefined}
+>
+  <span class="guide-card__meta">
+    <span>{guide.kind === 'pillar' ? 'Pillar guide' : guide.listing.label}</span>
+    {topicLabel && <span>{topicLabel}</span>}
+  </span>
+  <strong>{guide.listing.title}</strong>
+  <p>{guide.listing.body}</p>
+  <span class="guide-card__footer">
+    <span>{guide.readingTime} min read</span>
+    <span aria-hidden="true">Read guide&nbsp; →</span>
+  </span>
+</a>
+
+<style>
+  .guide-card {
+    display: flex;
+    min-height: 15rem;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1.45rem;
+    color: var(--ink, #ecebf4);
+    text-decoration: none;
+    background:
+      linear-gradient(135deg, color-mix(in srgb, var(--accent, #8b7bff) 7%, transparent), transparent 42%),
+      var(--panel, #111019);
+    border: 1px solid var(--line, #302e3c);
+    border-radius: 1rem;
+    transition: transform 160ms ease, border-color 160ms ease, background-color 160ms ease;
+  }
+
+  .guide-card:hover {
+    transform: translateY(-3px);
+    border-color: color-mix(in srgb, var(--accent, #8b7bff) 60%, var(--line, #302e3c));
+  }
+
+  .guide-card:focus-visible {
+    outline: 2px solid var(--accent, #8b7bff);
+    outline-offset: 3px;
+  }
+
+  .guide-card--pillar {
+    background:
+      linear-gradient(135deg, color-mix(in srgb, var(--accent, #8b7bff) 14%, transparent), transparent 52%),
+      var(--panel, #111019);
+  }
+
+  .guide-card--compact {
+    min-height: 12.5rem;
+  }
+
+  .guide-card__meta,
+  .guide-card__footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    color: var(--muted, #9e9baa);
+    font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    line-height: 1.4;
+    text-transform: uppercase;
+  }
+
+  .guide-card__meta > :first-child {
+    color: var(--accent-soft, #b9b1ff);
+  }
+
+  .guide-card strong {
+    max-width: 27ch;
+    font-family: var(--display, Inter, system-ui, sans-serif);
+    font-size: clamp(1.15rem, 2vw, 1.42rem);
+    line-height: 1.16;
+  }
+
+  .guide-card p {
+    margin: 0;
+    color: var(--muted, #aaa7b5);
+    font-size: 0.95rem;
+    line-height: 1.65;
+  }
+
+  .guide-card__footer {
+    margin-top: auto;
+    padding-top: 0.95rem;
+    border-top: 1px solid var(--line, #302e3c);
+  }
+
+  @media (max-width: 520px) {
+    .guide-card {
+      min-height: 0;
+    }
+
+    .guide-card__meta {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+  }
+</style>

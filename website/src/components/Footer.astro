@@ -1,0 +1,46 @@
+---
+import Logo from './Logo.astro'
+---
+
+<footer class="site-footer">
+  <div class="shell site-footer__top">
+    <div class="site-footer__statement">
+      <a class="brand" href="/" aria-label="Veqtor home"><Logo /></a>
+      <p>A local, open-source tool that helps Claude work with tracked changes in Microsoft Word.</p>
+      <span>Public technical Alpha · Community supported · Not legal advice</span>
+    </div>
+    <div class="site-footer__links">
+      <div>
+        <strong>Product</strong>
+        <a href="/product">What it does</a>
+        <a href="/how-it-works">How it works</a>
+        <a href="/demo">Demo</a>
+        <a href="/limitations">Limitations</a>
+      </div>
+      <div>
+        <strong>Use Veqtor</strong>
+        <a href="/setup">Connect</a>
+        <a href="/docs">Documentation</a>
+        <a href="/security">Security &amp; privacy</a>
+        <a href="https://github.com/JohnDeer-ai/veqtor-mcp/issues">Support ↗</a>
+      </div>
+      <div>
+        <strong>Library</strong>
+        <a href="/guides">Contract guides</a>
+        <a href="/guides/search">Search guides</a>
+        <a href="/author/ilya-shilov">Author</a>
+      </div>
+      <div>
+        <strong>Project</strong>
+        <a href="https://github.com/JohnDeer-ai/veqtor-mcp">GitHub ↗</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+      </div>
+    </div>
+  </div>
+  <div class="shell site-footer__bottom">
+    <span>© {new Date().getFullYear()} Veqtor</span>
+    <span>Open source under Apache 2.0</span>
+    <span>Built as a static site</span>
+  </div>
+</footer>

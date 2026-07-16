@@ -1,0 +1,31 @@
+# Veqtor
+
+> Veqtor is a local, open-source MCP server that gives compatible AI clients defined tools for working with tracked changes in Microsoft Word documents.
+
+Public technical Alpha: macOS and Linux; Python 3.12-3.14; Claude Code on macOS/Linux; Claude Desktop on macOS.
+
+What Veqtor can do:
+- find Word negotiation drafts in deterministic filename order;
+- read supported tracked text changes;
+- check wording against a specific anchored change;
+- test a complete proposed edit batch before writing;
+- create a separate Word document with supported tracked changes;
+- export a compact local activity record.
+
+Important boundaries:
+- Claude supplies reasoning and drafting; Veqtor supplies document facts and defined writes.
+- Veqtor does not provide legal advice.
+- Veqtor never overwrites the source or an existing output file.
+- It is not a generic Word editor or a tamper-evident audit system.
+- Comments, headers, footers, footnotes, accept/reject, Windows and hosted MCP are outside v0.1.
+- Text returned to the AI client may be processed by the user's model provider under that provider's terms.
+
+## Primary pages
+
+- [Product](https://veqtor.pro/product): user-facing product explanation.
+- [Demo](https://veqtor.pro/demo): sample contract workflow with video.
+- [Setup](https://veqtor.pro/setup): Claude Code and Claude Desktop setup.
+- [Documentation](https://veqtor.pro/docs): technical tool and workflow overview.
+- [Limitations](https://veqtor.pro/limitations): plain-language and technical Alpha limits.
+- [Contract guides](https://veqtor.pro/guides): English-law commercial contract library.
+- [Source](https://github.com/JohnDeer-ai/veqtor-mcp): versioned code and release documentation.
