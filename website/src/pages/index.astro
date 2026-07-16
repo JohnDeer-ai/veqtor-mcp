@@ -27,8 +27,8 @@ const structuredData = [
     '@type': 'VideoObject',
     name: 'Veqtor demo — from Word drafts to a counterproposal',
     description: 'Claude uses Veqtor with sample contract documents to compare negotiation drafts, check wording, and create a separate Word document with tracked changes.',
-    thumbnailUrl: 'https://veqtor.pro/media/veqtor-demo-poster.jpg',
-    contentUrl: 'https://veqtor.pro/media/veqtor-demo.mp4',
+    thumbnailUrl: 'https://veqtor.pro/media/veqtor-demo-v0.1.2-poster.jpg',
+    contentUrl: 'https://veqtor.pro/media/veqtor-demo-v0.1.2.mp4',
     uploadDate: '2026-07-14T00:00:00+03:00',
     duration: 'PT1M44S',
   },
@@ -38,12 +38,12 @@ const structuredData = [
 <BaseLayout title={title} description={description} canonicalPath="/" structuredData={structuredData}>
   <section class="home-hero shell" aria-labelledby="home-title">
     <div class="home-hero__copy">
-      <p class="eyebrow">For contract negotiations in Word</p>
-      <h1 id="home-title">Ask Claude what changed. Get your counterproposal back in Word.</h1>
+      <p class="eyebrow">For lawyers and contract teams reviewing Word redlines</p>
+      <h1 id="home-title">Ask Claude what changed.&nbsp;Get your counterproposal back in Word.</h1>
       <p class="home-hero__intro">Compare the drafts, check the exact wording Claude found, and prepare a separate Word document with the edits shown in Word’s Track Changes. Your original files stay unchanged.</p>
       <div class="actions home-hero__actions">
         <a class="button button--primary" href="#demo">Watch the demo</a>
-        <a class="button button--secondary" href="/setup">Set up Veqtor</a>
+        <a class="button button--secondary" href="/setup">Connect Veqtor</a>
         <a class="button button--quiet" href="/how-it-works">How it works</a>
       </div>
       <div class="trustline" aria-label="Product summary">
@@ -51,6 +51,7 @@ const structuredData = [
         <span>Open source</span>
         <span>Early public version</span>
       </div>
+      <p class="hero-boundary">Veqtor's document tools run on your computer. Text they return becomes part of your Claude conversation. <a href="/security">See what information may leave your computer</a>.</p>
     </div>
 
     <div class="boundary" data-boundary>
@@ -70,11 +71,11 @@ const structuredData = [
         <div class="boundary__rail" aria-hidden="true"><span data-boundary-label>Veqtor checks</span></div>
         <div class="boundary__side boundary__side--result">
           <span class="boundary__label" data-result-label>You get a separate Word document</span>
-          <p data-result-copy>Veqtor checks whether it can make the requested changes without guessing.</p>
+          <p data-result-copy>Veqtor checks whether it can make each requested document change exactly.</p>
           <div class="boundary__checks">
             <span data-check-one>The quote is checked against a specific change</span>
             <span data-check-two>All requested changes are tested together</span>
-            <span data-check-three>If something is unclear, Veqtor stops</span>
+            <span data-check-three>If a document change is unclear, Veqtor stops</span>
           </div>
           <div class="boundary__output">
             <strong data-output>Counterproposal · Word document</strong>
@@ -139,15 +140,17 @@ const structuredData = [
     <div class="shell">
       <div class="section-heading">
         <div><p class="eyebrow">Watch the workflow</p><h2 id="demo-title">From four Word drafts to a counterproposal you can review.</h2></div>
-        <div class="demo-copy"><span class="demo-meta">1:44 · Sample documents · No client data</span><p>Claude compares the drafts, checks a quote, and creates a separate Word document with tracked changes.</p></div>
+        <div class="demo-copy"><span class="demo-meta">1:44 · Veqtor v0.1.2 · Sample documents · No client data</span><p>Claude compares the drafts, checks a quote, and creates a separate Word document with tracked changes.</p></div>
       </div>
       <div class="video-frame">
-        <video controls playsinline preload="metadata" poster="/media/veqtor-demo-poster.jpg">
-          <source src="/media/veqtor-demo.mp4" type="video/mp4" />
-          Your browser does not support video playback. You can <a href="/media/veqtor-demo.mp4">open the demo video directly</a>.
+        <video controls playsinline preload="metadata" poster="/media/veqtor-demo-v0.1.2-poster.jpg">
+          <source src="/media/veqtor-demo-v0.1.2.mp4" type="video/mp4" />
+          <track kind="captions" src="/media/veqtor-demo-v0.1.2.en.vtt" srclang="en" label="English" default />
+          Your browser does not support video playback. You can <a href="/media/veqtor-demo-v0.1.2.mp4">open the demo video directly</a>.
         </video>
       </div>
-      <div class="video-caption"><strong>Real Claude prompts, sample contract documents</strong><span>Compare drafts → check wording → create the next Word document</span></div>
+      <div class="video-caption"><strong>Recorded with Veqtor v0.1.2 · Real Claude prompts · Sample documents</strong><span>Compare drafts → check wording → create the next Word document · <a href="/demo#transcript">Read transcript</a></span></div>
+      <p class="demo-install-note">The “one command” line in the narration refers to Claude Code. Claude Desktop currently needs a short configuration edit. One correction: Veqtor 0.1.2 checks the new Word document before saving it; it does not reopen the saved copy for a separate final check.</p>
     </div>
   </section>
 
@@ -170,7 +173,7 @@ const structuredData = [
       <div class="split safety-grid">
         <div>
           <p class="eyebrow">Safety and limits</p>
-          <h2 id="safety-title">Veqtor stops instead of guessing.</h2>
+          <h2 id="safety-title">Veqtor refuses document changes it cannot make exactly.</h2>
           <p class="mono-note safety-status">Early public version · Mac and Linux · Community support only</p>
         </div>
         <div class="trust-list">
@@ -178,6 +181,7 @@ const structuredData = [
           <div><span aria-hidden="true">✓</span><p><strong>All requested changes are checked together</strong>If even one requested change cannot be completed, Veqtor does not create the final Word document.</p></div>
           <div><span aria-hidden="true">✓</span><p><strong>Veqtor refuses changes it cannot make exactly</strong>It stops rather than risk changing the wrong text.</p></div>
           <div><span aria-hidden="true">✓</span><p><strong>Veqtor can keep an activity history</strong>The history is a helpful record on your computer, but it is an ordinary file—not independent proof that nobody changed it.</p></div>
+          <div><span aria-hidden="true">✓</span><p><strong>Claude's answer still needs your review</strong>Veqtor checks supported document operations, not the legal judgment or every statement Claude makes.</p></div>
         </div>
       </div>
       <div class="privacy-line">
@@ -220,7 +224,7 @@ const structuredData = [
     </div>
   </section>
 
-  <SiteCta />
+  <SiteCta title="Ready to connect Veqtor to Claude?" body="Start with the setup guide and sample documents before using a real matter." primaryHref="/setup" primaryLabel="Connect Veqtor" secondaryHref="/limitations" secondaryLabel="Read the limitations" />
 
   <script is:inline>
     (() => {
@@ -248,10 +252,10 @@ const structuredData = [
           prompt: '“What changed across these drafts? Prepare our counterproposal in Word.”',
           client: 'Claude works through your request', boundaryLabel: 'Veqtor checks',
           resultLabel: 'You get a separate Word document',
-          resultCopy: 'Veqtor checks whether it can make the requested changes without guessing.',
+          resultCopy: 'Veqtor checks whether it can make each requested document change exactly.',
           checkOne: 'The quote is checked against a specific change',
           checkTwo: 'All requested changes are tested together',
-          checkThree: 'If something is unclear, Veqtor stops',
+          checkThree: 'If a document change is unclear, Veqtor stops',
           output: 'Counterproposal · Word document', outputState: 'Original unchanged',
         },
         technical: {
@@ -290,6 +294,8 @@ const structuredData = [
   .trustline { color: var(--muted); display: flex; flex-wrap: wrap; font-family: var(--mono); font-size: 10px; gap: 8px 16px; margin-top: 28px; text-transform: uppercase; }
   .trustline span { align-items: center; display: inline-flex; gap: 7px; }
   .trustline span::before { background: var(--lime); content: ''; height: 4px; width: 4px; }
+  .hero-boundary { color: var(--muted); font-size: 12px; line-height: 1.55; margin: 18px 0 0; max-width: 610px; }
+  .hero-boundary a { color: var(--muted-strong); text-underline-offset: 3px; }
 
   .boundary { align-self: center; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 18px; box-shadow: var(--shadow); min-width: 0; overflow: hidden; position: relative; }
   .boundary::before { background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px); background-size: 28px 28px; content: ''; inset: 0; opacity: .2; pointer-events: none; position: absolute; }
@@ -338,6 +344,8 @@ const structuredData = [
   .video-frame video { aspect-ratio: 16/9; display: block; width: 100%; }
   .video-caption { color: var(--muted); display: flex; flex-wrap: wrap; font-size: 12px; gap: 10px 20px; justify-content: space-between; padding-top: 14px; }
   .video-caption strong { color: var(--ink); font-weight: 520; }
+  .video-caption a { color: var(--muted-strong); text-underline-offset: 3px; }
+  .demo-install-note { color: var(--muted); font-size: 11px; margin: 12px 0 0; }
 
   .safety-status { margin-top: 28px; }
   .trust-list { border-top: 1px solid var(--line-strong); }

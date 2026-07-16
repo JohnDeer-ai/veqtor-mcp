@@ -28,6 +28,7 @@ html {
   color: var(--ink);
   font-family: var(--sans);
   scroll-behavior: smooth;
+  scroll-padding-top: 88px;
   text-rendering: optimizeLegibility;
 }
 

@@ -7,8 +7,32 @@
 /assets/*
   Cache-Control: public, max-age=86400, must-revalidate
 
-/media/*
-  Cache-Control: public, max-age=604800
+/og.png
+  Cache-Control: public, max-age=86400, must-revalidate
+
+/logo-512.png
+  Cache-Control: public, max-age=86400, must-revalidate
+
+/favicon*
+  Cache-Control: public, max-age=86400, must-revalidate
+
+/apple-touch-icon.png
+  Cache-Control: public, max-age=86400, must-revalidate
+
+/site.webmanifest
+  Cache-Control: public, max-age=86400, must-revalidate
+
+/web-app-manifest-*
+  Cache-Control: public, max-age=86400, must-revalidate
+
+/media/veqtor-demo-v0.1.2.mp4
+  Cache-Control: public, max-age=31536000, immutable
+
+/media/veqtor-demo-v0.1.2-poster.jpg
+  Cache-Control: public, max-age=31536000, immutable
+
+/media/veqtor-demo-v0.1.2.en.vtt
+  Cache-Control: public, max-age=31536000, immutable
 
 /sitemap.xml
   Cache-Control: public, max-age=3600

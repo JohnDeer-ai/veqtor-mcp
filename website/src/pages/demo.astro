@@ -9,8 +9,8 @@ const videoSchema = {
   '@type': 'VideoObject',
   name: 'Veqtor demo — review Word redlines with Claude',
   description,
-  thumbnailUrl: 'https://veqtor.pro/media/veqtor-demo-poster.jpg',
-  contentUrl: 'https://veqtor.pro/media/veqtor-demo.mp4',
+  thumbnailUrl: 'https://veqtor.pro/media/veqtor-demo-v0.1.2-poster.jpg',
+  contentUrl: 'https://veqtor.pro/media/veqtor-demo-v0.1.2.mp4',
   uploadDate: '2026-07-14T00:00:00+03:00',
   duration: 'PT1M44S',
 }
@@ -21,10 +21,10 @@ const videoSchema = {
     eyebrow="Sample contract workflow"
     title="See Claude move from four Word drafts to a reviewable counterproposal."
     lede="The demo uses synthetic documents and normal user prompts. No client data, hidden edits or pre-recorded product responses."
-    meta="1 minute 44 seconds · Sample documents"
+    meta="1 minute 44 seconds · Veqtor v0.1.2 · Sample documents"
     breadcrumbs={[{ label: 'Demo' }]}
   >
-    <div slot="actions" class="actions"><a class="button button--primary" href="#watch">Play the demo</a><a class="button button--secondary" href="/setup">Set up Veqtor</a></div>
+    <div slot="actions" class="actions"><a class="button button--primary" href="#watch">Play the demo</a><a class="button button--secondary" href="/setup">Connect Veqtor</a></div>
   </PageHero>
 
   <section class="section section--surface" id="watch" aria-labelledby="video-heading">
@@ -34,12 +34,25 @@ const videoSchema = {
         <p>Claude compares the rounds, checks important wording and prepares a separate Word document. The original drafts stay unchanged.</p>
       </div>
       <div class="demo-video">
-        <video controls playsinline preload="metadata" poster="/media/veqtor-demo-poster.jpg">
-          <source src="/media/veqtor-demo.mp4" type="video/mp4" />
-          Your browser does not support video playback. <a href="/media/veqtor-demo.mp4">Open the video directly.</a>
+        <video controls playsinline preload="metadata" poster="/media/veqtor-demo-v0.1.2-poster.jpg">
+          <source src="/media/veqtor-demo-v0.1.2.mp4" type="video/mp4" />
+          <track kind="captions" src="/media/veqtor-demo-v0.1.2.en.vtt" srclang="en" label="English" default />
+          Your browser does not support video playback. <a href="/media/veqtor-demo-v0.1.2.mp4">Open the video directly.</a>
         </video>
       </div>
-      <div class="demo-caption"><strong>How the work is divided</strong><span>Claude explains and drafts · Veqtor reads, checks and writes · You review</span></div>
+      <div class="demo-caption"><strong>Recorded with Veqtor v0.1.2</strong><span>Claude explains and drafts · Veqtor reads, checks and writes · You review</span></div>
+      <p class="demo-install-note">The “one command” line in the narration refers to Claude Code. Claude Desktop currently needs a short configuration edit. One correction: Veqtor 0.1.2 checks the new Word document before saving it; it does not reopen the saved copy for a separate final check.</p>
+      <details class="demo-transcript" id="transcript">
+        <summary>Read the video transcript</summary>
+        <div>
+          <p>Claude can reason about a contract, but chat alone cannot reliably inspect several Word drafts or create precise tracked changes. An MCP server gives Claude specialized tools for that work. Claude still does the reasoning. The server performs the document work and returns results we can check against the source.</p>
+          <p>Veqtor is an open-source MCP server for Word contract negotiations. It reads redlines, verifies quotations, and creates new drafts with real tracked changes.</p>
+          <p>In this demo, I ask what happened to the liability cap across four rounds. Veqtor extracts the tracked revisions. Claude turns the evidence into a clear explanation of how the cap and its carve-outs changed.</p>
+          <p>Then I ask for the counterparty's exact latest wording. Instead of relying on the summary, Veqtor checks the quotation against the source file, character for character, and returns the verified text.</p>
+          <p>Finally, I turn the review into an action: restore our 150% cap and the willful misconduct carve-out in a new round-five draft. The original stays untouched.</p>
+          <p>Veqtor checks every edit before writing, then re-checks the saved file. In this run, no unintended changes. That is MCP in practice: Claude does the reasoning; Veqtor does document work you can verify. It's free, open source, and installs with one command. You're welcome to try it.</p>
+        </div>
+      </details>
     </div>
   </section>
 
@@ -79,7 +92,7 @@ const videoSchema = {
     </div>
   </section>
 
-  <SiteCta title="Ready to reproduce the demo on your computer?" primaryHref="/setup" primaryLabel="Open the setup guide" secondaryHref="/limitations" secondaryLabel="Read the limitations" />
+  <SiteCta title="Ready to reproduce the demo on your computer?" primaryHref="/setup" primaryLabel="Open the connection guide" secondaryHref="/limitations" secondaryLabel="Read the limitations" />
 </BaseLayout>
 
 <style>
@@ -87,6 +100,11 @@ const videoSchema = {
   .demo-video video { aspect-ratio: 16/9; display: block; width: 100%; }
   .demo-caption { color: var(--muted); display: flex; flex-wrap: wrap; font-size: 12px; gap: 12px 24px; justify-content: space-between; padding-top: 14px; }
   .demo-caption strong { color: var(--ink); }
+  .demo-install-note { color: var(--muted); font-size: 11px; margin: 12px 0 0; }
+  .demo-transcript { border-bottom: 1px solid var(--line); border-top: 1px solid var(--line); margin-top: 28px; }
+  .demo-transcript summary { color: var(--muted-strong); cursor: pointer; font-size: 13px; padding: 18px 0; }
+  .demo-transcript > div { color: var(--muted); font-size: 14px; line-height: 1.7; max-width: 840px; padding-bottom: 20px; }
+  .demo-transcript p { margin: 0 0 16px; }
   .prompt-grid { border-top: 1px solid var(--line-strong); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .prompt-grid article { padding: 28px clamp(18px, 3vw, 34px) 8px 0; }
   .prompt-grid article + article { border-left: 1px solid var(--line); padding-left: clamp(18px, 3vw, 34px); }

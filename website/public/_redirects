@@ -1,2 +1,15 @@
 /index.html  /  301
 /home        /  301
+
+# Preserve the retired social-image URL while serving the current brand asset.
+/og.svg      /assets/og-veqtor.svg  301
+
+# Preserve previously published demo URLs while serving versioned media.
+/media/veqtor-demo.mp4                    /media/veqtor-demo-v0.1.2.mp4         301
+/media/veqtor-demo-poster.jpg             /media/veqtor-demo-v0.1.2-poster.jpg  301
+/assets/veqtor-demo-hd.mp4                /media/veqtor-demo-v0.1.2.mp4         301
+/assets/veqtor-demo.mp4                   /media/veqtor-demo-v0.1.2.mp4         301
+/assets/veqtor-demo-poster-1200.jpg       /media/veqtor-demo-v0.1.2-poster.jpg  301
+/assets/veqtor-demo-poster-1200.avif      /media/veqtor-demo-v0.1.2-poster.jpg  301
+/assets/veqtor-demo-poster.jpg            /media/veqtor-demo-v0.1.2-poster.jpg  301
+/assets/veqtor-demo-poster.avif           /media/veqtor-demo-v0.1.2-poster.jpg  301

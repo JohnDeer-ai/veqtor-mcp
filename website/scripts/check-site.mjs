@@ -325,10 +325,19 @@ function assertStaticDeploymentFiles() {
     'robots.txt',
     'llms.txt',
     'favicon.svg',
+    'favicon.ico',
+    'favicon-48x48.png',
+    'apple-touch-icon.png',
+    'site.webmanifest',
+    'web-app-manifest-192x192.png',
+    'web-app-manifest-512x512.png',
+    'og.png',
+    'logo-512.png',
     'assets/og-veqtor.png',
     'assets/logo-512.png',
-    'media/veqtor-demo.mp4',
-    'media/veqtor-demo-poster.jpg',
+    'media/veqtor-demo-v0.1.2.mp4',
+    'media/veqtor-demo-v0.1.2-poster.jpg',
+    'media/veqtor-demo-v0.1.2.en.vtt',
   ]
   for (const rel of required) {
     const path = join(DIST_DIR, rel)
@@ -345,6 +354,28 @@ function assertStaticDeploymentFiles() {
       fail('dist/_headers gives immutable caching to stable, unhashed /assets/* filenames')
     }
     if (!/Content-Security-Policy:/i.test(headers)) fail('dist/_headers is missing Content-Security-Policy')
+
+    const versionedMediaBlock = headers.match(/(?:^|\n)\/media\/veqtor-demo-v0\.1\.2\.mp4\s*\n((?:[ \t]+[^\n]+\n?)*)/i)?.[1] ?? ''
+    if (!/\bimmutable\b/i.test(versionedMediaBlock)) {
+      fail('dist/_headers must give immutable caching to the versioned demo video')
+    }
+  }
+
+  const redirectsPath = join(DIST_DIR, '_redirects')
+  if (existsSync(redirectsPath)) {
+    const redirects = readUtf8(redirectsPath)
+    const legacyDemoPaths = [
+      '/og.svg',
+      '/media/veqtor-demo.mp4',
+      '/media/veqtor-demo-poster.jpg',
+      '/assets/veqtor-demo-hd.mp4',
+      '/assets/veqtor-demo-poster-1200.jpg',
+    ]
+    for (const legacyPath of legacyDemoPaths) {
+      if (!redirects.split(/\r?\n/).some((line) => line.trimStart().startsWith(`${legacyPath} `))) {
+        fail(`dist/_redirects is missing the legacy demo redirect for ${legacyPath}`)
+      }
+    }
   }
 
   const robotsPath = join(DIST_DIR, 'robots.txt')
@@ -361,6 +392,17 @@ function assertStaticDeploymentFiles() {
   if (existsSync(ogPath)) {
     const signature = readFileSync(ogPath).subarray(0, 8).toString('hex')
     if (signature !== '89504e470d0a1a0a') fail('assets/og-veqtor.png does not contain PNG data')
+  }
+
+  const sitemapPath = join(DIST_DIR, 'sitemap.xml')
+  if (existsSync(sitemapPath)) {
+    const sitemap = readUtf8(sitemapPath)
+    if (!/xmlns:video="http:\/\/www\.google\.com\/schemas\/sitemap-video\/1\.1"/i.test(sitemap)) {
+      fail('dist/sitemap.xml is missing the video sitemap namespace')
+    }
+    if (!/<video:content_loc>https:\/\/veqtor\.pro\/media\/veqtor-demo-v0\.1\.2\.mp4<\/video:content_loc>/i.test(sitemap)) {
+      fail('dist/sitemap.xml is missing the versioned demo video entry')
+    }
   }
 }
 
