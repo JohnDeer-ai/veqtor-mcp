@@ -147,7 +147,7 @@ const authorStructuredData = [
     padding-top: 1.4rem;
     color: var(--muted);
     font-family: var(--mono, ui-monospace, monospace);
-    font-size: 0.7rem;
+    font-size: 0.72rem;
   }
 
   .crumbs a {
@@ -164,7 +164,7 @@ const authorStructuredData = [
     grid-template-columns: minmax(0, 1.25fr) minmax(16rem, 0.45fr);
     gap: clamp(2.5rem, 9vw, 9rem);
     align-items: end;
-    padding-block: clamp(4rem, 9vw, 8rem);
+    padding-block: clamp(4rem, 8vw, 7rem);
   }
 
   .kicker,
@@ -172,9 +172,9 @@ const authorStructuredData = [
     margin: 0 0 1rem;
     color: var(--accent-soft);
     font-family: var(--mono, ui-monospace, monospace);
-    font-size: 0.68rem;
-    font-weight: 700;
-    letter-spacing: 0.13em;
+    font-size: 0.72rem;
+    font-weight: var(--weight-label);
+    letter-spacing: 0.09em;
     text-transform: uppercase;
   }
 
@@ -188,9 +188,10 @@ const authorStructuredData = [
   h1 {
     max-width: 13ch;
     margin-bottom: 1.4rem;
-    font-size: clamp(3.2rem, 8vw, 7rem);
-    letter-spacing: -0.07em;
-    line-height: 0.92;
+    font-size: var(--type-page-title);
+    letter-spacing: var(--tracking-display);
+    line-height: 1.04;
+    text-wrap: balance;
   }
 
   .lede {
@@ -258,9 +259,9 @@ const authorStructuredData = [
   .section-heading h2,
   .bridge h2 {
     margin-bottom: 1.25rem;
-    font-size: clamp(2.1rem, 4.5vw, 4rem);
-    letter-spacing: -0.05em;
-    line-height: 1;
+    font-size: var(--type-section-title);
+    letter-spacing: var(--tracking-heading);
+    line-height: 1.08;
   }
 
   .profile article > p,
@@ -363,6 +364,8 @@ const authorStructuredData = [
   .topic-writing header b {
     color: var(--accent-soft);
     font-size: 2rem;
+    font-weight: var(--weight-display);
+    letter-spacing: -0.03em;
   }
 
   .topic-writing nav {
@@ -385,7 +388,7 @@ const authorStructuredData = [
   .topic-writing nav a span {
     color: var(--accent-soft);
     font-family: var(--mono, ui-monospace, monospace);
-    font-size: 0.6rem;
+    font-size: 0.72rem;
     letter-spacing: 0.06em;
     text-transform: uppercase;
   }
@@ -420,13 +423,13 @@ const authorStructuredData = [
     padding: 0.72rem 1.05rem;
     color: #0b0912;
     font-size: 0.82rem;
-    font-weight: 700;
+    font-weight: var(--weight-control);
     text-decoration: none;
     background: var(--accent-soft);
     border-radius: 0.55rem;
   }
 
-  @media (max-width: 760px) {
+  @media (max-width: 1080px) {
     .author-hero,
     .profile,
     .section-heading,
@@ -454,10 +457,6 @@ const authorStructuredData = [
 
     .shell {
       width: min(100% - 1.25rem, 1160px);
-    }
-
-    h1 {
-      font-size: clamp(2.9rem, 17vw, 4.5rem);
     }
   }
 </style>

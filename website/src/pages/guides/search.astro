@@ -125,7 +125,7 @@ const description = 'Search Veqtor guides by commercial-contract topic, guide fo
     padding-top: 1.4rem;
     color: var(--muted);
     font-family: var(--mono, ui-monospace, monospace);
-    font-size: 0.7rem;
+    font-size: 0.72rem;
   }
 
   .crumbs a {
@@ -145,9 +145,9 @@ const description = 'Search Veqtor guides by commercial-contract topic, guide fo
     margin: 0 0 1rem;
     color: var(--accent-soft);
     font-family: var(--mono, ui-monospace, monospace);
-    font-size: 0.7rem;
-    font-weight: 700;
-    letter-spacing: 0.13em;
+    font-size: 0.72rem;
+    font-weight: var(--weight-label);
+    letter-spacing: 0.09em;
     text-transform: uppercase;
   }
 
@@ -160,9 +160,10 @@ const description = 'Search Veqtor guides by commercial-contract topic, guide fo
   h1 {
     max-width: 17ch;
     margin-bottom: 1.2rem;
-    font-size: clamp(3rem, 7vw, 6rem);
-    letter-spacing: -0.062em;
-    line-height: 0.97;
+    font-size: var(--type-article-title);
+    letter-spacing: var(--tracking-display);
+    line-height: 1.05;
+    text-wrap: balance;
   }
 
   .search-hero > p:last-child {
@@ -193,7 +194,7 @@ const description = 'Search Veqtor guides by commercial-contract topic, guide fo
   .search-controls label > span {
     color: var(--muted);
     font-family: var(--mono, ui-monospace, monospace);
-    font-size: 0.66rem;
+    font-size: 0.72rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
   }
@@ -220,7 +221,7 @@ const description = 'Search Veqtor guides by commercial-contract topic, guide fo
   button {
     cursor: pointer;
     font-size: 0.83rem;
-    font-weight: 700;
+    font-weight: var(--weight-control);
   }
 
   .results {
@@ -290,10 +291,6 @@ const description = 'Search Veqtor guides by commercial-contract topic, guide fo
 
     .guide-grid {
       grid-template-columns: 1fr;
-    }
-
-    h1 {
-      font-size: clamp(2.6rem, 16vw, 4rem);
     }
   }
 </style>
