@@ -171,7 +171,7 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
     padding-top: 1.4rem;
     color: var(--muted);
     font-family: var(--mono, ui-monospace, monospace);
-    font-size: 0.7rem;
+    font-size: 0.72rem;
   }
 
   .crumbs a {
@@ -196,9 +196,9 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
     margin: 0 0 1rem;
     color: var(--accent-soft);
     font-family: var(--mono, ui-monospace, monospace);
-    font-size: 0.68rem;
-    font-weight: 700;
-    letter-spacing: 0.13em;
+    font-size: 0.72rem;
+    font-weight: var(--weight-label);
+    letter-spacing: 0.09em;
     line-height: 1.45;
     text-transform: uppercase;
   }
@@ -212,9 +212,9 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
   h1 {
     max-width: 18ch;
     margin-bottom: 1.6rem;
-    font-size: clamp(3rem, 6.6vw, 6.2rem);
-    letter-spacing: -0.062em;
-    line-height: 0.97;
+    font-size: clamp(3rem, 6vw, 5.75rem);
+    letter-spacing: var(--tracking-display);
+    line-height: 1.02;
   }
 
   .lede {
@@ -231,7 +231,7 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
     gap: 0.65rem 1.3rem;
     color: var(--muted);
     font-family: var(--mono, ui-monospace, monospace);
-    font-size: 0.7rem;
+    font-size: 0.72rem;
     letter-spacing: 0.04em;
     text-transform: uppercase;
   }
@@ -252,6 +252,7 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
     display: block;
     margin-bottom: 0.65rem;
     font-size: 1.25rem;
+    font-weight: var(--weight-title);
   }
 
   .topic-context p {
@@ -263,7 +264,7 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
   .topic-context a {
     color: var(--accent-soft);
     font-size: 0.8rem;
-    font-weight: 700;
+    font-weight: var(--weight-control);
     text-decoration: none;
   }
 
@@ -318,8 +319,8 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
     max-width: 23ch;
     margin-bottom: 1.2rem;
     font-size: clamp(1.7rem, 3vw, 2.55rem);
-    letter-spacing: -0.035em;
-    line-height: 1.08;
+    letter-spacing: var(--tracking-heading);
+    line-height: 1.12;
     scroll-margin-top: 6rem;
   }
 
@@ -395,7 +396,7 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
     padding: 0.72rem 1.05rem;
     color: var(--ink);
     font-size: 0.82rem;
-    font-weight: 700;
+    font-weight: var(--weight-control);
     text-decoration: none;
     border: 1px solid var(--line);
     border-radius: 0.55rem;
@@ -433,6 +434,11 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
     border-bottom: 1px solid var(--line);
   }
 
+  .topic-rail strong,
+  .prev-next strong {
+    font-weight: var(--weight-title);
+  }
+
   .prev-next {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -457,7 +463,7 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
   .prev-next a span {
     color: var(--accent-soft);
     font-family: var(--mono, ui-monospace, monospace);
-    font-size: 0.65rem;
+    font-size: 0.72rem;
     text-transform: uppercase;
   }
 
@@ -501,7 +507,7 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
     }
 
     h1 {
-      font-size: clamp(2.55rem, 15vw, 4rem);
+      font-size: clamp(2.55rem, 14vw, 3.5rem);
     }
   }
 </style>

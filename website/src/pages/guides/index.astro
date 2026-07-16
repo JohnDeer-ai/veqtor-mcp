@@ -49,18 +49,20 @@ const startHere = [
       </aside>
     </header>
 
-    <section class="section shell" aria-labelledby="start-heading">
-      <div class="section-heading">
-        <div>
-          <p class="kicker">Start here</p>
-          <h2 id="start-heading">Four useful entry points.</h2>
+    <section class="section" aria-labelledby="start-heading">
+      <div class="shell">
+        <div class="section-heading">
+          <div>
+            <p class="kicker">Start here</p>
+            <h2 id="start-heading">Four useful entry points.</h2>
+          </div>
+          <p>Begin with the issue in front of you. Each pillar connects to more focused articles.</p>
         </div>
-        <p>Begin with the issue in front of you. Each pillar connects to more focused articles.</p>
-      </div>
-      <div class="guide-grid guide-grid--featured">
-        {startHere.map((guide) => guide && (
-          <GuideCard guide={guide} topicLabel={TOPICS.find((topic) => topic.id === guide.cluster)?.label} />
-        ))}
+        <div class="guide-grid guide-grid--featured">
+          {startHere.map((guide) => guide && (
+            <GuideCard guide={guide} topicLabel={TOPICS.find((topic) => topic.id === guide.cluster)?.label} />
+          ))}
+        </div>
       </div>
     </section>
 
@@ -148,9 +150,9 @@ const startHere = [
     margin: 0 0 1rem;
     color: var(--accent-soft);
     font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-    font-size: 0.7rem;
-    font-weight: 700;
-    letter-spacing: 0.13em;
+    font-size: 0.72rem;
+    font-weight: var(--weight-label);
+    letter-spacing: 0.09em;
     line-height: 1.4;
     text-transform: uppercase;
   }
@@ -165,9 +167,9 @@ const startHere = [
   h1 {
     max-width: 16ch;
     margin-bottom: 1.6rem;
-    font-size: clamp(3rem, 7vw, 6.6rem);
-    letter-spacing: -0.065em;
-    line-height: 0.96;
+    font-size: clamp(3rem, 6vw, 5.75rem);
+    letter-spacing: var(--tracking-display);
+    line-height: 1.02;
   }
 
   .lede {
@@ -192,7 +194,7 @@ const startHere = [
     padding: 0.72rem 1.1rem;
     color: var(--ink);
     font-size: 0.86rem;
-    font-weight: 700;
+    font-weight: var(--weight-control);
     text-decoration: none;
     border: 1px solid var(--line);
     border-radius: 0.55rem;
@@ -218,9 +220,10 @@ const startHere = [
   .guides-hero__aside strong {
     display: block;
     margin-block: 0.35rem;
-    font-size: clamp(3.8rem, 8vw, 6.6rem);
-    letter-spacing: -0.07em;
-    line-height: 0.9;
+    font-size: clamp(3.8rem, 8vw, 5.5rem);
+    font-weight: var(--weight-display);
+    letter-spacing: -0.035em;
+    line-height: 0.96;
   }
 
   .guides-hero__aside p {
@@ -239,7 +242,7 @@ const startHere = [
   .guides-hero__aside div span {
     padding: 0.35rem 0.55rem;
     color: var(--muted);
-    font-size: 0.74rem;
+    font-size: 0.75rem;
     border: 1px solid var(--line);
     border-radius: 999px;
   }
@@ -260,9 +263,9 @@ const startHere = [
   .bridge h2 {
     max-width: 18ch;
     margin-bottom: 0;
-    font-size: clamp(2.1rem, 4.5vw, 4rem);
-    letter-spacing: -0.045em;
-    line-height: 1;
+    font-size: clamp(2rem, 4vw, 3.5rem);
+    letter-spacing: var(--tracking-heading);
+    line-height: 1.06;
   }
 
   .section-heading > p,
@@ -343,6 +346,8 @@ const startHere = [
 
   .topic-card strong {
     font-size: 1.12rem;
+    font-weight: var(--weight-title);
+    letter-spacing: var(--tracking-title);
   }
 
   .topic-card p {
@@ -420,7 +425,7 @@ const startHere = [
     }
 
     h1 {
-      font-size: clamp(2.7rem, 16vw, 4rem);
+      font-size: clamp(2.7rem, 14vw, 3.5rem);
     }
   }
 </style>

@@ -75,7 +75,7 @@ const { guide, topicLabel, searchable = false, compact = false } = Astro.props
     gap: 0.75rem;
     color: var(--muted, #9e9baa);
     font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-    font-size: 0.68rem;
+    font-size: 0.72rem;
     letter-spacing: 0.08em;
     line-height: 1.4;
     text-transform: uppercase;
@@ -87,9 +87,11 @@ const { guide, topicLabel, searchable = false, compact = false } = Astro.props
 
   .guide-card strong {
     max-width: 27ch;
-    font-family: var(--display, Inter, system-ui, sans-serif);
+    font-family: var(--display);
     font-size: clamp(1.15rem, 2vw, 1.42rem);
-    line-height: 1.16;
+    font-weight: var(--weight-title);
+    letter-spacing: var(--tracking-title);
+    line-height: 1.2;
   }
 
   .guide-card p {

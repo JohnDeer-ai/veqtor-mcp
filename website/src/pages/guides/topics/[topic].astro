@@ -63,16 +63,18 @@ const { topic } = Astro.props as { topic: GuideTopic }
       </ol>
     </section>
 
-    <section class="section shell" aria-labelledby="all-guides-heading">
-      <div class="section-heading">
-        <div>
-          <p class="kicker">Complete topic</p>
-          <h2 id="all-guides-heading">All {topic.label.toLowerCase()} guides.</h2>
+    <section class="section" aria-labelledby="all-guides-heading">
+      <div class="shell">
+        <div class="section-heading">
+          <div>
+            <p class="kicker">Complete topic</p>
+            <h2 id="all-guides-heading">All {topic.label.toLowerCase()} guides.</h2>
+          </div>
+          <p>Start with the main guide or open the specific clause question you need.</p>
         </div>
-        <p>Start with the main guide or open the specific clause question you need.</p>
-      </div>
-      <div class="guide-grid">
-        {topic.guides.map((guide) => <GuideCard guide={guide} />)}
+        <div class="guide-grid">
+          {topic.guides.map((guide) => <GuideCard guide={guide} />)}
+        </div>
       </div>
     </section>
 
@@ -136,9 +138,9 @@ const { topic } = Astro.props as { topic: GuideTopic }
     margin: 0 0 1rem;
     color: var(--accent-soft);
     font-family: var(--mono, ui-monospace, monospace);
-    font-size: 0.7rem;
-    font-weight: 700;
-    letter-spacing: 0.13em;
+    font-size: 0.72rem;
+    font-weight: var(--weight-label);
+    letter-spacing: 0.09em;
     text-transform: uppercase;
   }
 
@@ -151,9 +153,9 @@ const { topic } = Astro.props as { topic: GuideTopic }
   h1 {
     max-width: 16ch;
     margin-bottom: 1.5rem;
-    font-size: clamp(3rem, 7vw, 6rem);
-    letter-spacing: -0.06em;
-    line-height: 0.96;
+    font-size: clamp(3rem, 6vw, 5.75rem);
+    letter-spacing: var(--tracking-display);
+    line-height: 1.02;
   }
 
   .lede {
@@ -173,9 +175,10 @@ const { topic } = Astro.props as { topic: GuideTopic }
 
   .topic-hero aside strong {
     display: block;
-    font-size: 4.7rem;
-    letter-spacing: -0.07em;
-    line-height: 0.9;
+    font-size: 4.5rem;
+    font-weight: var(--weight-display);
+    letter-spacing: -0.035em;
+    line-height: 0.96;
   }
 
   .topic-hero aside p {
@@ -198,9 +201,9 @@ const { topic } = Astro.props as { topic: GuideTopic }
   .section-heading h2,
   .bridge h2 {
     margin-bottom: 1rem;
-    font-size: clamp(2rem, 4.5vw, 3.8rem);
-    letter-spacing: -0.045em;
-    line-height: 1.03;
+    font-size: clamp(2rem, 4vw, 3.5rem);
+    letter-spacing: var(--tracking-heading);
+    line-height: 1.06;
   }
 
   .pillar > div > p:not(.kicker),
@@ -232,7 +235,7 @@ const { topic } = Astro.props as { topic: GuideTopic }
   .pillar li a > span {
     color: var(--accent-soft);
     font-family: var(--mono, ui-monospace, monospace);
-    font-size: 0.67rem;
+    font-size: 0.72rem;
   }
 
   .button {
@@ -243,7 +246,7 @@ const { topic } = Astro.props as { topic: GuideTopic }
     padding: 0.72rem 1.1rem;
     color: var(--ink);
     font-size: 0.85rem;
-    font-weight: 700;
+    font-weight: var(--weight-control);
     text-decoration: none;
     border: 1px solid var(--line);
     border-radius: 0.55rem;
@@ -332,7 +335,7 @@ const { topic } = Astro.props as { topic: GuideTopic }
     }
 
     h1 {
-      font-size: clamp(2.6rem, 16vw, 4rem);
+      font-size: clamp(2.6rem, 14vw, 3.5rem);
     }
   }
 </style>
