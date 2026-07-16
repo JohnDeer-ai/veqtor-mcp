@@ -165,7 +165,8 @@ h1 { font-size: var(--type-page-title); font-weight: var(--weight-display); lett
 h2 { font-size: var(--type-section-title); font-weight: var(--weight-heading); letter-spacing: var(--tracking-heading); line-height: 1.08; margin: 0; text-wrap: balance; }
 h3 { font-size: 21px; font-weight: var(--weight-title); letter-spacing: var(--tracking-title); line-height: 1.22; }
 p { line-height: 1.65; }
-strong { font-weight: var(--weight-strong); }
+strong,
+b { font-weight: var(--weight-strong); }
 
 .eyebrow,
 .mono-note,
