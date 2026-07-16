@@ -1,0 +1,97 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro'
+import PageHero from '../components/PageHero.astro'
+import SiteCta from '../components/SiteCta.astro'
+
+const title = 'Veqtor Demo — Review Word Redlines with Claude'
+const description = 'Watch Claude use Veqtor with sample Word contract drafts to explain a negotiation, check exact wording, and create a separate counterproposal with tracked changes.'
+const videoSchema = {
+  '@type': 'VideoObject',
+  name: 'Veqtor demo — review Word redlines with Claude',
+  description,
+  thumbnailUrl: 'https://veqtor.pro/media/veqtor-demo-poster.jpg',
+  contentUrl: 'https://veqtor.pro/media/veqtor-demo.mp4',
+  uploadDate: '2026-07-14T00:00:00+03:00',
+  duration: 'PT1M44S',
+}
+---
+
+<BaseLayout title={title} description={description} canonicalPath="/demo" structuredData={videoSchema}>
+  <PageHero
+    eyebrow="Sample contract workflow"
+    title="See Claude move from four Word drafts to a reviewable counterproposal."
+    lede="The demo uses synthetic documents and normal user prompts. No client data, hidden edits or pre-recorded product responses."
+    meta="1 minute 44 seconds · Sample documents"
+    breadcrumbs={[{ label: 'Demo' }]}
+  >
+    <div slot="actions" class="actions"><a class="button button--primary" href="#watch">Play the demo</a><a class="button button--secondary" href="/setup">Set up Veqtor</a></div>
+  </PageHero>
+
+  <section class="section section--surface" id="watch" aria-labelledby="video-heading">
+    <div class="shell">
+      <div class="section-heading">
+        <div><p class="eyebrow">Watch</p><h2 id="video-heading">A real Claude session with a disposable negotiation.</h2></div>
+        <p>Claude compares the rounds, checks important wording and prepares a separate Word document. The original drafts stay unchanged.</p>
+      </div>
+      <div class="demo-video">
+        <video controls playsinline preload="metadata" poster="/media/veqtor-demo-poster.jpg">
+          <source src="/media/veqtor-demo.mp4" type="video/mp4" />
+          Your browser does not support video playback. <a href="/media/veqtor-demo.mp4">Open the video directly.</a>
+        </video>
+      </div>
+      <div class="demo-caption"><strong>How the work is divided</strong><span>Claude explains and drafts · Veqtor reads, checks and writes · You review</span></div>
+    </div>
+  </section>
+
+  <section class="section section--border" aria-labelledby="prompts-heading">
+    <div class="shell">
+      <div class="section-heading">
+        <div><p class="eyebrow">The prompts</p><h2 id="prompts-heading">Ask in the language of the negotiation.</h2></div>
+        <p>You do not need to know how Veqtor works inside. Describe the result you want, and Claude chooses the right step.</p>
+      </div>
+      <div class="prompt-grid">
+        <article><span>01 / UNDERSTAND</span><blockquote>“What happened to the limitation of liability across the rounds?”</blockquote><p>Claude explains how the position changed from one draft to the next.</p></article>
+        <article><span>02 / CHECK</span><blockquote>“Check the wording you quoted against the counterparty’s change.”</blockquote><p>Veqtor compares the quote with that specific tracked change.</p></article>
+        <article><span>03 / RESPOND</span><blockquote>“Prepare our counterproposal in Word with tracked changes.”</blockquote><p>Veqtor tests the requested edits together and creates a separate file for review.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="try-heading">
+    <div class="shell prose-shell">
+      <article class="prose">
+        <p class="eyebrow">Reproduce it</p>
+        <h2 id="try-heading">Try the same workflow with fresh sample documents.</h2>
+        <p>After connecting Veqtor, create a disposable four-round negotiation in your home folder:</p>
+        <div class="code-block" data-copy-layer="technical"><div class="code-block__head"><span>Terminal</span><span>Veqtor 0.1.2</span></div><pre><code>uvx --from "veqtor-mcp==0.1.2" veqtor-demo-rounds ~/veqtor-demo-rounds</code></pre></div>
+        <p>Open a new Claude session and ask:</p>
+        <blockquote>Using the Veqtor tools, what happened to the limitation of liability across the rounds in ~/veqtor-demo-rounds?</blockquote>
+        <p>The sample is safe to discard and recreate. Use it to learn the workflow before pointing Claude at any real matter.</p>
+        <div class="notice notice--lime"><strong>Use sample documents first</strong><p>Never include client text, private local paths or activity-history files in a public support request.</p></div>
+      </article>
+      <aside class="side-index" aria-label="Demo resources">
+        <strong>Next</strong>
+        <a href="/setup">Connect Veqtor</a>
+        <a href="/how-it-works">Understand the workflow</a>
+        <a href="/limitations">Read the Alpha limits</a>
+        <a href="https://github.com/JohnDeer-ai/veqtor-mcp">View source on GitHub</a>
+      </aside>
+    </div>
+  </section>
+
+  <SiteCta title="Ready to reproduce the demo on your computer?" primaryHref="/setup" primaryLabel="Open the setup guide" secondaryHref="/limitations" secondaryLabel="Read the limitations" />
+</BaseLayout>
+
+<style>
+  .demo-video { background: #030205; border: 1px solid var(--line-strong); box-shadow: var(--shadow); }
+  .demo-video video { aspect-ratio: 16/9; display: block; width: 100%; }
+  .demo-caption { color: var(--muted); display: flex; flex-wrap: wrap; font-size: 12px; gap: 12px 24px; justify-content: space-between; padding-top: 14px; }
+  .demo-caption strong { color: var(--ink); }
+  .prompt-grid { border-top: 1px solid var(--line-strong); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .prompt-grid article { padding: 28px clamp(18px, 3vw, 34px) 8px 0; }
+  .prompt-grid article + article { border-left: 1px solid var(--line); padding-left: clamp(18px, 3vw, 34px); }
+  .prompt-grid article > span { color: var(--violet); font-family: var(--mono); font-size: 10px; }
+  .prompt-grid blockquote { font-size: 19px; line-height: 1.45; margin: 34px 0 18px; }
+  .prompt-grid p { color: var(--muted); font-size: 13px; }
+  @media (max-width: 760px) { .prompt-grid { grid-template-columns: 1fr; } .prompt-grid article { padding: 24px 0; } .prompt-grid article + article { border-left: 0; border-top: 1px solid var(--line); padding-left: 0; } }
+</style>

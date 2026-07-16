@@ -1,0 +1,22 @@
+---
+import Logo from './Logo.astro'
+---
+
+<header class="site-header" data-site-header>
+  <div class="shell site-header__inner">
+    <a class="brand" href="/" aria-label="Veqtor home">
+      <Logo />
+    </a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" data-nav-toggle>
+      <span class="sr-only">Open navigation</span>
+      <span></span><span></span>
+    </button>
+    <nav class="site-nav" id="site-navigation" aria-label="Main navigation" data-site-nav>
+      <a href="/product">Product</a>
+      <a href="/demo">Demo</a>
+      <a href="/setup">Setup</a>
+      <a href="/guides">Guides</a>
+      <a class="site-nav__github" href="https://github.com/JohnDeer-ai/veqtor-mcp">GitHub <span aria-hidden="true">↗</span></a>
+    </nav>
+  </div>
+</header>

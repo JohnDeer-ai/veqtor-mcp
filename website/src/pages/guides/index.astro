@@ -1,0 +1,426 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro'
+import GuideCard from '../../components/GuideCard.astro'
+import {
+  GUIDE_BY_SLUG,
+  GUIDE_INDEX,
+  GUIDE_STAGES,
+  GUIDES,
+  MCP_GUIDE_BRIDGE,
+  TOPICS,
+  indexStructuredData,
+} from '../../lib/guides'
+
+const startHere = [
+  'contract-formation',
+  'scope-of-work',
+  'limitation-of-liability',
+  'dispute-resolution-clauses',
+].map((slug) => GUIDE_BY_SLUG.get(slug)).filter(Boolean)
+---
+
+<BaseLayout
+  title={GUIDE_INDEX.metaTitle}
+  twitterTitle={GUIDE_INDEX.twitterTitle}
+  description={GUIDE_INDEX.metaDescription}
+  canonicalPath="/guides"
+  structuredData={indexStructuredData()}
+>
+  <div class="guides-page">
+    <header class="guides-hero shell">
+      <div class="guides-hero__copy">
+        <p class="kicker">{GUIDE_INDEX.eyebrow}</p>
+        <h1>{GUIDE_INDEX.h1}</h1>
+        <p class="lede">{GUIDE_INDEX.lede}</p>
+        <div class="hero-actions">
+          <a class="button button--primary" href="/guides/search">Search all guides</a>
+          <a class="button" href="#topics">Browse by topic</a>
+        </div>
+      </div>
+      <aside class="guides-hero__aside" aria-label="Guide library summary">
+        <span>Library map</span>
+        <strong>{GUIDES.length}</strong>
+        <p>published guides across {TOPICS.length} connected contract topics</p>
+        <div>
+          <span>English law</span>
+          <span>Commercial contracts</span>
+          <span>Practical checklists</span>
+        </div>
+      </aside>
+    </header>
+
+    <section class="section shell" aria-labelledby="start-heading">
+      <div class="section-heading">
+        <div>
+          <p class="kicker">Start here</p>
+          <h2 id="start-heading">Four useful entry points.</h2>
+        </div>
+        <p>Begin with the issue in front of you. Each pillar connects to more focused articles.</p>
+      </div>
+      <div class="guide-grid guide-grid--featured">
+        {startHere.map((guide) => guide && (
+          <GuideCard guide={guide} topicLabel={TOPICS.find((topic) => topic.id === guide.cluster)?.label} />
+        ))}
+      </div>
+    </section>
+
+    <section class="section section--topics" id="topics" aria-labelledby="topics-heading">
+      <div class="shell">
+        <div class="section-heading">
+          <div>
+            <p class="kicker">Browse the contract lifecycle</p>
+            <h2 id="topics-heading">From formation to enforcement.</h2>
+          </div>
+          <p>Topics follow the questions that arise during a commercial contract review.</p>
+        </div>
+
+        <div class="stage-list">
+          {GUIDE_STAGES.map((stage, stageIndex) => {
+            const stageTopics = stage.clusterIds
+              .map((id) => TOPICS.find((topic) => topic.id === id))
+              .filter(Boolean)
+            return (
+              <section class="stage" aria-labelledby={`stage-${stage.id}`}>
+                <header>
+                  <span>{String(stageIndex + 1).padStart(2, '0')}</span>
+                  <div>
+                    <h3 id={`stage-${stage.id}`}>{stage.label}</h3>
+                    <p>{stage.description}</p>
+                  </div>
+                </header>
+                <div class="topic-grid">
+                  {stageTopics.map((topic) => topic && (
+                    <a class="topic-card" href={topic.path}>
+                      <span>{topic.guides.length} {topic.guides.length === 1 ? 'guide' : 'guides'}</span>
+                      <strong>{topic.label}</strong>
+                      <p>{topic.pillar.lede}</p>
+                      <b aria-hidden="true">Open topic →</b>
+                    </a>
+                  ))}
+                </div>
+              </section>
+            )
+          })}
+        </div>
+      </div>
+    </section>
+
+    <section class="bridge shell" aria-labelledby="bridge-heading">
+      <div>
+        <p class="kicker">{MCP_GUIDE_BRIDGE.label}</p>
+        <h2 id="bridge-heading">The guides explain the clause. Veqtor helps with the actual redlines.</h2>
+        <p>{MCP_GUIDE_BRIDGE.body}</p>
+      </div>
+      <a class="button button--primary" href={MCP_GUIDE_BRIDGE.href}>{MCP_GUIDE_BRIDGE.title}</a>
+    </section>
+  </div>
+</BaseLayout>
+
+<style>
+  .guides-page {
+    --ink: #eeedf5;
+    --muted: #aaa6b7;
+    --panel: #111019;
+    --panel-raised: #17151f;
+    --line: #302d3c;
+    --accent: #8f80ff;
+    --accent-soft: #c0b9ff;
+    color: var(--ink);
+  }
+
+  .shell {
+    width: min(1180px, calc(100% - 2.5rem));
+    margin-inline: auto;
+  }
+
+  .guides-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(17rem, 0.6fr);
+    gap: clamp(2rem, 7vw, 7rem);
+    align-items: end;
+    padding-block: clamp(5rem, 10vw, 9rem) clamp(4rem, 8vw, 7rem);
+  }
+
+  .kicker,
+  .guides-hero__aside > span,
+  .topic-card > span,
+  .stage > header > span {
+    margin: 0 0 1rem;
+    color: var(--accent-soft);
+    font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.13em;
+    line-height: 1.4;
+    text-transform: uppercase;
+  }
+
+  h1,
+  h2,
+  h3,
+  p {
+    margin-top: 0;
+  }
+
+  h1 {
+    max-width: 16ch;
+    margin-bottom: 1.6rem;
+    font-size: clamp(3rem, 7vw, 6.6rem);
+    letter-spacing: -0.065em;
+    line-height: 0.96;
+  }
+
+  .lede {
+    max-width: 62ch;
+    margin-bottom: 2rem;
+    color: var(--muted);
+    font-size: clamp(1.08rem, 2vw, 1.3rem);
+    line-height: 1.65;
+  }
+
+  .hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 3rem;
+    padding: 0.72rem 1.1rem;
+    color: var(--ink);
+    font-size: 0.86rem;
+    font-weight: 700;
+    text-decoration: none;
+    border: 1px solid var(--line);
+    border-radius: 0.55rem;
+  }
+
+  .button:hover {
+    border-color: var(--accent);
+  }
+
+  .button--primary {
+    color: #0b0912;
+    background: var(--accent-soft);
+    border-color: var(--accent-soft);
+  }
+
+  .guides-hero__aside {
+    padding: 1.5rem;
+    background: linear-gradient(145deg, rgb(143 128 255 / 12%), transparent 55%), var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 1rem;
+  }
+
+  .guides-hero__aside strong {
+    display: block;
+    margin-block: 0.35rem;
+    font-size: clamp(3.8rem, 8vw, 6.6rem);
+    letter-spacing: -0.07em;
+    line-height: 0.9;
+  }
+
+  .guides-hero__aside p {
+    color: var(--muted);
+    line-height: 1.55;
+  }
+
+  .guides-hero__aside div {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--line);
+  }
+
+  .guides-hero__aside div span {
+    padding: 0.35rem 0.55rem;
+    color: var(--muted);
+    font-size: 0.74rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+  }
+
+  .section {
+    padding-block: clamp(4rem, 8vw, 7.5rem);
+  }
+
+  .section-heading {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(16rem, 0.45fr);
+    gap: 2rem;
+    align-items: end;
+    margin-bottom: 2rem;
+  }
+
+  .section-heading h2,
+  .bridge h2 {
+    max-width: 18ch;
+    margin-bottom: 0;
+    font-size: clamp(2.1rem, 4.5vw, 4rem);
+    letter-spacing: -0.045em;
+    line-height: 1;
+  }
+
+  .section-heading > p,
+  .bridge p {
+    margin-bottom: 0;
+    color: var(--muted);
+    line-height: 1.65;
+  }
+
+  .guide-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.9rem;
+  }
+
+  .section--topics {
+    padding-block: clamp(4rem, 9vw, 8rem);
+    background: #0d0c13;
+    border-block: 1px solid var(--line);
+  }
+
+  .stage-list {
+    border-top: 1px solid var(--line);
+  }
+
+  .stage {
+    display: grid;
+    grid-template-columns: minmax(13rem, 0.42fr) minmax(0, 1fr);
+    gap: clamp(2rem, 6vw, 6rem);
+    padding-block: 2.2rem;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .stage > header {
+    display: grid;
+    grid-template-columns: 2rem 1fr;
+    gap: 0.8rem;
+  }
+
+  .stage h3 {
+    margin-bottom: 0.55rem;
+    font-size: 1.25rem;
+  }
+
+  .stage header p {
+    color: var(--muted);
+    font-size: 0.9rem;
+    line-height: 1.55;
+  }
+
+  .topic-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+  }
+
+  .topic-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 13rem;
+    padding: 1.25rem;
+    color: var(--ink);
+    text-decoration: none;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 0.8rem;
+    transition: border-color 160ms ease, transform 160ms ease;
+  }
+
+  .topic-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--accent);
+  }
+
+  .topic-card > span {
+    margin-bottom: 0.7rem;
+  }
+
+  .topic-card strong {
+    font-size: 1.12rem;
+  }
+
+  .topic-card p {
+    display: -webkit-box;
+    overflow: hidden;
+    margin-block: 0.7rem 1rem;
+    color: var(--muted);
+    font-size: 0.87rem;
+    line-height: 1.55;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+  }
+
+  .topic-card b {
+    margin-top: auto;
+    color: var(--accent-soft);
+    font-size: 0.78rem;
+  }
+
+  .bridge {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 2rem;
+    align-items: end;
+    margin-block: clamp(4rem, 9vw, 8rem);
+    padding: clamp(1.6rem, 4vw, 3rem);
+    background: linear-gradient(120deg, rgb(143 128 255 / 17%), transparent 62%), var(--panel-raised);
+    border: 1px solid var(--line);
+    border-radius: 1rem;
+  }
+
+  .bridge h2 {
+    margin-bottom: 1rem;
+  }
+
+  @media (max-width: 980px) {
+    .guide-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 760px) {
+    .guides-hero,
+    .section-heading,
+    .stage,
+    .bridge {
+      grid-template-columns: 1fr;
+    }
+
+    .guides-hero {
+      align-items: start;
+    }
+
+    .guides-hero__aside {
+      max-width: 30rem;
+    }
+
+    .bridge {
+      align-items: start;
+    }
+
+    .bridge .button {
+      justify-self: start;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .shell {
+      width: min(100% - 1.25rem, 1180px);
+    }
+
+    .guide-grid,
+    .topic-grid {
+      grid-template-columns: 1fr;
+    }
+
+    h1 {
+      font-size: clamp(2.7rem, 16vw, 4rem);
+    }
+  }
+</style>

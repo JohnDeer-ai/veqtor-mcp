@@ -1,0 +1,16 @@
+---
+interface Props {
+  compact?: boolean
+}
+
+const { compact = false } = Astro.props
+---
+
+<span class="brand-mark" aria-hidden="true">
+  <svg viewBox="0 0 32 32" focusable="false">
+    <path d="M5 12.5 16 26 27 12.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"></path>
+    <path class="brand-mark__accent" d="M5 7.5h10" fill="none" stroke-linecap="round" stroke-width="2"></path>
+    <circle class="brand-mark__accent" cx="25" cy="7" r="2.8"></circle>
+  </svg>
+</span>
+{!compact && <span class="brand-word">Veqtor</span>}

@@ -1,0 +1,23 @@
+{
+  "name": "@veqtor/website",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0 <23"
+  },
+  "scripts": {
+    "dev": "ASTRO_TELEMETRY_DISABLED=1 astro dev",
+    "preview": "ASTRO_TELEMETRY_DISABLED=1 astro preview",
+    "build": "ASTRO_TELEMETRY_DISABLED=1 astro build && node scripts/check-site.mjs && node scripts/check-copy.mjs",
+    "check": "ASTRO_TELEMETRY_DISABLED=1 astro check",
+    "test": "node --test scripts/*.test.mjs"
+  },
+  "dependencies": {
+    "astro": "7.0.9"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.9",
+    "typescript": "6.0.3"
+  }
+}

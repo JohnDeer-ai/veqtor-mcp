@@ -1,0 +1,93 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro'
+import PageHero from '../components/PageHero.astro'
+import SiteCta from '../components/SiteCta.astro'
+
+const title = 'Veqtor Documentation — MCP Tools, Workflow and Boundaries'
+const description = 'Technical overview of Veqtor 0.1.2: local MCP connection, supported Word redline workflow, six public tools, output behavior, privacy boundary and primary source documentation.'
+---
+
+<BaseLayout title={title} description={description} canonicalPath="/docs">
+  <PageHero
+    eyebrow="Documentation"
+    title="A technical map of Veqtor 0.1.2."
+    lede="Start here for the public tool surface and operating model. Use the versioned GitHub documents when you need the exact request, response and error contract."
+    meta="Public technical Alpha · Current site docs: v0.1.2"
+    breadcrumbs={[{ label: 'Documentation' }]}
+  />
+
+  <section class="section">
+    <div class="shell prose-shell">
+      <article class="prose">
+        <section id="model">
+          <h2>Operating model</h2>
+          <p>Veqtor is a local MCP server using the stdio transport. Claude remains the model and reasoning layer. Veqtor exposes deterministic document operations for a narrow Word redline workflow.</p>
+          <p>The server has no embedded model calls. Tool results enter the MCP client conversation and may be sent to the user’s model provider.</p>
+        </section>
+
+        <section id="tools">
+          <h2>Public tools</h2>
+          <div class="tool-list">
+            <article><code>list_rounds</code><h3>Discover negotiation drafts</h3><p>Scans one local folder, ignores Word lock files and reports readable rounds in deterministic filename order.</p></article>
+            <article><code>extract_redlines</code><h3>Read supported tracked changes</h3><p>Returns change units, document hashes, structural references and bounded paragraph context.</p></article>
+            <article><code>verify_quote</code><h3>Check one quote at its source</h3><p>Compares supplied wording with one anchored change and returns exact, normalized or not_found.</p></article>
+            <article><code>preflight_edits</code><h3>Test the complete edit batch</h3><p>Runs the full document-processing pipeline in memory and never creates an output document.</p></article>
+            <article><code>apply_edits</code><h3>Create a new tracked-change output</h3><p>Writes supported replace, delete, counter and reinstate edits atomically to a create-if-absent file.</p></article>
+            <article><code>export_decision_record</code><h3>Export compact local provenance</h3><p>Returns a privacy-aware summary of the best-effort local activity journal for later review.</p></article>
+          </div>
+        </section>
+
+        <section id="sequence">
+          <h2>Expected trust sequence</h2>
+          <ol>
+            <li>List the available rounds.</li>
+            <li>Extract the current redlines.</li>
+            <li>Verify every quotation used as evidence.</li>
+            <li>Preflight the complete proposed edit batch.</li>
+            <li>Apply only when the batch is reported as applicable.</li>
+            <li>Re-extract the output and export the decision record.</li>
+          </ol>
+          <p>Veqtor never overwrites the source or an existing output file. A successful write creates a new Word document and normally appends to a private local journal.</p>
+        </section>
+
+        <section id="records">
+          <h2>Local decision records</h2>
+          <p>Unless disabled, tool calls append JSON Lines records to <code>&lt;matter&gt;/.veqtor/decision-records.jsonl</code>. The raw journal may contain verbatim matter text and should not be committed or shared.</p>
+          <p>These records are best-effort local provenance. They are not authenticated, signed, hash-chained or tamper-evident. Always check <code>record_status</code> before treating an operation as durably recorded.</p>
+        </section>
+
+        <section id="primary-docs">
+          <h2>Versioned primary documentation</h2>
+          <ul>
+            <li><a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/v0.1.2/README.md">README and installation</a></li>
+            <li><a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/v0.1.2/API.md">Exact MCP tool API</a></li>
+            <li><a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/v0.1.2/KNOWN_LIMITATIONS.md">Known limitations</a></li>
+            <li><a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/v0.1.2/SECURITY.md">Security policy and threat model</a></li>
+            <li><a href="https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/v0.1.2">Release artifacts</a></li>
+          </ul>
+          <div class="notice"><strong>Why link to the tagged version?</strong><p>The site explains the product. The tagged files define the exact behavior of the release you install.</p></div>
+        </section>
+      </article>
+      <aside class="side-index" aria-label="Documentation sections">
+        <strong>On this page</strong>
+        <a href="#model">Operating model</a>
+        <a href="#tools">Public tools</a>
+        <a href="#sequence">Trust sequence</a>
+        <a href="#records">Decision records</a>
+        <a href="#primary-docs">Primary documentation</a>
+      </aside>
+    </div>
+  </section>
+  <SiteCta title="New to Veqtor? Start with the visual workflow." primaryHref="/demo" primaryLabel="Watch the demo" secondaryHref="/setup" secondaryLabel="Set up Veqtor" />
+</BaseLayout>
+
+<style>
+  .prose section + section { border-top: 1px solid var(--line); margin-top: 64px; padding-top: 56px; }
+  .tool-list { border-top: 1px solid var(--line-strong); }
+  .tool-list article { display: grid; gap: 10px 22px; grid-template-columns: minmax(170px, .4fr) minmax(0, 1fr); padding: 22px 0; }
+  .tool-list article + article { border-top: 1px solid var(--line); }
+  .tool-list code { align-self: start; color: var(--lime); overflow-wrap: anywhere; }
+  .tool-list h3 { font-size: 17px; margin: 0; }
+  .tool-list p { grid-column: 2; margin: -4px 0 0; }
+  @media (max-width: 560px) { .tool-list article { grid-template-columns: 1fr; } .tool-list p { grid-column: 1; } }
+</style>

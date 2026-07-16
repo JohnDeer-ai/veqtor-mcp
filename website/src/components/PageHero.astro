@@ -1,0 +1,36 @@
+---
+import Breadcrumbs from './Breadcrumbs.astro'
+
+interface Breadcrumb {
+  label: string
+  href?: string
+}
+
+interface Props {
+  eyebrow: string
+  title: string
+  lede: string
+  breadcrumbs?: Breadcrumb[]
+  meta?: string
+  compact?: boolean
+}
+
+const { eyebrow, title, lede, breadcrumbs = [], meta, compact = false } = Astro.props
+---
+
+<section class:list={['page-hero', { 'page-hero--compact': compact }]}>
+  <div class="shell">
+    {breadcrumbs.length > 0 && <Breadcrumbs items={breadcrumbs} />}
+    <div class="page-hero__grid">
+      <div>
+        <p class="eyebrow">{eyebrow}</p>
+        <h1>{title}</h1>
+      </div>
+      <div class="page-hero__aside">
+        <p>{lede}</p>
+        {meta && <span class="mono-note">{meta}</span>}
+        <slot name="actions" />
+      </div>
+    </div>
+  </div>
+</section>

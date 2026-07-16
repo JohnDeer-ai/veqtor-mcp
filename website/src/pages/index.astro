@@ -1,0 +1,392 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro'
+import SiteCta from '../components/SiteCta.astro'
+
+const title = 'Veqtor — Review Word Redlines with Claude'
+const description = 'Ask Claude what changed across Word contract drafts and create a separate counterproposal with tracked changes. Veqtor runs locally and keeps the original files unchanged.'
+const structuredData = [
+  {
+    '@type': 'SoftwareApplication',
+    '@id': 'https://veqtor.pro/#software',
+    name: 'Veqtor',
+    alternateName: 'Veqtor MCP',
+    applicationCategory: 'DeveloperApplication',
+    applicationSubCategory: 'Contract review tooling',
+    operatingSystem: 'macOS, Linux',
+    softwareVersion: '0.1.2',
+    description,
+    url: 'https://veqtor.pro/',
+    downloadUrl: 'https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/v0.1.2',
+    codeRepository: 'https://github.com/JohnDeer-ai/veqtor-mcp',
+    license: 'https://www.apache.org/licenses/LICENSE-2.0',
+    isAccessibleForFree: true,
+    offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+    author: { '@id': 'https://veqtor.pro/author/ilya-shilov#person' },
+  },
+  {
+    '@type': 'VideoObject',
+    name: 'Veqtor demo — from Word drafts to a counterproposal',
+    description: 'Claude uses Veqtor with sample contract documents to compare negotiation drafts, check wording, and create a separate Word document with tracked changes.',
+    thumbnailUrl: 'https://veqtor.pro/media/veqtor-demo-poster.jpg',
+    contentUrl: 'https://veqtor.pro/media/veqtor-demo.mp4',
+    uploadDate: '2026-07-14T00:00:00+03:00',
+    duration: 'PT1M44S',
+  },
+]
+---
+
+<BaseLayout title={title} description={description} canonicalPath="/" structuredData={structuredData}>
+  <section class="home-hero shell" aria-labelledby="home-title">
+    <div class="home-hero__copy">
+      <p class="eyebrow">For contract negotiations in Word</p>
+      <h1 id="home-title">Ask Claude what changed. Get your counterproposal back in Word.</h1>
+      <p class="home-hero__intro">Compare the drafts, check the exact wording Claude found, and prepare a separate Word document with the edits shown in Word’s Track Changes. Your original files stay unchanged.</p>
+      <div class="actions home-hero__actions">
+        <a class="button button--primary" href="#demo">Watch the demo</a>
+        <a class="button button--secondary" href="/setup">Set up Veqtor</a>
+        <a class="button button--quiet" href="/how-it-works">How it works</a>
+      </div>
+      <div class="trustline" aria-label="Product summary">
+        <span>Runs on your computer</span>
+        <span>Open source</span>
+        <span>Early public version</span>
+      </div>
+    </div>
+
+    <div class="boundary" data-boundary>
+      <div class="boundary__top">
+        <span data-pipeline-title>What happens after you ask</span>
+        <div class="mode-switch" aria-label="Page detail level">
+          <button type="button" data-mode="plain" aria-pressed="true">Plain language</button>
+          <button type="button" data-mode="technical" aria-pressed="false">Technical details</button>
+        </div>
+      </div>
+      <div class="boundary__flow" aria-live="polite">
+        <div class="boundary__side boundary__side--ask">
+          <span class="boundary__label" data-ask-label>You ask Claude</span>
+          <p data-prompt>“What changed across these drafts? Prepare our counterproposal in Word.”</p>
+          <small data-client>Claude works through your request</small>
+        </div>
+        <div class="boundary__rail" aria-hidden="true"><span data-boundary-label>Veqtor checks</span></div>
+        <div class="boundary__side boundary__side--result">
+          <span class="boundary__label" data-result-label>You get a separate Word document</span>
+          <p data-result-copy>Veqtor checks whether it can make the requested changes without guessing.</p>
+          <div class="boundary__checks">
+            <span data-check-one>The quote is checked against a specific change</span>
+            <span data-check-two>All requested changes are tested together</span>
+            <span data-check-three>If something is unclear, Veqtor stops</span>
+          </div>
+          <div class="boundary__output">
+            <strong data-output>Counterproposal · Word document</strong>
+            <span data-output-state>Original unchanged</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section--border problem" id="what-it-does" aria-labelledby="problem-title">
+    <div class="shell split">
+      <div>
+        <p class="eyebrow">The familiar problem</p>
+        <h2 id="problem-title">A chat answer is not a revised Word document.</h2>
+      </div>
+      <div class="problem__copy">
+        <p>When contract text is copied into chat, it is separated from the Word file and the tracked changes around it. You still have to compare drafts, confirm quotes, and put proposed wording back into Word yourself.</p>
+        <div class="rule-list">
+          <div class="rule-item"><span class="rule-item__number">01</span><div><h3>Several drafts still need comparing</h3></div></div>
+          <div class="rule-item"><span class="rule-item__number">02</span><div><h3>Quoted wording still needs checking</h3></div></div>
+          <div class="rule-item"><span class="rule-item__number">03</span><div><h3>Suggestions still need putting back into Word</h3></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section shell" aria-labelledby="ask-title">
+    <div class="section-heading">
+      <div><p class="eyebrow">Ask → get</p><h2 id="ask-title">Ask Claude as you normally would.</h2></div>
+      <p>Each question leads to a result you can check against the Word documents or review as a separate file.</p>
+    </div>
+    <div class="ask-list">
+      <div class="ask-row">
+        <span class="ask-row__number">01</span>
+        <blockquote>“What changed in the liability clause across these drafts?”</blockquote>
+        <span class="ask-row__arrow" aria-hidden="true">→</span>
+        <div><strong>A draft-by-draft explanation based on the tracked changes Veqtor can read.</strong><span class="tech-note">list_rounds · extract_redlines · deterministic filename order</span></div>
+      </div>
+      <div class="ask-row">
+        <span class="ask-row__number">02</span>
+        <blockquote>“Does this quote match the change in the counterparty’s draft?”</blockquote>
+        <span class="ask-row__arrow" aria-hidden="true">→</span>
+        <div><strong>A clear answer about that specific change, including any differences.</strong><span class="tech-note">verify_quote · anchor required · exact / normalized / not_found</span></div>
+      </div>
+      <div class="ask-row">
+        <span class="ask-row__number">03</span>
+        <blockquote>“Prepare our counterproposal in Word with tracked changes.”</blockquote>
+        <span class="ask-row__arrow" aria-hidden="true">→</span>
+        <div><strong>A separate Word document for review. Your original stays unchanged.</strong><span class="tech-note">preflight_edits · complete atomic batch → apply_edits · new output only</span></div>
+      </div>
+      <div class="ask-row">
+        <span class="ask-row__number">04</span>
+        <blockquote>“Show me what Veqtor checked and changed.”</blockquote>
+        <span class="ask-row__arrow" aria-hidden="true">→</span>
+        <div><strong>A short summary in Claude of the work Veqtor recorded on your computer.</strong><span class="tech-note">export_decision_record · compact JSON · best-effort local provenance</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section--surface" id="demo" aria-labelledby="demo-title">
+    <div class="shell">
+      <div class="section-heading">
+        <div><p class="eyebrow">Watch the workflow</p><h2 id="demo-title">From four Word drafts to a counterproposal you can review.</h2></div>
+        <div class="demo-copy"><span class="demo-meta">1:44 · Sample documents · No client data</span><p>Claude compares the drafts, checks a quote, and creates a separate Word document with tracked changes.</p></div>
+      </div>
+      <div class="video-frame">
+        <video controls playsinline preload="metadata" poster="/media/veqtor-demo-poster.jpg">
+          <source src="/media/veqtor-demo.mp4" type="video/mp4" />
+          Your browser does not support video playback. You can <a href="/media/veqtor-demo.mp4">open the demo video directly</a>.
+        </video>
+      </div>
+      <div class="video-caption"><strong>Real Claude prompts, sample contract documents</strong><span>Compare drafts → check wording → create the next Word document</span></div>
+    </div>
+  </section>
+
+  <section class="section section--border" aria-labelledby="how-title">
+    <div class="shell">
+      <div class="section-heading">
+        <div><p class="eyebrow">How to use it</p><h2 id="how-title">Set it up once. Then work in Claude as usual.</h2></div>
+        <p>After setup, keep your Word drafts together and ask Claude questions in your own words.</p>
+      </div>
+      <div class="steps">
+        <div class="step"><span>STEP / 01</span><h3>Connect Veqtor</h3><p>Choose the Claude app you use and follow its step-by-step setup guide.</p><span class="tech-note">Claude Code on macOS/Linux: one registration command after installing uv. Claude Desktop on macOS: a short configuration edit and restart.</span></div>
+        <div class="step"><span>STEP / 02</span><h3>Put the Word drafts in one folder</h3><p>Add 01, 02, 03 to the beginning of the file names to show their order, then tell Claude where the folder is.</p><span class="tech-note">Deterministic filename order · not reconstructed chronology</span></div>
+        <div class="step"><span>STEP / 03</span><h3>Ask Claude normally</h3><p>Ask what changed, check wording, or request a counterproposal. Review Claude’s answer and the new Word document before using them.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section--lime section--border" aria-labelledby="safety-title">
+    <div class="shell">
+      <div class="split safety-grid">
+        <div>
+          <p class="eyebrow">Safety and limits</p>
+          <h2 id="safety-title">Veqtor stops instead of guessing.</h2>
+          <p class="mono-note safety-status">Early public version · Mac and Linux · Community support only</p>
+        </div>
+        <div class="trust-list">
+          <div><span aria-hidden="true">✓</span><p><strong>Your original stays unchanged</strong>Every successful edit creates a separate Word document. Veqtor will not replace your original or an existing file with the same name.</p></div>
+          <div><span aria-hidden="true">✓</span><p><strong>All requested changes are checked together</strong>If even one requested change cannot be completed, Veqtor does not create the final Word document.</p></div>
+          <div><span aria-hidden="true">✓</span><p><strong>Veqtor refuses changes it cannot make exactly</strong>It stops rather than risk changing the wrong text.</p></div>
+          <div><span aria-hidden="true">✓</span><p><strong>Veqtor can keep an activity history</strong>The history is a helpful record on your computer, but it is an ordinary file—not independent proof that nobody changed it.</p></div>
+        </div>
+      </div>
+      <div class="privacy-line">
+        <strong>What information may leave your computer?</strong>
+        <p>Veqtor does not send whole Word documents anywhere on its own. Text that Veqtor gives Claude becomes part of your Claude conversation and may be processed by the AI service you use. Veqtor also normally tries to save an activity history on your computer. It may include contract wording, so keep it confidential.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section shell" aria-labelledby="technical-title">
+    <div class="split technical-map">
+      <div class="split__copy">
+        <p class="eyebrow">For readers who want the technical explanation</p>
+        <h2 id="technical-title">How Veqtor works with Claude.</h2>
+        <p>You ask Claude in normal language. When Claude needs to read, check, or make a supported change in Word, it asks Veqtor to do that document work on your computer.</p>
+        <p>In precise terms, Veqtor is a local, open-source MCP server. MCP is the standard connection Claude uses to call Veqtor’s document tools.</p>
+      </div>
+      <div class="map-list" aria-label="How Claude and Veqtor work together">
+        <div><strong>You ask Claude</strong><span>→</span><small>normal language</small></div>
+        <div><strong>Claude asks Veqtor</strong><span>→</span><small>MCP connection</small></div>
+        <div><strong>Veqtor checks Word</strong><span>→</span><small>read · check · test</small></div>
+        <div><strong>Veqtor creates a new file</strong><span>→</span><small>tracked changes · original unchanged</small></div>
+        <p class="tech-note">Local stdio MCP · list_rounds · extract_redlines · verify_quote · preflight_edits · apply_edits · export_decision_record</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section--border guides-preview" aria-labelledby="guides-title">
+    <div class="shell">
+      <div class="guides-preview__head">
+        <div><p class="eyebrow">Contract guidance</p><h2 id="guides-title">Practical guides to common contract clauses.</h2><p>The guides explain the clause. Veqtor helps you work with the actual changes in Word.</p></div>
+        <span class="stat">115 guides across 17 topics</span>
+      </div>
+      <div class="guide-rows">
+        <a href="/guides/liability-cap-single-vs-aggregate"><span>GUIDE / 01</span><strong>Single vs aggregate liability cap</strong><small>Limitation of liability</small></a>
+        <a href="/guides/indemnity-debt-vs-damages"><span>GUIDE / 02</span><strong>Indemnity: debt or damages?</strong><small>Indemnities</small></a>
+        <a href="/guides/entire-agreement-and-non-reliance"><span>GUIDE / 03</span><strong>Entire agreement and non-reliance clauses</strong><small>Warranties and representations</small></a>
+      </div>
+      <div class="actions guides-preview__actions"><a class="button button--secondary" href="/guides">Explore all guides</a><a class="button button--quiet" href="/guides/search">Search the library</a></div>
+    </div>
+  </section>
+
+  <SiteCta />
+
+  <script is:inline>
+    (() => {
+      const root = document.querySelector('[data-boundary]');
+      if (!root) return;
+      const page = document.documentElement;
+      const buttons = [...root.querySelectorAll('[data-mode]')];
+      const fields = {
+        pipelineTitle: root.querySelector('[data-pipeline-title]'),
+        askLabel: root.querySelector('[data-ask-label]'),
+        prompt: root.querySelector('[data-prompt]'),
+        client: root.querySelector('[data-client]'),
+        boundaryLabel: root.querySelector('[data-boundary-label]'),
+        resultLabel: root.querySelector('[data-result-label]'),
+        resultCopy: root.querySelector('[data-result-copy]'),
+        checkOne: root.querySelector('[data-check-one]'),
+        checkTwo: root.querySelector('[data-check-two]'),
+        checkThree: root.querySelector('[data-check-three]'),
+        output: root.querySelector('[data-output]'),
+        outputState: root.querySelector('[data-output-state]'),
+      };
+      const copy = {
+        plain: {
+          pipelineTitle: 'What happens after you ask', askLabel: 'You ask Claude',
+          prompt: '“What changed across these drafts? Prepare our counterproposal in Word.”',
+          client: 'Claude works through your request', boundaryLabel: 'Veqtor checks',
+          resultLabel: 'You get a separate Word document',
+          resultCopy: 'Veqtor checks whether it can make the requested changes without guessing.',
+          checkOne: 'The quote is checked against a specific change',
+          checkTwo: 'All requested changes are tested together',
+          checkThree: 'If something is unclear, Veqtor stops',
+          output: 'Counterproposal · Word document', outputState: 'Original unchanged',
+        },
+        technical: {
+          pipelineTitle: 'The document boundary', askLabel: 'Claude Code / Desktop',
+          prompt: 'list_rounds → extract_redlines', client: 'AI reasoning remains outside Veqtor',
+          boundaryLabel: 'Local MCP', resultLabel: 'Defined document tools',
+          resultCopy: 'Anchored document facts pass through the MCP tool interface.',
+          checkOne: 'verify_quote: exact / normalized / not_found',
+          checkTwo: 'preflight_edits: complete atomic batch',
+          checkThree: 'apply_edits: create-if-absent output',
+          output: 'round-5-our-counter.docx', outputState: 'Re-extractable · best-effort local provenance',
+        },
+      };
+      const setMode = (mode) => {
+        const next = copy[mode];
+        if (!next) return;
+        page.classList.toggle('show-technical', mode === 'technical');
+        buttons.forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.mode === mode)));
+        Object.entries(fields).forEach(([key, node]) => { if (node) node.textContent = next[key]; });
+        root.classList.remove('is-pulsing');
+        void root.offsetWidth;
+        root.classList.add('is-pulsing');
+        window.setTimeout(() => root.classList.remove('is-pulsing'), 550);
+      };
+      buttons.forEach((button) => button.addEventListener('click', () => setMode(button.dataset.mode)));
+    })();
+  </script>
+</BaseLayout>
+
+<style>
+  .home-hero { display: grid; gap: clamp(40px, 6vw, 78px); grid-template-columns: minmax(0, .94fr) minmax(420px, 1.06fr); padding-bottom: clamp(70px, 9vw, 116px); padding-top: clamp(70px, 9vw, 116px); }
+  .home-hero__copy { align-self: center; }
+  .home-hero h1 { font-size: clamp(44px, 5.2vw, 70px); max-width: 700px; }
+  .home-hero__intro { color: var(--muted); font-size: clamp(17px, 1.8vw, 20px); margin: 28px 0 0; max-width: 650px; }
+  .home-hero__actions { margin-top: 34px; }
+  .trustline { color: var(--muted); display: flex; flex-wrap: wrap; font-family: var(--mono); font-size: 10px; gap: 8px 16px; margin-top: 28px; text-transform: uppercase; }
+  .trustline span { align-items: center; display: inline-flex; gap: 7px; }
+  .trustline span::before { background: var(--lime); content: ''; height: 4px; width: 4px; }
+
+  .boundary { align-self: center; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 18px; box-shadow: var(--shadow); min-width: 0; overflow: hidden; position: relative; }
+  .boundary::before { background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px); background-size: 28px 28px; content: ''; inset: 0; opacity: .2; pointer-events: none; position: absolute; }
+  .boundary__top { align-items: center; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; padding: 13px 15px; position: relative; z-index: 1; }
+  .boundary__top > span { color: var(--muted); font-family: var(--mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
+  .mode-switch { display: flex; gap: 5px; }
+  .mode-switch button { background: transparent; border: 1px solid transparent; border-radius: 7px; color: var(--muted); cursor: pointer; font-size: 12px; min-height: 34px; padding: 0 10px; }
+  .mode-switch button[aria-pressed='true'] { background: var(--violet); color: #100b18; }
+  .boundary__flow { display: grid; grid-template-columns: minmax(0, 1fr) 62px minmax(0, 1fr); min-height: 420px; position: relative; z-index: 1; }
+  .boundary__side { display: flex; flex-direction: column; justify-content: center; min-width: 0; padding: 28px 24px; }
+  .boundary__side--ask { background: linear-gradient(135deg, var(--violet-soft), transparent 60%); }
+  .boundary__side--result { background: linear-gradient(225deg, var(--lime-soft), transparent 60%); }
+  .boundary__label { color: var(--violet); font-family: var(--mono); font-size: 10px; letter-spacing: .07em; margin-bottom: 14px; text-transform: uppercase; }
+  .boundary__side--result .boundary__label { color: var(--lime); }
+  .boundary__side > p { font-size: 15px; line-height: 1.5; margin: 0; }
+  .boundary__side small { color: var(--muted); font-family: var(--mono); font-size: 10px; margin-top: 16px; }
+  .boundary__rail { align-items: center; display: flex; justify-content: center; position: relative; }
+  .boundary__rail::before { background: var(--line-strong); content: ''; height: 100%; left: 50%; position: absolute; width: 1px; }
+  .boundary__rail span { align-items: center; background: var(--bg); border: 1px solid var(--lime); color: var(--lime); display: flex; font-family: var(--mono); font-size: 8px; height: 116px; justify-content: center; letter-spacing: .1em; position: relative; text-transform: uppercase; transform: rotate(180deg); width: 30px; writing-mode: vertical-rl; }
+  .boundary__checks { display: grid; gap: 10px; margin-top: 18px; }
+  .boundary__checks span { border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; padding: 9px 0 0 22px; position: relative; }
+  .boundary__checks span::before { color: var(--lime); content: '✓'; left: 0; position: absolute; }
+  .boundary__output { border-top: 1px solid var(--line); margin-top: 22px; padding-top: 14px; }
+  .boundary__output strong { display: block; font-size: 12px; overflow-wrap: anywhere; }
+  .boundary__output span { color: var(--lime); display: block; font-family: var(--mono); font-size: 9px; margin-top: 7px; text-transform: uppercase; }
+  .boundary.is-pulsing .boundary__rail span { animation: pulse 500ms ease-out; }
+  @keyframes pulse { from { box-shadow: 0 0 0 0 rgba(200,255,88,.35); } to { box-shadow: 0 0 0 18px rgba(200,255,88,0); } }
+
+  .problem__copy > p { color: var(--muted); font-size: 17px; margin: 0 0 32px; }
+  .problem .rule-item { align-items: center; }
+  .problem .rule-item h3 { margin: 0; }
+
+  .ask-list { border-top: 1px solid var(--line-strong); }
+  .ask-row { display: grid; gap: clamp(20px, 4vw, 48px); grid-template-columns: 30px minmax(0, .95fr) 24px minmax(0, 1.05fr); padding: 26px 0; }
+  .ask-row + .ask-row { border-top: 1px solid var(--line); }
+  .ask-row__number, .ask-row__arrow { color: var(--violet); font-family: var(--mono); font-size: 10px; padding-top: 4px; }
+  .ask-row__arrow { color: var(--lime); text-align: center; }
+  .ask-row blockquote { font-size: clamp(17px, 2vw, 22px); line-height: 1.35; margin: 0; }
+  .ask-row strong { display: block; font-size: 15px; font-weight: 520; line-height: 1.5; }
+  .tech-note { display: none; margin-top: 10px; }
+  :global(.show-technical) .tech-note { display: block; }
+
+  .demo-copy p { color: var(--muted); margin: 10px 0 0; }
+  .demo-meta { color: var(--lime); font-family: var(--mono); font-size: 10px; text-transform: uppercase; }
+  .video-frame { background: #030205; border: 1px solid var(--line-strong); box-shadow: var(--shadow); overflow: hidden; }
+  .video-frame video { aspect-ratio: 16/9; display: block; width: 100%; }
+  .video-caption { color: var(--muted); display: flex; flex-wrap: wrap; font-size: 12px; gap: 10px 20px; justify-content: space-between; padding-top: 14px; }
+  .video-caption strong { color: var(--ink); font-weight: 520; }
+
+  .safety-status { margin-top: 28px; }
+  .trust-list { border-top: 1px solid var(--line-strong); }
+  .trust-list > div { display: grid; gap: 14px; grid-template-columns: 18px minmax(0, 1fr); padding: 18px 0; }
+  .trust-list > div + div { border-top: 1px solid var(--line); }
+  .trust-list > div > span { color: var(--lime); }
+  .trust-list p { color: var(--muted); font-size: 13px; margin: 0; }
+  .trust-list strong { color: var(--ink); display: block; font-size: 15px; font-weight: 520; margin-bottom: 5px; }
+  .privacy-line { border-top: 1px solid var(--line-strong); display: grid; gap: 22px; grid-template-columns: .42fr 1fr; margin-top: 34px; padding-top: 24px; }
+  .privacy-line p { color: var(--muted); font-size: 13px; margin: 0; }
+
+  .map-list { align-self: center; border-bottom: 1px solid var(--line-strong); border-top: 1px solid var(--line-strong); }
+  .map-list > div { align-items: center; display: grid; gap: 18px; grid-template-columns: .9fr 32px 1fr; padding: 20px 0; }
+  .map-list > div + div { border-top: 1px solid var(--line); }
+  .map-list strong { font-size: 14px; }
+  .map-list > div > span { color: var(--lime); text-align: center; }
+  .map-list small { color: var(--muted); font-family: var(--mono); font-size: 10px; }
+  .map-list > p { margin: 16px 0; }
+
+  .guides-preview__head { align-items: end; display: grid; gap: 24px; grid-template-columns: minmax(0, 1fr) auto; }
+  .guides-preview__head > div > p:last-child { color: var(--muted); margin: 24px 0 0; }
+  .stat { color: var(--lime); text-transform: uppercase; }
+  .guide-rows { border-top: 1px solid var(--line-strong); margin-top: 44px; }
+  .guide-rows a { align-items: center; display: grid; gap: 18px; grid-template-columns: 72px minmax(0, 1fr) auto; padding: 24px 0; text-decoration: none; }
+  .guide-rows a + a { border-top: 1px solid var(--line); }
+  .guide-rows a > span { color: var(--violet); font-family: var(--mono); font-size: 9px; }
+  .guide-rows strong { font-size: clamp(17px, 2vw, 24px); font-weight: 520; }
+  .guide-rows small { color: var(--muted); font-family: var(--mono); font-size: 9px; text-transform: uppercase; }
+  .guides-preview__actions { margin-top: 32px; }
+
+  @media (max-width: 980px) {
+    .home-hero { grid-template-columns: minmax(0, 1fr); }
+    .boundary { max-width: 720px; }
+  }
+  @media (max-width: 760px) {
+    .boundary__flow { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+    .boundary__rail { min-height: 62px; }
+    .boundary__rail::before { height: 1px; left: 0; top: 50%; width: 100%; }
+    .boundary__rail span { height: 30px; transform: none; width: 128px; writing-mode: horizontal-tb; }
+    .ask-row { gap: 14px; grid-template-columns: 26px minmax(0, 1fr); }
+    .ask-row__arrow { display: none; }
+    .ask-row > div { grid-column: 2; }
+    .privacy-line, .guides-preview__head { align-items: start; grid-template-columns: minmax(0, 1fr); }
+    .guide-rows a { align-items: start; grid-template-columns: 52px minmax(0, 1fr); }
+    .guide-rows small { grid-column: 2; }
+  }
+  @media (max-width: 480px) {
+    .boundary__top { align-items: stretch; flex-direction: column; }
+    .mode-switch { display: grid; grid-template-columns: 1fr 1fr; }
+    .boundary__side { padding: 24px 18px; }
+  }
+</style>

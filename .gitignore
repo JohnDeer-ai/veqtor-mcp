@@ -13,3 +13,8 @@ build/
 
 # generated demo fixtures (recreate with veqtor-demo-rounds)
 /veqtor-demo-rounds/
+
+# isolated static website
+/website/node_modules/
+/website/.astro/
+/website/dist/

@@ -1,0 +1,299 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro'
+import GuideCard from '../../components/GuideCard.astro'
+import { GUIDES, TOPICS, topicForGuide } from '../../lib/guides'
+
+const title = 'Search Veqtor Guides - Commercial Contract Review Library'
+const description = 'Search Veqtor guides by commercial-contract topic, guide format, clause wording, and redline-review risk.'
+---
+
+<BaseLayout
+  title={title}
+  twitterTitle="Search Veqtor Guides"
+  description={description}
+  canonicalPath="/guides/search"
+  noindex
+>
+  <div class="search-page">
+    <div class="shell crumbs" aria-label="Breadcrumb">
+      <a href="/">Home</a><span>/</span><a href="/guides">Guides</a><span>/</span><b>Search</b>
+    </div>
+
+    <header class="search-hero shell">
+      <p class="kicker">Contract guide library</p>
+      <h1>Search {GUIDES.length} practical guides.</h1>
+      <p>Look for a clause, legal question, case, or drafting risk. Filtering happens in your browser.</p>
+    </header>
+
+    <section class="search-controls shell" aria-label="Guide filters">
+      <label>
+        <span>Search words</span>
+        <input id="guide-query" type="search" placeholder="Try “liability cap” or “subject to contract”" autocomplete="off" />
+      </label>
+      <label>
+        <span>Topic</span>
+        <select id="guide-topic">
+          <option value="">All topics</option>
+          {TOPICS.map((topic) => <option value={topic.id}>{topic.label}</option>)}
+        </select>
+      </label>
+      <button id="clear-search" type="button">Clear</button>
+    </section>
+
+    <section class="results shell" aria-labelledby="results-heading">
+      <div class="results__heading">
+        <h2 id="results-heading">Guide results</h2>
+        <p id="result-count" aria-live="polite">{GUIDES.length} guides</p>
+      </div>
+      <p id="no-results" class="no-results" hidden>No guides match those filters. Try a broader phrase or another topic.</p>
+      <div class="guide-grid" id="guide-results">
+        {GUIDES.map((guide) => (
+          <GuideCard guide={guide} topicLabel={topicForGuide(guide).label} searchable compact />
+        ))}
+      </div>
+    </section>
+  </div>
+</BaseLayout>
+
+<script is:inline>
+  (() => {
+    const queryInput = document.querySelector('#guide-query')
+    const topicSelect = document.querySelector('#guide-topic')
+    const clearButton = document.querySelector('#clear-search')
+    const count = document.querySelector('#result-count')
+    const empty = document.querySelector('#no-results')
+    const cards = Array.from(document.querySelectorAll('[data-guide-card]'))
+
+    if (!(queryInput instanceof HTMLInputElement)
+      || !(topicSelect instanceof HTMLSelectElement)
+      || !(clearButton instanceof HTMLButtonElement)
+      || !count
+      || !empty) return
+
+    const normalize = (value) => String(value || '').trim().toLocaleLowerCase('en')
+
+    const applyFilters = () => {
+      const terms = normalize(queryInput.value).split(/\s+/).filter(Boolean)
+      const topic = topicSelect.value
+      let shown = 0
+
+      cards.forEach((card) => {
+        if (!(card instanceof HTMLElement)) return
+        const haystack = normalize(card.dataset.search)
+        const matchesTerms = terms.every((term) => haystack.includes(term))
+        const matchesTopic = !topic || card.dataset.topic === topic
+        const visible = matchesTerms && matchesTopic
+        card.hidden = !visible
+        if (visible) shown += 1
+      })
+
+      count.textContent = `${shown} ${shown === 1 ? 'guide' : 'guides'}`
+      empty.hidden = shown !== 0
+    }
+
+    queryInput.addEventListener('input', applyFilters)
+    topicSelect.addEventListener('change', applyFilters)
+    clearButton.addEventListener('click', () => {
+      queryInput.value = ''
+      topicSelect.value = ''
+      applyFilters()
+      queryInput.focus()
+    })
+  })()
+</script>
+
+<style>
+  .search-page {
+    --ink: #eeedf5;
+    --muted: #aaa6b7;
+    --panel: #111019;
+    --line: #302d3c;
+    --accent: #8f80ff;
+    --accent-soft: #c0b9ff;
+    color: var(--ink);
+  }
+
+  .shell {
+    width: min(1180px, calc(100% - 2.5rem));
+    margin-inline: auto;
+  }
+
+  .crumbs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding-top: 1.4rem;
+    color: var(--muted);
+    font-family: var(--mono, ui-monospace, monospace);
+    font-size: 0.7rem;
+  }
+
+  .crumbs a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .crumbs b {
+    color: var(--ink);
+  }
+
+  .search-hero {
+    padding-block: clamp(4rem, 8vw, 7rem) 2.5rem;
+  }
+
+  .kicker {
+    margin: 0 0 1rem;
+    color: var(--accent-soft);
+    font-family: var(--mono, ui-monospace, monospace);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+  }
+
+  h1,
+  h2,
+  p {
+    margin-top: 0;
+  }
+
+  h1 {
+    max-width: 17ch;
+    margin-bottom: 1.2rem;
+    font-size: clamp(3rem, 7vw, 6rem);
+    letter-spacing: -0.062em;
+    line-height: 0.97;
+  }
+
+  .search-hero > p:last-child {
+    max-width: 62ch;
+    margin-bottom: 0;
+    color: var(--muted);
+    font-size: 1.08rem;
+    line-height: 1.65;
+  }
+
+  .search-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(13rem, 0.32fr) auto;
+    gap: 0.75rem;
+    align-items: end;
+    padding: 1rem;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 0.9rem;
+  }
+
+  .search-controls label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+
+  .search-controls label > span {
+    color: var(--muted);
+    font-family: var(--mono, ui-monospace, monospace);
+    font-size: 0.66rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  input,
+  select,
+  button {
+    min-height: 3.1rem;
+    padding: 0.7rem 0.9rem;
+    color: var(--ink);
+    font: inherit;
+    background: #0b0a10;
+    border: 1px solid var(--line);
+    border-radius: 0.55rem;
+  }
+
+  input:focus,
+  select:focus,
+  button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  button {
+    cursor: pointer;
+    font-size: 0.83rem;
+    font-weight: 700;
+  }
+
+  .results {
+    padding-block: 2rem clamp(5rem, 10vw, 9rem);
+  }
+
+  .results__heading {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: baseline;
+    padding-block: 1.2rem;
+  }
+
+  .results__heading h2 {
+    margin-bottom: 0;
+    font-size: 1.2rem;
+  }
+
+  .results__heading p {
+    margin-bottom: 0;
+    color: var(--accent-soft);
+    font-family: var(--mono, ui-monospace, monospace);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+  }
+
+  .guide-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.85rem;
+  }
+
+  .guide-grid > [hidden] {
+    display: none;
+  }
+
+  .no-results {
+    padding: 2rem;
+    color: var(--muted);
+    text-align: center;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 0.8rem;
+  }
+
+  @media (max-width: 900px) {
+    .guide-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 680px) {
+    .search-controls {
+      grid-template-columns: 1fr;
+    }
+
+    .search-controls button {
+      justify-self: start;
+    }
+  }
+
+  @media (max-width: 540px) {
+    .shell {
+      width: min(100% - 1.25rem, 1180px);
+    }
+
+    .guide-grid {
+      grid-template-columns: 1fr;
+    }
+
+    h1 {
+      font-size: clamp(2.6rem, 16vw, 4rem);
+    }
+  }
+</style>

@@ -1,0 +1,73 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro'
+import PageHero from '../components/PageHero.astro'
+
+const title = 'Veqtor Known Limitations — Public Alpha 0.1.2'
+const description = 'Plain-language and technical limits of Veqtor 0.1.2: supported systems, Word document parts, tracked changes, round ordering, writing, local records, security boundary and support.'
+---
+
+<BaseLayout title={title} description={description} canonicalPath="/limitations">
+  <PageHero
+    eyebrow="Known limitations"
+    title="Know what Veqtor does not support yet."
+    lede="The public Alpha is intentionally narrow. It refuses unsupported documents and edits rather than trying to change them approximately."
+    meta="Applies to Veqtor 0.1.2"
+    breadcrumbs={[{ label: 'Limitations' }]}
+  >
+    <div slot="actions" class="actions"><a class="button button--primary" href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/v0.1.2/KNOWN_LIMITATIONS.md">Open the exact technical limits ↗</a></div>
+  </PageHero>
+
+  <section class="section section--border" aria-labelledby="quick-heading">
+    <div class="shell">
+      <div class="section-heading"><div><p class="eyebrow">Read this first</p><h2 id="quick-heading">The practical limits in plain language.</h2></div><p>These are the limits most likely to change whether Veqtor is suitable for a real negotiation.</p></div>
+      <div class="limit-grid">
+        <article><span>PLATFORM</span><h3>Mac and Linux only</h3><p>Windows and hosted use are outside the current release.</p></article>
+        <article><span>WORD CONTENT</span><h3>Main document text only</h3><p>Comments, headers, footers, footnotes and endnotes are not analyzed or edited.</p></article>
+        <article><span>CHANGES</span><h3>Not every Word revision</h3><p>Formatting changes, moved text and some complex layouts may be counted but cannot always be edited.</p></article>
+        <article><span>DECISIONS</span><h3>No accept or reject button</h3><p>Veqtor can create supported new tracked changes. It does not accept or reject existing ones.</p></article>
+        <article><span>HISTORY</span><h3>File names establish order</h3><p>Veqtor does not prove chronology or automatically match the same clause across every draft.</p></article>
+        <article><span>LEGAL ANALYSIS</span><h3>Claude and the user supply judgment</h3><p>Veqtor does not establish that an interpretation or proposed clause is legally correct.</p></article>
+        <article><span>ACTIVITY RECORD</span><h3>Helpful local history, not independent proof</h3><p>The local record can be incomplete or changed by someone who has access to the computer.</p></article>
+        <article><span>SUPPORT</span><h3>Community-supported Alpha</h3><p>There is no guaranteed response, fix, compatibility or uptime.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="detail-heading">
+    <div class="shell prose-shell">
+      <article class="prose">
+        <h2 id="detail-heading">Technical boundary</h2>
+        <h3>Documents and package limits</h3>
+        <p>One input DOCX is limited to 50 MiB compressed, 2,000 ZIP members and 100 MiB total expanded content. XML parts are limited to 25 MiB and 100,000 structural items; one extraction is limited to 10,000 change units. A folder scan accepts at most 500 candidate documents and has 500 MiB aggregate input and expanded-output budgets.</p>
+        <p>The supported container is an unencrypted, non-ZIP64 ZIP package using STORED or DEFLATED members. Ambiguous, malformed or unsupported package structures are refused.</p>
+
+        <h3>Tracked changes and structure</h3>
+        <p>Extraction and writing cover <code>word/document.xml</code>. The writer supports a narrow set of tracked text replace, delete, counter and reinstate operations. Deeply nested revisions, unsupported element shapes and complex adjacent structures may be refused.</p>
+        <p>Numbering and clause labels are navigation aids, not evidence. Durable references combine the document hash, change-unit identity, structural location and checked wording.</p>
+
+        <h3>Round interpretation</h3>
+        <p>Round order is deterministic filename order, not lineage proof. There is no semantic cross-round clause matcher or authorship forensics in v0.1.</p>
+
+        <h3>Preflight and apply</h3>
+        <p>One atomic batch accepts up to 100 edits, 20,000 new characters per edit and 200,000 across the batch. Preflight runs the same document pipeline in memory, but apply can still fail if the source changes, the destination already exists or the filesystem refuses publication.</p>
+
+        <h3>Provenance and threat model</h3>
+        <p>Decision records are best-effort local provenance. They are not authenticated, signed, hash-chained or tamper-evident. The supported threat model is a non-hostile, single-user Mac or Linux workspace. A malicious process running as the same user is outside scope.</p>
+
+        <h3>Canonical release document</h3>
+        <p>This page is an accessible summary. The exact versioned contract is the <a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/v0.1.2/KNOWN_LIMITATIONS.md">KNOWN_LIMITATIONS.md file for v0.1.2</a>. If the summary and the tagged file differ, rely on the tagged file.</p>
+      </article>
+      <aside class="side-index"><strong>Related</strong><a href="/security">Security &amp; privacy</a><a href="/docs">Tool documentation</a><a href="/demo">Sample workflow</a><a href="/setup">Setup guide</a></aside>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .limit-grid { display: grid; gap: 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .limit-grid article { background: var(--surface); border: 1px solid var(--line); min-height: 220px; padding: 22px; }
+  .limit-grid span { color: var(--violet); font-family: var(--mono); font-size: 9px; letter-spacing: .08em; }
+  .limit-grid h3 { font-size: 18px; margin: 38px 0 10px; }
+  .limit-grid p { color: var(--muted); font-size: 13px; margin: 0; }
+  @media (max-width: 980px) { .limit-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 520px) { .limit-grid { grid-template-columns: 1fr; } .limit-grid article { min-height: 0; } }
+</style>

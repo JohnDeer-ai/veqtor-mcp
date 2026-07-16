@@ -1,0 +1,32 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="630" fill="#07060B"/>
+  <defs>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M48 0H0V48" stroke="#2C2736" stroke-opacity="0.48"/>
+    </pattern>
+    <linearGradient id="glow" x1="750" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A884FF" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="#C8FF58" stop-opacity="0.06"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+  <rect x="720" width="480" height="630" fill="url(#glow)"/>
+  <rect x="58" y="54" width="1084" height="522" rx="22" fill="#0E0C14" stroke="#443A54" stroke-width="2"/>
+  <g transform="translate(96 91)">
+    <path d="M0 20L18 43L36 20" stroke="#A884FF" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M0 9H16" stroke="#C8FF58" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="33" cy="8" r="4.5" fill="#C8FF58"/>
+    <text x="53" y="35" fill="#F8F5FC" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif" font-size="34" font-weight="550">Veqtor</text>
+  </g>
+  <text x="96" y="241" fill="#A884FF" font-family="SFMono-Regular,Consolas,monospace" font-size="18" letter-spacing="2.2">CLAUDE × MICROSOFT WORD</text>
+  <text x="96" y="316" fill="#F8F5FC" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif" font-size="58" font-weight="520" letter-spacing="-2.4">Ask what changed.</text>
+  <text x="96" y="383" fill="#F8F5FC" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif" font-size="58" font-weight="520" letter-spacing="-2.4">Get the counterproposal in Word.</text>
+  <g transform="translate(96 452)">
+    <circle cx="5" cy="5" r="5" fill="#C8FF58"/>
+    <text x="22" y="12" fill="#AAA3B4" font-family="SFMono-Regular,Consolas,monospace" font-size="17" letter-spacing="1.3">LOCAL · OPEN SOURCE · PUBLIC TECHNICAL ALPHA</text>
+  </g>
+  <g transform="translate(947 99)">
+    <rect width="154" height="34" rx="17" fill="#C8FF58" fill-opacity="0.1" stroke="#C8FF58"/>
+    <text x="77" y="22" text-anchor="middle" fill="#C8FF58" font-family="SFMono-Regular,Consolas,monospace" font-size="11" letter-spacing="1.4">VEQTOR.PRO</text>
+  </g>
+</svg>

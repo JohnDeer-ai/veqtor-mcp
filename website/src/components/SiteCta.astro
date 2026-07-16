@@ -1,0 +1,33 @@
+---
+interface Props {
+  title?: string
+  body?: string
+  primaryHref?: string
+  primaryLabel?: string
+  secondaryHref?: string
+  secondaryLabel?: string
+}
+
+const {
+  title = 'See how Veqtor works before using it with your own contracts.',
+  body,
+  primaryHref = '/demo',
+  primaryLabel = 'Watch the demo',
+  secondaryHref = '/setup',
+  secondaryLabel = 'Set up Veqtor',
+} = Astro.props
+---
+
+<section class="site-cta">
+  <div class="shell site-cta__inner">
+    <div>
+      <p class="eyebrow">Start with sample documents</p>
+      <h2>{title}</h2>
+      {body && <p>{body}</p>}
+    </div>
+    <div class="actions">
+      <a class="button button--primary" href={primaryHref}>{primaryLabel}</a>
+      <a class="button button--secondary" href={secondaryHref}>{secondaryLabel}</a>
+    </div>
+  </div>
+</section>

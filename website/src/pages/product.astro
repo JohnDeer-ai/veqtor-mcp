@@ -1,0 +1,56 @@
+---
+import NarrativePage from '../components/NarrativePage.astro'
+
+const sections = [
+  {
+    id: 'work-you-already-do',
+    title: 'Start with the work you already do',
+    body: [
+      'Keep the negotiation drafts in one folder. Ask Claude what changed, whether a particular quote is accurate, or how a clause moved across the drafts. Veqtor lets Claude inspect the Word files instead of relying only on text pasted into chat.',
+      'When you approve proposed wording, Claude can ask Veqtor to test the complete set of changes and create a separate Word document for review. Your source file remains untouched.',
+    ],
+  },
+  {
+    id: 'what-it-can-do',
+    title: 'What Veqtor can help with',
+    body: ['The public Alpha focuses on a deliberately narrow negotiation workflow.'],
+    bullets: [
+      'Find the Word drafts in a folder and use their file names to establish a clear order.',
+      'Read supported tracked text changes and show Claude a small amount of nearby text.',
+      'Check a quote against one specific tracked change before Claude relies on it.',
+      'Test all proposed edits together before any output is created.',
+      'Create a new Word document with supported tracked changes.',
+      'Keep a local activity history that can be reviewed later.',
+    ],
+  },
+  {
+    id: 'division-of-work',
+    title: 'Claude explains and drafts. Veqtor reads and writes in Word.',
+    body: [
+      'Veqtor does not decide whether a legal position is good or bad. Claude provides the analysis and drafting. Veqtor reads the changes it supports, checks exact wording, tests proposed edits, and makes only the kinds of Word edits it supports.',
+      'This separation does not make AI infallible. It gives you a clearer basis for checking what came from the document, what came from Claude, and what was ultimately written.',
+    ],
+    note: 'Veqtor is a local MCP server using the stdio transport. Its six tools are list_rounds, extract_redlines, verify_quote, preflight_edits, apply_edits, and export_decision_record.',
+  },
+  {
+    id: 'alpha-boundary',
+    title: 'A focused public Alpha—not a full Word editor',
+    body: [
+      'Veqtor currently works on Mac and Linux. It supports the main body of Word documents and a narrow set of tracked text changes. It does not analyze comments, headers, footers or footnotes, and it cannot accept or reject changes for you.',
+      'Some complex Word layouts are refused rather than changed approximately. That narrowness is intentional: when Veqtor cannot safely make the requested edit, it stops.',
+    ],
+  },
+]
+---
+
+<NarrativePage
+  title="Veqtor Product — Word Redline Tools for Claude"
+  description="See how Veqtor helps Claude compare Word contract drafts, check specific tracked wording, test proposed edits, and create a separate counterproposal for review."
+  path="/product"
+  eyebrow="The product"
+  heading="Let Claude work with your Word drafts without losing the document."
+  lede="Ask normal questions about the negotiation. Veqtor reads and checks the tracked changes it supports, then creates a separate Word file only when every requested edit can be made."
+  meta="Local · Open source · Public technical Alpha"
+  sections={sections}
+  ctaTitle="Watch the complete workflow on sample contract documents."
+/>

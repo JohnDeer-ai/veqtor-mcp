@@ -1,0 +1,48 @@
+---
+import NarrativePage from '../components/NarrativePage.astro'
+
+const sections = [
+  {
+    id: 'word-format',
+    title: 'Work with the Word file—not a flattened copy',
+    body: [
+      'Modern Microsoft Word documents use a structured file format. Veqtor works with supported tracked text changes inside that file, so Claude can distinguish inserted, deleted, replaced and countered wording instead of seeing only copied plain text.',
+      'You can think of these simply as Word documents. The file-format detail matters to the software, but you do not need to understand it to use the product.',
+    ],
+  },
+  {
+    id: 'supported-review',
+    title: 'What the Alpha can review',
+    body: [
+      'Veqtor reads tracked text changes in the main document body and includes a small amount of nearby text. When it cannot handle a type of Word change, it reports that limitation instead of pretending it reviewed it.',
+      'It does not currently analyze comments, headers, footers, footnotes or endnotes. It may notice formatting changes, moved text and unusual nested structures, but it cannot always edit them.',
+    ],
+  },
+  {
+    id: 'tracked-output',
+    title: 'Create a separate Word document with visible tracked changes',
+    body: [
+      'For supported replacements, deletions, counters and reinstatements, Veqtor can write actual Word tracked changes into a new output file. It does not silently rewrite the source text and it does not accept or reject existing revisions.',
+      'The complete set of proposed edits is tested first. If even one edit cannot be made, Veqtor creates no final file and no partial set of edits.',
+    ],
+  },
+  {
+    id: 'review-in-word',
+    title: 'Final review still happens in Word',
+    body: [
+      'Open the new file in Microsoft Word and inspect the tracked changes, surrounding clauses, formatting and any document parts Veqtor does not support. The output is a review aid, not a substitute for your own legal and document-quality checks.',
+    ],
+  },
+]
+---
+
+<NarrativePage
+  title="Word Track Changes Review with Claude — Veqtor"
+  description="Understand how Veqtor lets Claude read supported Microsoft Word tracked changes, check wording, test edits, and create a separate reviewable Word file."
+  path="/docx-track-changes-review"
+  eyebrow="Microsoft Word track changes"
+  heading="Review tracked changes with Claude—and keep the result in Word."
+  lede="Veqtor works with a narrow, explicit part of the Word file format so supported redlines remain visible and reviewable in the document."
+  meta="For modern Microsoft Word documents"
+  sections={sections}
+/>
