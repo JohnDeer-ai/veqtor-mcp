@@ -755,9 +755,6 @@ def _extract_snapshot(
         computed_label = numbering.label(*numpr) if numpr else None
 
         items = _paragraph_stream(para)
-        for kind, item in items:
-            if kind == "move":
-                bump(etree.QName(item.tag).localname)
         groups = _group_units(items)
         paragraph_reading = (
             _current_paragraph_reading(para)
@@ -822,18 +819,19 @@ def _extract_snapshot(
                 unit["countered_by"] = fields["countered_by"]
             change_units.append(unit)
 
-    # One classification pass over every revision element. Run-level ins/del
-    # became change units above; everything else — paragraph marks, inserted
-    # or deleted table rows/cells, section markers, formatting changes — is
-    # counted here so no revision markup is ever silently dropped.
+    # One non-overlapping classification pass over every revision element in
+    # word/document.xml. Run-level ins/del wrappers are decoded; paragraph
+    # marks, structural ins/del markers, moves and property revisions are
+    # unsupported occurrences. Change units are a separate grouping layer and
+    # intentionally do not form part of the element-count partition.
     revision_count = 0
+    decoded_revision_elements = 0
     for el in document.iter():
-        if el.tag in UNSUPPORTED_REVISION_TAGS:
-            bump(etree.QName(el.tag).localname)
-        elif el.tag in TEXT_REVISION_TAGS:
+        if el.tag in TEXT_REVISION_TAGS:
             revision_count += 1
             parent = el.getparent()
             if parent is None:
+                decoded_revision_elements += 1
                 continue
             parent_name = etree.QName(parent.tag).localname
             suffix = TEXT_REVISION_SUFFIX_BY_NAME_V1[
@@ -844,6 +842,28 @@ def _extract_snapshot(
                 bump(f"paragraphMark{suffix}")
             elif parent_name in STRUCTURAL_REVISION_PARENT_NAMES_V1:
                 bump(f"{parent_name}{suffix}")
+            else:
+                decoded_revision_elements += 1
+        elif el.tag in MOVE_REVISION_TAGS or el.tag in UNSUPPORTED_REVISION_TAGS:
+            bump(etree.QName(el.tag).localname)
+
+    unsupported_revision_occurrences = sum(unsupported.values())
+    total_revision_elements = (
+        decoded_revision_elements + unsupported_revision_occurrences
+    )
+    revision_inventory = {
+        "schema_version": "revision_inventory.v1",
+        "scope": DOCUMENT_PART,
+        "total_revision_elements": total_revision_elements,
+        "decoded_revision_elements": decoded_revision_elements,
+        "unsupported_revision_occurrences": unsupported_revision_occurrences,
+        "unsupported_revision_kind_count": len(unsupported),
+        "emitted_change_unit_count": len(change_units),
+        "unsupported_by_kind": dict(unsupported),
+        "partition_valid": total_revision_elements
+        == decoded_revision_elements + unsupported_revision_occurrences,
+        "all_revision_elements_decoded": unsupported_revision_occurrences == 0,
+    }
 
     return {
         "path": path,
@@ -852,4 +872,5 @@ def _extract_snapshot(
         "revision_count": revision_count,
         "change_units": change_units,
         "unsupported_revisions": unsupported,
+        "revision_inventory": revision_inventory,
     }

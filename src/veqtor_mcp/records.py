@@ -13,6 +13,7 @@ import os
 import re
 import secrets
 import stat
+import time
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -28,6 +29,7 @@ from veqtor_docx.contracts import (
     MATCH_SIDES_V1,
     PREFLIGHT_EDIT_STATUSES_V1,
     PREFLIGHT_FAILURE_PHASES_V1,
+    PREFLIGHT_POSITION_STATUSES_V1,
     RESULT_STATUS_ERROR,
     RESULT_STATUS_OK,
     ROUND_TRIP_COMPARISONS_V1,
@@ -60,6 +62,9 @@ O_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
 O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 O_NONBLOCK = getattr(os, "O_NONBLOCK", 0)
 JOURNAL_OPEN_ATTEMPTS = 4
+MAX_WORKSPACE_DISCOVERY_DEPTH = 1
+MAX_WORKSPACE_DISCOVERY_ENTRIES = 500
+MAX_WORKSPACE_DISCOVERY_SECONDS = 1.0
 V1_CREATED_AT_PATTERN = re.compile(
     r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
     r"(?:\.[0-9]{6})?Z"
@@ -97,6 +102,72 @@ class DecisionRecordError(ValueError):
         self.code = code
 
 
+@dataclass(frozen=True)
+class WorkspaceDiscovery:
+    """One closed, path-safe classification of a missing export workspace."""
+
+    state: str
+    classification_complete: bool
+    candidate_count: int | None = None
+    candidate_count_at_least: int | None = None
+    suggested_relative_workspace: str | None = None
+    stop_reason: str | None = None
+
+    def metadata(self) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "scope": "direct_children",
+            "max_depth": MAX_WORKSPACE_DISCOVERY_DEPTH,
+            "entry_limit": MAX_WORKSPACE_DISCOVERY_ENTRIES,
+            "time_limit_seconds": MAX_WORKSPACE_DISCOVERY_SECONDS,
+            "classification_complete": self.classification_complete,
+        }
+        if self.candidate_count is not None:
+            result["candidate_count"] = self.candidate_count
+        if self.candidate_count_at_least is not None:
+            result["candidate_count_at_least"] = self.candidate_count_at_least
+        if self.suggested_relative_workspace is not None:
+            result["suggested_workspace"] = {
+                "relative_path": self.suggested_relative_workspace,
+                "relative_to": "supplied_workspace",
+            }
+        if self.stop_reason is not None:
+            result["stop_reason"] = self.stop_reason
+        return result
+
+
+_WORKSPACE_DISCOVERY_MESSAGES = MappingProxyType(
+    {
+        "workspace_uninitialized": (
+            "supplied workspace has no decision-record journal"
+        ),
+        "workspace_mismatch": (
+            "supplied workspace has no journal; one direct child does"
+        ),
+        "workspace_ambiguous": (
+            "supplied workspace has no journal; multiple direct children do"
+        ),
+        "workspace_discovery_incomplete": (
+            "workspace discovery could not complete within its safe bounds"
+        ),
+    }
+)
+
+
+class WorkspaceDiscoveryError(DecisionRecordError):
+    """A closed export refusal with structured, path-safe discovery metadata."""
+
+    def __init__(self, discovery: WorkspaceDiscovery) -> None:
+        if discovery.state not in _WORKSPACE_DISCOVERY_MESSAGES:
+            raise ValueError("invalid workspace discovery state")
+        super().__init__(
+            discovery.state,
+            _WORKSPACE_DISCOVERY_MESSAGES[discovery.state],
+        )
+        self.state = discovery.state
+        self.discovery = discovery
+        self.metadata = discovery.metadata()
+
+
 class _JsonBoundaryError(ValueError):
     """A stable rejection from the bounded journal JSON boundary."""
 
@@ -114,9 +185,7 @@ class _V1ToolSpec:
 V1_HISTORICAL_TOOL_SPECS: Mapping[str, _V1ToolSpec] = MappingProxyType(
     {
         "list_rounds": _V1ToolSpec("tool_observation.v1", "list_rounds"),
-        "extract_redlines": _V1ToolSpec(
-            "tool_observation.v1", "extract_redlines"
-        ),
+        "extract_redlines": _V1ToolSpec("tool_observation.v1", "extract_redlines"),
         "verify_quote": _V1ToolSpec("verification.v1", "verify_quote"),
         "preflight_edits": _V1ToolSpec("verification.v1", "preflight_edits"),
         "apply_edits": _V1ToolSpec("decision.v1", "apply_edits"),
@@ -141,10 +210,7 @@ KNOWN_RECORD_TYPES = frozenset(
 
 
 def _historical_tool_spec(tool_name: Any) -> _V1ToolSpec:
-    if (
-        not isinstance(tool_name, str)
-        or tool_name not in V1_HISTORICAL_TOOL_SPECS
-    ):
+    if not isinstance(tool_name, str) or tool_name not in V1_HISTORICAL_TOOL_SPECS:
         raise _RecordSchemaError("invalid tool_name")
     return V1_HISTORICAL_TOOL_SPECS[tool_name]
 
@@ -223,7 +289,8 @@ def _open_workspace_fd(root: Path, expected_identity: tuple[int, int]) -> int:
     except OSError as exc:
         if exc.errno in {errno.ELOOP, errno.ENOENT, errno.ENOTDIR}:
             raise DecisionRecordError(
-                "workspace_changed", f"workspace changed before it could be opened: {root}"
+                "workspace_changed",
+                f"workspace changed before it could be opened: {root}",
             ) from exc
         raise DecisionRecordError(
             "workspace_unreadable", "workspace cannot be opened"
@@ -246,7 +313,9 @@ def _open_workspace_fd(root: Path, expected_identity: tuple[int, int]) -> int:
 
 def _open_sidecar_fd(root_fd: int, sidecar: Path, *, missing_ok: bool) -> int | None:
     try:
-        fd = os.open(SIDECAR_DIR, os.O_RDONLY | O_DIRECTORY | O_NOFOLLOW, dir_fd=root_fd)
+        fd = os.open(
+            SIDECAR_DIR, os.O_RDONLY | O_DIRECTORY | O_NOFOLLOW, dir_fd=root_fd
+        )
     except FileNotFoundError:
         if missing_ok:
             return None
@@ -424,6 +493,248 @@ def _sidecar_for_read(
             yield sidecar, sidecar_fd
         finally:
             os.close(sidecar_fd)
+    finally:
+        os.close(root_fd)
+
+
+_INVALID_CHILD_WORKSPACE_CODES = frozenset(
+    {
+        "sidecar_symlink",
+        "sidecar_not_directory",
+        "journal_symlink",
+        "journal_not_file",
+        "journal_hardlink",
+    }
+)
+
+
+def _workspace_fd_has_existing_journal(
+    workspace_fd: int,
+    workspace: Path,
+    *,
+    invalid_as_missing: bool,
+) -> bool:
+    sidecar = workspace / SIDECAR_DIR
+    try:
+        sidecar_fd = _open_sidecar_fd(workspace_fd, sidecar, missing_ok=True)
+    except DecisionRecordError as exc:
+        if invalid_as_missing and exc.code in _INVALID_CHILD_WORKSPACE_CODES:
+            return False
+        raise
+    if sidecar_fd is None:
+        return False
+    try:
+        try:
+            handle = _open_journal_for_read(sidecar_fd, sidecar / JOURNAL_NAME)
+        except DecisionRecordError as exc:
+            if invalid_as_missing and exc.code in _INVALID_CHILD_WORKSPACE_CODES:
+                return False
+            raise
+        if handle is None:
+            return False
+        handle.close()
+        return True
+    finally:
+        os.close(sidecar_fd)
+
+
+def _safe_relative_workspace_component(value: str) -> str | None:
+    if (
+        not value
+        or value in {".", ".."}
+        or len(value) > 255
+        or "/" in value
+        or "\\" in value
+        or any(
+            ord(char) < 0x20 or ord(char) == 0x7F or 0xD800 <= ord(char) <= 0xDFFF
+            for char in value
+        )
+    ):
+        return None
+    try:
+        value.encode("utf-8", errors="strict")
+    except UnicodeEncodeError:
+        return None
+    return value
+
+
+def _incomplete_workspace_discovery(stop_reason: str) -> WorkspaceDiscovery:
+    return WorkspaceDiscovery(
+        state="workspace_discovery_incomplete",
+        classification_complete=False,
+        stop_reason=stop_reason,
+    )
+
+
+def _discover_direct_child_workspaces(
+    root: Path,
+    root_fd: int,
+    *,
+    max_entries: int | None = None,
+    time_limit_seconds: float | None = None,
+    monotonic: Callable[[], float] | None = None,
+) -> WorkspaceDiscovery:
+    """Classify valid direct-child journals without following any symlink."""
+    entry_limit = (
+        MAX_WORKSPACE_DISCOVERY_ENTRIES if max_entries is None else max_entries
+    )
+    time_limit = (
+        MAX_WORKSPACE_DISCOVERY_SECONDS
+        if time_limit_seconds is None
+        else time_limit_seconds
+    )
+    now = time.monotonic if monotonic is None else monotonic
+    deadline = now() + time_limit
+    candidates: list[str | None] = []
+    visited = 0
+
+    try:
+        scanner = os.scandir(root_fd)
+    except OSError as exc:
+        raise WorkspaceDiscoveryError(
+            _incomplete_workspace_discovery("filesystem_error")
+        ) from exc
+
+    try:
+        with scanner:
+            iterator = iter(scanner)
+            while True:
+                if now() > deadline:
+                    return _incomplete_workspace_discovery("time_limit")
+                try:
+                    entry = next(iterator)
+                except StopIteration:
+                    break
+                except OSError:
+                    return _incomplete_workspace_discovery("filesystem_error")
+
+                visited += 1
+                if visited > entry_limit:
+                    return _incomplete_workspace_discovery("entry_limit")
+                if now() > deadline:
+                    return _incomplete_workspace_discovery("time_limit")
+                try:
+                    if entry.name == SIDECAR_DIR:
+                        continue
+                    if not entry.is_dir(follow_symlinks=False):
+                        continue
+                    child_fd = os.open(
+                        entry.name,
+                        os.O_RDONLY | O_DIRECTORY | O_NOFOLLOW,
+                        dir_fd=root_fd,
+                    )
+                except (FileNotFoundError, NotADirectoryError):
+                    continue
+                except OSError as exc:
+                    if exc.errno == errno.ELOOP:
+                        continue
+                    return _incomplete_workspace_discovery("filesystem_error")
+
+                try:
+                    try:
+                        is_candidate = _workspace_fd_has_existing_journal(
+                            child_fd,
+                            root / entry.name,
+                            invalid_as_missing=True,
+                        )
+                    except OSError:
+                        return _incomplete_workspace_discovery("filesystem_error")
+                finally:
+                    os.close(child_fd)
+
+                if not is_candidate:
+                    continue
+                candidates.append(_safe_relative_workspace_component(entry.name))
+                if len(candidates) >= 2:
+                    return WorkspaceDiscovery(
+                        state="workspace_ambiguous",
+                        classification_complete=True,
+                        candidate_count_at_least=2,
+                    )
+                if now() > deadline:
+                    return _incomplete_workspace_discovery("time_limit")
+    except OSError:
+        return _incomplete_workspace_discovery("filesystem_error")
+
+    if not candidates:
+        return WorkspaceDiscovery(
+            state="workspace_uninitialized",
+            classification_complete=True,
+            candidate_count=0,
+        )
+    suggestion = candidates[0]
+    if suggestion is None:
+        return _incomplete_workspace_discovery("unsafe_relative_name")
+    return WorkspaceDiscovery(
+        state="workspace_mismatch",
+        classification_complete=True,
+        candidate_count=1,
+        suggested_relative_workspace=suggestion,
+    )
+
+
+def _require_existing_export_workspace(
+    root: Path,
+    expected_identity: tuple[int, int],
+) -> None:
+    try:
+        root_fd = _open_workspace_fd(root, expected_identity)
+    except DecisionRecordError:
+        raise
+    except OSError as exc:
+        raise DecisionRecordError(
+            "workspace_unreadable", "workspace cannot be read"
+        ) from exc
+    try:
+        try:
+            if _workspace_fd_has_existing_journal(
+                root_fd,
+                root,
+                invalid_as_missing=False,
+            ):
+                return
+        except DecisionRecordError:
+            raise
+        except OSError as exc:
+            raise DecisionRecordError(
+                "workspace_unreadable", "workspace cannot be read"
+            ) from exc
+        discovery = _discover_direct_child_workspaces(root, root_fd)
+    finally:
+        os.close(root_fd)
+    raise WorkspaceDiscoveryError(discovery)
+
+
+@contextmanager
+def _sidecar_for_existing_write(
+    workspace: str | Path,
+    *,
+    expected_identity: tuple[int, int] | None = None,
+):
+    """Open an initialized sidecar for export without ever recreating it."""
+    if expected_identity is None:
+        root, expected_identity = _canonical_workspace(workspace)
+    else:
+        root = Path(workspace)
+    root_fd = _open_workspace_fd(root, expected_identity)
+    sidecar = root / SIDECAR_DIR
+    try:
+        fcntl.flock(root_fd, fcntl.LOCK_EX)
+        try:
+            sidecar_fd = _open_sidecar_fd(root_fd, sidecar, missing_ok=True)
+            if sidecar_fd is None:
+                raise DecisionRecordError(
+                    "workspace_changed",
+                    "initialized workspace sidecar disappeared before export",
+                )
+            try:
+                os.fchmod(sidecar_fd, 0o700)
+                _ensure_private_gitignore(sidecar_fd, sidecar)
+                yield sidecar, sidecar_fd
+            finally:
+                os.close(sidecar_fd)
+        finally:
+            fcntl.flock(root_fd, fcntl.LOCK_UN)
     finally:
         os.close(root_fd)
 
@@ -612,9 +923,7 @@ def _strict_python_sources(root: Path) -> Iterator[Path]:
         files.sort()
         for name in directories:
             child_info = (directory / name).lstat()
-            if stat.S_ISLNK(child_info.st_mode) or not stat.S_ISDIR(
-                child_info.st_mode
-            ):
+            if stat.S_ISLNK(child_info.st_mode) or not stat.S_ISDIR(child_info.st_mode):
                 raise ValueError(f"invalid package directory: {directory / name}")
         for name in files:
             if not name.endswith(".py"):
@@ -759,9 +1068,7 @@ def _decode_record_line(
     try:
         return _decode_record_payload(raw)
     except (_JsonBoundaryError, _RecordSchemaError) as exc:
-        raise DecisionRecordError(
-            "journal_corrupt", f"{location}: {exc}"
-        ) from exc
+        raise DecisionRecordError("journal_corrupt", f"{location}: {exc}") from exc
 
 
 def _load_records(handle, path: Path) -> list[dict[str, Any]]:
@@ -822,7 +1129,9 @@ def _validate_journal_fd(fd: int, path: Path) -> None:
 def _validate_sidecar_fd(fd: int, path: Path) -> None:
     info = os.fstat(fd)
     if not stat.S_ISDIR(info.st_mode):
-        raise DecisionRecordError("sidecar_not_directory", f"{path} must be a directory")
+        raise DecisionRecordError(
+            "sidecar_not_directory", f"{path} must be a directory"
+        )
 
 
 def _open_journal_for_append(sidecar_fd: int, path: Path):
@@ -877,6 +1186,35 @@ def _open_journal_for_append(sidecar_fd: int, path: Path):
     except Exception:
         if fd is not None:
             os.close(fd)
+        raise
+
+
+def _open_existing_journal_for_append(sidecar_fd: int, path: Path):
+    """Open an export journal for append without any create fallback."""
+    _validate_sidecar_fd(sidecar_fd, path.parent)
+    try:
+        fd = os.open(
+            JOURNAL_NAME,
+            os.O_RDWR | os.O_APPEND | O_NOFOLLOW | O_NONBLOCK,
+            dir_fd=sidecar_fd,
+        )
+    except FileNotFoundError as exc:
+        raise DecisionRecordError(
+            "workspace_changed",
+            "initialized workspace journal disappeared before export",
+        ) from exc
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise DecisionRecordError(
+                "journal_symlink", f"{path} must not be a symlink"
+            ) from exc
+        raise
+    try:
+        _validate_journal_fd(fd, path)
+        os.fchmod(fd, 0o600)
+        return os.fdopen(fd, "a+b")
+    except Exception:
+        os.close(fd)
         raise
 
 
@@ -1053,7 +1391,11 @@ def _asserted_digest(value: Any) -> dict[str, Any]:
 
 
 def _nonnegative_int(value: Any) -> int | None:
-    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+    return (
+        value
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0
+        else None
+    )
 
 
 def _list_count(value: Any) -> int | None:
@@ -1082,9 +1424,7 @@ def _error_code(value: Any) -> str | None:
         and 1 <= len(value) <= 64
         and value.isascii()
         and value[0].islower()
-        and all(
-            char.islower() or char.isdecimal() or char == "_" for char in value
-        )
+        and all(char.islower() or char.isdecimal() or char == "_" for char in value)
     ):
         return value
     return None
@@ -1111,10 +1451,7 @@ def _compact_record_id(value: Any) -> str | None:
 
 
 def _compact_created_at(value: Any) -> str | None:
-    if (
-        not isinstance(value, str)
-        or V1_CREATED_AT_PATTERN.fullmatch(value) is None
-    ):
+    if not isinstance(value, str) or V1_CREATED_AT_PATTERN.fullmatch(value) is None:
         return None
     try:
         parsed = datetime.fromisoformat(f"{value[:-1]}+00:00")
@@ -1274,11 +1611,7 @@ def _validated_bounded_snapshot(
         "count": count,
         "sha256": digest,
         "sample": safe_sample,
-        "truncated": (
-            declared_truncated
-            or filtered
-            or count != len(safe_sample)
-        ),
+        "truncated": (declared_truncated or filtered or count != len(safe_sample)),
     }
 
 
@@ -1314,13 +1647,8 @@ def _observed_anchor_summary(value: Any) -> dict[str, Any] | None:
         summary["side"] = side
     if "clause_anchor" in value:
         clause = value["clause_anchor"]
-        digest = (
-            _stable_digest(clause) if clause is not None else None
-        )
-        if (
-            "clause_anchor_sha256" in value
-            and value["clause_anchor_sha256"] != digest
-        ):
+        digest = _stable_digest(clause) if clause is not None else None
+        if "clause_anchor_sha256" in value and value["clause_anchor_sha256"] != digest:
             return None
         summary["clause_anchor_sha256"] = digest
     elif "clause_anchor_sha256" in value:
@@ -1383,13 +1711,78 @@ def _preflight_edit_summary(value: Any) -> dict[str, Any] | None:
     match_count = _nonnegative_int(value.get("match_count"))
     if match_count is not None:
         summary["match_count"] = match_count
-    position_supported = _strict_bool(value.get("position_supported"))
-    if position_supported is not None:
-        summary["position_supported"] = position_supported
+    if "position_status" in value:
+        position_status = _known_value(
+            value.get("position_status"), PREFLIGHT_POSITION_STATUSES_V1
+        )
+        if position_status is not None:
+            summary["position_status"] = position_status
+    elif "position_supported" in value:
+        # Preserve the compact shape of already-written v0.1 records while
+        # new producers emit the closed position_status enum.
+        position_supported = _strict_bool(value.get("position_supported"))
+        if position_supported is not None:
+            summary["position_supported"] = position_supported
     refusal_code = _error_code(value.get("refusal_code"))
     if refusal_code is not None:
         summary["refusal_code"] = refusal_code
     return summary
+
+
+def _revision_inventory_summary(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    if value.get("schema_version") != "revision_inventory.v1":
+        return None
+    scope = _part_name(value.get("scope"))
+    total = _nonnegative_int(value.get("total_revision_elements"))
+    decoded = _nonnegative_int(value.get("decoded_revision_elements"))
+    unsupported_occurrences = _nonnegative_int(
+        value.get("unsupported_revision_occurrences")
+    )
+    unsupported_kind_count = _nonnegative_int(
+        value.get("unsupported_revision_kind_count")
+    )
+    change_unit_count = _nonnegative_int(value.get("emitted_change_unit_count"))
+    unsupported = value.get("unsupported_by_kind")
+    if (
+        scope != DOCUMENT_PART_V1
+        or None
+        in {
+            total,
+            decoded,
+            unsupported_occurrences,
+            unsupported_kind_count,
+            change_unit_count,
+        }
+        or not isinstance(unsupported, dict)
+    ):
+        return None
+    occurrence_values = [_nonnegative_int(item) for item in unsupported.values()]
+    if (
+        any(item is None for item in occurrence_values)
+        or any(key not in EXTRACT_REVISION_CATEGORIES_V1 for key in unsupported)
+        or total != decoded + unsupported_occurrences
+        or sum(item for item in occurrence_values if item is not None)
+        != unsupported_occurrences
+        or len(unsupported) != unsupported_kind_count
+        or value.get("partition_valid") is not True
+        or value.get("all_revision_elements_decoded")
+        is not (unsupported_occurrences == 0)
+    ):
+        return None
+    return {
+        "schema_version": "revision_inventory.v1",
+        "scope": DOCUMENT_PART_V1,
+        "total_revision_elements": total,
+        "decoded_revision_elements": decoded,
+        "unsupported_revision_occurrences": unsupported_occurrences,
+        "unsupported_revision_kind_count": unsupported_kind_count,
+        "emitted_change_unit_count": change_unit_count,
+        "unsupported_by_kind": _bounded_mapping(unsupported),
+        "partition_valid": True,
+        "all_revision_elements_decoded": unsupported_occurrences == 0,
+    }
 
 
 def _observed_match_summary(value: Any) -> dict[str, Any] | None:
@@ -1427,6 +1820,27 @@ def _round_trip_summary(value: Any) -> dict[str, Any]:
     return summary
 
 
+def _preflight_binding_summary(value: Any) -> dict[str, Any]:
+    """Project only a self-consistent successful preflight/apply binding."""
+    if not isinstance(value, dict):
+        return {}
+    candidate = value.get("preflight_candidate_sha256")
+    output = value.get("output_sha256")
+    if (
+        value.get("preflight_binding_status") != "verified"
+        or not _is_sha256(candidate)
+        or not _is_sha256(output)
+        or candidate != output
+        or value.get("candidate_output_sha256_match") is not True
+    ):
+        return {}
+    return {
+        "preflight_binding_status": "verified",
+        "preflight_candidate_sha256": candidate,
+        "candidate_output_sha256_match": True,
+    }
+
+
 def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
     result = record["result"]
     projection_kind = _historical_tool_spec(record["tool_name"]).projection_kind
@@ -1455,7 +1869,7 @@ def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
             ),
         }
     if projection_kind == "extract_redlines":
-        return {
+        summary = {
             "status": _known_value(result.get("status"), V1_OK_STATUSES),
             "path": _path_digest(result.get("path")),
             "file_sha256": result.get("file_sha256")
@@ -1470,6 +1884,11 @@ def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
                 else None
             ),
         }
+        if "revision_inventory" in result:
+            summary["revision_inventory"] = _revision_inventory_summary(
+                result.get("revision_inventory")
+            )
+        return summary
     if projection_kind == "apply_edits":
         summary = {
             "status": _known_value(result.get("status"), V1_OK_STATUSES),
@@ -1488,6 +1907,7 @@ def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
         author = _tracked_change_author(result.get("tracked_change_author"))
         if author is not None:
             summary["tracked_change_author"] = author
+        summary.update(_preflight_binding_summary(result))
         return summary
     if projection_kind == "preflight_edits":
         return {
@@ -1502,9 +1922,7 @@ def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
             if _is_sha256(result.get("observed_candidate_sha256"))
             else None,
             "batch_applicable": _strict_bool(result.get("batch_applicable")),
-            "blocking_edit_index": _nonnegative_int(
-                result.get("blocking_edit_index")
-            ),
+            "blocking_edit_index": _nonnegative_int(result.get("blocking_edit_index")),
             "refusal_code": _error_code(result.get("refusal_code")),
             "failure_phase": _known_value(
                 result.get("failure_phase"), PREFLIGHT_FAILURE_PHASES_V1
@@ -1597,6 +2015,7 @@ def _summary_provenance(record: dict[str, Any]) -> dict[str, Any]:
     )
     if failure_phase is not None:
         summary["failure_phase"] = failure_phase
+    summary.update(_preflight_binding_summary(provenance))
     tracked_change_author = _tracked_change_author(
         provenance.get("tracked_change_author")
     )
@@ -1618,18 +2037,15 @@ def _summary_provenance(record: dict[str, Any]) -> dict[str, Any]:
     if "anchors" in provenance:
         anchors = provenance["anchors"]
         if isinstance(anchors, dict):
-            snapshot = _validated_bounded_snapshot(
-                anchors, _observed_anchor_summary
-            )
+            snapshot = _validated_bounded_snapshot(anchors, _observed_anchor_summary)
             summary["anchors"] = (
-                snapshot
-                if snapshot is not None
-                else _invalid_bounded_snapshot(anchors)
+                snapshot if snapshot is not None else _invalid_bounded_snapshot(anchors)
             )
         elif isinstance(anchors, list):
-            if projection_kind in {"extract_redlines", "verify_quote"} and record[
-                "result"
-            ].get("status") != RESULT_STATUS_ERROR:
+            if (
+                projection_kind in {"extract_redlines", "verify_quote"}
+                and record["result"].get("status") != RESULT_STATUS_ERROR
+            ):
                 summary["anchors"] = bounded_observed_anchors(anchors)
             else:
                 summary["anchors"] = {
@@ -1783,11 +2199,16 @@ def _read_records(
     before_record_id: str | None = None,
     include_access_events: bool = False,
     include_payload: bool = False,
+    *,
+    expected_identity: tuple[int, int] | None = None,
 ) -> dict[str, Any]:
     limit, before_record_number = _read_options(
         max_records, before_record_id, include_payload
     )
-    root, expected_identity = _canonical_workspace(workspace)
+    if expected_identity is None:
+        root, expected_identity = _canonical_workspace(workspace)
+    else:
+        root = Path(workspace)
     with _sidecar_for_read(root, expected_identity=expected_identity) as sidecar_info:
         if sidecar_info is None:
             return {
@@ -1853,6 +2274,28 @@ def read_records(
         ) from exc
 
 
+def _read_records_for_existing_identity(
+    root: Path,
+    expected_identity: tuple[int, int],
+    max_records: int | None,
+    before_record_id: str | None,
+) -> dict[str, Any]:
+    """Read only the workspace identity already approved for this export."""
+    try:
+        return _read_records(
+            str(root),
+            max_records,
+            before_record_id,
+            expected_identity=expected_identity,
+        )
+    except DecisionRecordError:
+        raise
+    except OSError as exc:
+        raise DecisionRecordError(
+            "workspace_unreadable", "workspace cannot be read"
+        ) from exc
+
+
 def export_records_with_access_event(
     *,
     workspace: Path,
@@ -1863,21 +2306,28 @@ def export_records_with_access_event(
     clock: Clock = utc_now,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Atomically snapshot compact records and append the matching access event."""
-    limit, before_record_number = _read_options(
-        max_records, before_record_id, False
-    )
-    root, _ = _canonical_workspace(workspace)
+    limit, before_record_number = _read_options(max_records, before_record_id, False)
+    root, expected_identity = _canonical_workspace(workspace)
+    _require_existing_export_workspace(root, expected_identity)
     if disabled():
         return (
-            read_records(str(root), max_records, before_record_id),
+            _read_records_for_existing_identity(
+                root,
+                expected_identity,
+                max_records,
+                before_record_id,
+            ),
             {"record_id": None, "record_status": "disabled"},
         )
 
     snapshot: dict[str, Any] | None = None
     try:
-        with _sidecar_for_write(root) as (sidecar, sidecar_fd):
+        with _sidecar_for_existing_write(
+            root,
+            expected_identity=expected_identity,
+        ) as (sidecar, sidecar_fd):
             path = sidecar / JOURNAL_NAME
-            with _open_journal_for_append(sidecar_fd, path) as handle:
+            with _open_existing_journal_for_append(sidecar_fd, path) as handle:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
                 try:
                     loaded = _load_records(handle, path)
@@ -1909,8 +2359,19 @@ def export_records_with_access_event(
     except Exception as exc:
         # Once a snapshot exists, an append or fsync failure has unknown commit
         # status. Return that frozen snapshot and never re-read or retry the append.
+        if (
+            snapshot is None
+            and isinstance(exc, DecisionRecordError)
+            and exc.code == "workspace_changed"
+        ):
+            raise
         if snapshot is None:
-            snapshot = read_records(str(root), max_records, before_record_id)
+            snapshot = _read_records_for_existing_identity(
+                root,
+                expected_identity,
+                max_records,
+                before_record_id,
+            )
         return snapshot, {
             "record_id": None,
             "record_status": "write_failed",

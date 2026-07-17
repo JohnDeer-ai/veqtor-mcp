@@ -17,6 +17,11 @@ from veqtor_docx import rounds as rounds_module
 from veqtor_mcp import __version__
 from veqtor_mcp import records
 from veqtor_mcp import server
+from veqtor_mcp.contracts import (
+    MCP_CONTRACT_META_KEY,
+    MCP_CONTRACT_SCHEMA_EXTENSION,
+    MCP_CONTRACT_SCHEMA_VERSION,
+)
 from veqtor_mcp.server import mcp
 
 
@@ -38,6 +43,19 @@ def _error_text(result) -> str:
     )
 
 
+def _dummy_preflight_proof() -> dict[str, str]:
+    """Schema-valid placeholder for tests that fail before proof evaluation."""
+    return {
+        "schema_version": "preflight_proof.v1",
+        "source_sha256": "0" * 64,
+        "edits_sha256": "0" * 64,
+        "tracked_change_author": "Veqtor MCP",
+        "producer_build": "test-build",
+        "candidate_sha256": "0" * 64,
+        "proof_sha256": "0" * 64,
+    }
+
+
 @pytest.mark.anyio
 async def test_protocol_initialization_reports_veqtor_version(monkeypatch) -> None:
     initialize = ClientSession.initialize
@@ -56,6 +74,199 @@ async def test_protocol_initialization_reports_veqtor_version(monkeypatch) -> No
     assert len(observed_results) == 1
     assert observed_results[0].serverInfo.name == "veqtor"
     assert observed_results[0].serverInfo.version == __version__
+
+
+@pytest.mark.anyio
+async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> None:
+    expected_output_core = {
+        "list_rounds": {"folder", "ordering_source", "order_basis", "rounds"},
+        "extract_redlines": {
+            "path",
+            "file_sha256",
+            "revision_count",
+            "change_units",
+            "unsupported_revisions",
+        },
+        "preflight_edits": {
+            "source_sha256",
+            "batch_applicable",
+            "candidate_sha256",
+            "edits",
+            "preflight_proof",
+        },
+        "apply_edits": {
+            "source_sha256",
+            "output_sha256",
+            "applied",
+            "round_trip_check",
+            "preflight_binding_status",
+            "preflight_candidate_sha256",
+            "candidate_output_sha256_match",
+        },
+        "verify_quote": {
+            "verdict",
+            "checked_anchor",
+            "matches",
+            "diff",
+        },
+        "export_decision_record": {
+            "total_count",
+            "records",
+            "assurance",
+            "current_export_event",
+        },
+    }
+
+    async with create_connected_server_and_client_session(
+        mcp._mcp_server
+    ) as session:
+        tools = {tool.name: tool for tool in (await session.list_tools()).tools}
+
+    assert set(tools) == records.WRITABLE_TOOL_NAMES
+    assert all(callable(getattr(server, name)) for name in tools)
+    for name, tool in tools.items():
+        assert tool.meta == {
+            MCP_CONTRACT_META_KEY: MCP_CONTRACT_SCHEMA_VERSION
+        }
+        assert tool.outputSchema is not None
+        assert tool.outputSchema[MCP_CONTRACT_SCHEMA_EXTENSION] == (
+            MCP_CONTRACT_SCHEMA_VERSION
+        )
+        assert tool.outputSchema["type"] == "object"
+        assert expected_output_core[name] <= set(
+            tool.outputSchema["properties"]
+        )
+        assert tool.annotations is not None
+        # Every tool can append local provenance (export appends an access
+        # event), so complete calls are neither read-only nor idempotent.
+        assert tool.annotations.readOnlyHint is False
+        assert tool.annotations.destructiveHint is False
+        assert tool.annotations.idempotentHint is False
+        assert tool.annotations.openWorldHint is False
+
+    for name in ("preflight_edits", "apply_edits"):
+        edit_schema = tools[name].inputSchema["properties"]["edits"]["items"]
+        assert edit_schema["additionalProperties"] is False
+        assert edit_schema["properties"]["anchor"]["additionalProperties"] is False
+        assert edit_schema["properties"]["anchor"]["required"] == [
+            "change_unit_id",
+            "file_sha256",
+        ]
+
+    verify_anchor = tools["verify_quote"].inputSchema["properties"]["anchor"]
+    assert verify_anchor["additionalProperties"] is False
+    apply_schema = tools["apply_edits"].inputSchema
+    assert "preflight_proof" in apply_schema["required"]
+    assert "preflight_proof" in tools["preflight_edits"].outputSchema[
+        "required"
+    ]
+    proof_schema = apply_schema["properties"]["preflight_proof"]
+    assert proof_schema["additionalProperties"] is False
+    assert set(proof_schema["required"]) == {
+        "schema_version",
+        "source_sha256",
+        "edits_sha256",
+        "tracked_change_author",
+        "producer_build",
+        "candidate_sha256",
+        "proof_sha256",
+    }
+    diagnostic_schema = tools["preflight_edits"].outputSchema["properties"][
+        "edits"
+    ]["items"]
+    assert diagnostic_schema["properties"]["position_status"]["enum"] == [
+        "supported",
+        "unsupported",
+        "not_evaluated",
+    ]
+    assert "position_supported" not in diagnostic_schema["properties"]
+    assert tools["preflight_edits"].outputSchema["properties"][
+        "failure_phase"
+    ]["anyOf"][0]["enum"] == [
+        "validation",
+        "source",
+        "matching",
+        "planning",
+        "surgery",
+        "serialization",
+        "round_trip",
+        "preflight_binding",
+        "publication",
+    ]
+    ordered_filenames = tools["list_rounds"].inputSchema["properties"][
+        "ordered_filenames"
+    ]
+    ordered_sequence_schema = next(
+        branch
+        for branch in ordered_filenames["anyOf"]
+        if branch.get("type") == "array"
+    )
+    assert ordered_sequence_schema["items"] == {"type": "string"}
+    assert "ordered_filenames" not in tools["list_rounds"].inputSchema[
+        "required"
+    ]
+    assert tools["export_decision_record"].outputSchema["properties"][
+        "current_export_event"
+    ]["properties"]["record_status"]["enum"] == [
+        "written",
+        "disabled",
+        "write_failed",
+    ]
+
+
+@pytest.mark.anyio
+async def test_list_rounds_accepts_an_explicit_positional_manifest(
+    demo_dir: Path,
+) -> None:
+    ordered_filenames = sorted(
+        (path.name for path in demo_dir.glob("*.docx")),
+        reverse=True,
+    )
+    async with create_connected_server_and_client_session(
+        mcp._mcp_server
+    ) as session:
+        listed = await session.call_tool(
+            "list_rounds",
+            {
+                "folder": str(demo_dir),
+                "ordered_filenames": ordered_filenames,
+            },
+        )
+
+    assert not listed.isError
+    payload = _payload(listed)
+    assert [item["filename"] for item in payload["rounds"]] == ordered_filenames
+    assert payload["ordering_source"] == "explicit_filename_sequence_v1"
+    assert payload["order_basis"] == {
+        "kind": "caller_supplied_filename_sequence",
+        "lineage_verified": False,
+        "round_id_semantics": "position_only",
+    }
+
+
+@pytest.mark.anyio
+async def test_verify_quote_rejects_anchor_fields_outside_closed_contract(
+    demo_dir: Path,
+) -> None:
+    source = str(demo_dir / "round-2-counterparty-redline.docx")
+    async with create_connected_server_and_client_session(
+        mcp._mcp_server
+    ) as session:
+        extracted = _payload(
+            await session.call_tool("extract_redlines", {"path": source})
+        )
+        anchor = {
+            "change_unit_id": extracted["change_units"][0]["change_unit_id"],
+            "file_sha256": extracted["file_sha256"],
+            "unexpected": 1,
+        }
+        verified = await session.call_tool(
+            "verify_quote",
+            {"path": source, "anchor": anchor, "quote": "anything"},
+        )
+
+    assert verified.isError
+    assert "invalid_anchor" in verified.content[0].text
 
 
 @pytest.mark.anyio
@@ -243,6 +454,65 @@ async def test_invalid_export_cursor_does_not_create_history(tmp_path: Path) -> 
 
 
 @pytest.mark.anyio
+async def test_export_workspace_discovery_states_are_path_safe_at_mcp_boundary(
+    tmp_path: Path,
+) -> None:
+    async def export_error(workspace: Path) -> str:
+        async with create_connected_server_and_client_session(
+            mcp._mcp_server
+        ) as session:
+            result = await session.call_tool(
+                "export_decision_record",
+                {"workspace": str(workspace), "max_records": 10},
+            )
+        assert result.isError
+        return _error_text(result)
+
+    uninitialized = tmp_path / "PRIVATE_EMPTY_MATTER"
+    uninitialized.mkdir()
+    text = await export_error(uninitialized)
+    assert "workspace_uninitialized" in text
+    assert '"candidate_count":0' in text
+    assert str(uninitialized) not in text
+    assert not (uninitialized / records.SIDECAR_DIR).exists()
+
+    wrong_parent = tmp_path / "PRIVATE_WRONG_PARENT"
+    child = wrong_parent / "rounds"
+    child.mkdir(parents=True)
+    assert records.write_record(
+        workspace=child,
+        tool_name="list_rounds",
+        input_payload={},
+        result={"status": "ok"},
+        provenance={},
+    )["record_status"] == "written"
+    text = await export_error(wrong_parent)
+    assert "workspace_mismatch" in text
+    assert '"relative_path":"rounds"' in text
+    assert str(wrong_parent) not in text
+    assert not (wrong_parent / records.SIDECAR_DIR).exists()
+
+    ambiguous = tmp_path / "PRIVATE_AMBIGUOUS_PARENT"
+    for name in ("PRIVATE_ALPHA", "PRIVATE_BETA"):
+        candidate = ambiguous / name
+        candidate.mkdir(parents=True)
+        assert records.write_record(
+            workspace=candidate,
+            tool_name="list_rounds",
+            input_payload={},
+            result={"status": "ok"},
+            provenance={},
+        )["record_status"] == "written"
+    text = await export_error(ambiguous)
+    assert "workspace_ambiguous" in text
+    assert '"candidate_count_at_least":2' in text
+    assert "PRIVATE_ALPHA" not in text
+    assert "PRIVATE_BETA" not in text
+    assert str(ambiguous) not in text
+    assert not (ambiguous / records.SIDECAR_DIR).exists()
+
+
+@pytest.mark.anyio
 async def test_apply_edits_tool_end_to_end(demo_dir: Path, tmp_path: Path) -> None:
     async with create_connected_server_and_client_session(
         mcp._mcp_server
@@ -283,6 +553,7 @@ async def test_apply_edits_tool_end_to_end(demo_dir: Path, tmp_path: Path) -> No
                 "source_path": source,
                 "output_path": out,
                 "edits": edits,
+                "preflight_proof": preflight_payload["preflight_proof"],
             },
         )
         assert not applied.isError
@@ -294,6 +565,11 @@ async def test_apply_edits_tool_end_to_end(demo_dir: Path, tmp_path: Path) -> No
         assert payload["output_sha256"]
         assert payload["round_trip_check"]["status"] == "passed"
         assert payload["output_sha256"] == preflight_payload["candidate_sha256"]
+        assert payload["preflight_binding_status"] == "verified"
+        assert payload["preflight_candidate_sha256"] == preflight_payload[
+            "candidate_sha256"
+        ]
+        assert payload["candidate_output_sha256_match"] is True
         assert Path(out).exists()
 
         # Fail-closed surfaces as a tool error and writes nothing.
@@ -309,6 +585,7 @@ async def test_apply_edits_tool_end_to_end(demo_dir: Path, tmp_path: Path) -> No
                         "insert_text": "y",
                     }
                 ],
+                "preflight_proof": preflight_payload["preflight_proof"],
             },
         )
         assert broken.isError
@@ -377,7 +654,7 @@ async def test_invalid_xml_edit_text_is_recorded_as_preflight_refusal(
     [None, "", False, 0, 3.14, [], {}],
     ids=["null", "empty", "false", "zero", "float", "list", "object"],
 )
-async def test_mcp_reinstate_rejects_present_insert_text_without_output(
+async def test_mcp_reinstate_preflight_rejects_present_insert_text_without_output(
     demo_dir: Path,
     tmp_path: Path,
     insert_text,
@@ -410,14 +687,6 @@ async def test_mcp_reinstate_rejects_present_insert_text_without_output(
         preflight = await session.call_tool(
             "preflight_edits", {"source_path": source, "edits": edits}
         )
-        applied = await session.call_tool(
-            "apply_edits",
-            {
-                "source_path": source,
-                "output_path": str(output),
-                "edits": edits,
-            },
-        )
 
     assert not preflight.isError
     payload = _payload(preflight)
@@ -432,11 +701,9 @@ async def test_mcp_reinstate_rejects_present_insert_text_without_output(
         "match_count",
         "target_author",
         "target_revision_ids",
-        "position_supported",
+        "position_status",
         "refusal_code",
     }
-    assert applied.isError
-    assert "invalid_edit" in _error_text(applied)
     assert not output.exists()
 
     history = records.read_records(
@@ -447,13 +714,7 @@ async def test_mcp_reinstate_rejects_present_insert_text_without_output(
         for record in reversed(history)
         if record["tool_name"] == "preflight_edits"
     )
-    apply_record = next(
-        record
-        for record in reversed(history)
-        if record["tool_name"] == "apply_edits"
-    )
     assert preflight_record["result"]["refusal_code"] == "invalid_edit"
-    assert apply_record["result"]["error_code"] == "invalid_edit"
 
 
 def test_tracked_change_author_environment_is_validated(monkeypatch) -> None:
@@ -611,6 +872,8 @@ async def test_every_unexpected_tool_failure_is_sanitized_and_journaled(
         )
         for key, value in arguments.items()
     }
+    if tool_name == "apply_edits":
+        resolved_arguments["preflight_proof"] = _dummy_preflight_proof()
     sentinel = f"PRIVATE_IMPLEMENTATION_SENTINEL_{tool_name}"
     core_name = (
         tool_name
@@ -768,7 +1031,12 @@ async def test_decision_record_refusals_are_path_free_at_mcp_boundary(
         ("preflight_edits", {"source_path": "bad\x00path", "edits": []}),
         (
             "apply_edits",
-            {"source_path": "bad\x00path", "output_path": "never.docx", "edits": []},
+            {
+                "source_path": "bad\x00path",
+                "output_path": "never.docx",
+                "edits": [],
+                "preflight_proof": _dummy_preflight_proof(),
+            },
         ),
         ("export_decision_record", {"workspace": "bad\x00path"}),
     ],

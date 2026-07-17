@@ -152,6 +152,18 @@ def test_clean_round_has_no_changes(demo_dir: Path) -> None:
     assert result["change_units"] == []
     assert result["revision_count"] == 0
     assert result["unsupported_revisions"] == {}
+    assert result["revision_inventory"] == {
+        "schema_version": "revision_inventory.v1",
+        "scope": "word/document.xml",
+        "total_revision_elements": 0,
+        "decoded_revision_elements": 0,
+        "unsupported_revision_occurrences": 0,
+        "unsupported_revision_kind_count": 0,
+        "emitted_change_unit_count": 0,
+        "unsupported_by_kind": {},
+        "partition_valid": True,
+        "all_revision_elements_decoded": True,
+    }
 
 
 def test_round2_units(demo_dir: Path) -> None:
@@ -212,6 +224,19 @@ def test_round2_units(demo_dir: Path) -> None:
         "paragraphMarkIns": 2,
     }
     assert result["revision_count"] == 12
+    inventory = result["revision_inventory"]
+    assert inventory["total_revision_elements"] == 13
+    assert inventory["decoded_revision_elements"] == 9
+    assert inventory["unsupported_revision_occurrences"] == 4
+    assert inventory["unsupported_revision_kind_count"] == 3
+    assert inventory["emitted_change_unit_count"] == 6
+    assert inventory["unsupported_by_kind"] == result["unsupported_revisions"]
+    assert inventory["partition_valid"] is True
+    assert inventory["all_revision_elements_decoded"] is False
+    assert inventory["total_revision_elements"] == (
+        inventory["decoded_revision_elements"]
+        + inventory["unsupported_revision_occurrences"]
+    )
 
 
 def test_round3_units(demo_dir: Path) -> None:
@@ -242,6 +267,15 @@ def test_round3_units(demo_dir: Path) -> None:
         "paragraphMarkIns": 1,
         "pPrChange": 1,
     }
+    inventory = result["revision_inventory"]
+    assert inventory["total_revision_elements"] == 8
+    assert inventory["decoded_revision_elements"] == 4
+    assert inventory["unsupported_revision_occurrences"] == 4
+    assert inventory["unsupported_revision_kind_count"] == 4
+    assert inventory["emitted_change_unit_count"] == 3
+    assert inventory["unsupported_by_kind"] == result["unsupported_revisions"]
+    assert inventory["partition_valid"] is True
+    assert inventory["all_revision_elements_decoded"] is False
 
 
 def test_round4_units(demo_dir: Path) -> None:
@@ -252,6 +286,73 @@ def test_round4_units(demo_dir: Path) -> None:
     assert (cap["old_text"], cap["new_text"]) == (CAP_R3, CAP_R4)
     assert dropped["old_text"] == CARVEOUT_DROPPED
     assert {u["author"] for u in units} == {AUTHOR_CP}
+
+
+def test_revision_inventory_partitions_mixed_revision_markup_once(
+    demo_dir: Path,
+    tmp_path: Path,
+) -> None:
+    source = demo_dir / "round-1-outgoing-draft.docx"
+    target = tmp_path / "mixed-revision-inventory.docx"
+
+    def add_revision_markup(document: etree._Element) -> None:
+        body = document.find(w("body"))
+        assert body is not None
+        paragraph = next(body.iter(w("p")))
+        ppr = paragraph.find(w("pPr"))
+        if ppr is None:
+            ppr = etree.Element(w("pPr"))
+            paragraph.insert(0, ppr)
+        paragraph_mark_properties = etree.SubElement(ppr, w("rPr"))
+        etree.SubElement(paragraph_mark_properties, w("ins"))
+        etree.SubElement(paragraph_mark_properties, w("rPrChange"))
+
+        table = next(body.iter(w("tbl")))
+        table_properties = table.find(w("tblPr"))
+        if table_properties is None:
+            table_properties = etree.Element(w("tblPr"))
+            table.insert(0, table_properties)
+        etree.SubElement(table_properties, w("tblPrChange"))
+
+        row = next(table.iter(w("tr")))
+        row_properties = row.find(w("trPr"))
+        if row_properties is None:
+            row_properties = etree.Element(w("trPr"))
+            row.insert(0, row_properties)
+        etree.SubElement(row_properties, w("del"))
+
+        for kind in ("moveFrom", "moveTo"):
+            move = etree.SubElement(paragraph, w(kind))
+            move.set(w("id"), f"mixed-{kind}")
+            move.set(w("author"), "Inventory Test")
+            _run(move, kind)
+        _insertion(paragraph, "mixed-ins", "decoded text")
+
+    _rewrite_document(source, target, add_revision_markup)
+    result = extract_redlines(str(target))
+    inventory = result["revision_inventory"]
+
+    assert inventory == {
+        "schema_version": "revision_inventory.v1",
+        "scope": "word/document.xml",
+        "total_revision_elements": 7,
+        "decoded_revision_elements": 1,
+        "unsupported_revision_occurrences": 6,
+        "unsupported_revision_kind_count": 6,
+        "emitted_change_unit_count": 1,
+        "unsupported_by_kind": {
+            "paragraphMarkIns": 1,
+            "rPrChange": 1,
+            "moveFrom": 1,
+            "moveTo": 1,
+            "tblPrChange": 1,
+            "trPrDel": 1,
+        },
+        "partition_valid": True,
+        "all_revision_elements_decoded": False,
+    }
+    assert result["revision_count"] == 3
+    assert result["unsupported_revisions"] == inventory["unsupported_by_kind"]
 
 
 def test_manual_paragraph_label_is_distinct_from_heading_anchor(

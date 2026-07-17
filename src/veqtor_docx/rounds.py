@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Sequence
 from pathlib import Path
 
 from ._ooxml import (
@@ -38,6 +39,39 @@ class RoundError(DocxError):
 def _round_filename_key(path: Path) -> tuple[str, str]:
     """Return a case-insensitive order with an exact-name tie-break."""
     return path.name.casefold(), path.name
+
+
+def _order_candidates_by_explicit_sequence(
+    candidates: list[Path],
+    ordered_filenames: Sequence[str],
+) -> list[Path]:
+    """Apply a complete caller-supplied filename sequence, or fail closed."""
+    if isinstance(ordered_filenames, (str, bytes)) or not isinstance(
+        ordered_filenames, Sequence
+    ):
+        raise RoundError(
+            "invalid_round_order",
+            "ordered_filenames must be a sequence of filenames",
+        )
+    filenames = list(ordered_filenames)
+    if not all(isinstance(filename, str) for filename in filenames):
+        raise RoundError(
+            "invalid_round_order",
+            "ordered_filenames must contain only filenames",
+        )
+    if len(filenames) != len(set(filenames)):
+        raise RoundError(
+            "invalid_round_order",
+            "ordered_filenames contains duplicate filenames",
+        )
+
+    candidates_by_name = {candidate.name: candidate for candidate in candidates}
+    if len(filenames) != len(candidates) or set(filenames) != set(candidates_by_name):
+        raise RoundError(
+            "invalid_round_order",
+            "ordered_filenames must name every candidate DOCX exactly once",
+        )
+    return [candidates_by_name[filename] for filename in filenames]
 
 
 def _round_facts(
@@ -85,10 +119,16 @@ def _round_facts(
     return hashlib.sha256(payload).hexdigest(), count, len(payload)
 
 
-def list_rounds(folder: str) -> dict:
-    """List DOCX rounds in ``folder``, sorted by filename.
+def list_rounds(
+    folder: str,
+    *,
+    ordered_filenames: Sequence[str] | None = None,
+) -> dict:
+    """List DOCX rounds in ``folder`` using a disclosed positional order.
 
-    Filename order is the deterministic v1 round order; Word lock files
+    Filename order remains the deterministic v1 default. A complete explicit
+    filename sequence can override that positional order in Python callers;
+    it is not treated as verified chronology or lineage. Word lock files
     (``~$*``) are ignored and the scan is non-recursive. Files that cannot be
     read as DOCX end up in ``skipped`` instead of failing the whole call.
     """
@@ -124,7 +164,26 @@ def list_rounds(folder: str) -> dict:
                     f"{MAX_ROUND_TOTAL_INPUT_BYTES // (1024 * 1024)} MiB "
                     "aggregate input limit",
                 )
-        candidates.sort(key=_round_filename_key)
+        if ordered_filenames is None:
+            candidates.sort(key=_round_filename_key)
+            ordering_source = "filename_lexicographic_v1"
+            order_basis: dict[str, object] = {
+                "kind": "filename",
+                "rule": "casefold_then_exact",
+                "lineage_verified": False,
+                "round_id_semantics": "position_only",
+            }
+        else:
+            candidates = _order_candidates_by_explicit_sequence(
+                candidates,
+                ordered_filenames,
+            )
+            ordering_source = "explicit_filename_sequence_v1"
+            order_basis = {
+                "kind": "caller_supplied_filename_sequence",
+                "lineage_verified": False,
+                "round_id_semantics": "position_only",
+            }
     except RoundError:
         raise
     except OSError as exc:
@@ -170,4 +229,10 @@ def list_rounds(folder: str) -> dict:
                 "revision_count": revision_count,
             }
         )
-    return {"folder": str(root), "rounds": rounds, "skipped": skipped}
+    return {
+        "folder": str(root),
+        "ordering_source": ordering_source,
+        "order_basis": order_basis,
+        "rounds": rounds,
+        "skipped": skipped,
+    }

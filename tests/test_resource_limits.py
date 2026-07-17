@@ -483,7 +483,8 @@ def test_duplicate_zip_members_are_rejected_consistently_before_decompression(
         apply_edits(str(source), str(output), [edit])
     assert apply_error.value.code == "file_unextractable"
     assert apply_error.value.metadata == {
-        "observed_source_sha256": source_sha
+        "observed_source_sha256": source_sha,
+        "failure_phase": "source",
     }
     assert not output.exists()
 

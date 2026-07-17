@@ -25,9 +25,41 @@ document facts and deterministic writes; it does not claim legal correctness.
 - Bounded DOCX/ZIP processing and versioned installation from PyPI, with the
   same verified wheel and sdist attached to GitHub Releases.
 
+## Implemented in development (unreleased)
+
+The current source tree keeps package version and public-release state at
+`0.1.2`, while advertising the next MCP contract as `veqtor.mcp.v0.2`. The
+contract version is an API-schema identifier, not a claim that a new package
+version has been published.
+
+Reliable-workflow stages 0 and 1 now provide:
+
+- versioned, closed nested MCP input schemas and explicit output schemas for all
+  six tools;
+- a successful `preflight_edits` proof that binds the exact source bytes,
+  canonical edit payload, configured author, producer build and predicted
+  candidate SHA-256; the MCP `apply_edits` call requires that complete proof and
+  verifies it before publication;
+- explicit per-edit `position_status` and operation-level `failure_phase`
+  diagnostics, without using `null` to mean that position was not evaluated;
+- `revision_inventory.v1`, with a checked partition between decoded revision
+  elements and unsupported occurrences and separate change-unit accounting;
+- a complete optional `ordered_filenames` positional manifest for
+  `list_rounds`, alongside the disclosed `filename_lexicographic_v1` default;
+- fail-closed decision-record export when the supplied folder is uninitialized,
+  is a wrong parent of one journal workspace, or has multiple candidate child
+  workspaces; and
+- a 14-operation counter/reinstate regression that reaches a terminal,
+  structured `edits_overlap` result. This does not reproduce the historical
+  hang report and does not add timeout or cancellation semantics.
+
+The preflight proof is a deterministic drift binding, not authentication, a
+digital signature, a trusted timestamp or tamper evidence.
+
 ## Next
 
-- Improve nested MCP schemas and output schemas for more generic clients.
+- Independently review and exercise the development contract through the real
+  MCP boundary before selecting a new release candidate.
 - Extend supported OOXML layouts based on reproducible public issues.
 - Improve round-to-round navigation without turning probabilistic matching
   into evidence.

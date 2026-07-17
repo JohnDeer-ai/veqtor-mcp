@@ -30,7 +30,7 @@ PREFLIGHT_DIAGNOSTIC_KEYS = {
     "match_count",
     "target_author",
     "target_revision_ids",
-    "position_supported",
+    "position_status",
     "refusal_code",
 }
 
@@ -462,7 +462,7 @@ def test_replace_refuses_when_only_one_revision_id_remains(
         "match_count": 1,
         "target_author": None,
         "target_revision_ids": [],
-        "position_supported": False,
+        "position_status": "unsupported",
         "refusal_code": "revision_id_exhausted",
     }
 
@@ -643,7 +643,7 @@ def test_refuses_to_overwrite_output(round2: Path, tmp_path: Path) -> None:
     with pytest.raises(ApplyError) as err:
         apply_edits(str(round2), str(out), [_edit(_cap_anchor(round2))])
     assert err.value.code == "output_exists"
-    assert err.value.metadata == {}
+    assert err.value.metadata == {"failure_phase": "publication"}
     assert out.read_bytes() == b"do not clobber me"
 
 
@@ -664,7 +664,10 @@ def test_atomic_publish_io_failure_is_stable_and_cleans_tmp(
         apply_edits(str(round2), str(output), [_edit(_cap_anchor(round2))])
 
     assert err.value.code == "output_unwritable"
-    assert err.value.metadata == {"observed_source_sha256": observed}
+    assert err.value.metadata == {
+        "failure_phase": "publication",
+        "observed_source_sha256": observed,
+    }
     assert not output.exists()
     assert not list(tmp_path.glob("*.veqtor-tmp"))
 
@@ -1327,6 +1330,190 @@ def test_preflight_candidate_hash_matches_published_output(
     assert applied["output_sha256"] == hashlib.sha256(out.read_bytes()).hexdigest()
 
 
+def test_preflight_proof_binds_exact_apply_inputs_before_publication(
+    round2: Path, tmp_path: Path
+) -> None:
+    edits = [_edit(_cap_anchor(round2))]
+    preflight = preflight_edits(
+        str(round2),
+        edits,
+        producer_build="test-build-001",
+    )
+
+    proof = preflight["preflight_proof"]
+    assert proof == {
+        "schema_version": "preflight_proof.v1",
+        "source_sha256": preflight["source_sha256"],
+        "edits_sha256": proof["edits_sha256"],
+        "tracked_change_author": DEFAULT_AUTHOR,
+        "producer_build": "test-build-001",
+        "candidate_sha256": preflight["candidate_sha256"],
+        "proof_sha256": proof["proof_sha256"],
+    }
+    assert len(proof["edits_sha256"]) == 64
+    assert len(proof["proof_sha256"]) == 64
+
+    output = tmp_path / "bound.docx"
+    applied = apply_edits(
+        str(round2),
+        str(output),
+        edits,
+        preflight_proof=proof,
+        producer_build="test-build-001",
+    )
+
+    assert applied["preflight_binding_status"] == "verified"
+    assert applied["preflight_candidate_sha256"] == proof["candidate_sha256"]
+    assert applied["candidate_output_sha256_match"] is True
+    assert applied["output_sha256"] == proof["candidate_sha256"]
+
+
+@pytest.mark.parametrize(
+    ("mutate_proof", "producer_build"),
+    [
+        (lambda proof: {**proof, "source_sha256": "0" * 64}, "test-build-001"),
+        (lambda proof: {**proof, "edits_sha256": "0" * 64}, "test-build-001"),
+        (
+            lambda proof: {**proof, "tracked_change_author": "Another author"},
+            "test-build-001",
+        ),
+        (lambda proof: proof, "different-build"),
+        (lambda proof: {**proof, "candidate_sha256": "0" * 64}, "test-build-001"),
+        (lambda proof: {**proof, "proof_sha256": "0" * 64}, "test-build-001"),
+    ],
+)
+def test_preflight_proof_mismatch_refuses_before_publication(
+    round2: Path,
+    tmp_path: Path,
+    mutate_proof,
+    producer_build: str,
+) -> None:
+    edits = [_edit(_cap_anchor(round2))]
+    preflight = preflight_edits(
+        str(round2),
+        edits,
+        producer_build="test-build-001",
+    )
+    output = tmp_path / "never.docx"
+
+    with pytest.raises(ApplyError) as error:
+        apply_edits(
+            str(round2),
+            str(output),
+            edits,
+            preflight_proof=mutate_proof(preflight["preflight_proof"]),
+            producer_build=producer_build,
+        )
+
+    assert error.value.code in {
+        "preflight_proof_invalid",
+        "preflight_binding_mismatch",
+    }
+    assert error.value.metadata["failure_phase"] == "preflight_binding"
+    assert not output.exists()
+
+
+def test_valid_preflight_proof_cannot_be_reused_for_different_edits(
+    round2: Path,
+    tmp_path: Path,
+) -> None:
+    anchor = _cap_anchor(round2)
+    preflight_edits_payload = [_edit(anchor)]
+    proof = preflight_edits(
+        str(round2),
+        preflight_edits_payload,
+        producer_build="test-build-001",
+    )["preflight_proof"]
+    changed_edits = [_edit(anchor, insert_text="A materially different cap.")]
+    output = tmp_path / "never.docx"
+
+    with pytest.raises(ApplyError) as error:
+        apply_edits(
+            str(round2),
+            str(output),
+            changed_edits,
+            preflight_proof=proof,
+            producer_build="test-build-001",
+        )
+
+    assert error.value.code == "preflight_binding_mismatch"
+    assert set(error.value.metadata["mismatched_fields"]) == {
+        "edits_sha256",
+        "candidate_sha256",
+    }
+    assert not output.exists()
+
+
+def test_preflight_edits_digest_is_canonical_for_object_key_order(
+    round2: Path,
+) -> None:
+    anchor = _cap_anchor(round2)
+    first = _edit(anchor)
+    reordered = {
+        "insert_text": first["insert_text"],
+        "delete_text": first["delete_text"],
+        "anchor": {
+            "file_sha256": anchor["file_sha256"],
+            "change_unit_id": anchor["change_unit_id"],
+        },
+    }
+
+    first_proof = preflight_edits(
+        str(round2), [first], producer_build="test-build-001"
+    )["preflight_proof"]
+    reordered_proof = preflight_edits(
+        str(round2), [reordered], producer_build="test-build-001"
+    )["preflight_proof"]
+
+    assert first_proof == reordered_proof
+
+
+def test_fourteen_operation_counter_reinstate_batch_reaches_terminal_result(
+    demo_dir: Path,
+) -> None:
+    """Regression shape for the unreproduced pre-v0.1 hang report."""
+    source = demo_dir / "round-4-counterparty-reply.docx"
+    extracted = extract_redlines(str(source))
+    cap = next(
+        unit for unit in extracted["change_units"] if unit["change_type"] == "replace"
+    )
+    carveout = next(
+        unit for unit in extracted["change_units"] if unit["change_type"] == "delete"
+    )
+    counter = {
+        "anchor": {
+            "change_unit_id": cap["change_unit_id"],
+            "file_sha256": extracted["file_sha256"],
+        },
+        "delete_text": cap["new_text"],
+        "insert_text": (
+            "one hundred fifty percent (150%) of the fees paid under the "
+            "affected Work Order"
+        ),
+    }
+    reinstate = {
+        "anchor": {
+            "change_unit_id": carveout["change_unit_id"],
+            "file_sha256": extracted["file_sha256"],
+        },
+        "reinstate_text": carveout["old_text"],
+    }
+
+    result = preflight_edits(str(source), [counter, reinstate] * 7)
+
+    assert result["status"] == "ok"
+    assert result["batch_applicable"] is False
+    assert result["failure_phase"] == "planning"
+    assert result["refusal_code"] == "edits_overlap"
+    assert len(result["edits"]) == 14
+    assert all(
+        item["status"] in {"planned", "blocked", "not_evaluated"}
+        and item["position_status"]
+        in {"supported", "unsupported", "not_evaluated"}
+        for item in result["edits"]
+    )
+
+
 def test_preflight_returns_structured_refusal_without_writing(
     round2: Path, tmp_path: Path
 ) -> None:
@@ -1355,7 +1542,7 @@ def test_preflight_returns_structured_refusal_without_writing(
             "match_count": 0,
             "target_author": None,
             "target_revision_ids": [],
-            "position_supported": False,
+            "position_status": "unsupported",
             "change_unit_id": "cu_999",
             "refusal_code": "anchor_not_found",
         }
@@ -1430,7 +1617,7 @@ def test_validation_refusals_use_complete_unevaluated_diagnostic_shape(
             "match_count": None,
             "target_author": None,
             "target_revision_ids": [],
-            "position_supported": None,
+            "position_status": "not_evaluated",
             "refusal_code": code,
         }
     ]
@@ -1470,7 +1657,7 @@ def test_xml_incompatible_edit_text_is_a_structured_validation_refusal(
         "match_count": None,
         "target_author": None,
         "target_revision_ids": [],
-        "position_supported": None,
+        "position_status": "not_evaluated",
         "refusal_code": "invalid_edit",
     }
 
@@ -1508,7 +1695,7 @@ def test_preflight_includes_surgery_and_round_trip_failures(
     assert result["failure_phase"] == "round_trip"
     assert result["blocking_edit_index"] is None
     assert result["edits"][0]["status"] == "planned"
-    assert result["edits"][0]["position_supported"] is None
+    assert result["edits"][0]["position_status"] == "not_evaluated"
     assert result["round_trip_check"] == {
         "status": "failed",
         "comparison": ROUND_TRIP_COMPARISON_CURRENT,
@@ -1539,7 +1726,7 @@ def test_preflight_preserves_planned_edits_without_inventing_zero_match_target(
         "match_count": 0,
         "target_author": None,
         "target_revision_ids": [],
-        "position_supported": False,
+        "position_status": "unsupported",
         "refusal_code": "delete_text_not_found",
     }
     assert result["edits"][2] == {
@@ -1550,7 +1737,7 @@ def test_preflight_preserves_planned_edits_without_inventing_zero_match_target(
         "match_count": None,
         "target_author": None,
         "target_revision_ids": [],
-        "position_supported": None,
+        "position_status": "not_evaluated",
         "refusal_code": None,
     }
 
@@ -1615,7 +1802,7 @@ def test_preflight_reports_counter_position_diagnostics(
             "match_count": 1,
             "target_author": "53",
             "target_revision_ids": [insertion.get(w("id"))],
-            "position_supported": False,
+            "position_status": "unsupported",
             "refusal_code": "counter_position_unsupported",
         }
     ]
@@ -1918,7 +2105,8 @@ def test_source_parse_failure_after_snapshot_carries_observed_sha(
         )
 
     assert getattr(err.value, "metadata") == {
-        "observed_source_sha256": observed
+        "failure_phase": "source",
+        "observed_source_sha256": observed,
     }
     assert not output.exists()
 
@@ -1941,5 +2129,8 @@ def test_temp_creation_failure_after_snapshot_carries_observed_sha(
         apply_edits(str(round2), str(output), [_edit(_cap_anchor(round2))])
 
     assert err.value.code == "output_unwritable"
-    assert err.value.metadata == {"observed_source_sha256": observed}
+    assert err.value.metadata == {
+        "failure_phase": "publication",
+        "observed_source_sha256": observed,
+    }
     assert not output.exists()

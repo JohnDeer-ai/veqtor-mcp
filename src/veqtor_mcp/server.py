@@ -21,6 +21,19 @@ from veqtor_docx._ooxml import tracked_change_author_validation_error
 from veqtor_docx.apply import DEFAULT_AUTHOR
 from veqtor_mcp import __version__
 from veqtor_mcp import records
+from veqtor_mcp.contracts import (
+    AnchorInput,
+    ApplyEditsResult,
+    EditInput,
+    ExportDecisionRecordResult,
+    ExtractRedlinesResult,
+    ListRoundsResult,
+    PreflightEditsResult,
+    PreflightProofInput,
+    VerifyQuoteResult,
+    contract_meta,
+    local_journaling_annotations,
+)
 
 TRACKED_CHANGE_AUTHOR_ENV = "VEQTOR_TRACKED_CHANGE_AUTHOR"
 def _tracked_change_author_from_environment() -> str:
@@ -155,6 +168,17 @@ def _run_tool_boundary(
         return operation(workspace, input_payload)
     except veqtor_docx.DocxError:
         raise
+    except records.WorkspaceDiscoveryError as exc:
+        safe_discovery = json.dumps(
+            {
+                "error_code": exc.code,
+                "workspace_discovery": exc.metadata,
+            },
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        raise _McpBoundaryError(exc.code, safe_discovery) from None
     except records.DecisionRecordError as exc:
         # Journal-layer diagnostics may contain resolved workspace paths.
         # Preserve the stable machine code but never the local detail at the
@@ -227,6 +251,8 @@ def _claimed_source_sha_from_edits(edits: list[dict]) -> str | None:
 def _list_rounds_provenance(result: dict[str, Any]) -> dict[str, Any]:
     return {
         "folder": result["folder"],
+        "ordering_source": result["ordering_source"],
+        "order_basis": result["order_basis"],
         "rounds": [
             {
                 "path": item["path"],
@@ -253,6 +279,7 @@ def _extract_provenance(result: dict[str, Any]) -> dict[str, Any]:
         "path": result["path"],
         "file_sha256": result["file_sha256"],
         "part_name": result["part_name"],
+        "revision_inventory": result["revision_inventory"],
         "anchors": records.bounded_observed_anchors(anchors),
     }
 
@@ -266,6 +293,7 @@ def _extract_record_result(result: dict[str, Any]) -> dict[str, Any]:
         "revision_count": result["revision_count"],
         "change_unit_count": len(result["change_units"]),
         "unsupported_revisions": result["unsupported_revisions"],
+        "revision_inventory": result["revision_inventory"],
     }
 
 
@@ -337,6 +365,11 @@ def _apply_provenance(
             for item in result["applied"]
         ],
         "round_trip_check": result["round_trip_check"],
+        "preflight_binding_status": result["preflight_binding_status"],
+        "preflight_candidate_sha256": result["preflight_candidate_sha256"],
+        "candidate_output_sha256_match": result[
+            "candidate_output_sha256_match"
+        ],
     }
 
 
@@ -361,6 +394,21 @@ def _preflight_provenance(
         provenance["failure_phase"] = result["failure_phase"]
     if result.get("round_trip_check") is not None:
         provenance["round_trip_check"] = result["round_trip_check"]
+    proof = result.get("preflight_proof")
+    if isinstance(proof, dict):
+        provenance["preflight_proof"] = {
+            key: proof[key]
+            for key in (
+                "schema_version",
+                "source_sha256",
+                "edits_sha256",
+                "tracked_change_author",
+                "producer_build",
+                "candidate_sha256",
+                "proof_sha256",
+            )
+            if key in proof
+        }
     return provenance
 
 
@@ -370,6 +418,7 @@ def _apply_error_provenance(
     edits: list[dict],
     exc: veqtor_docx.DocxError,
     tracked_change_author: str,
+    preflight_proof: object,
 ) -> dict[str, Any]:
     metadata = getattr(exc, "metadata", {})
     claimed = (
@@ -396,6 +445,14 @@ def _apply_error_provenance(
             ]
         if metadata.get("edit_index") is not None:
             provenance["edit_index"] = metadata["edit_index"]
+        if metadata.get("failure_phase") is not None:
+            provenance["failure_phase"] = metadata["failure_phase"]
+        if isinstance(metadata.get("mismatched_fields"), list):
+            provenance["mismatched_fields"] = metadata["mismatched_fields"]
+    if isinstance(preflight_proof, dict):
+        for key in ("schema_version", "proof_sha256", "candidate_sha256"):
+            if key in preflight_proof:
+                provenance[f"preflight_{key}"] = preflight_proof[key]
     return provenance
 
 
@@ -430,21 +487,34 @@ def _decision_record_export_scope() -> dict[str, Any]:
     }
 
 
-@mcp.tool()
-def list_rounds(folder: str) -> dict:
+@mcp.tool(
+    annotations=local_journaling_annotations("List DOCX negotiation rounds"),
+    meta=contract_meta(),
+    structured_output=True,
+)
+def list_rounds(
+    folder: str,
+    ordered_filenames: list[str] | None = None,
+) -> ListRoundsResult:
     """List the DOCX negotiation rounds in a local folder.
 
     Call this when the user points to a folder of contract drafts or asks
     which rounds/files are available in a negotiation. Rounds are sorted by
-    filename; each entry carries the file's sha256 and the raw count of
-    tracked revisions inside. Unreadable files are reported in ``skipped``.
+    filename by default. ``ordered_filenames`` may instead provide the exact,
+    complete filename sequence, but that positional order is not evidence of
+    chronology or document lineage. Each entry carries the file's sha256 and
+    the raw count of tracked revisions inside. Unreadable files are reported in
+    ``skipped``.
     Folder-level candidate, input and actual expanded-output limits bound the
     complete scan. If a shared limit is exceeded, split the folder and retry;
     the call fails without returning a partial round list.
     """
     def operation(workspace, input_payload):
         try:
-            result = veqtor_docx.list_rounds(folder)
+            result = veqtor_docx.list_rounds(
+                folder,
+                ordered_filenames=ordered_filenames,
+            )
         except veqtor_docx.DocxError as exc:
             _record_error(
                 tool_name="list_rounds",
@@ -465,14 +535,25 @@ def list_rounds(folder: str) -> dict:
     return _run_tool_boundary(
         tool_name="list_rounds",
         workspace_resolver=lambda: records.workspace_for_folder(folder),
-        input_payload_factory=lambda: {"folder": folder},
+        input_payload_factory=lambda: {
+            "folder": folder,
+            **(
+                {"ordered_filenames": ordered_filenames}
+                if ordered_filenames is not None
+                else {}
+            ),
+        },
         internal_provenance_factory=lambda: {"folder": folder},
         operation=operation,
     )
 
 
-@mcp.tool()
-def extract_redlines(path: str) -> dict:
+@mcp.tool(
+    annotations=local_journaling_annotations("Extract DOCX redlines"),
+    meta=contract_meta(),
+    structured_output=True,
+)
+def extract_redlines(path: str) -> ExtractRedlinesResult:
     """Extract tracked changes from one DOCX as verifiable change units.
 
     Call this when the user asks what changed in a DOCX, asks for tracked
@@ -514,8 +595,15 @@ def extract_redlines(path: str) -> dict:
     )
 
 
-@mcp.tool()
-def preflight_edits(source_path: str, edits: list[dict]) -> dict:
+@mcp.tool(
+    annotations=local_journaling_annotations("Preflight tracked edits"),
+    meta=contract_meta(),
+    structured_output=True,
+)
+def preflight_edits(
+    source_path: str,
+    edits: list[EditInput],
+) -> PreflightEditsResult:
     """Dry-run an atomic edit batch through the complete DOCX pipeline.
 
     Call this before ``apply_edits``. It uses the same source snapshot,
@@ -550,6 +638,7 @@ def preflight_edits(source_path: str, edits: list[dict]) -> dict:
                     source_path,
                     edits,
                     author=tracked_change_author,
+                    producer_build=records.SOURCE_SNAPSHOT_IDENTITY,
                 ),
                 "producer": _producer(),
             }
@@ -582,8 +671,17 @@ def preflight_edits(source_path: str, edits: list[dict]) -> dict:
     )
 
 
-@mcp.tool()
-def apply_edits(source_path: str, output_path: str, edits: list[dict]) -> dict:
+@mcp.tool(
+    annotations=local_journaling_annotations("Apply tracked edits"),
+    meta=contract_meta(),
+    structured_output=True,
+)
+def apply_edits(
+    source_path: str,
+    output_path: str,
+    edits: list[EditInput],
+    preflight_proof: PreflightProofInput,
+) -> ApplyEditsResult:
     """Create a new DOCX with the given edits applied as real tracked changes.
 
     Call this only after the user asks to prepare or apply counter wording,
@@ -603,6 +701,10 @@ def apply_edits(source_path: str, output_path: str, edits: list[dict]) -> dict:
     prior change units plus the proposed edits, with an OOXML semantic diff
     outside the touched anchors. This is not a byte-identity check of the DOCX
     package. The source file is never modified.
+    ``preflight_proof`` must be the complete proof returned by the successful
+    preflight call for the exact source, edit payload, configured author,
+    producer build and candidate. It detects drift; it is not authentication
+    or a digital signature.
     """
     context: dict[str, Any] = {}
 
@@ -616,6 +718,10 @@ def apply_edits(source_path: str, output_path: str, edits: list[dict]) -> dict:
         }
         if "tracked_change_author" in context:
             provenance["tracked_change_author"] = context["tracked_change_author"]
+        if isinstance(preflight_proof, dict):
+            provenance["preflight_proof_sha256"] = preflight_proof.get(
+                "proof_sha256"
+            )
         return provenance
 
     def operation(workspace, input_payload):
@@ -628,6 +734,8 @@ def apply_edits(source_path: str, output_path: str, edits: list[dict]) -> dict:
                     output_path,
                     edits,
                     author=tracked_change_author,
+                    preflight_proof=preflight_proof,
+                    producer_build=records.SOURCE_SNAPSHOT_IDENTITY,
                 ),
                 "producer": _producer(),
             }
@@ -639,6 +747,7 @@ def apply_edits(source_path: str, output_path: str, edits: list[dict]) -> dict:
                     edits,
                     exc,
                     tracked_change_author,
+                    preflight_proof,
                 )
                 if isinstance(edits, list)
                 else {
@@ -671,14 +780,23 @@ def apply_edits(source_path: str, output_path: str, edits: list[dict]) -> dict:
             "source_path": source_path,
             "output_path": output_path,
             "edits": _record_edits(edits),
+            "preflight_proof": preflight_proof,
         },
         internal_provenance_factory=internal_provenance,
         operation=operation,
     )
 
 
-@mcp.tool()
-def verify_quote(path: str, anchor: dict, quote: str) -> dict:
+@mcp.tool(
+    annotations=local_journaling_annotations("Verify a DOCX quote"),
+    meta=contract_meta(),
+    structured_output=True,
+)
+def verify_quote(
+    path: str,
+    anchor: AnchorInput,
+    quote: str,
+) -> VerifyQuoteResult:
     """Check a quotation against the document before relying on it.
 
     Call this before using a quote in a memo, email, or negotiation summary.
@@ -733,12 +851,16 @@ def verify_quote(path: str, anchor: dict, quote: str) -> dict:
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=local_journaling_annotations("Export decision records"),
+    meta=contract_meta(),
+    structured_output=True,
+)
 def export_decision_record(
     workspace: str,
     max_records: int | None = None,
     before_record_id: str | None = None,
-) -> dict:
+) -> ExportDecisionRecordResult:
     """Return compact local provenance entries for a matter workspace.
 
     Call this when the user asks what toolchain actions were performed or

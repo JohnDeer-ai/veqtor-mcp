@@ -85,6 +85,11 @@ def verify_quote(path: str, anchor: dict, quote: str) -> dict:
         )
     if not isinstance(anchor, dict):
         raise VerifyError("anchor_missing", "anchor must be an object")
+    if set(anchor) - {"change_unit_id", "file_sha256"}:
+        raise VerifyError(
+            "invalid_anchor",
+            "anchor contains unsupported fields",
+        )
     try:
         resolved = resolve_user_path(path)
     except UserPathError as exc:
