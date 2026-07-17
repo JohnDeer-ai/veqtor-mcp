@@ -48,13 +48,24 @@ interface SourceGuide {
   shellSections: GuideSection[]
   checklist: string[]
   related: RelatedGuideReference[]
+  productBridge?: GuideProductBridge
 }
 
 interface SourceCluster {
   id: string
   label: string
+  metaDescription: string
   pillarSlug: string
   spokeSlugs: string[]
+  productBridge: GuideProductBridge
+}
+
+export interface GuideProductBridge {
+  href: string
+  label: string
+  heading: string
+  title: string
+  body: string
 }
 
 interface AuthorContent {
@@ -119,6 +130,7 @@ export interface Guide {
   sections: GuideSection[]
   checklist: string[]
   relatedSlugs: string[]
+  productBridge?: GuideProductBridge
   readingTime: number
   searchText: string
 }
@@ -139,6 +151,7 @@ export interface GuideTopic {
   guides: Guide[]
   description: string
   twitterTitle: string
+  productBridge: GuideProductBridge
   stage: GuideStage
 }
 
@@ -335,6 +348,7 @@ export const GUIDES: Guide[] = approvedSourceGuides.map((guide) => ({
   relatedSlugs: guide.related
     .flatMap((related) => related.slug ? [related.slug] : [])
     .filter((slug) => approvedSlugs.has(slug)),
+  productBridge: guide.productBridge,
   readingTime: readingTimeForGuide(guide),
   searchText: searchTextForGuide(guide),
 }))
@@ -362,8 +376,9 @@ export const TOPICS: GuideTopic[] = source.clusters.flatMap((cluster) => {
     pillar,
     spokes,
     guides,
-    description: pillar.metaDescription,
+    description: cluster.metaDescription,
     twitterTitle: `${cluster.label} Guides`,
+    productBridge: cluster.productBridge,
     stage,
   }]
 })
@@ -376,6 +391,10 @@ export const MCP_GUIDE_BRIDGE = {
   title: 'See Veqtor work with Word redlines',
   body: 'Watch Claude compare negotiation drafts and create a separate Word document with proposed tracked changes.',
 } as const
+
+export function productBridgeForGuide(guide: Guide): GuideProductBridge {
+  return guide.productBridge ?? topicForGuide(guide).productBridge
+}
 
 export function canonicalUrl(path: string): string {
   return path === '/' ? `${SITE_URL}/` : `${SITE_URL}${path}`

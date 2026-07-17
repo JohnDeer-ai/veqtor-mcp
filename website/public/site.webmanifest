@@ -1,7 +1,7 @@
 {
-  "name": "Veqtor",
+  "name": "Veqtor MCP",
   "short_name": "Veqtor",
-  "description": "Local document tools for reviewing Word contract redlines with Claude.",
+  "description": "Veqtor MCP provides local document tools for reviewing Word contract redlines with Claude.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#07060b",

@@ -8,11 +8,11 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const WEBSITE_DIR = resolve(SCRIPT_DIR, '..')
 const DIST_DIR = join(WEBSITE_DIR, 'dist')
 const GUIDE_SOURCE_PATH = join(WEBSITE_DIR, 'src', 'data', 'guides-source.json')
-const ALLOWED_NEW_ROUTES = ['/setup', '/docs', '/limitations']
-// Pinned from the retired redline-analyzer site's approved guide inventory.
-// Updating either hash is an explicit migration decision, not routine content editing.
+const ALLOWED_NEW_ROUTES = ['/setup', '/docs', '/limitations', '/veqtor-vs-claude-for-word']
+// Pinned from the approved guide inventory and reviewed editorial metadata.
+// Updating either hash is an explicit SEO decision, not routine content editing.
 const LEGACY_ROUTE_MANIFEST_SHA256 = '429c4992a46ff766c7ec0f73ee6acc685b711da60ed45561a3a716ada6cabcb4'
-const LEGACY_EDITORIAL_SEO_SHA256 = 'bb249a825e229b0e4f7ac95894ba1ddb8a3865e4e2dcaf335bd164093a9e0b8e'
+const EDITORIAL_SEO_SHA256 = 'a38ee6eaa1a206a8dc55fe9b5ca57a2477d301238287f3c8437d06ccd38e80e0'
 
 const STATIC_LEGACY_ROUTES = [
   '/',
@@ -265,6 +265,42 @@ function assertInternalLinks(pagesByRoute) {
   }
 }
 
+function assertIndexablePagesHaveInboundLinks(pagesByRoute, indexableRoutes) {
+  const indexableSet = new Set(indexableRoutes)
+  const inboundSources = new Map(
+    [...indexableSet].map((route) => [route, new Set()]),
+  )
+
+  for (const [sourceRoute, { html }] of pagesByRoute) {
+    if (!indexableSet.has(sourceRoute)) continue
+
+    const sourceUrl = canonicalUrl(sourceRoute)
+    const anchors = matchingTags(html, 'a', (attrs) => attrs.has('href'))
+    for (const anchor of anchors) {
+      const href = attributesForTag(anchor).get('href')?.trim() ?? ''
+      if (!href || href === '#' || /^(mailto:|tel:|javascript:|data:)/i.test(href)) continue
+
+      let targetUrl
+      try {
+        targetUrl = new URL(href, sourceUrl)
+      } catch {
+        continue
+      }
+      if (targetUrl.origin !== SITE_ORIGIN) continue
+
+      const targetRoute = normalizeRoute(targetUrl.pathname)
+      if (targetRoute === sourceRoute || !indexableSet.has(targetRoute)) continue
+      inboundSources.get(targetRoute)?.add(sourceRoute)
+    }
+  }
+
+  for (const [route, sources] of inboundSources) {
+    if (route !== '/' && sources.size === 0) {
+      fail(`${route}: indexable page has no inbound link from another indexable page`)
+    }
+  }
+}
+
 function assertUnique(label, valuesByRoute) {
   const routesByValue = new Map()
   for (const [route, value] of valuesByRoute) {
@@ -337,7 +373,7 @@ function assertStaticDeploymentFiles() {
     'assets/logo-512.png',
     'media/veqtor-demo-v0.1.2.mp4',
     'media/veqtor-demo-v0.1.2-poster.jpg',
-    'media/veqtor-demo-v0.1.2.en.vtt',
+    'media/veqtor-demo-v0.1.2-r2.en.vtt',
   ]
   for (const rel of required) {
     const path = join(DIST_DIR, rel)
@@ -368,6 +404,7 @@ function assertStaticDeploymentFiles() {
       '/og.svg',
       '/media/veqtor-demo.mp4',
       '/media/veqtor-demo-poster.jpg',
+      '/media/veqtor-demo-v0.1.2.en.vtt',
       '/assets/veqtor-demo-hd.mp4',
       '/assets/veqtor-demo-poster-1200.jpg',
     ]
@@ -424,7 +461,6 @@ function main() {
   const guideRoutes = approvedGuides.map((guide) => `/guides/${guide.slug}`)
   const legacyRoutes = [...STATIC_LEGACY_ROUTES, ...topicRoutes, ...guideRoutes]
 
-  const guideBySlug = new Map(approvedGuides.map((guide) => [guide.slug, guide]))
   const pickEditorialMeta = (entry) => ({
     path: entry.path,
     title: entry.metaTitle,
@@ -443,7 +479,7 @@ function main() {
     topics: guideSource.clusters.map((cluster) => ({
       path: `/guides/topics/${cluster.id}`,
       title: `${cluster.label} Guides - Veqtor Contract Review Library`,
-      description: guideBySlug.get(cluster.pillarSlug)?.metaDescription ?? '',
+      description: cluster.metaDescription,
       twitterTitle: `${cluster.label} Guides`,
     })),
     guides: approvedGuides.map((guide) => ({
@@ -470,7 +506,7 @@ function main() {
   if (sha256Json(legacyRoutes) !== LEGACY_ROUTE_MANIFEST_SHA256) {
     fail('legacy URL identity manifest changed; preserve old routes or add an explicit redirect plan before updating the pinned hash')
   }
-  if (sha256Json(legacyEditorialSeo) !== LEGACY_EDITORIAL_SEO_SHA256) {
+  if (sha256Json(legacyEditorialSeo) !== EDITORIAL_SEO_SHA256) {
     fail('legacy guide SEO manifest changed; review title, description and social-title changes before updating the pinned hash')
   }
 
@@ -528,13 +564,7 @@ function main() {
   }
 
   assertUnique('title', titles)
-  // The legacy topic pages intentionally reuse their pillar guide descriptions.
-  // Their exact values are pinned above, so exclude only those known routes from
-  // the general duplicate-description check.
-  assertUnique(
-    'meta description',
-    new Map([...descriptions].filter(([route]) => !route.startsWith('/guides/topics/'))),
-  )
+  assertUnique('meta description', descriptions)
   assertUnique('H1', headings)
 
   const sitemap = sitemapRoutes()
@@ -561,6 +591,7 @@ function main() {
   }
 
   assertInternalLinks(pagesByRoute)
+  assertIndexablePagesHaveInboundLinks(pagesByRoute, expectedSitemapRoutes)
   assertReal404(pagesByRoute.get('/')?.html ?? '')
 
   if (!failures.length) {

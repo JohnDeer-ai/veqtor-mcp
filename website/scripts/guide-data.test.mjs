@@ -34,8 +34,28 @@ test('every published guide has complete article content and valid references', 
 })
 
 test('all topic pillar and spoke references resolve to approved guides', () => {
+  const topicDescriptions = new Set()
+  const topicBridgeHeadings = new Set()
   for (const topic of source.clusters) {
     assert.ok(approvedSlugs.has(topic.pillarSlug), `${topic.id} has an unpublished pillar`)
+    const pillar = approved.find((guide) => guide.slug === topic.pillarSlug)
+    assert.ok(topic.metaDescription, `${topic.id} has no topic meta description`)
+    assert.notEqual(
+      topic.metaDescription,
+      pillar.metaDescription,
+      `${topic.id} reuses its pillar meta description`,
+    )
+    assert.ok(!topicDescriptions.has(topic.metaDescription), `${topic.id} has a duplicate topic meta description`)
+    topicDescriptions.add(topic.metaDescription)
+    assert.equal(topic.productBridge.href, '/demo', `${topic.id} has an unexpected product bridge target`)
+    for (const field of ['label', 'heading', 'title', 'body']) {
+      assert.ok(topic.productBridge[field], `${topic.id} product bridge has no ${field}`)
+    }
+    assert.ok(
+      !topicBridgeHeadings.has(topic.productBridge.heading),
+      `${topic.id} has a duplicate product bridge heading`,
+    )
+    topicBridgeHeadings.add(topic.productBridge.heading)
     for (const slug of topic.spokeSlugs) {
       assert.ok(approvedSlugs.has(slug), `${topic.id} links to unpublished spoke ${slug}`)
     }

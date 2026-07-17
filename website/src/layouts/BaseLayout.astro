@@ -39,7 +39,8 @@ const baseSchemas = [
   {
     '@type': 'Organization',
     '@id': `${site.origin}/#organization`,
-    name: 'Veqtor',
+    name: 'Veqtor MCP',
+    alternateName: 'Veqtor',
     url: site.origin,
     logo: `${site.origin}/logo-512.png`,
     founder: { '@id': `${site.origin}/author/ilya-shilov#person` },
@@ -48,7 +49,8 @@ const baseSchemas = [
   {
     '@type': 'WebSite',
     '@id': `${site.origin}/#website`,
-    name: 'Veqtor',
+    name: 'Veqtor MCP',
+    alternateName: 'Veqtor',
     url: site.origin,
     publisher: { '@id': `${site.origin}/#organization` },
     inLanguage: 'en',
@@ -75,10 +77,10 @@ const jsonLd = JSON.stringify({
     <link rel="icon" href="/favicon-48x48.png" type="image/png" sizes="48x48" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
     <link rel="manifest" href="/site.webmanifest" />
-    <link rel="alternate" href="/llms.txt" type="text/plain" title="Veqtor for language models" />
+    <link rel="alternate" href="/llms.txt" type="text/plain" title="Veqtor MCP for language models" />
     {noindex && <meta name="robots" content="noindex, follow" />}
 
-    <meta property="og:site_name" content="Veqtor" />
+    <meta property="og:site_name" content="Veqtor MCP" />
     <meta property="og:type" content={type} />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
@@ -86,7 +88,7 @@ const jsonLd = JSON.stringify({
     <meta property="og:image" content={imageUrl} />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Veqtor connects Claude to tracked changes in Microsoft Word documents" />
+    <meta property="og:image:alt" content="Veqtor MCP connects Claude to tracked changes in Microsoft Word documents" />
     {publishedTime && <meta property="article:published_time" content={publishedTime} />}
     {modifiedTime && <meta property="article:modified_time" content={modifiedTime} />}
 

@@ -2,14 +2,14 @@
 import BaseLayout from '../layouts/BaseLayout.astro'
 import SiteCta from '../components/SiteCta.astro'
 
-const title = 'Veqtor — Review Word Redlines with Claude'
+const title = 'Veqtor MCP — Review Word Redlines with Claude'
 const description = 'Ask Claude what changed across Word contract drafts and create a separate counterproposal with tracked changes. Veqtor runs locally and keeps the original files unchanged.'
 const structuredData = [
   {
     '@type': 'SoftwareApplication',
     '@id': 'https://veqtor.pro/#software',
-    name: 'Veqtor',
-    alternateName: 'Veqtor MCP',
+    name: 'Veqtor MCP',
+    alternateName: 'Veqtor',
     applicationCategory: 'DeveloperApplication',
     applicationSubCategory: 'Contract review tooling',
     operatingSystem: 'macOS, Linux',
@@ -18,6 +18,10 @@ const structuredData = [
     url: 'https://veqtor.pro/',
     downloadUrl: 'https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/v0.1.2',
     codeRepository: 'https://github.com/JohnDeer-ai/veqtor-mcp',
+    sameAs: [
+      'https://github.com/JohnDeer-ai/veqtor-mcp',
+      'https://pypi.org/project/veqtor-mcp/',
+    ],
     license: 'https://www.apache.org/licenses/LICENSE-2.0',
     isAccessibleForFree: true,
     offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
@@ -25,7 +29,7 @@ const structuredData = [
   },
   {
     '@type': 'VideoObject',
-    name: 'Veqtor demo — from Word drafts to a counterproposal',
+    name: 'Veqtor MCP demo — from Word drafts to a counterproposal',
     description: 'Claude uses Veqtor with sample contract documents to compare negotiation drafts, check wording, and create a separate Word document with tracked changes.',
     thumbnailUrl: 'https://veqtor.pro/media/veqtor-demo-v0.1.2-poster.jpg',
     contentUrl: 'https://veqtor.pro/media/veqtor-demo-v0.1.2.mp4',
@@ -90,15 +94,16 @@ const structuredData = [
     <div class="shell split">
       <div>
         <p class="eyebrow">The familiar problem</p>
-        <h2 id="problem-title">A chat answer is not a revised Word document.</h2>
+        <h2 id="problem-title">One Word file does not show the whole negotiation.</h2>
       </div>
       <div class="problem__copy">
-        <p>When contract text is copied into chat, it is separated from the Word file and the tracked changes around it. You still have to compare drafts, confirm quotes, and put proposed wording back into Word yourself.</p>
+        <p>A negotiation is spread across several drafts. The hard part is keeping each conclusion tied to the change it came from, then testing the complete counterproposal before creating the next file. Veqtor gives Claude a clear workflow for that job.</p>
         <div class="rule-list">
-          <div class="rule-item"><span class="rule-item__number">01</span><div><h3>Several drafts still need comparing</h3></div></div>
-          <div class="rule-item"><span class="rule-item__number">02</span><div><h3>Quoted wording still needs checking</h3></div></div>
-          <div class="rule-item"><span class="rule-item__number">03</span><div><h3>Suggestions still need putting back into Word</h3></div></div>
+          <div class="rule-item"><span class="rule-item__number">01</span><div><h3>Several drafts, ordered by file name</h3></div></div>
+          <div class="rule-item"><span class="rule-item__number">02</span><div><h3>Important quotes checked against a specific tracked change</h3></div></div>
+          <div class="rule-item"><span class="rule-item__number">03</span><div><h3>All requested changes tested together before a separate file is created</h3></div></div>
         </div>
+        <p class="problem__comparison">Already using Claude inside Word? <a href="/veqtor-vs-claude-for-word">Compare the two workflows</a>.</p>
       </div>
     </div>
   </section>
@@ -147,7 +152,7 @@ const structuredData = [
       <div class="video-frame">
         <video controls playsinline preload="metadata" poster="/media/veqtor-demo-v0.1.2-poster.jpg">
           <source src="/media/veqtor-demo-v0.1.2.mp4" type="video/mp4" />
-          <track kind="captions" src="/media/veqtor-demo-v0.1.2.en.vtt" srclang="en" label="English" default />
+          <track kind="captions" src="/media/veqtor-demo-v0.1.2-r2.en.vtt" srclang="en" label="English" default />
           Your browser does not support video playback. You can <a href="/media/veqtor-demo-v0.1.2.mp4">open the demo video directly</a>.
         </video>
       </div>
@@ -329,6 +334,8 @@ const structuredData = [
   @keyframes pulse { from { box-shadow: 0 0 0 0 rgba(200,255,88,.35); } to { box-shadow: 0 0 0 18px rgba(200,255,88,0); } }
 
   .problem__copy > p { color: var(--muted); font-size: 17px; margin: 0 0 32px; }
+  .problem__copy > .problem__comparison { font-size: 14px; margin: 24px 0 0; }
+  .problem__comparison a { color: var(--ink); text-underline-offset: 3px; }
   .problem .rule-item { align-items: center; }
   .problem .rule-item h3 { margin: 0; }
 

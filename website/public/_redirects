@@ -7,6 +7,7 @@
 # Preserve previously published demo URLs while serving versioned media.
 /media/veqtor-demo.mp4                    /media/veqtor-demo-v0.1.2.mp4         301
 /media/veqtor-demo-poster.jpg             /media/veqtor-demo-v0.1.2-poster.jpg  301
+/media/veqtor-demo-v0.1.2.en.vtt          /media/veqtor-demo-v0.1.2-r2.en.vtt   301
 /assets/veqtor-demo-hd.mp4                /media/veqtor-demo-v0.1.2.mp4         301
 /assets/veqtor-demo.mp4                   /media/veqtor-demo-v0.1.2.mp4         301
 /assets/veqtor-demo-poster-1200.jpg       /media/veqtor-demo-v0.1.2-poster.jpg  301

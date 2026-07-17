@@ -4,10 +4,10 @@ import GuideCard from '../../components/GuideCard.astro'
 import {
   AUTHOR,
   GUIDES,
-  MCP_GUIDE_BRIDGE,
   formatGuideDate,
   guideAnchorId,
   guideStructuredData,
+  productBridgeForGuide,
   relatedGuides,
   topicForGuide,
   type Guide,
@@ -22,6 +22,7 @@ export function getStaticPaths() {
 
 const { guide } = Astro.props as { guide: Guide }
 const topic = topicForGuide(guide)
+const productBridge = productBridgeForGuide(guide)
 const related = relatedGuides(guide)
 const topicIndex = topic.guides.findIndex((entry) => entry.slug === guide.slug)
 const previousGuide = topicIndex > 0 ? topic.guides[topicIndex - 1] : undefined
@@ -102,10 +103,10 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
         </p>
 
         <section class="product-bridge" aria-labelledby="product-bridge-heading">
-          <p class="kicker">{MCP_GUIDE_BRIDGE.label}</p>
-          <h2 id="product-bridge-heading">Use the guide for context. Use Veqtor for the Word documents.</h2>
-          <p>{MCP_GUIDE_BRIDGE.body}</p>
-          <a class="button button--primary" href={MCP_GUIDE_BRIDGE.href}>{MCP_GUIDE_BRIDGE.title}</a>
+          <p class="kicker">{productBridge.label}</p>
+          <h2 id="product-bridge-heading">{productBridge.heading}</h2>
+          <p>{productBridge.body}</p>
+          <a class="button button--primary" href={productBridge.href}>{productBridge.title}</a>
         </section>
 
         {related.length > 0 && (

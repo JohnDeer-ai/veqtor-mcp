@@ -2,6 +2,10 @@
 
 # Veqtor MCP
 
+[Website](https://veqtor.pro) · [Demo](https://veqtor.pro/demo) ·
+[Documentation](https://veqtor.pro/docs) ·
+[PyPI](https://pypi.org/project/veqtor-mcp/)
+
 > **Public technical Alpha:** a local MCP server for verifiable DOCX negotiation
 > history and fail-closed tracked-change edits. Supported on macOS and Linux
 > with Python 3.12-3.14.

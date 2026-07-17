@@ -1,0 +1,164 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro'
+import PageHero from '../components/PageHero.astro'
+import SiteCta from '../components/SiteCta.astro'
+
+const title = 'Veqtor MCP vs Claude for Word — Contract Review Workflows'
+const description = 'Compare Claude for Word with Veqtor MCP for reviewing Word contracts, working across negotiation drafts, checking tracked wording, and creating a separate counterproposal.'
+
+const rows = [
+  {
+    label: 'Best fit',
+    claude: 'Drafting, explaining and editing inside the document currently open in Word.',
+    veqtor: 'Reviewing several negotiation drafts in a declared file-name order and creating a separate counterproposal.',
+  },
+  {
+    label: 'What it can read',
+    claude: 'The open document, including text, comments, tracked changes, footnotes, tables and bookmarks.',
+    veqtor: 'Supported tracked text changes in the main body of Word documents kept in a selected folder.',
+  },
+  {
+    label: 'Editing',
+    claude: 'Broad in-document drafting and editing, with tracked changes that preserve surrounding styles and numbering.',
+    veqtor: 'A narrow set of supported text replacements, deletions and counterproposals in the public Alpha.',
+  },
+  {
+    label: 'Checking the source',
+    claude: 'Links its answers to sections in the open document so the user can inspect them.',
+    veqtor: 'Checks quoted wording against one specific tracked change and tests the complete supported proposal before creating the output.',
+  },
+  {
+    label: 'Output',
+    claude: 'Works in the open document. The user reviews and approves the edits in Word.',
+    veqtor: 'Creates a separate Word document and does not replace the source or an existing output.',
+  },
+  {
+    label: 'Setup and availability',
+    claude: 'A Word add-in for using Claude inside the document open in Word, available on supported paid Claude plans.',
+    veqtor: 'A free, open-source technical Alpha. Claude Code is supported on Mac and Linux; the documented Claude Desktop setup is currently for Mac.',
+  },
+]
+
+const structuredData = {
+  '@type': 'WebPage',
+  '@id': 'https://veqtor.pro/veqtor-vs-claude-for-word#webpage',
+  url: 'https://veqtor.pro/veqtor-vs-claude-for-word',
+  name: title,
+  description,
+  isPartOf: { '@id': 'https://veqtor.pro/#website' },
+  about: { '@id': 'https://veqtor.pro/#software' },
+  inLanguage: 'en',
+}
+---
+
+<BaseLayout title={title} description={description} canonicalPath="/veqtor-vs-claude-for-word" structuredData={structuredData}>
+  <PageHero
+    eyebrow="Choose the right workflow"
+    title="Veqtor and Claude for Word solve different parts of contract review."
+    lede="Claude for Word is designed for asking, drafting and editing inside Word. Veqtor MCP is a narrower, open-source workflow for comparing negotiation drafts and creating a separate counterproposal."
+    meta="Compared using public product information checked 17 July 2026"
+    breadcrumbs={[{ label: 'Veqtor vs Claude for Word' }]}
+  >
+    <div slot="actions" class="actions">
+      <a class="button button--primary" href="/demo">Watch the Veqtor demo</a>
+      <a class="button button--secondary" href="https://claude.com/docs/office-agents/word">Read Anthropic’s guide ↗</a>
+    </div>
+  </PageHero>
+
+  <section class="section section--border" aria-labelledby="short-answer-title">
+    <div class="shell split">
+      <div>
+        <p class="eyebrow">The short answer</p>
+        <h2 id="short-answer-title">Choose based on where the work starts.</h2>
+      </div>
+      <div class="decision-list">
+        <article>
+          <span>CLAUDE FOR WORD</span>
+          <h3>Work inside the document open in Word.</h3>
+          <p>Use it when you want Claude beside the document for drafting, explanations, comment-driven editing, and tracked edits that preserve the surrounding formatting.</p>
+        </article>
+        <article>
+          <span>VEQTOR MCP</span>
+          <h3>Work across a folder of negotiation drafts.</h3>
+          <p>Use it when you want Claude to inspect supported changes across several drafts, check specific wording and create the next file separately.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section--surface" aria-labelledby="comparison-title">
+    <div class="shell">
+      <div class="section-heading">
+        <div><p class="eyebrow">Side by side</p><h2 id="comparison-title">Two different working surfaces.</h2></div>
+        <p>This comparison describes public product information, not an accuracy or security benchmark.</p>
+      </div>
+      <div class="comparison" role="region" aria-label="Veqtor and Claude for Word comparison" tabindex="0">
+        <table>
+          <thead>
+            <tr><th scope="col">Workflow</th><th scope="col">Claude for Word</th><th scope="col">Veqtor MCP 0.1.2</th></tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr>
+                <th scope="row">{row.label}</th>
+                <td>{row.claude}</td>
+                <td>{row.veqtor}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="limits-title">
+    <div class="shell split">
+      <div>
+        <p class="eyebrow">Important boundaries</p>
+        <h2 id="limits-title">Neither workflow removes the need to review the result.</h2>
+      </div>
+      <div class="boundary-list">
+        <div><span>01</span><p><strong>Veqtor is deliberately narrower.</strong> It does not currently analyze comments, headers, footers or footnotes, and it is not a general Word editor.</p></div>
+        <div><span>02</span><p><strong>“Local” describes Veqtor’s document operations.</strong> Text returned to Claude becomes part of the Claude conversation and is handled under the terms of the Claude account you use.</p></div>
+        <div><span>03</span><p><strong>This is not a claim that one product is more accurate.</strong> No comparative accuracy, security or privacy benchmark has been performed.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section--border" aria-labelledby="sources-title">
+    <div class="shell prose-shell">
+      <article class="prose">
+        <p class="eyebrow">Sources and version</p>
+        <h2 id="sources-title">What this comparison is based on.</h2>
+        <p>Claude for Word information is based on <a href="https://claude.com/docs/office-agents/word">Anthropic’s current product documentation</a>, checked on 17 July 2026. Veqtor information describes version 0.1.2 and should be read together with the <a href="/limitations">current limitations</a> and <a href="/security">security and privacy explanation</a>.</p>
+        <p>The products may also complement each other. The useful distinction is not which name is better; it is whether the task begins inside one open document or across a declared set of negotiation drafts.</p>
+      </article>
+    </div>
+  </section>
+
+  <SiteCta title="See the Veqtor workflow on four sample contract drafts." body="Watch the complete example before deciding whether the narrower multi-draft workflow fits your work." primaryHref="/demo" primaryLabel="Watch the demo" secondaryHref="/limitations" secondaryLabel="Read Veqtor’s limits" />
+</BaseLayout>
+
+<style>
+  .decision-list { display: grid; gap: 18px; }
+  .decision-list article { border-top: 1px solid var(--line-strong); padding-top: 20px; }
+  .decision-list span { color: var(--violet); font-family: var(--mono); font-size: 10px; font-weight: var(--weight-label); letter-spacing: .08em; }
+  .decision-list h3 { font-size: clamp(20px, 2.4vw, 28px); margin: 16px 0 10px; }
+  .decision-list p { color: var(--muted); margin: 0; }
+  .comparison { border: 1px solid var(--line-strong); overflow-x: auto; }
+  .comparison table { border-collapse: collapse; min-width: 760px; width: 100%; }
+  .comparison th, .comparison td { border-bottom: 1px solid var(--line); line-height: 1.55; padding: 22px; text-align: left; vertical-align: top; }
+  .comparison thead th { background: var(--surface-2); color: var(--ink); font-size: 13px; }
+  .comparison tbody th { color: var(--violet); font-family: var(--mono); font-size: 11px; font-weight: var(--weight-label); letter-spacing: .04em; width: 18%; }
+  .comparison td { color: var(--muted); font-size: 14px; width: 41%; }
+  .comparison tr:last-child th, .comparison tr:last-child td { border-bottom: 0; }
+  .boundary-list { display: grid; gap: 24px; }
+  .boundary-list > div { border-top: 1px solid var(--line-strong); display: grid; gap: 18px; grid-template-columns: 30px minmax(0, 1fr); padding-top: 18px; }
+  .boundary-list span { color: var(--violet); font-family: var(--mono); font-size: 11px; }
+  .boundary-list p { color: var(--muted); margin: 0; }
+  .boundary-list strong { color: var(--ink); display: block; margin-bottom: 6px; }
+  @media (max-width: 760px) {
+    .comparison table { min-width: 680px; }
+    .comparison th, .comparison td { padding: 18px; }
+  }
+</style>

@@ -2,7 +2,6 @@
 import BaseLayout from '../../../layouts/BaseLayout.astro'
 import GuideCard from '../../../components/GuideCard.astro'
 import {
-  MCP_GUIDE_BRIDGE,
   TOPICS,
   topicStructuredData,
   type GuideTopic,
@@ -80,11 +79,11 @@ const { topic } = Astro.props as { topic: GuideTopic }
 
     <section class="bridge shell" aria-labelledby="topic-bridge-heading">
       <div>
-        <p class="kicker">{MCP_GUIDE_BRIDGE.label}</p>
-        <h2 id="topic-bridge-heading">Know the rule. Then inspect what changed in the document.</h2>
-        <p>{MCP_GUIDE_BRIDGE.body}</p>
+        <p class="kicker">{topic.productBridge.label}</p>
+        <h2 id="topic-bridge-heading">{topic.productBridge.heading}</h2>
+        <p>{topic.productBridge.body}</p>
       </div>
-      <a class="button button--primary" href={MCP_GUIDE_BRIDGE.href}>{MCP_GUIDE_BRIDGE.title}</a>
+      <a class="button button--primary" href={topic.productBridge.href}>{topic.productBridge.title}</a>
     </section>
   </div>
 </BaseLayout>

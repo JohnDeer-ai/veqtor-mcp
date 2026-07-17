@@ -1,4 +1,4 @@
-# Veqtor
+# Veqtor MCP
 
 > Veqtor is a local, open-source MCP server that gives compatible AI clients defined tools for working with tracked changes in Microsoft Word documents.
 
