@@ -759,7 +759,7 @@ def test_blank_author_keeps_version_and_makes_doctor_and_startup_diagnostic() ->
     )
 
     assert version.returncode == 0
-    assert version.stdout.strip() == "veqtor-mcp 0.1.2"
+    assert version.stdout.strip() == "veqtor-mcp 0.2.0"
     assert "Traceback" not in version.stderr
     assert doctor.returncode == 2
     diagnosis = json.loads(doctor.stdout)
@@ -777,13 +777,13 @@ def test_blank_author_keeps_version_and_makes_doctor_and_startup_diagnostic() ->
 def test_cli_version_and_doctor(monkeypatch, capsys) -> None:
     monkeypatch.setattr(server.sys, "argv", ["veqtor-mcp", "--version"])
     server.main()
-    assert capsys.readouterr().out.strip() == "veqtor-mcp 0.1.2"
+    assert capsys.readouterr().out.strip() == "veqtor-mcp 0.2.0"
 
     monkeypatch.setattr(server.sys, "argv", ["veqtor-mcp", "doctor"])
     server.main()
     doctor = json.loads(capsys.readouterr().out)
     assert doctor["name"] == "veqtor-mcp"
-    assert doctor["version"] == "0.1.2"
+    assert doctor["version"] == "0.2.0"
     assert doctor["build"] == records.SOURCE_SNAPSHOT_IDENTITY
     assert doctor["tracked_change_author"] == server._tracked_change_author()
     assert doctor["configuration_error"] is None

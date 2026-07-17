@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 import tempfile
@@ -16,6 +17,10 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 from release_contract import (  # noqa: E402
+    CHECKSUMS_FILENAME,
+    GITHUB_PAYLOAD_FILENAMES,
+    GITHUB_RELEASE_FILENAMES,
+    MCPB_FILENAME,
     RELEASE_NOTES_PATH,
     RELEASE_TITLE,
     VERSION as CONTRACT_VERSION,
@@ -52,10 +57,16 @@ def _public_json(url: str) -> dict:
 
 
 def _local_assets(dist_dir: Path) -> dict[str, bytes]:
-    paths = [*dist_dir.glob("*.whl"), *dist_dir.glob("*.tar.gz")]
-    checksums = dist_dir / "SHA256SUMS.txt"
-    paths.append(checksums)
-    if len(paths) != 3 or any(not path.is_file() for path in paths):
+    paths = [dist_dir / name for name in GITHUB_PAYLOAD_FILENAMES]
+    paths.append(dist_dir / CHECKSUMS_FILENAME)
+    try:
+        observed_names = {path.name for path in dist_dir.iterdir()}
+    except OSError as exc:
+        raise ConsumerVerificationError("cannot inspect local release set") from exc
+    if (
+        observed_names != set(GITHUB_RELEASE_FILENAMES)
+        or any(not stat.S_ISREG(path.lstat().st_mode) for path in paths)
+    ):
         raise ConsumerVerificationError("local release set is incomplete")
     return {path.name: path.read_bytes() for path in paths}
 
@@ -106,6 +117,22 @@ def _artifact_verifier(directory: Path, source_root: Path, commit_sha: str) -> N
     )
     if result.returncode != 0:
         raise ConsumerVerificationError("downloaded artifacts failed identity checks")
+    mcpb = subprocess.run(
+        [
+            sys.executable,
+            str(source_root / "scripts" / "check_mcpb_artifact.py"),
+            "--source-root",
+            str(source_root),
+            "--commit",
+            commit_sha,
+            str(directory / MCPB_FILENAME),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if mcpb.returncode != 0:
+        raise ConsumerVerificationError("downloaded MCPB failed identity checks")
 
 
 def verify(

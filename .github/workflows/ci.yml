@@ -13,6 +13,11 @@ on:
         description: Exact commit to verify
         required: false
         type: string
+      expected_mcpb_sha256:
+        description: Optional accepted MCPB digest to bind during release reuse
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -84,6 +89,9 @@ jobs:
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
           version: "0.11.28"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22.17.0"
       - name: Check source formatting and lock freshness
         run: |
           uv lock --check
@@ -102,18 +110,34 @@ jobs:
           uvx pip-audit==2.10.1 \
             --requirement "$LOCKED_REQUIREMENTS" \
             --require-hashes --disable-pip --progress-spinner off
-      - name: Build wheel and sdist
-        run: uv build --clear
-      - name: Validate package metadata
+      - name: Build wheel, sdist and deterministic macOS MCPB
+        run: |
+          uv build --clear
+          uv run --frozen python scripts/build_mcpb.py \
+            --source-root . --out-dir dist \
+            --stage-dir "$RUNNER_TEMP/veqtor-mcpb-stage"
+      - name: Validate Python and MCPB artifact identity
+        env:
+          EXPECTED_MCPB_SHA256: ${{ inputs.expected_mcpb_sha256 }}
         run: |
           uvx twine check dist/*.whl dist/*.tar.gz
           uv run --frozen python scripts/check_release_artifacts.py \
             --source-root . --commit "$VERIFY_REF" dist/*.whl dist/*.tar.gz
+          uv run --frozen python scripts/check_mcpb_artifact.py \
+            --source-root . --commit "$VERIFY_REF" dist/*.mcpb
+          npx --yes @anthropic-ai/mcpb@2.1.2 validate \
+            "$RUNNER_TEMP/veqtor-mcpb-stage/manifest.json"
+          npx --yes @anthropic-ai/mcpb@2.1.2 info dist/*.mcpb
+          if test -n "$EXPECTED_MCPB_SHA256"; then
+            test "$(sha256sum dist/*.mcpb | cut -d ' ' -f 1)" = \
+              "$EXPECTED_MCPB_SHA256"
+          fi
       - name: Create and smoke portable checksum manifest
         run: |
-          (cd dist && sha256sum *.whl *.tar.gz > SHA256SUMS.txt)
+          (cd dist && sha256sum *.whl *.tar.gz *.mcpb > SHA256SUMS.txt)
           mkdir /tmp/veqtor-release-download
-          cp dist/*.whl dist/*.tar.gz dist/SHA256SUMS.txt /tmp/veqtor-release-download/
+          cp dist/*.whl dist/*.tar.gz dist/*.mcpb dist/SHA256SUMS.txt \
+            /tmp/veqtor-release-download/
           (cd /tmp/veqtor-release-download && sha256sum -c SHA256SUMS.txt)
       - name: Install and smoke the wheel in isolation
         run: |
@@ -132,10 +156,31 @@ jobs:
           /tmp/veqtor-wheel-min-smoke/bin/veqtor-mcp --version
           /tmp/veqtor-wheel-min-smoke/bin/veqtor-mcp doctor
           /tmp/veqtor-wheel-min-smoke/bin/python "$GITHUB_WORKSPACE/scripts/installed_wheel_smoke.py"
+      - name: Launch the exact MCPB command over stdio
+        run: |
+          uv run --frozen python scripts/mcpb_stdio_smoke.py \
+            --stage-dir "$RUNNER_TEMP/veqtor-mcpb-stage"
+      - name: Smoke all six tools against a copy of the bundled demo
+        env:
+          VEQTOR_TRACKED_CHANGE_AUTHOR: Veqtor MCPB CI
+          VEQTOR_SMOKE_MATTER: ${{ runner.temp }}/veqtor-mcpb-smoke-demo
+        run: |
+          cp -R "$RUNNER_TEMP/veqtor-mcpb-stage/demo" \
+            "$RUNNER_TEMP/veqtor-mcpb-smoke-demo"
+          uv run --frozen --no-dev \
+            --directory "$RUNNER_TEMP/veqtor-mcpb-stage" \
+            veqtor-mcp --version
+          uv run --frozen --no-dev \
+            --directory "$RUNNER_TEMP/veqtor-mcpb-stage" \
+            python "$GITHUB_WORKSPACE/scripts/installed_wheel_smoke.py"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ env.DIST_ARTIFACT_NAME }}
-          path: dist/*
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/*.mcpb
+            dist/SHA256SUMS.txt
           if-no-files-found: error
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -171,11 +216,15 @@ jobs:
           path: approved-pypi-dist
       - name: Check lock before executing the candidate
         run: uv lock --check
+      - name: Install the locked runtime needed to rebuild the bundled demo
+        run: uv sync --frozen --no-dev --python 3.12.13
       - name: Rebuild independently and compare every artifact byte
-        run: >-
-          python3 scripts/check_reproducible_build.py
-          --source-root . --approved-dir approved-dist
-          --mirror-dir approved-pypi-dist
+        run: |
+          uv run --frozen --no-dev python scripts/check_reproducible_build.py \
+            --source-root . --approved-dir approved-dist \
+            --mirror-dir approved-pypi-dist
+          uv run --frozen --no-dev python scripts/check_reproducible_mcpb.py \
+            --source-root . --approved-dir approved-dist
 
   gitleaks:
     name: Scan repository history for secrets

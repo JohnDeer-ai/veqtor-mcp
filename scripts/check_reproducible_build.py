@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Independently rebuild and byte-compare the v0.1 release artifacts."""
+"""Independently rebuild and byte-compare the release artifacts."""
 
 from __future__ import annotations
 

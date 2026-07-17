@@ -25,7 +25,11 @@ from check_acceptance_evidence import (  # noqa: E402
     _parse_packet,
     validate_evidence,
 )
-from release_contract import FIVE_EDIT_OUTPUT_SHA256  # noqa: E402
+from release_contract import (  # noqa: E402
+    FIVE_EDIT_OUTPUT_SHA256,
+    MCPB_REQUIRED_TOOLS,
+    VERSION,
+)
 
 
 CANDIDATE_SHA = "a" * 40
@@ -33,7 +37,7 @@ CANDIDATE_TREE = "b" * 40
 PRODUCER_BUILD = "source-snapshot-v1-sha256:" + "c" * 64
 CORPUS_SHA = "d" * 64
 OUTPUT_SHA = FIVE_EDIT_OUTPUT_SHA256
-RUNTIME_VERSION = "0.1.2"
+RUNTIME_VERSION = VERSION
 
 
 def _packet() -> dict:
@@ -95,6 +99,33 @@ def _packet() -> dict:
             "transcript_sha256": "e" * 64,
             "raw_journal_sha256": "f" * 64,
         },
+        "desktop_extension": {
+            "artifact_sha256": "1" * 64,
+            "installation_channel": "direct_download_mcpb",
+            "platform": "darwin",
+            "client": "claude_desktop_fresh_copy",
+            "client_version": "1.0.0",
+            "platform_version": "15.5",
+            "manual_uv_install_absent": True,
+            "manual_python_install_absent": True,
+            "host_managed_uv_runtime_confirmed": True,
+            "tracked_change_author_confirmed": True,
+            "visible_tools": list(MCPB_REQUIRED_TOOLS),
+            "called_tools": list(MCPB_REQUIRED_TOOLS),
+            "runtime_producer_build": PRODUCER_BUILD,
+            "runtime_version": RUNTIME_VERSION,
+            "demo_round_count": 4,
+            "bundled_demo_prompt_completed": True,
+            "session_transcript_sha256": "2" * 64,
+            "demo_journal_sha256": "3" * 64,
+            "lifecycle_scenario": "first_public_mcpb",
+            "fresh_install_status": "passed",
+            "upgrade_status": "not_applicable_first_public_mcpb",
+            "rollback_status": "not_applicable_no_prior_public_mcpb",
+            "reinstall_same_artifact_status": "passed",
+            "uninstall_status": "passed",
+            "post_uninstall_tools_absent": True,
+        },
     }
 
 
@@ -111,10 +142,10 @@ def test_complete_exact_candidate_evidence_passes() -> None:
     _validate(_packet())
 
 
-def test_documented_working_template_matches_executable_v2_schema() -> None:
+def test_documented_working_template_matches_executable_v3_schema() -> None:
     releasing = (ROOT / "RELEASING.md").read_text()
-    template = releasing.split("<!-- acceptance-v2-template-begin -->", 1)[1]
-    template = template.split("<!-- acceptance-v2-template-end -->", 1)[0]
+    template = releasing.split("<!-- acceptance-v3-template-begin -->", 1)[1]
+    template = template.split("<!-- acceptance-v3-template-end -->", 1)[0]
     packet = json.loads(template.split("```json\n", 1)[1].split("\n```", 1)[0])
 
     validate_evidence(
@@ -186,6 +217,42 @@ def test_documented_working_template_matches_executable_v2_schema() -> None:
             ),
             "Desktop runtime build does not equal",
         ),
+        (
+            lambda packet: packet["desktop_extension"].update(
+                {"artifact_sha256": "not-a-digest"}
+            ),
+            "desktop_extension.artifact_sha256 is not",
+        ),
+        (
+            lambda packet: packet["desktop_extension"].update(
+                {"manual_uv_install_absent": False}
+            ),
+            "extension activation did not pass",
+        ),
+        (
+            lambda packet: packet["desktop_extension"].update(
+                {"visible_tools": ["list_rounds"]}
+            ),
+            "tool inventory differs",
+        ),
+        (
+            lambda packet: packet["desktop_extension"].update(
+                {"called_tools": ["list_rounds"]}
+            ),
+            "tool call coverage differs",
+        ),
+        (
+            lambda packet: packet["desktop_extension"].update(
+                {"uninstall_status": "failed"}
+            ),
+            "uninstall_status did not pass",
+        ),
+        (
+            lambda packet: packet["desktop_extension"].update(
+                {"upgrade_status": "passed"}
+            ),
+            "extension activation did not pass",
+        ),
     ],
     ids=[
         "extra_private_field",
@@ -198,6 +265,12 @@ def test_documented_working_template_matches_executable_v2_schema() -> None:
         "desktop_failed",
         "two_export_failed",
         "desktop_wrong_build",
+        "mcpb_digest",
+        "mcpb_clean_host",
+        "mcpb_tools",
+        "mcpb_tool_calls",
+        "mcpb_uninstall",
+        "mcpb_first_release_lifecycle",
     ],
 )
 def test_incomplete_or_non_private_shape_fails(mutate, message: str) -> None:
@@ -207,18 +280,21 @@ def test_incomplete_or_non_private_shape_fails(mutate, message: str) -> None:
         _validate(packet)
 
 
-def test_v1_packet_is_rejected_before_shape_validation() -> None:
+def test_v2_packet_is_rejected_before_shape_validation() -> None:
     packet = _packet()
-    packet["schema_version"] = "veqtor_release_acceptance.v1"
-    packet.pop("desktop_rehearsal")
-    packet.pop("installed_two_export")
+    packet["schema_version"] = "veqtor_release_acceptance.v2"
+    packet.pop("desktop_extension")
 
     with pytest.raises(EvidenceError, match="schema version is unsupported"):
         _validate(packet)
 
 
 def test_runtime_versions_and_builds_are_candidate_bound() -> None:
-    for section in ("installed_two_export", "desktop_rehearsal"):
+    for section in (
+        "installed_two_export",
+        "desktop_rehearsal",
+        "desktop_extension",
+    ):
         packet = _packet()
         packet[section]["runtime_version"] = "0.1.0"
         with pytest.raises(EvidenceError, match="runtime version does not equal"):

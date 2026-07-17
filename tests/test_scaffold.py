@@ -13,7 +13,7 @@ ROOT = Path(__file__).parents[1]
 
 
 def test_package_versions_match() -> None:
-    assert docx_version == "0.1.2"
+    assert docx_version == "0.2.0"
     assert mcp_version == docx_version
 
 
@@ -129,12 +129,12 @@ def test_public_readme_uses_parseable_version_pinned_claude_commands() -> None:
 
     assert (
         "claude mcp add --transport stdio --scope user veqtor -- "
-        "uvx veqtor-mcp@0.1.2"
+        "uvx veqtor-mcp@0.2.0"
     ) in readme
     assert (
         "claude mcp add --transport stdio --scope user veqtor "
         '-e VEQTOR_TRACKED_CHANGE_AUTHOR="Your Name" -- '
-        "uvx veqtor-mcp@0.1.2"
+        "uvx veqtor-mcp@0.2.0"
     ) in readme
 
 

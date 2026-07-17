@@ -2,10 +2,17 @@
 
 # Known limitations
 
-Veqtor `0.1.2` remains the published local technical Alpha for early adopters.
-The current development source still has package version `0.1.2`, but advertises
-MCP contract `veqtor.mcp.v0.2`; that contract identifier does not mean a new
-release has been published. Both surfaces remain intentionally narrow.
+Veqtor `0.2.0` is a local technical Alpha for early adopters and advertises MCP
+contract `veqtor.mcp.v0.2`. Both identities remain intentionally narrow.
+
+The MCPB v0.4 extension is macOS-only. Linux keeps the CLI setup. There is no
+Windows extension, catalog listing, automatic update promise, silent
+installation or guaranteed in-app rollback. Because `0.2.0` is the first public
+MCPB, it has no older public extension to restore; real upgrade and rollback
+testing starts with the next extension release. The first UV activation may
+download a compatible Python runtime and locked dependencies, so it is not
+guaranteed to work offline. MCPB installation does not add an operating-system
+filesystem sandbox; Veqtor runs with the current user's permissions.
 
 ## Documents and revisions
 
@@ -47,7 +54,7 @@ release has been published. Both surfaces remain intentionally narrow.
   footers, footnotes and endnotes are not analyzed or edited.
 - Formatting, move, paragraph-mark and structural revision categories are
   counted but not all are converted into editable change units.
-- The development extractor reports `revision_inventory.v1` so callers can
+- The extractor reports `revision_inventory.v1` so callers can
   check `total_revision_elements == decoded_revision_elements +
   unsupported_revision_occurrences`. `emitted_change_unit_count` is separate:
   one change unit may represent multiple decoded text-revision elements, so it

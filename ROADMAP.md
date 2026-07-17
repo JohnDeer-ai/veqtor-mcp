@@ -25,12 +25,10 @@ document facts and deterministic writes; it does not claim legal correctness.
 - Bounded DOCX/ZIP processing and versioned installation from PyPI, with the
   same verified wheel and sdist attached to GitHub Releases.
 
-## Implemented in development (unreleased)
+## Implemented for 0.2.0
 
-The current source tree keeps package version and public-release state at
-`0.1.2`, while advertising the next MCP contract as `veqtor.mcp.v0.2`. The
-contract version is an API-schema identifier, not a claim that a new package
-version has been published.
+Package version `0.2.0` advertises MCP contract `veqtor.mcp.v0.2`. The contract
+version is an API-schema identifier, not the package identity.
 
 Reliable-workflow stages 0 and 1 now provide:
 
@@ -58,48 +56,44 @@ digital signature, a trusted timestamp or tamper evidence.
 
 ## Next
 
-- Independently review and exercise the development contract through the real
-  MCP boundary before selecting a new release candidate.
 - Extend supported OOXML layouts based on reproducible public issues.
 - Improve round-to-round navigation without turning probabilistic matching
   into evidence.
 - Refine installation, diagnostics and examples from external-user feedback.
 
-### Backlog: Claude Desktop Extension
+### Claude Desktop Extension in 0.2.0
 
-Package a future Veqtor release as a versioned Claude Desktop Extension
+Veqtor is packaged as a versioned Claude Desktop Extension
 (`.mcpb`) so a non-technical macOS user can install the same local MCP server
 without editing JSON or running `uvx` manually. The honest activation flow is:
 download the release artifact, open it, review the requested configuration,
 enter the tracked-change author name, confirm installation in Claude Desktop,
 and try Veqtor on the synthetic demo documents.
 
-Initial scope:
+Version 0.2.0 scope:
 
 - macOS-only v1; Linux keeps the existing CLI setup until its Desktop path is
   separately supported and tested.
-- An MCPB manifest that declares the local `uv` server runtime and exposes
+- An MCPB manifest declares the local `uv` server runtime and exposes
   `VEQTOR_TRACKED_CHANGE_AUTHOR` as required user configuration.
-- Validate the package, sign it where the distribution path supports signing,
-  publish a checksum, and attach the immutable `.mcpb` to a new GitHub Release.
-- Prove a clean Claude Desktop install with all six public tools:
+- The package is validated, byte-reproducible and bound by a published checksum.
+  It is not digitally signed.
+- The release gate requires a clean Claude Desktop install with all six public tools:
   `list_rounds`, `extract_redlines`, `verify_quote`, `preflight_edits`,
   `apply_edits`, and `export_decision_record`.
-- Ship the same disposable four-round demo documents used by the website and a
+- The package ships the same disposable four-round demo documents used by the website and a
   copyable first prompt, so activation does not require generating a new corpus
   in Terminal after the extension is installed.
-- Document version reporting, upgrades, rollback where available, and complete
+- Documentation covers version reporting, upgrades, rollback where available, and complete
   uninstall/cleanup before presenting the extension as the recommended path.
-- Consider submission to the Claude Desktop Extensions catalog only after the
-  direct-download package and update path have been exercised publicly.
 
 Non-goals and release boundaries:
 
 - Do not describe this as silent or truly one-click installation: the user must
   open the download, review configuration, and approve installation in Claude.
 - Do not introduce a hosted MCP service; Word-file processing remains local.
-- Do not modify or replace the already published `v0.1.2` artifacts. Ship the
-  extension only in a new, independently verified release.
+- Do not modify or replace earlier release artifacts. Ship each extension only
+  in a new, independently verified release.
 
 ## Outside the Alpha
 

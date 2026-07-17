@@ -1,0 +1,100 @@
+{
+  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/mcpb/70fe3b34cd6dff1b3bba046638edc72a6467a4fb/schemas/mcpb-manifest-v0.4.schema.json",
+  "manifest_version": "0.4",
+  "name": "veqtor-mcp",
+  "display_name": "Veqtor",
+  "version": "0.2.0",
+  "description": "Local DOCX redline evidence and fail-closed tracked edits for Claude",
+  "long_description": "Veqtor lets Claude inspect tracked changes in local Word documents, verify quoted wording, preflight a complete edit proposal, create a separate DOCX with real tracked changes, and retain privacy-minimized local provenance. Document processing stays on the user's computer. Veqtor supplies bounded document facts and deterministic writes; it does not provide legal advice or decide whether wording is legally or commercially suitable.",
+  "author": {
+    "name": "Ilya Shilov",
+    "url": "https://veqtor.pro"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JohnDeer-ai/veqtor-mcp"
+  },
+  "homepage": "https://veqtor.pro",
+  "documentation": "https://veqtor.pro/docs",
+  "support": "https://github.com/JohnDeer-ai/veqtor-mcp/issues",
+  "icon": "icon.png",
+  "server": {
+    "type": "uv",
+    "entry_point": "src/veqtor_mcp/server.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--frozen",
+        "--no-dev",
+        "--directory",
+        "${__dirname}",
+        "veqtor-mcp"
+      ],
+      "env": {
+        "VEQTOR_TRACKED_CHANGE_AUTHOR": "${user_config.tracked_change_author}",
+        "UV_NO_PROGRESS": "1"
+      }
+    }
+  },
+  "user_config": {
+    "tracked_change_author": {
+      "type": "string",
+      "title": "Tracked-change author",
+      "description": "The name written into new Word tracked changes. Veqtor refuses a blank name or a value longer than 255 characters.",
+      "required": true,
+      "sensitive": false
+    }
+  },
+  "tools": [
+    {
+      "name": "list_rounds",
+      "description": "List DOCX snapshots with byte hashes; ordering is navigation, not verified lineage."
+    },
+    {
+      "name": "extract_redlines",
+      "description": "Extract supported tracked revisions with hash-bound change-unit anchors."
+    },
+    {
+      "name": "verify_quote",
+      "description": "Verify wording against one hash-bound tracked-change unit."
+    },
+    {
+      "name": "preflight_edits",
+      "description": "Dry-run an atomic tracked-edit batch and return a source-bound proof."
+    },
+    {
+      "name": "apply_edits",
+      "description": "Create a separate DOCX from an exact successful preflight proof."
+    },
+    {
+      "name": "export_decision_record",
+      "description": "Export a privacy-minimized projection of local provenance records."
+    }
+  ],
+  "tools_generated": false,
+  "prompts": [
+    {
+      "name": "try_veqtor_demo",
+      "description": "Check the connection with four bundled synthetic Word rounds.",
+      "text": "Using the Veqtor tools, what happened to the limitation of liability across the four Word rounds in the folder named demo? Start with list_rounds. Keep tool-confirmed document facts separate from your interpretation, and do not treat filename order as verified chronology."
+    }
+  ],
+  "prompts_generated": false,
+  "keywords": [
+    "contracts",
+    "docx",
+    "redlines",
+    "legal",
+    "local"
+  ],
+  "license": "Apache-2.0",
+  "compatibility": {
+    "platforms": [
+      "darwin"
+    ],
+    "runtimes": {
+      "python": ">=3.12,<3.15"
+    }
+  }
+}

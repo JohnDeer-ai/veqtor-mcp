@@ -11,10 +11,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from release_contract import FIVE_EDIT_OUTPUT_SHA256, VERSION
+from release_contract import FIVE_EDIT_OUTPUT_SHA256, MCPB_REQUIRED_TOOLS, VERSION
 
 
-SCHEMA_VERSION = "veqtor_release_acceptance.v2"
+SCHEMA_VERSION = "veqtor_release_acceptance.v3"
 MAX_EVIDENCE_BYTES = 64 * 1024
 MAX_PACKET_INTEGER_DIGITS = 128
 HEX = frozenset("0123456789abcdef")
@@ -58,6 +58,17 @@ def _exact_count(value: Any, expected: int, location: str) -> int:
 def _passed(value: Any, location: str) -> None:
     if value != "passed":
         raise EvidenceError(f"{location} did not pass")
+
+
+def _label(value: Any, location: str) -> str:
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > 128
+        or any(character in value for character in ("\x00", "\r", "\n"))
+    ):
+        raise EvidenceError(f"{location} is not a bounded label")
+    return value
 
 
 def _validate_private_run(value: Any, location: str) -> None:
@@ -107,6 +118,7 @@ def validate_evidence(
             "five_edit_batch",
             "installed_two_export",
             "desktop_rehearsal",
+            "desktop_extension",
         },
         "packet",
     )
@@ -245,6 +257,91 @@ def validate_evidence(
         64,
         "desktop_rehearsal.raw_journal_sha256",
     )
+
+    extension = _exact_keys(
+        packet["desktop_extension"],
+        {
+            "artifact_sha256",
+            "installation_channel",
+            "platform",
+            "client",
+            "client_version",
+            "platform_version",
+            "manual_uv_install_absent",
+            "manual_python_install_absent",
+            "host_managed_uv_runtime_confirmed",
+            "tracked_change_author_confirmed",
+            "visible_tools",
+            "called_tools",
+            "runtime_producer_build",
+            "runtime_version",
+            "demo_round_count",
+            "bundled_demo_prompt_completed",
+            "session_transcript_sha256",
+            "demo_journal_sha256",
+            "lifecycle_scenario",
+            "fresh_install_status",
+            "upgrade_status",
+            "rollback_status",
+            "reinstall_same_artifact_status",
+            "uninstall_status",
+            "post_uninstall_tools_absent",
+        },
+        "desktop_extension",
+    )
+    _hex_digest(
+        extension["artifact_sha256"],
+        64,
+        "desktop_extension.artifact_sha256",
+    )
+    if (
+        extension["installation_channel"] != "direct_download_mcpb"
+        or extension["platform"] != "darwin"
+        or extension["client"] != "claude_desktop_fresh_copy"
+        or extension["manual_uv_install_absent"] is not True
+        or extension["manual_python_install_absent"] is not True
+        or extension["host_managed_uv_runtime_confirmed"] is not True
+        or extension["tracked_change_author_confirmed"] is not True
+        or extension["bundled_demo_prompt_completed"] is not True
+        or extension["lifecycle_scenario"] != "first_public_mcpb"
+        or extension["upgrade_status"]
+        != "not_applicable_first_public_mcpb"
+        or extension["rollback_status"]
+        != "not_applicable_no_prior_public_mcpb"
+        or extension["post_uninstall_tools_absent"] is not True
+    ):
+        raise EvidenceError("Claude Desktop extension activation did not pass")
+    _label(extension["client_version"], "desktop_extension.client_version")
+    _label(extension["platform_version"], "desktop_extension.platform_version")
+    if extension["visible_tools"] != list(MCPB_REQUIRED_TOOLS):
+        raise EvidenceError("Desktop extension tool inventory differs")
+    if extension["called_tools"] != list(MCPB_REQUIRED_TOOLS):
+        raise EvidenceError("Desktop extension tool call coverage differs")
+    if extension["runtime_producer_build"] != producer_build:
+        raise EvidenceError("Desktop extension build does not equal the source tree")
+    if extension["runtime_version"] != VERSION:
+        raise EvidenceError(
+            "Desktop extension runtime version does not equal the candidate"
+        )
+    _exact_count(
+        extension["demo_round_count"], 4, "desktop_extension.demo_round_count"
+    )
+    _hex_digest(
+        extension["session_transcript_sha256"],
+        64,
+        "desktop_extension.session_transcript_sha256",
+    )
+    _hex_digest(
+        extension["demo_journal_sha256"],
+        64,
+        "desktop_extension.demo_journal_sha256",
+    )
+    for field in (
+        "fresh_install_status",
+        "reinstall_same_artifact_status",
+        "uninstall_status",
+    ):
+        _passed(extension[field], f"desktop_extension.{field}")
 
 
 def _git(source_root: Path, *arguments: str) -> str:

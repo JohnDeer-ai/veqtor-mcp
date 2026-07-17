@@ -48,7 +48,10 @@ def test_release_guard_precedes_execution_of_requested_commit() -> None:
     assert "private_dogfood_passed" not in workflow
     assert "acceptance_evidence:" in workflow
     assert "acceptance_evidence_sha256:" in workflow
-    assert "veqtor_release_acceptance.v2" in workflow
+    assert "veqtor_release_acceptance.v3" in workflow
+    assert "expected_mcpb_sha256" in verify
+    assert '"desktop_extension"]["artifact_sha256"]' in guard
+    assert "mcpb_sha256=%s" in guard
     assert "scripts/check_acceptance_evidence.py" in guard
     assert 'printf \'%s\' "$ACCEPTANCE_EVIDENCE"' in guard
     assert '[[ "$ACCEPTANCE_EVIDENCE_SHA256" =~ ^[0-9a-f]{64}$ ]]' in guard
@@ -172,7 +175,11 @@ def test_release_promotion_is_exact_sha_retry_safe_and_write_scoped() -> None:
     assert "persist-credentials: false" in publish
     assert "python3 .github/scripts/promote_release.py" in publish
     assert "RELEASE_ADMIN_READ_TOKEN" in publish
-    assert "python3 .github/scripts/verify_published_release.py" in publish
+    assert (
+        "uv run --frozen --no-dev python "
+        ".github/scripts/verify_published_release.py"
+    ) in publish
+    assert "uv sync --frozen --no-dev --python 3.12.13" in publish
     assert "needs.attempt_guard.outputs.verified_attempt" in publish
     assert 'test "$VERIFIED_ATTEMPT" = "$GITHUB_RUN_ATTEMPT"' in publish
     assert "needs.reserve_tag.outputs.reserved_attempt" in publish
@@ -209,11 +216,20 @@ def test_read_only_artifact_job_owns_and_smokes_the_flat_manifest() -> None:
     workflow = (ROOT / ".github/workflows/ci.yml").read_text()
     artifact = _job(workflow, "artifact", "reproduce")
 
-    assert "sha256sum *.whl *.tar.gz > SHA256SUMS.txt" in artifact
+    assert "sha256sum *.whl *.tar.gz *.mcpb > SHA256SUMS.txt" in artifact
     assert "sha256sum -c SHA256SUMS.txt" in artifact
     assert "--source-root . --commit \"$VERIFY_REF\"" in artifact
+    assert "scripts/build_mcpb.py" in artifact
+    assert "scripts/check_mcpb_artifact.py" in artifact
+    assert "@anthropic-ai/mcpb@2.1.2 validate" in artifact
+    assert "@anthropic-ai/mcpb@2.1.2 info" in artifact
+    assert "dist/*.mcpb" in artifact
+    assert "Smoke all six tools against a copy of the bundled demo" in artifact
+    assert "Launch the exact MCPB command over stdio" in artifact
+    assert "path: dist/*" not in artifact
+    assert "dist/SHA256SUMS.txt" in artifact
+    assert "EXPECTED_MCPB_SHA256: ${{ inputs.expected_mcpb_sha256 }}" in artifact
     assert "name: ${{ env.DIST_ARTIFACT_NAME }}" in artifact
-    assert "path: dist/*" in artifact
     assert "name: ${{ env.PYPI_ARTIFACT_NAME }}" in artifact
     assert "dist/*.whl" in artifact
     assert "dist/*.tar.gz" in artifact
@@ -248,6 +264,12 @@ def test_independent_rebuild_is_a_required_secretless_ci_job() -> None:
     assert "enable-cache: false" in reproduce
     assert "persist-credentials: false" in reproduce
     assert "check_reproducible_build.py" in reproduce
+    assert "check_reproducible_mcpb.py" in reproduce
+    assert "uv sync --frozen --no-dev --python 3.12.13" in reproduce
+    assert (
+        "uv run --frozen --no-dev python "
+        "scripts/check_reproducible_mcpb.py"
+    ) in reproduce
     assert "--approved-dir approved-dist" in reproduce
     assert "--mirror-dir approved-pypi-dist" in reproduce
     assert "name: ${{ env.DIST_ARTIFACT_NAME }}" in reproduce
@@ -335,6 +357,7 @@ def test_pypi_publish_uses_exact_artifact_oidc_and_public_verification() -> None
         "cef221092ed1bacb1cc03d23a2d87d1d172e277b"
     ) in publish_pypi
     assert "packages-dir: dist/" in publish_pypi
+    assert ".mcpb" not in publish_pypi
     assert "attestations: true" in publish_pypi
     assert "skip-existing: true" in publish_pypi
 
@@ -364,6 +387,8 @@ def test_release_build_inputs_are_pinned() -> None:
 
     assert 'SOURCE_DATE_EPOCH: "1580601600"' in workflow
     assert 'requires = ["hatchling==1.31.0"]' in pyproject
+    assert "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020" in workflow
+    assert 'node-version: "22.17.0"' in workflow
     for setup in workflow.split("astral-sh/setup-uv@")[1:]:
         assert 'version: "0.11.28"' in setup.split("- name:", 1)[0]
 
@@ -417,8 +442,8 @@ def test_product_acceptance_documents_complete_path_free_packet() -> None:
     assert "Do not infer or" in releasing
     assert "Only after all required gates" in releasing
 
-    template = releasing.split("<!-- acceptance-v2-template-begin -->", 1)[1]
-    template = template.split("<!-- acceptance-v2-template-end -->", 1)[0]
+    template = releasing.split("<!-- acceptance-v3-template-begin -->", 1)[1]
+    template = template.split("<!-- acceptance-v3-template-end -->", 1)[0]
     packet = json.loads(template.split("```json\n", 1)[1].split("\n```", 1)[0])
     assert set(packet) == {
         "schema_version",
@@ -431,6 +456,7 @@ def test_product_acceptance_documents_complete_path_free_packet() -> None:
         "five_edit_batch",
         "installed_two_export",
         "desktop_rehearsal",
+        "desktop_extension",
     }
     assert set(packet["private_dogfood"]) == {"used", "clean"}
     assert packet["payment_preflight"] == {
@@ -443,6 +469,17 @@ def test_product_acceptance_documents_complete_path_free_packet() -> None:
     assert packet["installed_two_export"]["first_access_count"] == 0
     assert packet["installed_two_export"]["second_access_count"] == 1
     assert packet["desktop_rehearsal"]["client"] == "claude_desktop_fresh_copy"
+    assert packet["desktop_extension"]["installation_channel"] == (
+        "direct_download_mcpb"
+    )
+    assert packet["desktop_extension"]["visible_tools"] == [
+        "list_rounds",
+        "extract_redlines",
+        "verify_quote",
+        "preflight_edits",
+        "apply_edits",
+        "export_decision_record",
+    ]
     assert "first_access_id" in smoke
     assert 'exported_again["access_count"] == 1' in smoke
     assert 'record["record_type"] != "access_event.v1"' in smoke
@@ -503,7 +540,7 @@ def test_all_release_actions_are_pinned_to_full_shas() -> None:
 def test_release_documents_use_only_the_canonical_project_slug() -> None:
     documents = [
         ROOT / "README.md",
-        ROOT / ".github" / "release-notes" / "v0.1.2.md",
+        ROOT / ".github" / "release-notes" / "v0.2.0.md",
     ]
     combined = "\n".join(path.read_text() for path in documents)
 

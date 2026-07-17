@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import nullcontext
 import json
+import os
 import tempfile
 from pathlib import Path
 
@@ -24,10 +26,20 @@ def _payload(result) -> dict:
 
 
 async def smoke() -> dict:
-    assert __version__ == "0.1.2"
-    with tempfile.TemporaryDirectory(prefix="veqtor-wheel-smoke-") as tmp:
-        matter = Path(tmp) / "matter"
-        generate_demo_rounds(matter)
+    assert __version__ == "0.2.0"
+    configured_matter = os.environ.get("VEQTOR_SMOKE_MATTER")
+    workspace = (
+        nullcontext(configured_matter)
+        if configured_matter is not None
+        else tempfile.TemporaryDirectory(prefix="veqtor-wheel-smoke-")
+    )
+    with workspace as root:
+        if configured_matter is None:
+            matter = Path(root) / "matter"
+            generate_demo_rounds(matter)
+        else:
+            matter = Path(root)
+            assert matter.is_dir()
         async with create_connected_server_and_client_session(
             mcp._mcp_server
         ) as session:
@@ -53,12 +65,24 @@ async def smoke() -> dict:
                 for unit in extracted["change_units"]
                 if (unit.get("clause_anchor") or {}).get("label") == "14.2"
             )
+            anchor = {
+                "change_unit_id": cap["change_unit_id"],
+                "file_sha256": extracted["file_sha256"],
+            }
+            verified = _payload(
+                await session.call_tool(
+                    "verify_quote",
+                    {
+                        "path": source,
+                        "anchor": anchor,
+                        "quote": cap["new_text"],
+                    },
+                )
+            )
+            assert verified["verdict"] == "exact"
             edits = [
                 {
-                    "anchor": {
-                        "change_unit_id": cap["change_unit_id"],
-                        "file_sha256": extracted["file_sha256"],
-                    },
+                    "anchor": anchor,
                     "delete_text": "USD 50,000",
                     "insert_text": "USD 250,000",
                 }
@@ -134,6 +158,7 @@ async def smoke() -> dict:
                 "current_event_outside_own_snapshot": True,
                 "runtime_producer_build": SOURCE_SNAPSHOT_IDENTITY,
                 "runtime_version": __version__,
+                "used_bundled_demo": configured_matter is not None,
             }
 
 

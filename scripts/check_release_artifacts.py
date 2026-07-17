@@ -305,6 +305,15 @@ def _zip_layout(
 def _zip_surfaces(path: Path, *, canonical: bool) -> Iterator[tuple[str, bytes]]:
     payload = _read_file_bounded(path)
     entries, archive_comment = _zip_layout(payload, path)
+    if canonical and path.suffix == ".mcpb":
+        expected_names = sorted(str(entry["name"]) for entry in entries)
+        central_names = [str(entry["name"]) for entry in entries]
+        local_names = [
+            str(entry["name"])
+            for entry in sorted(entries, key=lambda item: int(item["local_offset"]))
+        ]
+        if central_names != expected_names or local_names != expected_names:
+            raise SystemExit(f"noncanonical ZIP member order: {path.name}")
     if sum(int(entry["file_size"]) for entry in entries) > MAX_ARCHIVE_EXPANDED_BYTES:
         raise SystemExit(f"oversized expanded archive: {path.name}")
     yield "archive-comment", archive_comment
@@ -321,6 +330,11 @@ def _zip_surfaces(path: Path, *, canonical: bool) -> Iterator[tuple[str, bytes]]
         yield f"{surface}-central-extra", bytes(entry["central_extra"])
         yield f"{surface}-local-extra", bytes(entry["local_extra"])
         if canonical:
+            expected_method = (
+                zipfile.ZIP_STORED
+                if path.suffix == ".mcpb"
+                else CANONICAL_ZIP_METHOD
+            )
             expected_mode = (
                 0o100644 if name in WHEEL_SOURCE_MAP else CANONICAL_TAR_MODE
             )
@@ -329,7 +343,7 @@ def _zip_surfaces(path: Path, *, canonical: bool) -> Iterator[tuple[str, bytes]]
                 b"PK\x03\x04",
                 CANONICAL_ZIP_VERSION_NEEDED,
                 CANONICAL_ZIP_FLAGS,
-                CANONICAL_ZIP_METHOD,
+                expected_method,
                 CANONICAL_ZIP_TIME,
                 CANONICAL_ZIP_DATE,
                 int(entry["crc"]),
@@ -342,7 +356,7 @@ def _zip_surfaces(path: Path, *, canonical: bool) -> Iterator[tuple[str, bytes]]
                 entry["version_made"] != CANONICAL_ZIP_VERSION_MADE
                 or entry["version_needed"] != CANONICAL_ZIP_VERSION_NEEDED
                 or entry["flags"] != CANONICAL_ZIP_FLAGS
-                or entry["method"] != CANONICAL_ZIP_METHOD
+                or entry["method"] != expected_method
                 or entry["time"] != CANONICAL_ZIP_TIME
                 or entry["date"] != CANONICAL_ZIP_DATE
                 or entry["internal_attr"] != 0
@@ -575,7 +589,7 @@ def _tar_surfaces(path: Path, *, canonical: bool) -> Iterator[tuple[str, bytes]]
 
 
 def _surfaces(path: Path, *, canonical: bool) -> Iterator[tuple[str, bytes]]:
-    if path.suffix == ".whl":
+    if path.suffix in {".whl", ".mcpb"}:
         yield from _zip_surfaces(path, canonical=canonical)
         return
     if path.name.endswith(".tar.gz"):

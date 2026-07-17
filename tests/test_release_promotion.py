@@ -54,15 +54,18 @@ def _artifacts(tmp_path: Path) -> tuple[Path, Path, list[Path]]:
     dist.mkdir(parents=True)
     wheel = dist / f"veqtor_mcp-{VERSION}-py3-none-any.whl"
     sdist = dist / f"veqtor_mcp-{VERSION}.tar.gz"
+    mcpb = dist / promotion.GITHUB_PAYLOAD_FILENAMES[2]
     wheel.write_bytes(b"wheel")
     sdist.write_bytes(b"sdist")
+    mcpb.write_bytes(b"mcpb")
     sums = dist / "SHA256SUMS.txt"
     sums.write_text(
         f"{hashlib.sha256(wheel.read_bytes()).hexdigest()}  {wheel.name}\n"
-        f"{hashlib.sha256(sdist.read_bytes()).hexdigest()}  {sdist.name}\n",
+        f"{hashlib.sha256(sdist.read_bytes()).hexdigest()}  {sdist.name}\n"
+        f"{hashlib.sha256(mcpb.read_bytes()).hexdigest()}  {mcpb.name}\n",
         encoding="utf-8",
     )
-    return dist, sums, [wheel, sdist, sums]
+    return dist, sums, [wheel, sdist, mcpb, sums]
 
 
 class FakeGitHub:
@@ -381,7 +384,7 @@ def test_new_release_is_uploaded_as_draft_verified_and_published(tmp_path: Path)
     assert f"name={TITLE}" in create
     assert f"body=@{NOTES_PATH}" in create
     uploads = fake.upload_calls
-    assert len(uploads) == 3
+    assert len(uploads) == 4
     assert all("/releases/100/assets?name=" in url for url, _ in uploads)
     assert not any("/releases/tags/" in " ".join(call) for call in fake.calls)
 
@@ -724,10 +727,11 @@ def test_published_release_requires_exact_alpha_metadata(
 
 def test_checksum_manifest_requires_flat_exact_names(tmp_path: Path) -> None:
     dist, sums, paths = _artifacts(tmp_path)
-    wheel, sdist, _ = paths
+    wheel, sdist, mcpb, _ = paths
     sums.write_text(
         f"{hashlib.sha256(wheel.read_bytes()).hexdigest()}  dist/{wheel.name}\n"
         f"{hashlib.sha256(sdist.read_bytes()).hexdigest()}  {sdist.name}\n"
+        f"{hashlib.sha256(mcpb.read_bytes()).hexdigest()}  {mcpb.name}\n"
     )
     fake = FakeGitHub(_assets(paths))
 
@@ -742,3 +746,51 @@ def test_checksum_manifest_requires_flat_exact_names(tmp_path: Path) -> None:
             checksums=sums,
             notes_path=NOTES_PATH,
         )
+
+
+def test_release_set_requires_exact_mcpb_and_no_extra_file(tmp_path: Path) -> None:
+    dist, sums, paths = _artifacts(tmp_path)
+    mcpb = paths[2]
+    mcpb.unlink()
+    fake = FakeGitHub([])
+
+    with pytest.raises(promotion.PromotionError, match="exact wheel"):
+        promotion.promote(
+            runner=fake,
+            asset_uploader=fake.upload_asset,
+            repository=REPOSITORY,
+            version=VERSION,
+            commit_sha=COMMIT,
+            dist_dir=dist,
+            checksums=sums,
+            notes_path=NOTES_PATH,
+        )
+
+    mcpb.write_bytes(b"mcpb")
+    (dist / "unexpected.txt").write_bytes(b"extra")
+    with pytest.raises(promotion.PromotionError, match="exact wheel"):
+        promotion.promote(
+            runner=fake,
+            asset_uploader=fake.upload_asset,
+            repository=REPOSITORY,
+            version=VERSION,
+            commit_sha=COMMIT,
+            dist_dir=dist,
+            checksums=sums,
+            notes_path=NOTES_PATH,
+        )
+
+
+def test_release_set_rejects_extra_directory_and_symlink(tmp_path: Path) -> None:
+    dist, sums, paths = _artifacts(tmp_path)
+    (dist / "private").mkdir()
+    with pytest.raises(promotion.PromotionError, match="exact wheel"):
+        promotion._expected_assets(dist, sums)
+
+    (dist / "private").rmdir()
+    wheel = paths[0]
+    real_wheel = tmp_path / "real-wheel"
+    wheel.replace(real_wheel)
+    wheel.symlink_to(real_wheel)
+    with pytest.raises(promotion.PromotionError, match="exact wheel"):
+        promotion._expected_assets(dist, sums)

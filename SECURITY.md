@@ -51,3 +51,10 @@ verbatim matter text and must be handled as part of the private corpus.
 
 Hashes in the product are re-checkable content fingerprints. They do not
 authenticate authors, prevent local tampering, or provide trusted timestamps.
+
+A Claude Desktop Extension is official only when its exact versioned `.mcpb`
+is attached to the matching immutable GitHub Release and covered by that
+release's `SHA256SUMS.txt`. The checksum detects accidental or malicious byte
+changes after the approved build; it is not a digital signature, code-signing
+certificate or proof of authorship. Do not install MCPB files from issues,
+forks, chat attachments or unverified mirrors.

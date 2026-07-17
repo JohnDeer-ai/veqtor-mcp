@@ -5,9 +5,8 @@
 This file defines the public tool surface. Output examples are part of the API
 because models use them to decide how to call tools and how to cite results.
 
-The current source advertises MCP contract `veqtor.mcp.v0.2`. This is a tool
-schema version, independent from the package version: the package and published
-release remain `0.1.2` until a separately verified release changes them. Every
+Version `0.2.0` advertises MCP contract `veqtor.mcp.v0.2`. These remain separate
+identities. Every
 tool exposes `veqtor.pro/contractSchemaVersion: veqtor.mcp.v0.2` in its MCP
 metadata and the same value under `x-veqtor-contract-schema-version` in its
 output schema. Nested anchors, edits and preflight proofs are closed objects;
@@ -440,7 +439,7 @@ Output:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.1.2",
+    "version": "0.2.0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "batch_applicable": true,
@@ -491,7 +490,7 @@ for example:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.1.2",
+    "version": "0.2.0",
     "build": "source-snapshot-v1-sha256:example"
   },
   "batch_applicable": false,
@@ -550,7 +549,7 @@ before text matching and therefore returns:
 ```
 
 The earlier 14-operation paired counter/reinstate hang report remains
-unreproduced. The development regression exercises that batch shape and asserts
+unreproduced. The regression exercises that batch shape and asserts
 a terminal structured `edits_overlap` result with all 14 diagnostics. It does
 not establish a general wall-clock bound and adds no timeout or cancellation
 API.
@@ -723,7 +722,7 @@ Output:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.1.2",
+    "version": "0.2.0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "applied": [
@@ -897,7 +896,7 @@ Output:
       "created_at": "2026-07-09T12:00:00Z",
       "tool_name": "verify_quote",
       "workspace": {"sha256": "example-workspace-digest", "omitted": true},
-      "producer": {"name": "veqtor-mcp", "version": "0.1.2", "build": "source-snapshot-v1-sha256:..."},
+      "producer": {"name": "veqtor-mcp", "version": "0.2.0", "build": "source-snapshot-v1-sha256:..."},
       "payloads": "compact",
       "input": {"sha256": "example-input-digest", "omitted": true},
       "result": {
