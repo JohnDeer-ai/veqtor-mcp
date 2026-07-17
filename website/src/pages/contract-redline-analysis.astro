@@ -34,15 +34,37 @@ const sections = [
     ],
   },
 ]
+
+const relatedWorkflows = {
+  id: 'related-workflows',
+  eyebrow: 'Related workflows',
+  title: 'Separate the analysis from the document work.',
+  body: 'Use the page that matches the question you need to answer next: who is responsible for the analysis, or what Veqtor can do inside Word.',
+  links: [
+    {
+      href: '/ai-contract-review',
+      label: 'AI contract review',
+      title: 'Understand what Claude, Veqtor, and you each do',
+      description: 'See how contract analysis stays separate from supported document checks and your final review.',
+    },
+    {
+      href: '/docx-track-changes-review',
+      label: 'Microsoft Word',
+      title: 'See which tracked changes Veqtor can read and create',
+      description: 'Review the supported Word workflow and the parts this early version does not handle.',
+    },
+  ],
+}
 ---
 
 <NarrativePage
-  title="Contract Redline Analysis Across Word Drafts — Veqtor"
+  title="Contract Redline Analysis Across Word Drafts — Veqtor MCP"
   description="Ask Claude what changed across Word contract drafts, check important quotes against specific tracked changes, and create a separate counterproposal for review."
   path="/contract-redline-analysis"
   eyebrow="Contract redline analysis"
   heading="Understand how the wording moved across the negotiation."
-  lede="Veqtor lets Claude read the tracked text changes it supports and clearly reports what it cannot determine or change."
+  lede="Veqtor lets Claude read the tracked text changes it supports and reports unsupported revision types it encounters in the main document body."
   meta="Drafts in filename order · Source files unchanged"
   sections={sections}
+  linkSection={relatedWorkflows}
 />

@@ -3,12 +3,28 @@ import BaseLayout from '../layouts/BaseLayout.astro'
 import PageHero from './PageHero.astro'
 import SiteCta from './SiteCta.astro'
 
+interface PageLink {
+  href: string
+  title: string
+  description?: string
+  label?: string
+}
+
 interface Section {
   id: string
   title: string
   body: string[]
   bullets?: string[]
   note?: string
+  links?: PageLink[]
+}
+
+interface LinkSection {
+  id?: string
+  eyebrow?: string
+  title: string
+  body?: string
+  links: PageLink[]
 }
 
 interface Props {
@@ -23,9 +39,24 @@ interface Props {
   ctaTitle?: string
   ctaBody?: string
   structuredData?: Record<string, unknown> | Record<string, unknown>[]
+  linkSection?: LinkSection
 }
 
-const { title, description, path, eyebrow, heading, lede, meta, sections, ctaTitle, ctaBody, structuredData = [] } = Astro.props
+const {
+  title,
+  description,
+  path,
+  eyebrow,
+  heading,
+  lede,
+  meta,
+  sections,
+  ctaTitle,
+  ctaBody,
+  structuredData = [],
+  linkSection,
+} = Astro.props
+const linkSectionId = linkSection?.id ?? 'related-pages'
 const pageSchema = {
   '@type': 'WebPage',
   '@id': `https://veqtor.pro${path}#webpage`,
@@ -56,15 +87,119 @@ const extraSchemas = Array.isArray(structuredData) ? structuredData : [structure
             {section.body.map((paragraph) => <p>{paragraph}</p>)}
             {section.bullets && <ul>{section.bullets.map((item) => <li>{item}</li>)}</ul>}
             {section.note && <details class="notice technical-disclosure" data-copy-layer="technical"><summary>Show technical detail</summary><p>{section.note}</p></details>}
+            {section.links && section.links.length > 0 && (
+              <nav class="section-links" aria-label={`Learn more about ${section.title}`}>
+                {section.links.map((link) => (
+                  <a href={link.href}>
+                    <strong>{link.title}</strong>
+                    {link.description && <span>{link.description}</span>}
+                  </a>
+                ))}
+              </nav>
+            )}
           </section>
         ))}
       </article>
       <aside class="side-index" aria-label="On this page">
         <strong>On this page</strong>
         {sections.map((section) => <a href={`#${section.id}`}>{section.title}</a>)}
+        {linkSection && <a href={`#${linkSectionId}`}>{linkSection.title}</a>}
       </aside>
     </div>
   </section>
 
+  {linkSection && linkSection.links.length > 0 && (
+    <section class="section link-section" id={linkSectionId} aria-labelledby={`${linkSectionId}-heading`}>
+      <div class="shell">
+        <div class="section-heading">
+          <div>
+            {linkSection.eyebrow && <p class="eyebrow">{linkSection.eyebrow}</p>}
+            <h2 id={`${linkSectionId}-heading`}>{linkSection.title}</h2>
+          </div>
+          {linkSection.body && <p>{linkSection.body}</p>}
+        </div>
+        <div class="card-grid link-section__grid">
+          {linkSection.links.map((link) => (
+            <a class="card link-card" href={link.href}>
+              {link.label && <span class="card-label">{link.label}</span>}
+              <h3>{link.title}</h3>
+              {link.description && <p>{link.description}</p>}
+              <span class="link-card__action" aria-hidden="true">Learn more →</span>
+            </a>
+          ))}
+        </div>
+      </div>
+    </section>
+  )}
+
   <SiteCta title={ctaTitle} body={ctaBody} />
 </BaseLayout>
+
+<style>
+  .section-links {
+    border-top: 1px solid var(--line-strong);
+    display: grid;
+    margin-top: 1.75rem;
+  }
+
+  .section-links a {
+    border-bottom: 1px solid var(--line);
+    display: grid;
+    gap: 0.35rem;
+    padding: 1rem 0;
+    text-decoration: none;
+  }
+
+  .section-links a:hover strong {
+    color: var(--lime);
+  }
+
+  .section-links strong {
+    color: var(--violet-strong);
+    transition: color 150ms ease;
+  }
+
+  .section-links span {
+    color: var(--muted);
+    font-size: 0.9rem;
+    line-height: 1.6;
+  }
+
+  .link-section {
+    background: var(--surface);
+    border-top: 1px solid var(--line);
+  }
+
+  .link-section__grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  }
+
+  .link-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+    text-decoration: none;
+    transition: border-color 150ms ease, transform 150ms ease;
+  }
+
+  .link-card:hover {
+    border-color: var(--violet);
+    transform: translateY(-2px);
+  }
+
+  .link-card h3 {
+    margin-bottom: 0.75rem;
+  }
+
+  .link-card__action {
+    color: var(--lime);
+    display: block;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    font-weight: var(--weight-label);
+    letter-spacing: 0.04em;
+    margin-top: auto;
+    padding-top: 1.5rem;
+    text-transform: uppercase;
+  }
+</style>

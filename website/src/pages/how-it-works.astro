@@ -17,6 +17,13 @@ const sections = [
       'Keep the negotiation drafts in one folder and begin their file names with 01, 02, 03 and so on. Veqtor reads that file-name order. It does not try to reconstruct chronology from document metadata or guess which version came first.',
       'Tell Claude where the folder is and what you want to understand. You can start with a normal question such as “What changed in the limitation of liability across these drafts?”',
     ],
+    links: [
+      {
+        href: '/contract-redline-analysis',
+        title: 'See how Veqtor handles several negotiation drafts',
+        description: 'Learn what Veqtor can show about wording across rounds—and what still needs your judgment.',
+      },
+    ],
   },
   {
     id: 'inspect-and-check',
@@ -25,6 +32,13 @@ const sections = [
       'Claude chooses when it needs Veqtor. Veqtor returns the changed words, the file they came from, and a small amount of nearby text. If Claude needs to rely on exact wording, it can ask Veqtor to check the quote against the specific change it came from.',
       'You still review Claude’s interpretation. The point is to tie important statements to a particular tracked change instead of treating every sentence in chat as equally reliable.',
     ],
+    links: [
+      {
+        href: '/ai-contract-review',
+        title: 'See the boundary between Claude’s analysis and Veqtor’s document work',
+        description: 'Understand which parts of the review come from Claude, Veqtor, and you.',
+      },
+    ],
   },
   {
     id: 'test-and-write',
@@ -32,6 +46,13 @@ const sections = [
     body: [
       'Before writing, Veqtor runs the entire proposed set of edits through the same document process it uses for the final operation. If one edit cannot be completed, the whole set is refused and no final Word document is created.',
       'If the test succeeds and Claude proceeds, Veqtor creates a separate Word document. It never overwrites the source or an existing output with the same name.',
+    ],
+    links: [
+      {
+        href: '/docx-track-changes-review',
+        title: 'See how Veqtor works with supported Word Track Changes',
+        description: 'Learn which changes it can read and create, and which parts of Word remain outside the Alpha.',
+      },
     ],
   },
   {
@@ -45,7 +66,7 @@ const sections = [
 ---
 
 <NarrativePage
-  title="How Veqtor Works — From Word Drafts to Counterproposal"
+  title="How Veqtor MCP Works — From Word Drafts to Counterproposal"
   description="Connect Veqtor to Claude, order your Word negotiation drafts, ask normal questions, test proposed edits, and review a separate counterproposal in Word."
   path="/how-it-works"
   eyebrow="The workflow"

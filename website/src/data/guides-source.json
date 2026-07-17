@@ -23,7 +23,7 @@
         "body": [
           "Ilya Shilov is a commercial lawyer who has advised on international licensing, M&A, and cross-border transactions since 2016, with experience across the IT, pharma, and technology sectors.",
           "He writes practical guides on English-law commercial contracts - how deals are formed, how redlines shift risk, and how the clauses people treat as boilerplate actually decide outcomes.",
-          "As founder of Veqtor, Ilya turns that contract-review experience into software that helps reviewers triage redlines, understand risk, and keep decisions tied to source clauses."
+          "As founder of Veqtor, Ilya brings that contract-review experience to an open-source tool that helps Claude work with tracked changes in Word while keeping the original file untouched."
         ]
       },
       {
@@ -109,6 +109,14 @@
     {
       "id": "contract-formation",
       "label": "Contract formation",
+      "metaDescription": "Browse six English-law guides on digital contract formation, messaging, email and electronic signatures, subject-to-contract wording, and statutory writing requirements.",
+      "productBridge": {
+        "href": "/demo",
+        "label": "Word redline workflow",
+        "heading": "See how formation wording moves between drafts.",
+        "title": "Watch a multi-draft example",
+        "body": "Ask Claude to compare acceptance, signature, and formality language across Word drafts. Veqtor gives Claude the tracked changes it can read from each file. The demo shows the same workflow with a liability-cap example."
+      },
       "pillarSlug": "contract-formation",
       "spokeSlugs": [
         "whatsapp-binding-contract",
@@ -121,6 +129,14 @@
     {
       "id": "parties-to-a-contract",
       "label": "Parties to a contract",
+      "metaDescription": "Browse five English-law guides on identifying contract parties, signing authority, parent-company exposure, trading names, and third-party enforcement rights.",
+      "productBridge": {
+        "href": "/demo",
+        "label": "Word redline workflow",
+        "heading": "Check who each draft puts on the hook.",
+        "title": "Watch a multi-draft example",
+        "body": "Ask Claude how party names, authority, guarantees, and third-party rights changed between Word drafts. Veqtor gives Claude the tracked changes it can read. The demo shows the same workflow with a liability-cap example."
+      },
       "pillarSlug": "parties-to-a-contract",
       "spokeSlugs": [
         "authority-to-sign-a-contract",
@@ -132,6 +148,14 @@
     {
       "id": "definitions-and-recitals",
       "label": "Definitions and recitals",
+      "metaDescription": "Browse six English-law guides on contract interpretation, defined terms, inclusive wording, endeavours obligations, and the legal effect of recitals.",
+      "productBridge": {
+        "href": "/demo",
+        "label": "Word redline workflow",
+        "heading": "Trace a changed definition through the negotiation.",
+        "title": "Watch a multi-draft example",
+        "body": "Ask Claude how a defined term or recital changed across Word drafts, then check the answer against the specific tracked changes Veqtor could read. The demo shows the same workflow with a liability-cap example."
+      },
       "pillarSlug": "definitions-and-recitals",
       "spokeSlugs": [
         "how-courts-interpret-contracts",
@@ -144,6 +168,14 @@
     {
       "id": "scope-of-work",
       "label": "Scope of work",
+      "metaDescription": "Browse four English-law guides on defining scope, effort-versus-result obligations, acceptance testing, and conditions that control when claims arise.",
+      "productBridge": {
+        "href": "/demo",
+        "label": "Word redline workflow",
+        "heading": "Compare scope and acceptance wording across drafts.",
+        "title": "Watch a multi-draft example",
+        "body": "Ask Claude what changed in the work, deliverables, standards, or acceptance tests. Veqtor gives Claude the tracked changes it can read from the Word drafts. The demo shows the same workflow with a liability-cap example."
+      },
       "pillarSlug": "scope-of-work",
       "spokeSlugs": [
         "obligation-of-means-vs-result",
@@ -154,6 +186,14 @@
     {
       "id": "when-obligations-become-due",
       "label": "When obligations become due",
+      "metaDescription": "Browse six English-law guides on conditions precedent, payment triggers, deemed fulfilment, contractual time bars, waiver, estoppel, and drafting reliable triggers.",
+      "productBridge": {
+        "href": "/demo",
+        "label": "Word redline workflow",
+        "heading": "Follow trigger and deadline changes across drafts.",
+        "title": "Watch a multi-draft example",
+        "body": "Ask Claude how payment triggers, conditions, or time bars changed during the negotiation. Veqtor gives Claude the tracked changes it can read from each draft in file-name order. The demo shows the same workflow with a liability-cap example."
+      },
       "pillarSlug": "when-obligations-become-due",
       "spokeSlugs": [
         "condition-precedent-to-payment",
@@ -166,6 +206,14 @@
     {
       "id": "limitation-of-liability",
       "label": "Limitation of liability",
+      "metaDescription": "Browse seven English-law guides on liability caps, fraud and mandatory carve-outs, consequential loss, UCTA reasonableness, and limitation-clause drafting.",
+      "productBridge": {
+        "href": "/demo",
+        "label": "Word redline workflow",
+        "heading": "Compare a liability cap across Word drafts.",
+        "title": "Watch a multi-draft example",
+        "body": "Ask Claude how the cap, exclusions, and carve-outs changed across negotiation rounds. Veqtor gives Claude the tracked changes it can read from each draft. The demo shows this workflow with a liability-cap example."
+      },
       "pillarSlug": "limitation-of-liability",
       "spokeSlugs": [
         "excluding-liability-for-fraud",
@@ -179,6 +227,14 @@
     {
       "id": "warranties-and-representations",
       "label": "Warranties and representations",
+      "metaDescription": "Browse six English-law guides on warranties, representations, damages, non-reliance wording, the UCTA section 27 gap, and enforceable drafting.",
+      "productBridge": {
+        "href": "/demo",
+        "label": "Word redline workflow",
+        "heading": "See when a warranty becomes something more.",
+        "title": "Watch a multi-draft example",
+        "body": "Ask Claude how warranties, representations, remedies, or non-reliance language changed across Word drafts. Veqtor gives Claude the tracked changes it can read. The demo shows the same workflow with a liability-cap example."
+      },
       "pillarSlug": "warranties-and-representations",
       "spokeSlugs": [
         "warranty-vs-representation",
@@ -191,6 +247,14 @@
     {
       "id": "indemnities",
       "label": "Indemnities",
+      "metaDescription": "Browse seven English-law guides on indemnity triggers, debt and damages claims, causation, remoteness, liability caps, notice conditions, and practical drafting.",
+      "productBridge": {
+        "href": "/demo",
+        "label": "Word redline workflow",
+        "heading": "Trace an indemnity across the negotiation drafts.",
+        "title": "Watch a multi-draft example",
+        "body": "Ask Claude how the trigger, losses, cap, or notice procedure changed across Word drafts. Veqtor gives Claude the tracked changes it can read. The demo shows the same workflow with a liability-cap example."
+      },
       "pillarSlug": "indemnities",
       "spokeSlugs": [
         "indemnity-debt-vs-damages",
@@ -204,6 +268,14 @@
     {
       "id": "terminating-a-contract",
       "label": "Terminating a contract",
+      "metaDescription": "Browse eleven English-law guides on repudiatory and material breach, convenience rights, notices, affirmation, cure, survival, and termination consequences.",
+      "productBridge": {
+        "href": "/demo",
+        "label": "Word redline workflow",
+        "heading": "See how the exit rights changed before you rely on them.",
+        "title": "Watch a multi-draft example",
+        "body": "Ask Claude how termination triggers, cure periods, notices, and surviving obligations changed across drafts. Veqtor provides the tracked changes it can read for review. The demo shows the same workflow with a liability-cap example."
+      },
       "pillarSlug": "terminating-a-contract",
       "spokeSlugs": [
         "repudiatory-breach-and-loss-of-bargain",
@@ -221,6 +293,14 @@
     {
       "id": "dispute-resolution-clauses",
       "label": "Dispute resolution",
+      "metaDescription": "Browse eight English-law guides on governing law, jurisdiction, arbitration agreements, seats and institutions, litigation choices, drafting, and non-parties.",
+      "productBridge": {
+        "href": "/demo",
+        "label": "Word redline workflow",
+        "heading": "Track where and how disputes will be decided.",
+        "title": "Watch a multi-draft example",
+        "body": "Ask Claude how governing law, jurisdiction, arbitration, or the seat changed across Word drafts. Veqtor gives Claude the tracked changes it can read. The demo shows the same workflow with a liability-cap example."
+      },
       "pillarSlug": "dispute-resolution-clauses",
       "spokeSlugs": [
         "governing-law-clauses",
@@ -235,6 +315,14 @@
     {
       "id": "force-majeure-frustration-and-hardship",
       "label": "Force majeure, frustration & hardship",
+      "metaDescription": "Browse six English-law guides on force majeure, frustration, hardship, drafting relief events, and choosing the right route when circumstances change.",
+      "productBridge": {
+        "href": "/demo",
+        "label": "Word redline workflow",
+        "heading": "Compare what each draft treats as an excused event.",
+        "title": "Watch a multi-draft example",
+        "body": "Ask Claude how events, notice duties, mitigation, suspension, or termination rights changed across drafts. Veqtor supplies the tracked changes it can read for the comparison. The demo shows the same workflow with a liability-cap example."
+      },
       "pillarSlug": "force-majeure-frustration-and-hardship",
       "spokeSlugs": [
         "frustration-of-contract",
@@ -247,6 +335,14 @@
     {
       "id": "intellectual-property-in-commercial-contracts",
       "label": "Intellectual property",
+      "metaDescription": "Browse seven English-law guides on background and foreground IP, assignments, AI-generated output, licensing, indemnities, moral rights, and cross-border ownership.",
+      "productBridge": {
+        "href": "/demo",
+        "label": "Word redline workflow",
+        "heading": "Follow ownership and licence changes across drafts.",
+        "title": "Watch a multi-draft example",
+        "body": "Ask Claude how ownership, licence scope, permitted use, or IP indemnities changed across Word drafts. Veqtor gives Claude the tracked changes it can read. The demo shows the same workflow with a liability-cap example."
+      },
       "pillarSlug": "intellectual-property-in-commercial-contracts",
       "spokeSlugs": [
         "ip-ownership-cross-border",
@@ -260,6 +356,14 @@
     {
       "id": "liquidated-damages",
       "label": "Liquidated damages",
+      "metaDescription": "Browse six English-law guides on liquidated damages, penalties, general and consequential loss, liability architecture, clause drafting, and cross-border enforcement.",
+      "productBridge": {
+        "href": "/demo",
+        "label": "Word redline workflow",
+        "heading": "See how the agreed remedy changed across drafts.",
+        "title": "Watch a multi-draft example",
+        "body": "Ask Claude how the amount, trigger, exclusivity, or link to the liability cap changed during negotiation. Veqtor supplies the tracked changes it can read. The demo shows the same workflow with a liability-cap example."
+      },
       "pillarSlug": "liquidated-damages",
       "spokeSlugs": [
         "liquidated-damages-vs-penalties",
@@ -272,6 +376,14 @@
     {
       "id": "assignment-novation-and-change-of-control",
       "label": "Assignment & change of control",
+      "metaDescription": "Browse seven English-law guides on assignment, novation, anti-assignment wording, change-of-control rights, regulatory approvals, and M&A or technology deals.",
+      "productBridge": {
+        "href": "/demo",
+        "label": "Word redline workflow",
+        "heading": "Track who can transfer the deal, and when.",
+        "title": "Watch a multi-draft example",
+        "body": "Ask Claude how consent, assignment, novation, or change-of-control rights changed across Word drafts. Veqtor gives Claude the tracked changes it can read. The demo shows the same workflow with a liability-cap example."
+      },
       "pillarSlug": "assignment-novation-and-change-of-control",
       "spokeSlugs": [
         "assignment-of-contracts",
@@ -285,6 +397,14 @@
     {
       "id": "confidentiality-and-ndas",
       "label": "Confidentiality & NDAs",
+      "metaDescription": "Browse eight English-law guides on contractual and equitable confidentiality, definitions, NDA duties, trade secrets, remedies, duration, carve-outs, and compliance.",
+      "productBridge": {
+        "href": "/demo",
+        "label": "Word redline workflow",
+        "heading": "Compare what each NDA draft protects and permits.",
+        "title": "Watch a multi-draft example",
+        "body": "Ask Claude how protected information, permitted use, duration, remedies, or carve-outs changed across drafts. Veqtor provides the tracked changes it can read for the comparison. The demo shows the same workflow with a liability-cap example."
+      },
       "pillarSlug": "confidentiality-and-ndas",
       "spokeSlugs": [
         "equitable-and-contractual-confidentiality",
@@ -299,6 +419,14 @@
     {
       "id": "sanctions-and-export-controls",
       "label": "Sanctions & export controls",
+      "metaDescription": "Browse seven contract guides on UK, US and EU sanctions, performance restrictions, export controls, counterparty checks, clause drafting, and enforcement exposure.",
+      "productBridge": {
+        "href": "/demo",
+        "label": "Word redline workflow",
+        "heading": "Track compliance obligations across negotiation drafts.",
+        "title": "Watch a multi-draft example",
+        "body": "Ask Claude how screening, licences, payment restrictions, suspension, or termination rights changed across drafts. Veqtor gives Claude the tracked changes it can read. The demo shows the same workflow with a liability-cap example."
+      },
       "pillarSlug": "sanctions-and-export-controls",
       "spokeSlugs": [
         "sanctions-regimes-uk-us-eu",
@@ -312,6 +440,14 @@
     {
       "id": "boilerplate-clauses",
       "label": "Boilerplate clauses",
+      "metaDescription": "Browse eight English-law guides on entire agreement, no-oral-modification, notices, waiver, severability, third-party rights, and cross-border boilerplate.",
+      "productBridge": {
+        "href": "/demo",
+        "label": "Word redline workflow",
+        "heading": "Find the quiet changes that alter how the deal operates.",
+        "title": "Watch a multi-draft example",
+        "body": "Ask Claude how notices, waiver, variation, severability, or third-party rights changed across Word drafts. Veqtor gives Claude the tracked changes it can read. The demo shows the same workflow with a liability-cap example."
+      },
       "pillarSlug": "boilerplate-clauses",
       "spokeSlugs": [
         "entire-agreement-clauses",

@@ -37,10 +37,31 @@ const sections = [
     ],
   },
 ]
+
+const relatedWorkflows = {
+  id: 'related-workflows',
+  eyebrow: 'Related workflows',
+  title: 'Continue with the document task in front of you.',
+  body: 'The analysis, the negotiation history, and the Word file are connected—but each needs a different kind of review.',
+  links: [
+    {
+      href: '/contract-redline-analysis',
+      label: 'Several negotiation drafts',
+      title: 'Follow how wording changed across the rounds',
+      description: 'See how Veqtor supports a review of tracked wording across ordered drafts.',
+    },
+    {
+      href: '/docx-track-changes-review',
+      label: 'Microsoft Word',
+      title: 'Keep supported changes visible in Word',
+      description: 'See which tracked changes Veqtor can read and create in a separate document.',
+    },
+  ],
+}
 ---
 
 <NarrativePage
-  title="AI Contract Review for Word Redlines — Veqtor"
+  title="AI Contract Review for Word Redlines — Veqtor MCP"
   description="Use Claude to analyze contract negotiations while Veqtor keeps supported Word redlines, quotations, proposed edits, and output files connected to the underlying documents."
   path="/ai-contract-review"
   eyebrow="AI contract review"
@@ -48,4 +69,5 @@ const sections = [
   lede="Veqtor handles the supported document operations. Claude handles reasoning and drafting. You review both before using the result."
   meta="Claude explains · Veqtor works with Word · You review"
   sections={sections}
+  linkSection={relatedWorkflows}
 />

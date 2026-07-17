@@ -31,6 +31,13 @@ const sections = [
       'This separation does not make AI infallible. It gives you a clearer basis for checking what came from the document, what came from Claude, and what was ultimately written.',
     ],
     note: 'Veqtor is a local MCP server using the stdio transport. Its six tools are list_rounds, extract_redlines, verify_quote, preflight_edits, apply_edits, and export_decision_record.',
+    links: [
+      {
+        href: '/veqtor-vs-claude-for-word',
+        title: 'Compare Veqtor with Claude for Word',
+        description: 'See when the Word add-in fits the task and when Veqtor’s narrower multi-draft workflow is useful.',
+      },
+    ],
   },
   {
     id: 'alpha-boundary',
@@ -41,10 +48,37 @@ const sections = [
     ],
   },
 ]
+
+const useCases = {
+  id: 'use-cases',
+  eyebrow: 'Use cases',
+  title: 'Choose the part of the review you need help with.',
+  body: 'Veqtor focuses on three connected jobs: using Claude for analysis, following wording across drafts, and keeping supported changes reviewable in Word.',
+  links: [
+    {
+      href: '/ai-contract-review',
+      label: 'AI contract review',
+      title: 'Use Claude for analysis without losing the document',
+      description: 'See what Claude, Veqtor, and you are each responsible for during a contract review.',
+    },
+    {
+      href: '/contract-redline-analysis',
+      label: 'Several negotiation drafts',
+      title: 'Follow how wording changed across the rounds',
+      description: 'Compare supported redlines, check important wording, and prepare a separate counterproposal.',
+    },
+    {
+      href: '/docx-track-changes-review',
+      label: 'Microsoft Word',
+      title: 'Keep tracked changes visible in Word',
+      description: 'See which Word changes Veqtor can read and create in this early version.',
+    },
+  ],
+}
 ---
 
 <NarrativePage
-  title="Veqtor Product — Word Redline Tools for Claude"
+  title="Veqtor MCP — Word Redline Tools for Claude"
   description="See how Veqtor helps Claude compare Word contract drafts, check specific tracked wording, test proposed edits, and create a separate counterproposal for review."
   path="/product"
   eyebrow="The product"
@@ -52,5 +86,6 @@ const sections = [
   lede="Ask normal questions about the negotiation. Veqtor reads and checks the tracked changes it supports, then creates a separate Word file only when every requested edit can be made."
   meta="Local · Open source · Public technical Alpha"
   sections={sections}
+  linkSection={useCases}
   ctaTitle="Watch the complete workflow on sample contract documents."
 />

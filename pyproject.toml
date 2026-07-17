@@ -36,7 +36,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/JohnDeer-ai/veqtor-mcp"
+Homepage = "https://veqtor.pro"
+Documentation = "https://veqtor.pro/docs"
 Repository = "https://github.com/JohnDeer-ai/veqtor-mcp"
 Issues = "https://github.com/JohnDeer-ai/veqtor-mcp/issues"
 Changelog = "https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/CHANGELOG.md"

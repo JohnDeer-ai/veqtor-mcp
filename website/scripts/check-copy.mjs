@@ -5,10 +5,11 @@ import { fileURLToPath } from 'node:url'
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const WEBSITE_DIR = resolve(SCRIPT_DIR, '..')
 const SRC_DIR = join(WEBSITE_DIR, 'src')
+const PUBLIC_DIR = join(WEBSITE_DIR, 'public')
 const DIST_DIR = join(WEBSITE_DIR, 'dist')
 
 const SOURCE_EXTENSIONS = new Set(['.astro', '.html', '.js', '.jsx', '.json', '.md', '.mdx', '.mjs', '.ts', '.tsx', '.txt'])
-const DIST_COPY_EXTENSIONS = new Set(['.html', '.json', '.txt', '.webmanifest', '.xml'])
+const DIST_COPY_EXTENSIONS = new Set(['.html', '.json', '.txt', '.vtt', '.webmanifest', '.xml'])
 
 // These are claims and calls to action from the retired hosted application. They are not
 // safe descriptions of the local open-source MCP product.
@@ -35,6 +36,15 @@ const OBSOLETE_PATTERNS = [
   ['retired demo asset', /\bveqtor-demo-hd\.mp4\b/i],
   ['retired demo duration', /\b(?:two[- ]minute|2:15)\b/i],
   ['retired demo workflow', /\bcounter[- ]redline export\b/i],
+]
+
+// Timed captions are a primary accessible artifact. Keep these guards narrow to the
+// three claims corrected after the v0.1.2 recording was produced.
+const STALE_DEMO_CAPTION_PATTERNS = [
+  ['unanchored quotation verification', /\bverif(?:y|ies|ied) quotations?\b/i],
+  ['whole-file quotation verification', /\bchecks? (?:the )?quotation against (?:the )?(?:source )?file\b/i],
+  ['saved-file recheck', /\bre[- ]?checks? (?:the )?saved file\b/i],
+  ['generic one-command install', /\b(?:installs? with (?:a single|one) command|one[- ]command install(?:ation)?)\b/i],
 ]
 
 // Technical precision belongs in a visibly marked technical layer, docs, setup, or limitations.
@@ -73,6 +83,7 @@ const PLAIN_MARKETING_ROUTES = new Set([
   '/ai-contract-review',
   '/contract-redline-analysis',
   '/docx-track-changes-review',
+  '/veqtor-vs-claude-for-word',
   '/terms',
   '/privacy',
 ])
@@ -223,6 +234,16 @@ function scanSource() {
   }
 }
 
+function scanPublicCaptions() {
+  for (const path of walkFiles(PUBLIC_DIR)) {
+    if (extname(path).toLowerCase() !== '.vtt') continue
+    const rel = normalizedRelative(path)
+    const raw = readFileSync(path, 'utf8')
+    scanPatterns(rel, raw, OBSOLETE_PATTERNS, true)
+    scanPatterns(rel, raw, STALE_DEMO_CAPTION_PATTERNS, true)
+  }
+}
+
 function scanDist() {
   if (!existsSync(DIST_DIR)) {
     failures.push('dist is missing; run the website build before check-copy')
@@ -232,6 +253,11 @@ function scanDist() {
     if (!DIST_COPY_EXTENSIONS.has(extname(path).toLowerCase())) continue
     const rel = normalizedRelative(path)
     const raw = readFileSync(path, 'utf8')
+    if (extname(path).toLowerCase() === '.vtt') {
+      scanPatterns(rel, raw, OBSOLETE_PATTERNS, true)
+      scanPatterns(rel, raw, STALE_DEMO_CAPTION_PATTERNS, true)
+      continue
+    }
     if (extname(path).toLowerCase() !== '.html') {
       scanPatterns(rel, raw, OBSOLETE_PATTERNS)
       continue
@@ -249,6 +275,7 @@ function scanDist() {
 }
 
 scanSource()
+scanPublicCaptions()
 scanDist()
 
 if (failures.length) {
@@ -256,5 +283,5 @@ if (failures.length) {
   for (const failure of failures) console.error(`- ${failure}`)
   process.exitCode = 1
 } else {
-  console.log('Copy check passed: no retired hosted-product claims and no forbidden jargon in plain marketing copy.')
+  console.log('Copy check passed: no retired hosted-product or stale demo-caption claims and no forbidden jargon in plain marketing copy.')
 }

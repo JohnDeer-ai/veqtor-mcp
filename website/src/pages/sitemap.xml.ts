@@ -18,6 +18,7 @@ const STATIC_ROUTES = [
   '/ai-contract-review',
   '/contract-redline-analysis',
   '/docx-track-changes-review',
+  '/veqtor-vs-claude-for-word',
   '/terms',
   '/privacy',
   '/author/ilya-shilov',

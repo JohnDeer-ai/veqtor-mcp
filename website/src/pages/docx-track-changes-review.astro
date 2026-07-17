@@ -14,8 +14,8 @@ const sections = [
     id: 'supported-review',
     title: 'What the Alpha can review',
     body: [
-      'Veqtor reads tracked text changes in the main document body and includes a small amount of nearby text. When it cannot handle a type of Word change, it reports that limitation instead of pretending it reviewed it.',
-      'It does not currently analyze comments, headers, footers, footnotes or endnotes. It may notice formatting changes, moved text and unusual nested structures, but it cannot always edit them.',
+      'Veqtor reads tracked text changes in the main document body and includes a small amount of nearby text. Revision types it recognizes there but cannot turn into editable text changes are counted as unsupported.',
+      'Comments, headers, footers, footnotes and endnotes are outside the review entirely. Veqtor may notice formatting changes, moved text and unusual nested structures in the main document body, but it cannot always edit them.',
     ],
   },
   {
@@ -34,10 +34,31 @@ const sections = [
     ],
   },
 ]
+
+const relatedWorkflows = {
+  id: 'related-workflows',
+  eyebrow: 'Related workflows',
+  title: 'Use the Word changes in the wider review.',
+  body: 'Tracked changes show what moved in the document. Claude can help explain the negotiation, while you remain responsible for the conclusion and final file.',
+  links: [
+    {
+      href: '/contract-redline-analysis',
+      label: 'Several negotiation drafts',
+      title: 'Follow how wording changed across the rounds',
+      description: 'See how supported tracked changes can inform a review of several ordered drafts.',
+    },
+    {
+      href: '/ai-contract-review',
+      label: 'AI contract review',
+      title: 'Understand the roles of Claude, Veqtor, and you',
+      description: 'Keep Claude’s analysis separate from Veqtor’s document work and your final judgment.',
+    },
+  ],
+}
 ---
 
 <NarrativePage
-  title="Word Track Changes Review with Claude — Veqtor"
+  title="Word Track Changes Review with Claude — Veqtor MCP"
   description="Understand how Veqtor lets Claude read supported Microsoft Word tracked changes, check wording, test edits, and create a separate reviewable Word file."
   path="/docx-track-changes-review"
   eyebrow="Microsoft Word track changes"
@@ -45,4 +66,5 @@ const sections = [
   lede="Veqtor works with a narrow, explicit part of the Word file format so supported redlines remain visible and reviewable in the document."
   meta="For modern Microsoft Word documents"
   sections={sections}
+  linkSection={relatedWorkflows}
 />

@@ -3,11 +3,11 @@ import BaseLayout from '../layouts/BaseLayout.astro'
 import PageHero from '../components/PageHero.astro'
 import SiteCta from '../components/SiteCta.astro'
 
-const title = 'Veqtor Demo — Review Word Redlines with Claude'
+const title = 'Veqtor MCP Demo — Review Word Redlines with Claude'
 const description = 'Watch Claude use Veqtor with sample Word contract drafts to explain a negotiation, check exact wording, and create a separate counterproposal with tracked changes.'
 const videoSchema = {
   '@type': 'VideoObject',
-  name: 'Veqtor demo — review Word redlines with Claude',
+  name: 'Veqtor MCP demo — review Word redlines with Claude',
   description,
   thumbnailUrl: 'https://veqtor.pro/media/veqtor-demo-v0.1.2-poster.jpg',
   contentUrl: 'https://veqtor.pro/media/veqtor-demo-v0.1.2.mp4',
@@ -36,21 +36,22 @@ const videoSchema = {
       <div class="demo-video">
         <video controls playsinline preload="metadata" poster="/media/veqtor-demo-v0.1.2-poster.jpg">
           <source src="/media/veqtor-demo-v0.1.2.mp4" type="video/mp4" />
-          <track kind="captions" src="/media/veqtor-demo-v0.1.2.en.vtt" srclang="en" label="English" default />
+          <track kind="captions" src="/media/veqtor-demo-v0.1.2-r2.en.vtt" srclang="en" label="English" default />
           Your browser does not support video playback. <a href="/media/veqtor-demo-v0.1.2.mp4">Open the video directly.</a>
         </video>
       </div>
       <div class="demo-caption"><strong>Recorded with Veqtor v0.1.2</strong><span>Claude explains and drafts · Veqtor reads, checks and writes · You review</span></div>
       <p class="demo-install-note">The “one command” line in the narration refers to Claude Code. Claude Desktop currently needs a short configuration edit. One correction: Veqtor 0.1.2 checks the new Word document before saving it; it does not reopen the saved copy for a separate final check.</p>
       <details class="demo-transcript" id="transcript">
-        <summary>Read the video transcript</summary>
+        <summary>Read the corrected transcript</summary>
         <div>
+          <p><strong>Correction:</strong> This transcript corrects two statements in the recorded narration about the final file check and setup.</p>
           <p>Claude can reason about a contract, but chat alone cannot reliably inspect several Word drafts or create precise tracked changes. An MCP server gives Claude specialized tools for that work. Claude still does the reasoning. The server performs the document work and returns results we can check against the source.</p>
-          <p>Veqtor is an open-source MCP server for Word contract negotiations. It reads redlines, verifies quotations, and creates new drafts with real tracked changes.</p>
+          <p>Veqtor is an open-source MCP server for Word contract negotiations. It reads the redlines it supports, checks quotations against a specific tracked change, and creates new drafts with real tracked changes.</p>
           <p>In this demo, I ask what happened to the liability cap across four rounds. Veqtor extracts the tracked revisions. Claude turns the evidence into a clear explanation of how the cap and its carve-outs changed.</p>
-          <p>Then I ask for the counterparty's exact latest wording. Instead of relying on the summary, Veqtor checks the quotation against the source file, character for character, and returns the verified text.</p>
+          <p>Then I ask for the counterparty's exact latest wording. Instead of relying on the summary, Veqtor checks the quotation against that specific tracked change. In this run it matches exactly, and Veqtor returns the checked wording.</p>
           <p>Finally, I turn the review into an action: restore our 150% cap and the willful misconduct carve-out in a new round-five draft. The original stays untouched.</p>
-          <p>Veqtor checks every edit before writing, then re-checks the saved file. In this run, no unintended changes. That is MCP in practice: Claude does the reasoning; Veqtor does document work you can verify. It's free, open source, and installs with one command. You're welcome to try it.</p>
+          <p>Veqtor checks the complete set of requested edits, builds the proposed Word file in memory, and reads it again before saving anything. If the tracked changes it supports do not match the plan, it refuses to create the final file. Claude does the reasoning; Veqtor performs specific document steps that can be checked. Veqtor is free and open source. Claude Code uses one registration command after uv is installed; Claude Desktop currently requires a short configuration edit.</p>
         </div>
       </details>
     </div>
