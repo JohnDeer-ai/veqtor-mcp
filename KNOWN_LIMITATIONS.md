@@ -1,9 +1,11 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Known limitations — v0.1 Alpha
+# Known limitations
 
-Veqtor v0.1 is a local technical Alpha for early adopters. Its supported
-contract is intentionally narrow.
+Veqtor `0.1.2` remains the published local technical Alpha for early adopters.
+The current development source still has package version `0.1.2`, but advertises
+MCP contract `veqtor.mcp.v0.2`; that contract identifier does not mean a new
+release has been published. Both surfaces remain intentionally narrow.
 
 ## Documents and revisions
 
@@ -45,6 +47,11 @@ contract is intentionally narrow.
   footers, footnotes and endnotes are not analyzed or edited.
 - Formatting, move, paragraph-mark and structural revision categories are
   counted but not all are converted into editable change units.
+- The development extractor reports `revision_inventory.v1` so callers can
+  check `total_revision_elements == decoded_revision_elements +
+  unsupported_revision_occurrences`. `emitted_change_unit_count` is separate:
+  one change unit may represent multiple decoded text-revision elements, so it
+  is not another side of that partition.
 - Complex adjacent or nested OOXML layouts may be refused with a stable error
   rather than rewritten approximately.
 - Tracked text revisions may be nested at most two levels. This supports the
@@ -69,7 +76,11 @@ contract is intentionally narrow.
 
 ## Negotiation interpretation
 
-- Round order is deterministic filename order, not lineage proof.
+- The default round order is disclosed as `filename_lexicographic_v1`:
+  case-insensitive lexicographic filename order with the exact filename as a
+  tie-break. It is not natural-number sorting, chronology or lineage proof. A
+  caller may instead supply `ordered_filenames`, but it must name every candidate
+  DOCX exactly once and remains only an explicit positional manifest.
 - There is no semantic cross-round clause matcher or authorship forensics.
 - `clause_anchor` and `manual_label` are best-effort navigation aids. Durable
   evidence remains file SHA plus change-unit id, structural paragraph/group
@@ -86,6 +97,23 @@ contract is intentionally narrow.
   same source bytes, build, configured author and edits. Apply can still fail if
   the source changes, the output exists, or publication encounters permissions,
   storage or filesystem races.
+- Under MCP contract `veqtor.mcp.v0.2`, `apply_edits` requires the complete
+  `preflight_proof` returned by a successful preflight. The proof binds the
+  source SHA-256, canonical edits digest, configured author, producer build and
+  candidate SHA-256; it does not bind the destination path. It is an unkeyed
+  drift detector, not authentication, a digital signature, a trusted timestamp
+  or proof of who approved the edit. The lower-level Python API keeps its v0.1
+  optional-proof behavior for compatibility.
+- Development preflight diagnostics use closed `position_status` values
+  (`supported`, `unsupported`, `not_evaluated`) and an explicit
+  `failure_phase`; other diagnostic facts can still be `null` when processing
+  never reached the phase that could establish them. A refusal normally stops
+  at the first blocker, so the response is not a complete list of every possible
+  blocker in the batch.
+- The historical paired counter/reinstate hang report has not been reproduced.
+  A 14-operation regression of that shape now reaches a terminal structured
+  `edits_overlap` result, but Veqtor does not yet promise a general planner
+  timeout, cancellation API or hard wall-clock completion bound.
 - Preflight does not create an output DOCX, but normally writes a local
   provenance record under `.veqtor`.
 - Author identity is fixed at server start. If it matches a counterparty's
@@ -110,6 +138,15 @@ contract is intentionally narrow.
   provenance too. Decision-record export normally appends an access event after
   taking its response snapshot, so observation is not side-effect free unless
   decision records are disabled.
+- Development-contract export never initializes a journal in an uninitialized
+  supplied folder. If exactly one direct child contains a valid journal it
+  refuses with `workspace_mismatch` and a safe relative suggestion; multiple
+  children refuse as `workspace_ambiguous`. Discovery is limited to direct
+  children, excludes the service `.veqtor` directory, and has a 500-entry plus
+  cooperative one-second elapsed-time budget checked between filesystem
+  operations. The time check cannot interrupt a blocked syscall and is not a
+  hard timeout. Hitting a discovery bound refuses as incomplete rather than
+  guessing or scanning outside the supplied root.
 - Access-event summaries written by builds before 0.1.1 may undercount prior
   access events when multiple exports ran concurrently. Existing journal
   entries are historical evidence and are not rewritten or migrated.

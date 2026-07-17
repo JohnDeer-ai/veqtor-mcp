@@ -42,6 +42,7 @@ RUNTIME_SOURCE_FILES = (
     "src/veqtor_docx/synthetic.py",
     "src/veqtor_docx/verify.py",
     "src/veqtor_mcp/__init__.py",
+    "src/veqtor_mcp/contracts.py",
     "src/veqtor_mcp/records.py",
     "src/veqtor_mcp/server.py",
 )

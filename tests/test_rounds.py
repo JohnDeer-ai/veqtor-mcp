@@ -346,6 +346,80 @@ def test_filename_order_has_a_deterministic_casefold_tiebreak() -> None:
     ]
 
 
+def test_numbered_round_names_keep_v1_lexicographic_order_and_disclose_basis(
+    tmp_path: Path,
+) -> None:
+    for filename in ("Round 1.docx", "Round 10.docx", "Round 2.docx"):
+        _write_round(tmp_path / filename)
+
+    result = list_rounds(str(tmp_path))
+
+    assert [item["filename"] for item in result["rounds"]] == [
+        "Round 1.docx",
+        "Round 10.docx",
+        "Round 2.docx",
+    ]
+    assert result["ordering_source"] == "filename_lexicographic_v1"
+    assert result["order_basis"] == {
+        "kind": "filename",
+        "rule": "casefold_then_exact",
+        "lineage_verified": False,
+        "round_id_semantics": "position_only",
+    }
+
+
+def test_explicit_filename_sequence_controls_position_without_claiming_lineage(
+    tmp_path: Path,
+) -> None:
+    for filename in ("Round 1.docx", "Round 10.docx", "Round 2.docx"):
+        _write_round(tmp_path / filename)
+
+    result = list_rounds(
+        str(tmp_path),
+        ordered_filenames=["Round 1.docx", "Round 2.docx", "Round 10.docx"],
+    )
+
+    assert [item["filename"] for item in result["rounds"]] == [
+        "Round 1.docx",
+        "Round 2.docx",
+        "Round 10.docx",
+    ]
+    assert [item["round_id"] for item in result["rounds"]] == [
+        "round-001",
+        "round-002",
+        "round-003",
+    ]
+    assert result["ordering_source"] == "explicit_filename_sequence_v1"
+    assert result["order_basis"] == {
+        "kind": "caller_supplied_filename_sequence",
+        "lineage_verified": False,
+        "round_id_semantics": "position_only",
+    }
+
+
+@pytest.mark.parametrize(
+    "ordered_filenames",
+    [
+        ["Round 1.docx", "Round 2.docx"],
+        ["Round 1.docx", "Round 2.docx", "missing.docx"],
+        ["Round 1.docx", "Round 1.docx", "Round 2.docx"],
+        ["Round 1.docx", "../Round 2.docx", "Round 10.docx"],
+    ],
+    ids=["missing-entry", "unknown-entry", "duplicate", "not-a-basename"],
+)
+def test_explicit_filename_sequence_fails_closed_on_invalid_manifest(
+    ordered_filenames: list[str],
+    tmp_path: Path,
+) -> None:
+    for filename in ("Round 1.docx", "Round 10.docx", "Round 2.docx"):
+        _write_round(tmp_path / filename)
+
+    with pytest.raises(RoundError) as error:
+        list_rounds(str(tmp_path), ordered_filenames=ordered_filenames)
+
+    assert error.value.code == "invalid_round_order"
+
+
 def test_lists_rounds_in_filename_order(demo_dir: Path) -> None:
     result = list_rounds(str(demo_dir))
     assert [r["round_id"] for r in result["rounds"]] == [

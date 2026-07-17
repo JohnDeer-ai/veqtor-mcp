@@ -21,6 +21,10 @@ tamper-evident audit system. Review the
 [known limitations](https://github.com/JohnDeer-ai/veqtor-mcp/blob/v0.1.2/KNOWN_LIMITATIONS.md)
 before using it on a real matter.
 
+The published package and installation commands below remain at `0.1.2`. The
+current development source advertises MCP contract `veqtor.mcp.v0.2`; that is a
+tool-schema version, not a new package version or a published-release claim.
+
 ## Install for Claude Code
 
 Install [uv](https://docs.astral.sh/uv/) once, then register the exact Veqtor
@@ -103,8 +107,15 @@ The expected trust sequence is:
 1. extract the current redlines;
 2. verify every quotation used as evidence;
 3. preflight the complete atomic batch;
-4. apply only when `batch_applicable` is true;
+4. apply only when `batch_applicable` is true — public `0.1.2` reuses the exact
+   edit payload, while development contract `veqtor.mcp.v0.2` also passes the
+   complete `preflight_proof` returned by that successful preflight;
 5. re-extract the output and export the decision record.
+
+In the development contract, the proof binds the source bytes, canonical edit
+payload, configured author, producer build and predicted candidate hash so apply
+can detect drift. It is an unkeyed content binding, not authentication or a
+digital signature. The published `0.1.2` tool does not emit or accept this field.
 
 Veqtor never overwrites the source or an existing output file. Use a disposable
 demo folder for write recordings; a successful write creates a new DOCX and a
@@ -135,16 +146,26 @@ or environment.
 
 ## Tool surface
 
-- `list_rounds`: deterministic filename-ordered local DOCX discovery.
+All six names are present in public `0.1.2`. The descriptions below follow the
+current development source; the immutable tagged API remains authoritative for
+the published artifact.
+
+- `list_rounds`: disclosed lexicographic filename order or a complete explicit
+  `ordered_filenames` positional manifest; neither is lineage proof.
 - `extract_redlines`: tracked-change units with hashes, references, bounded
-  paragraph context and conservative manual labels.
+  paragraph context, conservative manual labels and a revision-inventory
+  partition.
 - `verify_quote`: anchored `exact`, `normalized`, or `not_found` verification.
-- `preflight_edits`: the complete apply pipeline as an in-memory dry-run.
-- `apply_edits`: atomic tracked replace, delete, counter and reinstate writes.
+- `preflight_edits`: the complete apply pipeline as an in-memory dry-run, with
+  closed position/failure diagnostics and a successful drift-binding proof.
+- `apply_edits`: atomic tracked replace, delete, counter and reinstate writes;
+  the development MCP contract requires the complete successful preflight
+  proof.
 - `export_decision_record`: compact privacy-aware local provenance.
 
-The complete request, response and error contract is in the
-[MCP Tool API](https://github.com/JohnDeer-ai/veqtor-mcp/blob/v0.1.2/API.md).
+The complete current-source request, response and error contract is in the
+[MCP Tool API](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/API.md). The
+published `0.1.2` contract remains available in its immutable release tag.
 
 ## Privacy and assurance boundary
 
@@ -157,6 +178,11 @@ at `<matter>/.veqtor/decision-records.jsonl`. Read-only calls, including
 `preflight_edits` and decision-record export, still normally write provenance
 there. The raw journal may contain verbatim matter text; do not commit or share
 it.
+
+Decision-record export requires the exact initialized workspace. In the
+development contract a wrong parent is refused without creating a second
+sidecar; one direct child journal yields a path-safe relative suggestion and
+multiple child journals are reported as ambiguous.
 
 Decision records are best-effort local provenance. Their hashes are
 re-checkable fingerprints, not authentication. The supported threat model is a

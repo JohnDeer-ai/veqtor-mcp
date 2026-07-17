@@ -52,6 +52,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import io
+import json
 import os
 import tempfile
 import zipfile
@@ -89,6 +90,9 @@ from .contracts import (
     PREFLIGHT_EDIT_STATUS_BLOCKED,
     PREFLIGHT_EDIT_STATUS_NOT_EVALUATED,
     PREFLIGHT_EDIT_STATUS_PLANNED,
+    PREFLIGHT_POSITION_STATUS_NOT_EVALUATED,
+    PREFLIGHT_POSITION_STATUS_SUPPORTED,
+    PREFLIGHT_POSITION_STATUS_UNSUPPORTED,
     RESULT_STATUS_OK,
     ROUND_TRIP_COMPARISON_CURRENT,
     ROUND_TRIP_STATUS_FAILED,
@@ -110,9 +114,21 @@ MAX_REVISION_ID_DIGITS = len(str(MAX_REVISION_ID))
 MAX_EDIT_BATCH_SIZE = 100
 MAX_NEW_TEXT_CHARS_PER_EDIT = 20_000
 MAX_NEW_TEXT_CHARS_PER_BATCH = 200_000
+PREFLIGHT_PROOF_SCHEMA_VERSION = "preflight_proof.v1"
 _ANCHOR_KEYS = frozenset({"change_unit_id", "file_sha256"})
 _DELETE_EDIT_KEYS = frozenset({"anchor", "delete_text", "insert_text"})
 _REINSTATE_EDIT_KEYS = frozenset({"anchor", "reinstate_text"})
+_PREFLIGHT_PROOF_CONTENT_KEYS = (
+    "schema_version",
+    "source_sha256",
+    "edits_sha256",
+    "tracked_change_author",
+    "producer_build",
+    "candidate_sha256",
+)
+_PREFLIGHT_PROOF_KEYS = frozenset(
+    (*_PREFLIGHT_PROOF_CONTENT_KEYS, "proof_sha256")
+)
 
 _XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 # Non-visible elements allowed to sit between covered runs during surgery.
@@ -403,6 +419,118 @@ class _PreparedCandidate:
     edit_diagnostics: list[dict]
 
 
+def _canonical_digest(value: object) -> str:
+    """Hash one JSON value using the v1 canonical representation."""
+    try:
+        payload = json.dumps(
+            value,
+            allow_nan=False,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    except (TypeError, UnicodeEncodeError, ValueError) as exc:
+        raise ApplyError(
+            "preflight_proof_invalid",
+            "preflight binding values must be canonical JSON",
+            failure_phase="preflight_binding",
+        ) from exc
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _build_preflight_proof(
+    prepared: _PreparedCandidate,
+    edits: list[dict],
+    author: str,
+    producer_build: str,
+) -> dict[str, str]:
+    if not isinstance(producer_build, str) or not producer_build:
+        raise ApplyError(
+            "preflight_proof_invalid",
+            "producer_build must be a non-empty string",
+            failure_phase="preflight_binding",
+        )
+    content = {
+        "schema_version": PREFLIGHT_PROOF_SCHEMA_VERSION,
+        "source_sha256": prepared.source_sha256,
+        "edits_sha256": _canonical_digest(edits),
+        "tracked_change_author": author,
+        "producer_build": producer_build,
+        "candidate_sha256": prepared.candidate_sha256,
+    }
+    return {**content, "proof_sha256": _canonical_digest(content)}
+
+
+def _validated_preflight_proof(
+    proof: object,
+    prepared: _PreparedCandidate,
+    edits: list[dict],
+    author: str,
+    producer_build: object,
+) -> dict[str, str]:
+    if not isinstance(proof, dict) or set(proof) != _PREFLIGHT_PROOF_KEYS:
+        raise ApplyError(
+            "preflight_proof_invalid",
+            "preflight_proof must contain exactly the v1 proof fields",
+            failure_phase="preflight_binding",
+        )
+    if any(not isinstance(proof[key], str) for key in _PREFLIGHT_PROOF_KEYS):
+        raise ApplyError(
+            "preflight_proof_invalid",
+            "every preflight_proof field must be a string",
+            failure_phase="preflight_binding",
+        )
+    if proof["schema_version"] != PREFLIGHT_PROOF_SCHEMA_VERSION:
+        raise ApplyError(
+            "preflight_proof_invalid",
+            "unsupported preflight_proof schema_version",
+            failure_phase="preflight_binding",
+        )
+    for key in (
+        "source_sha256",
+        "edits_sha256",
+        "candidate_sha256",
+        "proof_sha256",
+    ):
+        value = proof[key]
+        if len(value) != 64 or any(char not in "0123456789abcdef" for char in value):
+            raise ApplyError(
+                "preflight_proof_invalid",
+                f"preflight_proof.{key} must be a lowercase SHA-256 hex digest",
+                failure_phase="preflight_binding",
+            )
+    proof_content = {
+        key: proof[key] for key in _PREFLIGHT_PROOF_CONTENT_KEYS
+    }
+    if proof["proof_sha256"] != _canonical_digest(proof_content):
+        raise ApplyError(
+            "preflight_proof_invalid",
+            "preflight_proof digest does not match its fields",
+            failure_phase="preflight_binding",
+        )
+    expected = _build_preflight_proof(
+        prepared,
+        edits,
+        author,
+        producer_build,  # type: ignore[arg-type]
+    )
+    mismatched_fields = [
+        key
+        for key in _PREFLIGHT_PROOF_CONTENT_KEYS
+        if proof[key] != expected[key]
+    ]
+    if mismatched_fields:
+        raise ApplyError(
+            "preflight_binding_mismatch",
+            "preflight_proof does not match the exact apply inputs and candidate",
+            failure_phase="preflight_binding",
+            mismatched_fields=mismatched_fields,
+            observed_source_sha256=prepared.source_sha256,
+            observed_candidate_sha256=prepared.candidate_sha256,
+        )
+    return expected
+
+
 def _plan_diagnostic(plan: _PlannedEdit, *, status: str) -> dict:
     return {
         "edit_index": plan.edit_index,
@@ -422,8 +550,10 @@ def _plan_diagnostic(plan: _PlannedEdit, *, status: str) -> dict:
             if plan.container is not None and plan.container.get(w("id"))
             else []
         ),
-        "position_supported": (
-            True if status == PREFLIGHT_EDIT_STATUS_APPLICABLE else None
+        "position_status": (
+            PREFLIGHT_POSITION_STATUS_SUPPORTED
+            if status == PREFLIGHT_EDIT_STATUS_APPLICABLE
+            else PREFLIGHT_POSITION_STATUS_NOT_EVALUATED
         ),
         "refusal_code": None,
     }
@@ -437,7 +567,7 @@ _PREFLIGHT_DIAGNOSTIC_KEYS = (
     "match_count",
     "target_author",
     "target_revision_ids",
-    "position_supported",
+    "position_status",
     "refusal_code",
 )
 
@@ -458,7 +588,7 @@ def _empty_preflight_diagnostic(
         "match_count": None,
         "target_author": None,
         "target_revision_ids": [],
-        "position_supported": None,
+        "position_status": PREFLIGHT_POSITION_STATUS_NOT_EVALUATED,
         "refusal_code": None,
     }
 
@@ -674,9 +804,14 @@ def _publish_output_no_clobber(tmp_path: str, output: str) -> None:
         raise ApplyError(
             "output_exists",
             f"refusing to overwrite {output}",
+            failure_phase="publication",
         ) from exc
     except OSError as exc:
-        raise ApplyError("output_unwritable", str(exc)) from exc
+        raise ApplyError(
+            "output_unwritable",
+            str(exc),
+            failure_phase="publication",
+        ) from exc
     _cleanup_temp_artifact(tmp_path)
 
 
@@ -1271,9 +1406,15 @@ def _prepare_candidate(
     # The MCP schema already types `edits` as an array, but this is a public
     # Python API too — a non-list must fail closed, not TypeError.
     if not isinstance(edits, list):
-        raise ApplyError("invalid_edit", "edits must be an array of edit objects")
+        raise ApplyError(
+            "invalid_edit",
+            "edits must be an array of edit objects",
+            failure_phase="validation",
+        )
     if not edits:
-        raise ApplyError("no_edits", "edits list is empty")
+        raise ApplyError(
+            "no_edits", "edits list is empty", failure_phase="validation"
+        )
     if author_error := tracked_change_author_validation_error(author):
         raise ApplyError(
             "invalid_author",
@@ -1291,7 +1432,11 @@ def _prepare_candidate(
         metadata.setdefault("failure_phase", "source")
         raise ApplyError(exc.code, exc.detail, **metadata) from exc
     except OSError as exc:
-        raise ApplyError("file_unreadable", f"cannot read {source}: {exc}") from exc
+        raise ApplyError(
+            "file_unreadable",
+            f"cannot read {source}: {exc}",
+            failure_phase="source",
+        ) from exc
     source_sha = hashlib.sha256(source_payload).hexdigest()
     try:
         _validate_edit_shapes(edits, observed_source_sha256=source_sha)
@@ -1316,12 +1461,18 @@ def _prepare_candidate(
             raise DocxError(f"no w:body in {source}")
     except DocxError as exc:
         _attach_observed_source_metadata(exc, source_sha)
+        metadata = getattr(exc, "metadata", None)
+        if isinstance(metadata, dict):
+            metadata.setdefault("failure_phase", "source")
         raise
 
     try:
         revision_ids = _revision_id_allocator(document)
     except DocxError as exc:
         _attach_observed_source_metadata(exc, source_sha)
+        metadata = getattr(exc, "metadata", None)
+        if isinstance(metadata, dict):
+            metadata.setdefault("failure_phase", "source")
         raise
     planned: list[_PlannedEdit] = []
     for edit_index, edit in enumerate(edits):
@@ -1410,7 +1561,7 @@ def _prepare_candidate(
                 "match_count": metadata.get("match_count", 0),
                 "target_author": metadata.get("target_author"),
                 "target_revision_ids": metadata.get("target_revision_ids", []),
-                "position_supported": False,
+                "position_status": PREFLIGHT_POSITION_STATUS_UNSUPPORTED,
                 "refusal_code": None,
             }
             metadata.setdefault("preflight_edit", preflight_edit)
@@ -1677,7 +1828,7 @@ def _preflight_failure_result(
                     PREFLIGHT_EDIT_STATUS_BLOCKED,
                     blocking_diagnostic,
                 )
-                item["position_supported"] = False
+                item["position_status"] = PREFLIGHT_POSITION_STATUS_UNSUPPORTED
                 item["refusal_code"] = getattr(exc, "code", "docx_error")
                 diagnostics.append(item)
                 continue
@@ -1723,6 +1874,7 @@ def _preflight_failure_result(
         "reason": str(exc),
         "edits": diagnostics,
         "round_trip_check": metadata.get("round_trip_check"),
+        "preflight_proof": None,
     }
 
 
@@ -1730,10 +1882,23 @@ def preflight_edits(
     source_path: str,
     edits: list[dict],
     author: str = DEFAULT_AUTHOR,
+    *,
+    producer_build: str | None = None,
 ) -> dict:
-    """Fully dry-run edits in memory without creating an output DOCX."""
+    """Fully dry-run edits in memory without creating an output DOCX.
+
+    A caller that supplies ``producer_build`` receives a v1 proof binding the
+    exact source bytes, canonical edit payload, author, build and predicted
+    candidate. The proof is a drift detector, not authentication or a digital
+    signature.
+    """
     try:
         prepared = _prepare_candidate(source_path, edits, author)
+        proof = (
+            _build_preflight_proof(prepared, edits, author, producer_build)
+            if producer_build is not None
+            else None
+        )
     except DocxError as exc:
         return _preflight_failure_result(source_path, edits, author, exc)
     return {
@@ -1750,6 +1915,7 @@ def preflight_edits(
         "reason": None,
         "edits": prepared.edit_diagnostics,
         "round_trip_check": prepared.round_trip_check,
+        "preflight_proof": proof,
     }
 
 
@@ -1758,8 +1924,17 @@ def apply_edits(
     output_path: str,
     edits: list[dict],
     author: str = DEFAULT_AUTHOR,
+    *,
+    preflight_proof: dict | None = None,
+    producer_build: str | None = None,
 ) -> dict:
-    """Apply explicit tracked edits using the same pipeline as preflight."""
+    """Apply explicit tracked edits using the same pipeline as preflight.
+
+    When ``preflight_proof`` is present, every bound field is verified after
+    constructing the candidate and before any output artifact is published.
+    Omitting it preserves the lower-level Python API's v0.1 behavior; the MCP
+    v0.2 boundary requires the proof.
+    """
     try:
         output = resolve_user_path(output_path)
     except UserPathError as exc:
@@ -1767,8 +1942,21 @@ def apply_edits(
             exc.code, exc.detail, failure_phase="validation"
         ) from exc
     if os.path.exists(output):
-        raise ApplyError("output_exists", f"refusing to overwrite {output}")
+        raise ApplyError(
+            "output_exists",
+            f"refusing to overwrite {output}",
+            failure_phase="publication",
+        )
     prepared = _prepare_candidate(source_path, edits, author)
+    validated_proof = None
+    if preflight_proof is not None:
+        validated_proof = _validated_preflight_proof(
+            preflight_proof,
+            prepared,
+            edits,
+            author,
+            producer_build,
+        )
 
     tmp_path: str | None = None
     try:
@@ -1794,6 +1982,7 @@ def apply_edits(
             "output_unwritable",
             str(exc),
             observed_source_sha256=prepared.source_sha256,
+            failure_phase="publication",
         ) from exc
     except BaseException:
         if tmp_path is not None:
@@ -1808,4 +1997,17 @@ def apply_edits(
         "tracked_change_author": author,
         "applied": prepared.applied,
         "round_trip_check": prepared.round_trip_check,
+        "preflight_binding_status": (
+            "verified" if validated_proof is not None else "not_provided"
+        ),
+        "preflight_candidate_sha256": (
+            validated_proof["candidate_sha256"]
+            if validated_proof is not None
+            else None
+        ),
+        "candidate_output_sha256_match": (
+            prepared.candidate_sha256 == validated_proof["candidate_sha256"]
+            if validated_proof is not None
+            else None
+        ),
     }

@@ -300,6 +300,7 @@ def test_mcp_recorder_export_workflow_on_private_matter_copy(tmp_path: Path) -> 
             str(working_copy),
             str(output_path),
             edits,
+            preflight["preflight_proof"],
         )
         assert applied["record_status"] == "written"
         assert applied["round_trip_check"]["status"] == "passed"

@@ -446,6 +446,9 @@ def test_product_acceptance_documents_complete_path_free_packet() -> None:
     assert "first_access_id" in smoke
     assert 'exported_again["access_count"] == 1' in smoke
     assert 'record["record_type"] != "access_event.v1"' in smoke
+    assert '"preflight_proof": preflight["preflight_proof"]' in smoke
+    assert 'applied["preflight_binding_status"] == "verified"' in smoke
+    assert 'applied["candidate_output_sha256_match"] is True' in smoke
 
 
 def test_release_job_graph_has_one_root_and_orders_all_publication() -> None:

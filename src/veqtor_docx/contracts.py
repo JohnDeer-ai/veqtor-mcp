@@ -104,6 +104,16 @@ PREFLIGHT_EDIT_STATUSES_V1 = frozenset(
         PREFLIGHT_EDIT_STATUS_NOT_EVALUATED,
     }
 )
+PREFLIGHT_POSITION_STATUS_SUPPORTED = "supported"
+PREFLIGHT_POSITION_STATUS_UNSUPPORTED = "unsupported"
+PREFLIGHT_POSITION_STATUS_NOT_EVALUATED = "not_evaluated"
+PREFLIGHT_POSITION_STATUSES_V1 = frozenset(
+    {
+        PREFLIGHT_POSITION_STATUS_SUPPORTED,
+        PREFLIGHT_POSITION_STATUS_UNSUPPORTED,
+        PREFLIGHT_POSITION_STATUS_NOT_EVALUATED,
+    }
+)
 PREFLIGHT_FAILURE_PHASES_V1 = frozenset(
     {
         "validation",
@@ -113,5 +123,7 @@ PREFLIGHT_FAILURE_PHASES_V1 = frozenset(
         "surgery",
         "serialization",
         "round_trip",
+        "preflight_binding",
+        "publication",
     }
 )

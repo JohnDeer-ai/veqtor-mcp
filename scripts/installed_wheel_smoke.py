@@ -78,10 +78,16 @@ async def smoke() -> dict:
                         "source_path": source,
                         "output_path": str(output),
                         "edits": edits,
+                        "preflight_proof": preflight["preflight_proof"],
                     },
                 )
             )
             assert output.is_file()
+            assert applied["preflight_binding_status"] == "verified"
+            assert applied["preflight_candidate_sha256"] == preflight[
+                "candidate_sha256"
+            ]
+            assert applied["candidate_output_sha256_match"] is True
             assert applied["output_sha256"] == preflight["candidate_sha256"]
             exported = _payload(
                 await session.call_tool(

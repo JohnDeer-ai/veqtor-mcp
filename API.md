@@ -5,13 +5,21 @@
 This file defines the public tool surface. Output examples are part of the API
 because models use them to decide how to call tools and how to cite results.
 
+The current source advertises MCP contract `veqtor.mcp.v0.2`. This is a tool
+schema version, independent from the package version: the package and published
+release remain `0.1.2` until a separately verified release changes them. Every
+tool exposes `veqtor.pro/contractSchemaVersion: veqtor.mcp.v0.2` in its MCP
+metadata and the same value under `x-veqtor-contract-schema-version` in its
+output schema. Nested anchors, edits and preflight proofs are closed objects;
+top-level results remain additive where the advertised schema says so.
+
 Stable error codes cover well-typed but invalid inputs (wrong hash, unknown
 anchor, blank quote, unresolvable layout). Type-level rejections — e.g. a
 non-object `anchor` or a non-array `edits` sent over MCP — are handled by the
 transport's schema validation before a tool runs and are outside that
 contract. The current FastMCP transport may ignore unrecognized object
 properties; clients must use the advertised tool schema. Strict rejection of
-unknown arguments is outside v1.
+unknown top-level arguments remains outside the current contract.
 
 All DOCX-reading tools share one two-stage fail-closed ZIP boundary. Before any
 decoder is created, Veqtor bounds the 50 MiB compressed input, 2,000 members,
@@ -63,6 +71,9 @@ Read-only calls — list, extract, verify, preflight and decision-record export 
 also normally attempt to append provenance, with the outcome reported in
 `record_status`. In particular, export is a read of the document history but
 normally writes its own local `access_event.v1` after the response snapshot.
+Export requires an existing journal in the exact supplied workspace; it never
+initializes an empty sidecar merely because the caller supplied a parent or an
+uninitialized folder.
 The v1 journal is a best-effort local provenance history, not a transactional
 audit log: mutation tools may complete with `record_status: "write_failed"`,
 so check `record_status` before treating a record as durable. `written` means
@@ -143,18 +154,28 @@ journal-size cap are outside v1.
 ## `list_rounds`
 
 Call this when the user points to a folder of contract drafts or asks which
-rounds/files are available in a negotiation.
+rounds/files are available in a negotiation. The optional `ordered_filenames`
+array is an explicit positional manifest: when present it must name every
+candidate DOCX exactly once, with no duplicate, missing or extra name. Invalid
+manifests fail closed with `invalid_round_order`; Veqtor never silently falls
+back to filename order.
 
 Input:
 
 ```json
 {
-  "folder": "/Users/example/Deals/AcmeDistribution"
+  "folder": "/Users/example/Deals/AcmeDistribution",
+  "ordered_filenames": ["01-initial.docx", "02-counterparty.docx"]
 }
 ```
 
-Output. Rounds use case-insensitive filename order with the exact filename as a
-tie-break (the deterministic v1 round order);
+Omit `ordered_filenames` to use `filename_lexicographic_v1`: case-insensitive
+lexicographic filename order with the exact filename as a tie-break. This is not
+natural-number order (`Round 10` can precede `Round 2`), so zero-pad filenames or
+provide a complete manifest when positional order matters. Both modes disclose
+`lineage_verified: false` and `round_id_semantics: "position_only"`; neither
+order is evidence of chronology, legal sequence or document lineage.
+
 Word lock files (`~$*`) are ignored, the scan is non-recursive, and files
 that cannot be read as DOCX are reported in `skipped` with a stable reason code
 instead of failing the call. Unexpected implementation failures are not
@@ -172,6 +193,12 @@ the folder before retrying:
 ```json
 {
   "folder": "/Users/example/Deals/AcmeDistribution",
+  "ordering_source": "explicit_filename_sequence_v1",
+  "order_basis": {
+    "kind": "caller_supplied_filename_sequence",
+    "lineage_verified": false,
+    "round_id_semantics": "position_only"
+  },
   "rounds": [
     {
       "round_id": "round-001",
@@ -179,6 +206,13 @@ the folder before retrying:
       "filename": "01-initial.docx",
       "sha256": "example",
       "revision_count": 12
+    },
+    {
+      "round_id": "round-002",
+      "path": "/Users/example/Deals/AcmeDistribution/02-counterparty.docx",
+      "filename": "02-counterparty.docx",
+      "sha256": "example",
+      "revision_count": 8
     }
   ],
   "skipped": [],
@@ -218,7 +252,28 @@ decode — formatting changes, moves, paragraph-mark revisions — is counted in
 number of `w:ins`/`w:del` elements in `word/document.xml`. The extractor and
 decision-record projector consume one append-only v1 revision-category
 contract, so every category the v1 producer can emit is accepted by compact
-projection. Every unit also includes bounded context from the paragraph's
+projection.
+
+`revision_inventory.v1` gives those counters one explicit universe. Its scope
+is `word/document.xml`, and a valid result satisfies:
+
+```text
+total_revision_elements
+  = decoded_revision_elements + unsupported_revision_occurrences
+unsupported_revision_occurrences
+  = sum(unsupported_by_kind.values())
+unsupported_revision_kind_count
+  = len(unsupported_by_kind)
+```
+
+`all_revision_elements_decoded` is true exactly when unsupported occurrences
+are zero. `emitted_change_unit_count` is deliberately outside the partition:
+one change unit can group multiple decoded `w:ins`/`w:del` elements, so it need
+not equal `decoded_revision_elements`. The legacy `unsupported_revisions`
+mapping remains and equals `revision_inventory.unsupported_by_kind` for the
+current producer.
+
+Every unit also includes bounded context from the paragraph's
 accepted/current reading: at most 240 characters before and after the unit,
 truncation flags, and a conservative `manual_label` only when the paragraph
 itself begins with a dotted label such as `5.2` or `2.1A`. This label is
@@ -230,7 +285,7 @@ guessed:
   "path": "/Users/example/Deals/AcmeDistribution/02-counterparty.docx",
   "file_sha256": "example",
   "part_name": "word/document.xml",
-  "revision_count": 12,
+  "revision_count": 2,
   "change_units": [
     {
       "change_unit_id": "cu_001",
@@ -261,6 +316,18 @@ guessed:
     }
   ],
   "unsupported_revisions": {"rPrChange": 1},
+  "revision_inventory": {
+    "schema_version": "revision_inventory.v1",
+    "scope": "word/document.xml",
+    "total_revision_elements": 3,
+    "decoded_revision_elements": 2,
+    "unsupported_revision_occurrences": 1,
+    "unsupported_revision_kind_count": 1,
+    "emitted_change_unit_count": 1,
+    "unsupported_by_kind": {"rPrChange": 1},
+    "partition_valid": true,
+    "all_revision_elements_decoded": false
+  },
   "record_id": "dr_002",
   "record_status": "written"
 }
@@ -287,6 +354,11 @@ then `old_text` (`matches[].side` says which); matching is case-sensitive;
 `normalized` collapses whitespace runs and typographic quotes/dashes. A hash
 mismatch or unknown anchor is an error, never a verdict. Whole-document
 search without an anchor is not supported in v1.
+The input anchor is closed and contains exactly `change_unit_id` and
+`file_sha256`; additional fields refuse with `invalid_anchor` rather than being
+silently ignored. Structural part and revision-id facts remain in the
+extracted change unit and the verification result, not in the asserted input
+anchor.
 Any refusal after the document snapshot is readable, including an OOXML
 extraction failure, carries `observed_source_sha256` for the bytes that rejected
 the claim. The caller's claimed hash remains asserted input and is digested in
@@ -299,9 +371,7 @@ Input:
   "path": "/Users/example/Deals/AcmeDistribution/02-counterparty.docx",
   "anchor": {
     "change_unit_id": "cu_017",
-    "file_sha256": "example",
-    "part_name": "word/document.xml",
-    "revision_ids": ["17", "18"]
+    "file_sha256": "example"
   },
   "quote": "USD 50,000"
 }
@@ -344,13 +414,21 @@ payload, `batch_applicable: true` means apply will not fail in those document-
 processing phases; output publication can still fail because the source changed,
 the destination exists, permissions are insufficient, or the filesystem races.
 
+A successful MCP preflight returns `preflight_proof.v1`. It contains the source
+SHA-256, canonical edit-payload digest, configured author, producer build,
+predicted candidate SHA-256 and a SHA-256 over those proof fields. The proof is
+an unkeyed deterministic drift binding. It is not authentication, a digital
+signature, a trusted timestamp or evidence that a particular person approved
+the proposal. It does not bind `output_path`; apply may publish the same verified
+candidate under a caller-selected new destination.
+
 The document is read-only, but the tool records its result in the local
 `.veqtor` sidecar unless decision records are disabled. A failed batch is a
 structured successful tool response, not an MCP error. No edit is partially
 committed.
 
 Input uses the same `source_path` and `edits` fields as `apply_edits`, without
-an `output_path`.
+an `output_path` or caller-supplied proof.
 
 Output:
 
@@ -358,15 +436,15 @@ Output:
 {
   "status": "ok",
   "source_path": "/Users/example/Deals/AcmeDistribution/12-current.docx",
-  "source_sha256": "example",
+  "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
     "version": "0.1.2",
-    "build": "source-snapshot-v1-sha256:example"
+    "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "batch_applicable": true,
-  "candidate_sha256": "example",
+  "candidate_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
   "observed_candidate_sha256": null,
   "blocking_edit_index": null,
   "refusal_code": null,
@@ -381,7 +459,7 @@ Output:
       "match_count": 1,
       "target_author": "J. Smith",
       "target_revision_ids": ["17"],
-      "position_supported": true,
+      "position_status": "supported",
       "refusal_code": null
     }
   ],
@@ -389,6 +467,15 @@ Output:
     "status": "passed",
     "comparison": "ooxml_semantic_diff_outside_touched_anchors",
     "collateral_changes": []
+  },
+  "preflight_proof": {
+    "schema_version": "preflight_proof.v1",
+    "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "edits_sha256": "c860914db41854419a6a3a28daf238f2bbd124a4830bcf64e18658fc8256b8bf",
+    "tracked_change_author": "Veqtor MCP",
+    "producer_build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "candidate_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "proof_sha256": "f9fe76452a5de5e656970b592208ea5284bb5784c959fcf05ecc5f99bec04a0e"
   }
 }
 ```
@@ -422,27 +509,31 @@ for example:
     "match_count": 1,
     "target_author": "J. Smith",
     "target_revision_ids": ["78"],
-    "position_supported": false,
+    "position_status": "unsupported",
     "refusal_code": "counter_position_unsupported"
   }],
-  "round_trip_check": null
+  "round_trip_check": null,
+  "preflight_proof": null
 }
 ```
 
 Per-edit status is `applicable` only after the complete dry-run succeeds.
 `blocked` identifies the edit that caused a specific refusal; `planned` means
 the edit was matched and planned but the atomic batch failed in a later phase;
-`not_evaluated` means processing never reached that edit. `failure_phase` is
-one of `validation`, `source`, `matching`, `planning`, `surgery`,
-`serialization`, or `round_trip`. A late candidate failure preserves
+`not_evaluated` means processing never reached that edit. The current producer's
+closed `failure_phase` vocabulary is `validation`, `source`, `matching`,
+`planning`, `surgery`, `serialization`, `round_trip`, `preflight_binding`, and
+`publication`; the last two primarily describe apply/binding failures. A late
+candidate failure preserves
 `observed_candidate_sha256` and a failed `round_trip_check` without presenting
 the candidate as applicable.
 
 Every item in `edits` has the same field set. A `null` operation,
-`match_count`, target or position means that processing never reached the
-phase that could establish that fact; `match_count: 0` means matching did run
-and proved there were no matches. For example, validation fails before text
-matching and therefore returns:
+`match_count`, or target means that processing never reached the phase that
+could establish that fact; `match_count: 0` means matching did run and proved
+there were no matches. Position is never nullable: `position_status` is
+`supported`, `unsupported`, or `not_evaluated`. For example, validation fails
+before text matching and therefore returns:
 
 ```json
 {
@@ -453,15 +544,35 @@ matching and therefore returns:
   "match_count": null,
   "target_author": null,
   "target_revision_ids": [],
-  "position_supported": null,
+  "position_status": "not_evaluated",
   "refusal_code": "delete_text_missing"
 }
 ```
 
+The earlier 14-operation paired counter/reinstate hang report remains
+unreproduced. The development regression exercises that batch shape and asserts
+a terminal structured `edits_overlap` result with all 14 diagnostics. It does
+not establish a general wall-clock bound and adds no timeout or cancellation
+API.
+
 ## `apply_edits`
 
 Call this only after the user asks to prepare or apply counter wording and only
-with an anchor produced by `extract_redlines`.
+with an anchor produced by `extract_redlines`. Under MCP contract
+`veqtor.mcp.v0.2`, the complete `preflight_proof` returned by the successful
+preflight is a required input. Missing or malformed proof objects are rejected
+by the advertised MCP schema or as `preflight_proof_invalid`; a well-formed
+proof that does not match the recomputed source, edits, author, build or
+candidate fails as `preflight_binding_mismatch`. Both controlled failures occur
+without publishing output and use `failure_phase: "preflight_binding"` in the
+recorded error provenance.
+
+The proof SHA-256 is unkeyed and can be recomputed by anyone holding the fields.
+It detects drift between calls; it is not authentication, a digital signature
+or approval evidence. The destination path is deliberately outside the proof.
+The lower-level Python `veqtor_docx.apply_edits` function keeps an optional proof
+argument for v0.1 compatibility; that bypass is not part of the v0.2 MCP input
+contract.
 
 The server applies explicit edits only. Each edit must state the text range to
 delete and the replacement text to insert. If the anchor is missing, ambiguous,
@@ -583,12 +694,21 @@ Input:
     {
       "anchor": {
         "change_unit_id": "cu_017",
-        "file_sha256": "example"
+        "file_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       },
       "delete_text": "USD 50,000",
       "insert_text": "The aggregate liability cap will equal the fees paid in the previous 12 months, excluding willful misconduct."
     }
-  ]
+  ],
+  "preflight_proof": {
+    "schema_version": "preflight_proof.v1",
+    "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "edits_sha256": "c860914db41854419a6a3a28daf238f2bbd124a4830bcf64e18658fc8256b8bf",
+    "tracked_change_author": "Veqtor MCP",
+    "producer_build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "candidate_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "proof_sha256": "f9fe76452a5de5e656970b592208ea5284bb5784c959fcf05ecc5f99bec04a0e"
+  }
 }
 ```
 
@@ -597,14 +717,14 @@ Output:
 ```json
 {
   "status": "ok",
-  "source_sha256": "example-source",
+  "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "output_path": "/Users/example/Deals/AcmeDistribution/13-our-counter.docx",
-  "output_sha256": "example-output",
+  "output_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
     "version": "0.1.2",
-    "build": "source-snapshot-v1-sha256:example"
+    "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "applied": [
     {
@@ -620,6 +740,9 @@ Output:
     "collateral_changes": [],
     "comparison": "ooxml_semantic_diff_outside_touched_anchors"
   },
+  "preflight_binding_status": "verified",
+  "preflight_candidate_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "candidate_output_sha256_match": true,
   "record_id": "dr_004",
   "record_status": "written"
 }
@@ -650,6 +773,24 @@ the second export reports the first event in `access_count` while still
 omitting it from `records`. The explicit scope fields and
 `current_export_event` below are authoritative; check `recorded_locally` rather
 than assuming a write succeeded.
+
+The supplied workspace must already contain a valid journal. Export never
+creates `.veqtor` in an uninitialized folder and never silently switches to a
+child. If the exact folder has no journal, Veqtor inspects direct children only,
+without following symlinks, within 500 entries and a cooperative one-second
+elapsed-time budget checked between filesystem operations. The service
+`.veqtor` directory is excluded from child-workspace candidates. The elapsed-
+time check cannot interrupt a blocked filesystem call and is not a hard timeout:
+
+- zero child journals: `workspace_uninitialized`;
+- exactly one: `workspace_mismatch`, with one path-safe relative suggestion;
+- two or more: `workspace_ambiguous`, without exposing child names; or
+- an exhausted bound or incomplete scan: `workspace_discovery_incomplete`.
+
+All four states fail closed and create no files in the supplied folder. An
+existing exact-workspace journal always wins over child candidates. This is
+bounded wrong-parent diagnosis, not recursive matter discovery.
+
 To protect context and privacy, the MCP export is always compact: verbatim `input`
 payloads, paths, clause headings, raw error text and free-form provenance are
 replaced by digests. Only format-validated identifiers, hashes and counters

@@ -49,6 +49,33 @@ def _cap_from_tool(path: Path) -> tuple[dict, dict]:
     }
 
 
+def _server_apply_edits(source_path: str, output_path: str, edits) -> dict:
+    """Call the v0.2 server apply surface with a proof when preflight passes."""
+    preflight = veqtor_docx.preflight_edits(
+        source_path,
+        edits,
+        author=server._tracked_change_author(),
+        producer_build=records.SOURCE_SNAPSHOT_IDENTITY,
+    )
+    proof = preflight.get("preflight_proof")
+    if not isinstance(proof, dict):
+        proof = {
+            "schema_version": "preflight_proof.v1",
+            "source_sha256": "0" * 64,
+            "edits_sha256": "0" * 64,
+            "tracked_change_author": server._tracked_change_author(),
+            "producer_build": records.SOURCE_SNAPSHOT_IDENTITY,
+            "candidate_sha256": "0" * 64,
+            "proof_sha256": "0" * 64,
+        }
+    return server.apply_edits(
+        source_path,
+        output_path,
+        edits,
+        proof,
+    )
+
+
 def _rewrite_docx_part(path: Path, part_name: str, transform) -> None:
     with zipfile.ZipFile(path, "r") as archive:
         infos = archive.infolist()
@@ -69,9 +96,9 @@ def _mark_zip_member_encrypted(path: Path, member_name: str) -> None:
         payload[local_flag_offset : local_flag_offset + 2],
         "little",
     )
-    payload[local_flag_offset : local_flag_offset + 2] = (
-        local_flag | 0x1
-    ).to_bytes(2, "little")
+    payload[local_flag_offset : local_flag_offset + 2] = (local_flag | 0x1).to_bytes(
+        2, "little"
+    )
 
     encoded_name = member_name.encode("utf-8")
     cursor = 0
@@ -115,6 +142,47 @@ def _export_concurrent_record(workspace: str, _index: int) -> dict:
     return server.export_decision_record(workspace, max_records=1)
 
 
+def _initialize_empty_decision_record_journal(workspace: Path) -> Path:
+    sidecar = workspace / records.SIDECAR_DIR
+    sidecar.mkdir(mode=0o700)
+    gitignore = sidecar / records.GITIGNORE_NAME
+    gitignore.write_bytes(b"*\n")
+    gitignore.chmod(0o600)
+    journal = sidecar / records.JOURNAL_NAME
+    journal.write_bytes(b"")
+    journal.chmod(0o600)
+    return journal
+
+
+def _filesystem_snapshot(root: Path) -> dict[str, tuple[int, int, bytes | str | None]]:
+    snapshot: dict[str, tuple[int, int, bytes | str | None]] = {}
+    for path in sorted(root.rglob("*")):
+        info = path.lstat()
+        payload: bytes | str | None
+        if stat.S_ISREG(info.st_mode):
+            payload = path.read_bytes()
+        elif stat.S_ISLNK(info.st_mode):
+            payload = os.readlink(path)
+        else:
+            payload = None
+        snapshot[str(path.relative_to(root))] = (
+            stat.S_IFMT(info.st_mode),
+            stat.S_IMODE(info.st_mode),
+            payload,
+        )
+    return snapshot
+
+
+def _export_core(workspace: Path) -> tuple[dict, dict]:
+    return records.export_records_with_access_event(
+        workspace=workspace,
+        max_records=None,
+        before_record_id=None,
+        input_payload={"workspace": str(workspace)},
+        result_factory=lambda _snapshot: {"status": "ok"},
+    )
+
+
 def test_with_record_preserves_explicit_empty_record_result(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -151,7 +219,7 @@ def test_successful_tool_calls_write_decision_records(tmp_path: Path) -> None:
         "the total fees paid by Client under this Agreement",
     )
     out = tmp_path / "counter.docx"
-    applied = server.apply_edits(
+    applied = _server_apply_edits(
         str(source),
         str(out),
         [
@@ -166,7 +234,10 @@ def test_successful_tool_calls_write_decision_records(tmp_path: Path) -> None:
     assert extracted["record_status"] == "written"
     assert verified["record_status"] == "written"
     assert applied["record_status"] == "written"
-    assert applied["output_sha256"] == veqtor_docx.extract_redlines(str(out))["file_sha256"]
+    assert (
+        applied["output_sha256"]
+        == veqtor_docx.extract_redlines(str(out))["file_sha256"]
+    )
 
     exported = server.export_decision_record(str(matter), max_records=2)
     assert exported["record_status"] == "written"
@@ -175,15 +246,25 @@ def test_successful_tool_calls_write_decision_records(tmp_path: Path) -> None:
     assert exported["access_count"] == 0
     assert exported["truncated"] is True
     assert exported["next_before_record_id"] == "dr_002"
-    assert [record["record_id"] for record in exported["records"]] == ["dr_002", "dr_003"]
+    assert [record["record_id"] for record in exported["records"]] == [
+        "dr_002",
+        "dr_003",
+    ]
     compact_apply = exported["records"][1]
     assert compact_apply["result"]["applied"]["sample"][0]["operation"] == "replace"
     assert compact_apply["provenance"]["applied"]["sample"][0]["operation"] == "replace"
+    for projection in (compact_apply["result"], compact_apply["provenance"]):
+        assert projection["preflight_binding_status"] == "verified"
+        assert projection["preflight_candidate_sha256"] == applied["output_sha256"]
+        assert projection["candidate_output_sha256_match"] is True
 
     full = records.read_records(str(matter), max_records=2, include_payload=True)
     verify_record, apply_record = full["records"]
     assert verify_record["tool_name"] == "verify_quote"
-    assert verify_record["input"]["quote"] == "the total fees paid by Client under this Agreement"
+    assert (
+        verify_record["input"]["quote"]
+        == "the total fees paid by Client under this Agreement"
+    )
     assert verify_record["result"]["verdict"] == "exact"
     assert verify_record["provenance"]["anchors"][0]["side"] == "old"
 
@@ -192,22 +273,57 @@ def test_successful_tool_calls_write_decision_records(tmp_path: Path) -> None:
     assert apply_record["provenance"]["output_sha256"] == applied["output_sha256"]
     assert apply_record["provenance"]["applied"][0]["operation"] == "replace"
     assert apply_record["provenance"]["round_trip_check"]["status"] == "passed"
+    assert apply_record["provenance"]["preflight_binding_status"] == "verified"
+    assert apply_record["provenance"]["preflight_candidate_sha256"] == applied[
+        "output_sha256"
+    ]
+    assert apply_record["provenance"]["candidate_output_sha256_match"] is True
 
 
-def test_extract_record_is_compact_and_does_not_duplicate_change_text(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        {"preflight_binding_status": "unverified"},
+        {"preflight_candidate_sha256": "b" * 64},
+        {"candidate_output_sha256_match": False},
+    ],
+)
+def test_compact_binding_projection_requires_consistent_verified_hashes(
+    mutation: dict[str, object],
+) -> None:
+    facts: dict[str, object] = {
+        "output_sha256": "a" * 64,
+        "preflight_binding_status": "verified",
+        "preflight_candidate_sha256": "a" * 64,
+        "candidate_output_sha256_match": True,
+    }
+    facts.update(mutation)
+
+    assert records._preflight_binding_summary(facts) == {}
+
+
+def test_extract_record_is_compact_and_does_not_duplicate_change_text(
+    tmp_path: Path,
+) -> None:
     matter = _matter(tmp_path)
     source = matter / "round-2-counterparty-redline.docx"
 
     extracted, _ = _cap_from_tool(source)
     journal = records.read_records(str(matter), max_records=10, include_payload=True)
     extract_record = next(
-        record for record in journal["records"] if record["tool_name"] == "extract_redlines"
+        record
+        for record in journal["records"]
+        if record["tool_name"] == "extract_redlines"
     )
 
     assert extract_record["record_type"] == "tool_observation.v1"
-    assert extract_record["result"]["change_unit_count"] == len(extracted["change_units"])
+    assert extract_record["result"]["change_unit_count"] == len(
+        extracted["change_units"]
+    )
     assert "change_units" not in extract_record["result"]
-    assert extract_record["result_sha256"] == records._stable_digest(extract_record["result"])
+    assert extract_record["result_sha256"] == records._stable_digest(
+        extract_record["result"]
+    )
     full_extract = veqtor_docx.extract_redlines(str(source))
     assert extract_record["tool_result_sha256"] == records._stable_digest(
         {"status": "ok", **full_extract}
@@ -253,15 +369,13 @@ def test_source_snapshot_hashes_package_source_tree(
             {
                 "path": "veqtor_docx/engine.py",
                 "sha256": (
-                    "c1ff757ec2295bdcca2cd04c50b1462b"
-                    "952f8be7c59f4bd0530163bce3da5a74"
+                    "c1ff757ec2295bdcca2cd04c50b1462b952f8be7c59f4bd0530163bce3da5a74"
                 ),
             },
             {
                 "path": "veqtor_mcp/server.py",
                 "sha256": (
-                    "0b580e9a58186f758e87b1cb65831968"
-                    "2611f9fdac36264919432f06a66c4768"
+                    "0b580e9a58186f758e87b1cb658319682611f9fdac36264919432f06a66c4768"
                 ),
             },
         ],
@@ -431,7 +545,9 @@ def test_source_snapshot_serialization_failure_is_explicit(
     )
 
 
-def test_kill_switch_disables_journal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_kill_switch_disables_journal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     matter = _matter(tmp_path)
     monkeypatch.setenv(records.DISABLE_ENV, "1")
 
@@ -691,7 +807,9 @@ def test_gitignore_hardlink_is_refused_without_external_change(tmp_path: Path) -
     assert result["record_status"] == "write_failed"
     assert result["record_error"] == "gitignore_hardlink"
     assert target.read_text(encoding="utf-8") == "sentinel\n"
-    assert (sidecar / records.GITIGNORE_NAME).read_text(encoding="utf-8") == "sentinel\n"
+    assert (sidecar / records.GITIGNORE_NAME).read_text(
+        encoding="utf-8"
+    ) == "sentinel\n"
     assert (sidecar / records.GITIGNORE_NAME).stat().st_ino == target.stat().st_ino
     assert not (sidecar / records.JOURNAL_NAME).exists()
 
@@ -875,7 +993,7 @@ def test_controlled_failures_are_recorded_then_reraised(tmp_path: Path) -> None:
     bad_anchor = {**anchor, "change_unit_id": "cu_999"}
 
     with pytest.raises(veqtor_docx.ApplyError) as err:
-        server.apply_edits(
+        _server_apply_edits(
             str(source),
             str(tmp_path / "never.docx"),
             [{"anchor": bad_anchor, "delete_text": "x", "insert_text": "y"}],
@@ -886,13 +1004,20 @@ def test_controlled_failures_are_recorded_then_reraised(tmp_path: Path) -> None:
     error_records = [
         record
         for record in exported["records"]
-        if record["tool_name"] == "apply_edits" and record["result"]["status"] == "error"
+        if record["tool_name"] == "apply_edits"
+        and record["result"]["status"] == "error"
     ]
     assert len(error_records) == 1
     assert error_records[0]["result"]["error_code"] == "anchor_not_found"
     assert error_records[0]["input"]["edits"][0]["anchor"]["change_unit_id"] == "cu_999"
-    assert error_records[0]["provenance"]["claimed_source_sha256"] == extracted["file_sha256"]
-    assert error_records[0]["provenance"]["observed_source_sha256"] == extracted["file_sha256"]
+    assert (
+        error_records[0]["provenance"]["claimed_source_sha256"]
+        == extracted["file_sha256"]
+    )
+    assert (
+        error_records[0]["provenance"]["observed_source_sha256"]
+        == extracted["file_sha256"]
+    )
 
 
 def test_hash_mismatch_records_claimed_and_observed_sha(tmp_path: Path) -> None:
@@ -902,7 +1027,7 @@ def test_hash_mismatch_records_claimed_and_observed_sha(tmp_path: Path) -> None:
     bad_anchor = {**anchor, "file_sha256": "0" * 64}
 
     with pytest.raises(veqtor_docx.ApplyError) as err:
-        server.apply_edits(
+        _server_apply_edits(
             str(source),
             str(tmp_path / "never.docx"),
             [{"anchor": bad_anchor, "delete_text": "x", "insert_text": "y"}],
@@ -913,10 +1038,13 @@ def test_hash_mismatch_records_claimed_and_observed_sha(tmp_path: Path) -> None:
     error_record = next(
         record
         for record in exported["records"]
-        if record["tool_name"] == "apply_edits" and record["result"]["status"] == "error"
+        if record["tool_name"] == "apply_edits"
+        and record["result"]["status"] == "error"
     )
     assert error_record["provenance"]["claimed_source_sha256"] == "0" * 64
-    assert error_record["provenance"]["observed_source_sha256"] == extracted["file_sha256"]
+    assert (
+        error_record["provenance"]["observed_source_sha256"] == extracted["file_sha256"]
+    )
     assert "source_sha256" not in error_record["provenance"]
 
 
@@ -927,7 +1055,7 @@ def test_multi_edit_hash_mismatch_records_offending_claim(tmp_path: Path) -> Non
     bad_anchor = {**anchor, "file_sha256": "0" * 64}
 
     with pytest.raises(veqtor_docx.ApplyError) as err:
-        server.apply_edits(
+        _server_apply_edits(
             str(source),
             str(tmp_path / "never.docx"),
             [
@@ -950,10 +1078,13 @@ def test_multi_edit_hash_mismatch_records_offending_claim(tmp_path: Path) -> Non
         for record in records.read_records(
             str(matter), max_records=10, include_payload=True
         )["records"]
-        if record["tool_name"] == "apply_edits" and record["result"]["status"] == "error"
+        if record["tool_name"] == "apply_edits"
+        and record["result"]["status"] == "error"
     )
     assert error_record["provenance"]["claimed_source_sha256"] == "0" * 64
-    assert error_record["provenance"]["observed_source_sha256"] == extracted["file_sha256"]
+    assert (
+        error_record["provenance"]["observed_source_sha256"] == extracted["file_sha256"]
+    )
     assert error_record["provenance"]["edit_index"] == 1
 
 
@@ -963,7 +1094,7 @@ def test_multi_edit_delete_text_failure_records_offending_index(tmp_path: Path) 
     extracted, anchor = _cap_from_tool(source)
 
     with pytest.raises(veqtor_docx.ApplyError) as err:
-        server.apply_edits(
+        _server_apply_edits(
             str(source),
             str(tmp_path / "never.docx"),
             [
@@ -986,10 +1117,15 @@ def test_multi_edit_delete_text_failure_records_offending_index(tmp_path: Path) 
         for record in records.read_records(
             str(matter), max_records=10, include_payload=True
         )["records"]
-        if record["tool_name"] == "apply_edits" and record["result"]["status"] == "error"
+        if record["tool_name"] == "apply_edits"
+        and record["result"]["status"] == "error"
     )
-    assert error_record["provenance"]["claimed_source_sha256"] == extracted["file_sha256"]
-    assert error_record["provenance"]["observed_source_sha256"] == extracted["file_sha256"]
+    assert (
+        error_record["provenance"]["claimed_source_sha256"] == extracted["file_sha256"]
+    )
+    assert (
+        error_record["provenance"]["observed_source_sha256"] == extracted["file_sha256"]
+    )
     assert error_record["provenance"]["edit_index"] == 1
 
 
@@ -999,7 +1135,7 @@ def test_malformed_second_edit_records_offending_index(tmp_path: Path) -> None:
     extracted, anchor = _cap_from_tool(source)
 
     with pytest.raises(veqtor_docx.ApplyError) as err:
-        server.apply_edits(
+        _server_apply_edits(
             str(source),
             str(tmp_path / "never.docx"),
             [
@@ -1022,10 +1158,15 @@ def test_malformed_second_edit_records_offending_index(tmp_path: Path) -> None:
         for record in records.read_records(
             str(matter), max_records=10, include_payload=True
         )["records"]
-        if record["tool_name"] == "apply_edits" and record["result"]["status"] == "error"
+        if record["tool_name"] == "apply_edits"
+        and record["result"]["status"] == "error"
     )
-    assert error_record["provenance"]["claimed_source_sha256"] == extracted["file_sha256"]
-    assert error_record["provenance"]["observed_source_sha256"] == extracted["file_sha256"]
+    assert (
+        error_record["provenance"]["claimed_source_sha256"] == extracted["file_sha256"]
+    )
+    assert (
+        error_record["provenance"]["observed_source_sha256"] == extracted["file_sha256"]
+    )
     assert error_record["provenance"]["edit_index"] == 1
 
 
@@ -1049,7 +1190,7 @@ def test_late_apply_failure_records_offending_plan_metadata(
     output = tmp_path / "never.docx"
 
     with pytest.raises(veqtor_docx.ApplyError) as err:
-        server.apply_edits(
+        _server_apply_edits(
             str(source),
             str(output),
             [
@@ -1076,11 +1217,16 @@ def test_late_apply_failure_records_offending_plan_metadata(
         for record in records.read_records(
             str(matter), max_records=10, include_payload=True
         )["records"]
-        if record["tool_name"] == "apply_edits" and record["result"]["status"] == "error"
+        if record["tool_name"] == "apply_edits"
+        and record["result"]["status"] == "error"
     )
     assert error_record["provenance"]["edit_index"] == 1
-    assert error_record["provenance"]["claimed_source_sha256"] == extracted["file_sha256"]
-    assert error_record["provenance"]["observed_source_sha256"] == extracted["file_sha256"]
+    assert (
+        error_record["provenance"]["claimed_source_sha256"] == extracted["file_sha256"]
+    )
+    assert (
+        error_record["provenance"]["observed_source_sha256"] == extracted["file_sha256"]
+    )
 
 
 @pytest.mark.parametrize("tool_name", ["preflight_edits", "apply_edits"])
@@ -1109,7 +1255,7 @@ def test_unexpected_edit_failure_is_journaled_without_exception_details(
         if tool_name == "preflight_edits":
             server.preflight_edits(str(source), edits)
         else:
-            server.apply_edits(str(source), str(matter / "never.docx"), edits)
+            _server_apply_edits(str(source), str(matter / "never.docx"), edits)
     assert str(error.value) == "internal_error: unexpected tool failure"
     assert secret not in str(error.value)
 
@@ -1206,13 +1352,14 @@ def test_operation_wide_publish_failure_records_observed_source_sha(
     source = matter / "round-2-counterparty-redline.docx"
     extracted, anchor = _cap_from_tool(source)
     apply_module = importlib.import_module("veqtor_docx.apply")
+
     def deny_publish(_source: str, _destination: str) -> None:
         raise PermissionError("simulated publish failure")
 
     monkeypatch.setattr(apply_module.os, "link", deny_publish)
     output = tmp_path / "never.docx"
     with pytest.raises(veqtor_docx.ApplyError) as err:
-        server.apply_edits(
+        _server_apply_edits(
             str(source),
             str(output),
             [
@@ -1226,7 +1373,8 @@ def test_operation_wide_publish_failure_records_observed_source_sha(
 
     assert err.value.code == "output_unwritable"
     assert err.value.metadata == {
-        "observed_source_sha256": extracted["file_sha256"]
+        "failure_phase": "publication",
+        "observed_source_sha256": extracted["file_sha256"],
     }
     assert not output.exists()
     assert not list(tmp_path.glob("*.veqtor-tmp"))
@@ -1234,11 +1382,12 @@ def test_operation_wide_publish_failure_records_observed_source_sha(
     error_record = next(
         record
         for record in full["records"]
-        if record["tool_name"] == "apply_edits" and record["result"]["status"] == "error"
+        if record["tool_name"] == "apply_edits"
+        and record["result"]["status"] == "error"
     )
-    assert error_record["provenance"]["observed_source_sha256"] == extracted[
-        "file_sha256"
-    ]
+    assert (
+        error_record["provenance"]["observed_source_sha256"] == extracted["file_sha256"]
+    )
     assert "edit_index" not in error_record["provenance"]
 
 
@@ -1260,7 +1409,7 @@ def test_operation_wide_round_trip_failure_has_no_invented_edit_index(
     output = tmp_path / "never.docx"
 
     with pytest.raises(veqtor_docx.ApplyError) as err:
-        server.apply_edits(
+        _server_apply_edits(
             str(source),
             str(output),
             [
@@ -1273,9 +1422,7 @@ def test_operation_wide_round_trip_failure_has_no_invented_edit_index(
         )
 
     assert err.value.code == "round_trip_failed"
-    assert err.value.metadata["observed_source_sha256"] == extracted[
-        "file_sha256"
-    ]
+    assert err.value.metadata["observed_source_sha256"] == extracted["file_sha256"]
     assert err.value.metadata["failure_phase"] == "round_trip"
     assert len(err.value.metadata["observed_candidate_sha256"]) == 64
     assert err.value.metadata["planned_edits"][0]["status"] == "planned"
@@ -1285,11 +1432,12 @@ def test_operation_wide_round_trip_failure_has_no_invented_edit_index(
     error_record = next(
         record
         for record in full["records"]
-        if record["tool_name"] == "apply_edits" and record["result"]["status"] == "error"
+        if record["tool_name"] == "apply_edits"
+        and record["result"]["status"] == "error"
     )
-    assert error_record["provenance"]["observed_source_sha256"] == extracted[
-        "file_sha256"
-    ]
+    assert (
+        error_record["provenance"]["observed_source_sha256"] == extracted["file_sha256"]
+    )
     assert "edit_index" not in error_record["provenance"]
 
 
@@ -1331,7 +1479,7 @@ def test_readable_snapshot_parse_failures_record_observed_source_sha(
     }
 
     with pytest.raises(veqtor_docx.DocxError) as apply_error:
-        server.apply_edits(
+        _server_apply_edits(
             str(source),
             str(output),
             [
@@ -1343,15 +1491,14 @@ def test_readable_snapshot_parse_failures_record_observed_source_sha(
             ],
         )
     assert getattr(apply_error.value, "metadata") == {
-        "observed_source_sha256": observed
+        "observed_source_sha256": observed,
+        "failure_phase": "source",
     }
     assert not output.exists()
 
     full = records.read_records(str(matter), max_records=10, include_payload=True)
     failures = [
-        record
-        for record in full["records"]
-        if record["result"]["status"] == "error"
+        record for record in full["records"] if record["result"]["status"] == "error"
     ]
     assert [record["tool_name"] for record in failures] == [
         "extract_redlines",
@@ -1377,14 +1524,12 @@ def test_source_archive_crc_failure_records_observed_source_sha(
     offset = payload.find(sentinel)
     assert offset >= 0
     assert payload.find(sentinel, offset + 1) == -1
-    source.write_bytes(
-        payload[:offset] + b"X" + payload[offset + 1 :]
-    )
+    source.write_bytes(payload[:offset] + b"X" + payload[offset + 1 :])
 
     observed = hashlib.sha256(source.read_bytes()).hexdigest()
     output = matter / "never.docx"
     with pytest.raises(veqtor_docx.ApplyError) as err:
-        server.apply_edits(
+        _server_apply_edits(
             str(source),
             str(output),
             [
@@ -1402,6 +1547,7 @@ def test_source_archive_crc_failure_records_observed_source_sha(
         "declared_bytes": len(sentinel),
         "observed_bytes": len(sentinel),
         "observed_source_sha256": observed,
+        "failure_phase": "source",
     }
     assert not output.exists()
     full = records.read_records(str(matter), max_records=10, include_payload=True)
@@ -1432,7 +1578,7 @@ def test_encrypted_required_member_failures_are_recorded_for_all_tools(
         server.extract_redlines(str(source))
     assert getattr(extract_error.value, "metadata") == {
         "member_name": "word/document.xml",
-        "observed_source_sha256": observed
+        "observed_source_sha256": observed,
     }
 
     with pytest.raises(veqtor_docx.VerifyError) as verify_error:
@@ -1445,7 +1591,7 @@ def test_encrypted_required_member_failures_are_recorded_for_all_tools(
     }
 
     with pytest.raises(veqtor_docx.DocxError) as apply_error:
-        server.apply_edits(
+        _server_apply_edits(
             str(source),
             str(output),
             [
@@ -1458,15 +1604,14 @@ def test_encrypted_required_member_failures_are_recorded_for_all_tools(
         )
     assert getattr(apply_error.value, "metadata") == {
         "member_name": "word/document.xml",
-        "observed_source_sha256": observed
+        "observed_source_sha256": observed,
+        "failure_phase": "source",
     }
     assert not output.exists()
 
     full = records.read_records(str(matter), max_records=10, include_payload=True)
     failures = [
-        record
-        for record in full["records"]
-        if record["result"]["status"] == "error"
+        record for record in full["records"] if record["result"]["status"] == "error"
     ]
     assert [record["tool_name"] for record in failures] == [
         "extract_redlines",
@@ -1500,7 +1645,7 @@ def test_source_archive_decompressor_failures_are_recorded(
     monkeypatch.setattr(_ooxml, "_decode_deflated_member", fail_member_decode)
     output = matter / "never.docx"
     with pytest.raises(veqtor_docx.ApplyError) as err:
-        server.apply_edits(
+        _server_apply_edits(
             str(source),
             str(output),
             [
@@ -1515,7 +1660,8 @@ def test_source_archive_decompressor_failures_are_recorded(
     assert err.value.code == "file_unextractable"
     assert err.value.metadata == {
         "member_name": member_name,
-        "observed_source_sha256": extracted["file_sha256"]
+        "observed_source_sha256": extracted["file_sha256"],
+        "failure_phase": "source",
     }
     assert not output.exists()
     full = records.read_records(str(matter), max_records=10, include_payload=True)
@@ -1525,9 +1671,9 @@ def test_source_archive_decompressor_failures_are_recorded(
         if record["tool_name"] == "apply_edits"
         and record["result"]["status"] == "error"
     )
-    assert error_record["provenance"]["observed_source_sha256"] == extracted[
-        "file_sha256"
-    ]
+    assert (
+        error_record["provenance"]["observed_source_sha256"] == extracted["file_sha256"]
+    )
 
 
 def test_duplicate_source_archive_members_are_rejected_before_rewrite(
@@ -1574,7 +1720,7 @@ def test_duplicate_source_archive_members_are_rejected_before_rewrite(
 
     output = matter / "never.docx"
     with pytest.raises(veqtor_docx.DocxError) as err:
-        server.apply_edits(
+        _server_apply_edits(
             str(source),
             str(output),
             [
@@ -1588,7 +1734,8 @@ def test_duplicate_source_archive_members_are_rejected_before_rewrite(
 
     assert err.value.code == "file_unextractable"
     assert err.value.metadata == {
-        "observed_source_sha256": duplicate_sha
+        "observed_source_sha256": duplicate_sha,
+        "failure_phase": "source",
     }
     assert not output.exists()
     full = records.read_records(str(matter), max_records=10, include_payload=True)
@@ -1616,7 +1763,7 @@ def test_output_archive_write_failure_records_observed_source_sha(
     monkeypatch.setattr(apply_module.zipfile.ZipFile, "writestr", fail_writestr)
     output = matter / "never.docx"
     with pytest.raises(veqtor_docx.ApplyError) as err:
-        server.apply_edits(
+        _server_apply_edits(
             str(source),
             str(output),
             [
@@ -1629,9 +1776,7 @@ def test_output_archive_write_failure_records_observed_source_sha(
         )
 
     assert err.value.code == "output_unwritable"
-    assert err.value.metadata["observed_source_sha256"] == extracted[
-        "file_sha256"
-    ]
+    assert err.value.metadata["observed_source_sha256"] == extracted["file_sha256"]
     assert err.value.metadata["failure_phase"] == "serialization"
     assert err.value.metadata["planned_edits"][0]["status"] == "planned"
     assert "observed_candidate_sha256" not in err.value.metadata
@@ -1644,9 +1789,9 @@ def test_output_archive_write_failure_records_observed_source_sha(
         if record["tool_name"] == "apply_edits"
         and record["result"]["status"] == "error"
     )
-    assert error_record["provenance"]["observed_source_sha256"] == extracted[
-        "file_sha256"
-    ]
+    assert (
+        error_record["provenance"]["observed_source_sha256"] == extracted["file_sha256"]
+    )
     assert "edit_index" not in error_record["provenance"]
 
 
@@ -1682,7 +1827,7 @@ def test_candidate_reextraction_failure_keeps_snapshot_shas_distinct(
     )
     output = matter / "never.docx"
     with pytest.raises(veqtor_docx.DocxError) as err:
-        server.apply_edits(
+        _server_apply_edits(
             str(source),
             str(output),
             [
@@ -1696,9 +1841,7 @@ def test_candidate_reextraction_failure_keeps_snapshot_shas_distinct(
 
     assert candidate_sha["value"] != extracted["file_sha256"]
     assert err.value.metadata["observed_candidate_sha256"] == candidate_sha["value"]
-    assert err.value.metadata["observed_source_sha256"] == extracted[
-        "file_sha256"
-    ]
+    assert err.value.metadata["observed_source_sha256"] == extracted["file_sha256"]
     assert err.value.metadata["failure_phase"] == "round_trip"
     assert err.value.metadata["planned_edits"][0]["status"] == "planned"
     assert err.value.metadata["round_trip_check"]["status"] == "failed"
@@ -1712,15 +1855,16 @@ def test_candidate_reextraction_failure_keeps_snapshot_shas_distinct(
         if record["tool_name"] == "apply_edits"
         and record["result"]["status"] == "error"
     )
-    assert error_record["provenance"]["claimed_source_sha256"] == extracted[
-        "file_sha256"
-    ]
-    assert error_record["provenance"]["observed_source_sha256"] == extracted[
-        "file_sha256"
-    ]
-    assert error_record["provenance"]["observed_candidate_sha256"] == candidate_sha[
-        "value"
-    ]
+    assert (
+        error_record["provenance"]["claimed_source_sha256"] == extracted["file_sha256"]
+    )
+    assert (
+        error_record["provenance"]["observed_source_sha256"] == extracted["file_sha256"]
+    )
+    assert (
+        error_record["provenance"]["observed_candidate_sha256"]
+        == candidate_sha["value"]
+    )
 
     compact = records.read_records(str(matter), max_records=10)
     compact_error = next(
@@ -1729,12 +1873,14 @@ def test_candidate_reextraction_failure_keeps_snapshot_shas_distinct(
         if record["tool_name"] == "apply_edits"
         and record["result"]["status"] == "error"
     )
-    assert compact_error["provenance"]["observed_source_sha256"] == extracted[
-        "file_sha256"
-    ]
-    assert compact_error["provenance"]["observed_candidate_sha256"] == candidate_sha[
-        "value"
-    ]
+    assert (
+        compact_error["provenance"]["observed_source_sha256"]
+        == extracted["file_sha256"]
+    )
+    assert (
+        compact_error["provenance"]["observed_candidate_sha256"]
+        == candidate_sha["value"]
+    )
 
 
 def test_in_memory_round_trip_failure_creates_no_temp_artifact(
@@ -1759,7 +1905,7 @@ def test_in_memory_round_trip_failure_creates_no_temp_artifact(
     monkeypatch.setattr(apply_module.os, "remove", deny_cleanup)
     output = matter / "never.docx"
     with pytest.raises(veqtor_docx.ApplyError) as err:
-        server.apply_edits(
+        _server_apply_edits(
             str(source),
             str(output),
             [
@@ -1772,9 +1918,7 @@ def test_in_memory_round_trip_failure_creates_no_temp_artifact(
         )
 
     assert err.value.code == "round_trip_failed"
-    assert err.value.metadata["observed_source_sha256"] == extracted[
-        "file_sha256"
-    ]
+    assert err.value.metadata["observed_source_sha256"] == extracted["file_sha256"]
     assert err.value.metadata["failure_phase"] == "round_trip"
     assert len(err.value.metadata["observed_candidate_sha256"]) == 64
     assert err.value.metadata["planned_edits"][0]["status"] == "planned"
@@ -1789,9 +1933,9 @@ def test_in_memory_round_trip_failure_creates_no_temp_artifact(
         and record["result"]["status"] == "error"
     )
     assert error_record["result"]["error_code"] == "round_trip_failed"
-    assert error_record["provenance"]["observed_source_sha256"] == extracted[
-        "file_sha256"
-    ]
+    assert (
+        error_record["provenance"]["observed_source_sha256"] == extracted["file_sha256"]
+    )
     assert "edit_index" not in error_record["provenance"]
 
 
@@ -1825,7 +1969,7 @@ def test_destination_race_is_published_without_clobber(
     monkeypatch.setattr(apply_module.os, "link", race_link)
     output = matter / "raced-output.docx"
     with pytest.raises(veqtor_docx.ApplyError) as err:
-        server.apply_edits(
+        _server_apply_edits(
             str(source),
             str(output),
             [
@@ -1839,7 +1983,8 @@ def test_destination_race_is_published_without_clobber(
 
     assert err.value.code == "output_exists"
     assert err.value.metadata == {
-        "observed_source_sha256": extracted["file_sha256"]
+        "failure_phase": "publication",
+        "observed_source_sha256": extracted["file_sha256"],
     }
     assert output.read_bytes() == sentinel
     assert not list(matter.glob("*.veqtor-tmp"))
@@ -1852,9 +1997,9 @@ def test_destination_race_is_published_without_clobber(
         and record["result"]["status"] == "error"
     )
     assert error_record["result"]["error_code"] == "output_exists"
-    assert error_record["provenance"]["observed_source_sha256"] == extracted[
-        "file_sha256"
-    ]
+    assert (
+        error_record["provenance"]["observed_source_sha256"] == extracted["file_sha256"]
+    )
     assert "edit_index" not in error_record["provenance"]
 
 
@@ -1883,29 +2028,57 @@ def test_verify_failures_record_the_snapshot_that_rejected_the_claim(
     error_record = next(
         record
         for record in full["records"]
-        if record["tool_name"] == "verify_quote" and record["result"]["status"] == "error"
+        if record["tool_name"] == "verify_quote"
+        and record["result"]["status"] == "error"
     )
-    assert error_record["provenance"]["claimed_source_sha256"] == asserted[
-        "file_sha256"
-    ]
-    assert error_record["provenance"]["observed_source_sha256"] == extracted[
-        "file_sha256"
-    ]
+    assert (
+        error_record["provenance"]["claimed_source_sha256"] == asserted["file_sha256"]
+    )
+    assert (
+        error_record["provenance"]["observed_source_sha256"] == extracted["file_sha256"]
+    )
     compact = records.read_records(str(matter), max_records=10)
     compact_error = next(
         record
         for record in compact["records"]
-        if record["tool_name"] == "verify_quote" and record["result"]["status"] == "error"
+        if record["tool_name"] == "verify_quote"
+        and record["result"]["status"] == "error"
     )
     assert compact_error["provenance"]["claimed_source_sha256"]["omitted"] is True
-    assert compact_error["provenance"]["observed_source_sha256"] == extracted[
-        "file_sha256"
-    ]
+    assert (
+        compact_error["provenance"]["observed_source_sha256"]
+        == extracted["file_sha256"]
+    )
 
 
-def test_export_missing_journal_returns_empty_and_records_export(tmp_path: Path) -> None:
+def test_export_missing_journal_is_uninitialized_and_creates_nothing(
+    tmp_path: Path,
+) -> None:
     matter = tmp_path / "empty-matter"
     matter.mkdir()
+    before = _filesystem_snapshot(matter)
+
+    with pytest.raises(records.WorkspaceDiscoveryError) as error:
+        _export_core(matter)
+
+    assert error.value.code == "workspace_uninitialized"
+    assert error.value.metadata == {
+        "scope": "direct_children",
+        "max_depth": 1,
+        "entry_limit": records.MAX_WORKSPACE_DISCOVERY_ENTRIES,
+        "time_limit_seconds": records.MAX_WORKSPACE_DISCOVERY_SECONDS,
+        "classification_complete": True,
+        "candidate_count": 0,
+    }
+    assert _filesystem_snapshot(matter) == before
+
+
+def test_export_existing_empty_journal_records_current_access_event(
+    tmp_path: Path,
+) -> None:
+    matter = tmp_path / "empty-matter"
+    matter.mkdir()
+    _initialize_empty_decision_record_journal(matter)
 
     exported = server.export_decision_record(str(matter))
 
@@ -1934,7 +2107,9 @@ def test_export_missing_journal_returns_empty_and_records_export(tmp_path: Path)
         "included_in_access_count": False,
     }
 
-    reread = records.read_records(str(matter), max_records=10, include_access_events=True)
+    reread = records.read_records(
+        str(matter), max_records=10, include_access_events=True
+    )
     assert reread["total_count"] == 1
     assert reread["access_count"] == 1
     assert reread["records"][0]["tool_name"] == "export_decision_record"
@@ -1955,9 +2130,7 @@ def test_export_missing_journal_returns_empty_and_records_export(tmp_path: Path)
         "tool_specific_summary_not_verbatim_live_response"
     )
     assert "current_export_event" not in raw_result
-    assert raw["records"][0]["tool_result_sha256"] == records._stable_digest(
-        raw_result
-    )
+    assert raw["records"][0]["tool_result_sha256"] == records._stable_digest(raw_result)
 
 
 def test_export_reports_when_current_access_event_is_disabled(
@@ -1966,6 +2139,8 @@ def test_export_reports_when_current_access_event_is_disabled(
 ) -> None:
     matter = tmp_path / "empty-matter"
     matter.mkdir()
+    _initialize_empty_decision_record_journal(matter)
+    before = _filesystem_snapshot(matter)
     monkeypatch.setenv(records.DISABLE_ENV, "1")
 
     exported = server.export_decision_record(str(matter))
@@ -1974,7 +2149,344 @@ def test_export_reports_when_current_access_event_is_disabled(
     assert exported["record_status"] == "disabled"
     assert exported["access_events_recorded_locally"] is False
     assert exported["current_export_event"]["recorded_locally"] is False
+    assert _filesystem_snapshot(matter) == before
+
+
+def test_disabled_export_still_refuses_an_uninitialized_workspace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matter = tmp_path / "empty-matter"
+    matter.mkdir()
+    monkeypatch.setenv(records.DISABLE_ENV, "1")
+
+    with pytest.raises(records.WorkspaceDiscoveryError) as error:
+        _export_core(matter)
+
+    assert error.value.code == "workspace_uninitialized"
     assert not (matter / records.SIDECAR_DIR).exists()
+
+
+def test_export_wrong_parent_reports_one_relative_child_without_writes(
+    tmp_path: Path,
+) -> None:
+    matter_root = tmp_path / "matter"
+    rounds = matter_root / "rounds"
+    rounds.mkdir(parents=True)
+    assert (
+        records.write_record(
+            workspace=rounds,
+            tool_name="list_rounds",
+            input_payload={"folder": str(rounds)},
+            result={"status": "ok", "folder": str(rounds), "rounds": [], "skipped": []},
+            provenance={"rounds": [], "skipped": []},
+        )["record_status"]
+        == "written"
+    )
+    before = _filesystem_snapshot(matter_root)
+
+    with pytest.raises(records.WorkspaceDiscoveryError) as error:
+        _export_core(matter_root)
+
+    assert error.value.code == "workspace_mismatch"
+    assert error.value.metadata == {
+        "scope": "direct_children",
+        "max_depth": 1,
+        "entry_limit": records.MAX_WORKSPACE_DISCOVERY_ENTRIES,
+        "time_limit_seconds": records.MAX_WORKSPACE_DISCOVERY_SECONDS,
+        "classification_complete": True,
+        "candidate_count": 1,
+        "suggested_workspace": {
+            "relative_path": "rounds",
+            "relative_to": "supplied_workspace",
+        },
+    }
+    assert _filesystem_snapshot(matter_root) == before
+    assert not (matter_root / records.SIDECAR_DIR).exists()
+
+
+def test_export_multiple_child_workspaces_is_ambiguous_without_writes(
+    tmp_path: Path,
+) -> None:
+    matter_root = tmp_path / "matter"
+    matter_root.mkdir()
+    for name in ("buyer-rounds", "supplier-rounds"):
+        child = matter_root / name
+        child.mkdir()
+        assert (
+            records.write_record(
+                workspace=child,
+                tool_name="list_rounds",
+                input_payload={"folder": str(child)},
+                result={
+                    "status": "ok",
+                    "folder": str(child),
+                    "rounds": [],
+                    "skipped": [],
+                },
+                provenance={"rounds": [], "skipped": []},
+            )["record_status"]
+            == "written"
+        )
+    before = _filesystem_snapshot(matter_root)
+
+    with pytest.raises(records.WorkspaceDiscoveryError) as error:
+        _export_core(matter_root)
+
+    assert error.value.code == "workspace_ambiguous"
+    assert error.value.metadata == {
+        "scope": "direct_children",
+        "max_depth": 1,
+        "entry_limit": records.MAX_WORKSPACE_DISCOVERY_ENTRIES,
+        "time_limit_seconds": records.MAX_WORKSPACE_DISCOVERY_SECONDS,
+        "classification_complete": True,
+        "candidate_count_at_least": 2,
+    }
+    assert _filesystem_snapshot(matter_root) == before
+    assert "suggested_workspace" not in error.value.metadata
+
+
+def test_export_exact_workspace_wins_over_child_candidates(tmp_path: Path) -> None:
+    matter = tmp_path / "matter"
+    child = matter / "rounds"
+    child.mkdir(parents=True)
+    for workspace in (matter, child):
+        assert (
+            records.write_record(
+                workspace=workspace,
+                tool_name="list_rounds",
+                input_payload={"folder": str(workspace)},
+                result={
+                    "status": "ok",
+                    "folder": str(workspace),
+                    "rounds": [],
+                    "skipped": [],
+                },
+                provenance={"rounds": [], "skipped": []},
+            )["record_status"]
+            == "written"
+        )
+    child_journal = child / records.SIDECAR_DIR / records.JOURNAL_NAME
+    child_before = child_journal.read_bytes()
+
+    exported = server.export_decision_record(str(matter))
+
+    assert exported["record_status"] == "written"
+    assert exported["total_count"] == 1
+    assert child_journal.read_bytes() == child_before
+
+
+def test_export_discovery_never_follows_child_or_sidecar_symlinks(
+    tmp_path: Path,
+) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    assert (
+        records.write_record(
+            workspace=outside,
+            tool_name="list_rounds",
+            input_payload={"folder": str(outside)},
+            result={
+                "status": "ok",
+                "folder": str(outside),
+                "rounds": [],
+                "skipped": [],
+            },
+            provenance={"rounds": [], "skipped": []},
+        )["record_status"]
+        == "written"
+    )
+    outside_before = _filesystem_snapshot(outside)
+    matter = tmp_path / "matter"
+    matter.mkdir()
+    (matter / "linked-workspace").symlink_to(outside, target_is_directory=True)
+    child = matter / "child"
+    child.mkdir()
+    (child / records.SIDECAR_DIR).symlink_to(
+        outside / records.SIDECAR_DIR,
+        target_is_directory=True,
+    )
+
+    with pytest.raises(records.WorkspaceDiscoveryError) as error:
+        _export_core(matter)
+
+    assert error.value.code == "workspace_uninitialized"
+    assert error.value.metadata["candidate_count"] == 0
+    assert _filesystem_snapshot(outside) == outside_before
+    assert not (matter / records.SIDECAR_DIR).exists()
+
+
+def test_export_discovery_never_suggests_the_internal_sidecar(
+    tmp_path: Path,
+) -> None:
+    matter = tmp_path / "matter"
+    nested_sidecar = matter / records.SIDECAR_DIR / records.SIDECAR_DIR
+    nested_sidecar.mkdir(parents=True)
+    (nested_sidecar / records.JOURNAL_NAME).write_bytes(b"")
+    before = _filesystem_snapshot(matter)
+
+    with pytest.raises(records.WorkspaceDiscoveryError) as error:
+        _export_core(matter)
+
+    assert error.value.code == "workspace_uninitialized"
+    assert error.value.metadata["candidate_count"] == 0
+    assert "suggested_workspace" not in error.value.metadata
+    assert _filesystem_snapshot(matter) == before
+
+
+@pytest.mark.parametrize("disabled_export", [False, True])
+def test_export_refuses_when_workspace_identity_changes_after_discovery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    disabled_export: bool,
+) -> None:
+    selected = tmp_path / "selected"
+    replacement = tmp_path / "replacement"
+    selected.mkdir()
+    replacement.mkdir()
+    original_journal = _initialize_empty_decision_record_journal(selected)
+    replacement_journal = _initialize_empty_decision_record_journal(replacement)
+    original_before = original_journal.read_bytes()
+    replacement_before = replacement_journal.read_bytes()
+    held_original = tmp_path / "held-original"
+    real_require = records._require_existing_export_workspace
+
+    def validate_then_swap(root: Path, expected_identity: tuple[int, int]) -> None:
+        real_require(root, expected_identity)
+        root.rename(held_original)
+        replacement.rename(root)
+
+    monkeypatch.setattr(
+        records,
+        "_require_existing_export_workspace",
+        validate_then_swap,
+    )
+    if disabled_export:
+        monkeypatch.setenv(records.DISABLE_ENV, "1")
+
+    with pytest.raises(records.DecisionRecordError) as error:
+        _export_core(selected)
+
+    assert error.value.code == "workspace_changed"
+    assert (
+        held_original / records.SIDECAR_DIR / records.JOURNAL_NAME
+    ).read_bytes() == original_before
+    assert (
+        selected / records.SIDECAR_DIR / records.JOURNAL_NAME
+    ).read_bytes() == replacement_before
+
+
+def test_export_fallback_read_keeps_the_discovered_workspace_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    selected = tmp_path / "selected"
+    replacement = tmp_path / "replacement"
+    selected.mkdir()
+    replacement.mkdir()
+    original_journal = _initialize_empty_decision_record_journal(selected)
+    replacement_journal = _initialize_empty_decision_record_journal(replacement)
+    original_before = original_journal.read_bytes()
+    replacement_before = replacement_journal.read_bytes()
+    held_original = tmp_path / "held-original"
+
+    def swap_then_fail(*_args, **_kwargs):
+        selected.rename(held_original)
+        replacement.rename(selected)
+        raise OSError(errno.EROFS, "simulated write failure after rebinding")
+
+    monkeypatch.setattr(
+        records,
+        "_open_existing_journal_for_append",
+        swap_then_fail,
+    )
+
+    with pytest.raises(records.DecisionRecordError) as error:
+        _export_core(selected)
+
+    assert error.value.code == "workspace_changed"
+    assert (
+        held_original / records.SIDECAR_DIR / records.JOURNAL_NAME
+    ).read_bytes() == original_before
+    assert (
+        selected / records.SIDECAR_DIR / records.JOURNAL_NAME
+    ).read_bytes() == replacement_before
+
+
+def test_export_discovery_is_limited_to_direct_children(tmp_path: Path) -> None:
+    matter = tmp_path / "matter"
+    grandchild = matter / "contracts" / "rounds"
+    grandchild.mkdir(parents=True)
+    assert (
+        records.write_record(
+            workspace=grandchild,
+            tool_name="list_rounds",
+            input_payload={"folder": str(grandchild)},
+            result={
+                "status": "ok",
+                "folder": str(grandchild),
+                "rounds": [],
+                "skipped": [],
+            },
+            provenance={"rounds": [], "skipped": []},
+        )["record_status"]
+        == "written"
+    )
+    before = _filesystem_snapshot(matter)
+
+    with pytest.raises(records.WorkspaceDiscoveryError) as error:
+        _export_core(matter)
+
+    assert error.value.code == "workspace_uninitialized"
+    assert error.value.metadata["max_depth"] == 1
+    assert _filesystem_snapshot(matter) == before
+
+
+def test_export_discovery_entry_limit_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matter = tmp_path / "matter"
+    matter.mkdir()
+    for index in range(3):
+        (matter / f"child-{index}").mkdir()
+    monkeypatch.setattr(records, "MAX_WORKSPACE_DISCOVERY_ENTRIES", 2)
+    before = _filesystem_snapshot(matter)
+
+    with pytest.raises(records.WorkspaceDiscoveryError) as error:
+        _export_core(matter)
+
+    assert error.value.code == "workspace_discovery_incomplete"
+    assert error.value.metadata["classification_complete"] is False
+    assert error.value.metadata["entry_limit"] == 2
+    assert error.value.metadata["stop_reason"] == "entry_limit"
+    assert _filesystem_snapshot(matter) == before
+
+
+def test_export_discovery_deadline_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matter = tmp_path / "matter"
+    matter.mkdir()
+    (matter / "child").mkdir()
+    calls = 0
+
+    def advancing_clock() -> float:
+        nonlocal calls
+        calls += 1
+        return 0.0 if calls == 1 else 2.0
+
+    monkeypatch.setattr(records.time, "monotonic", advancing_clock)
+    before = _filesystem_snapshot(matter)
+
+    with pytest.raises(records.WorkspaceDiscoveryError) as error:
+        _export_core(matter)
+
+    assert error.value.code == "workspace_discovery_incomplete"
+    assert error.value.metadata["classification_complete"] is False
+    assert error.value.metadata["stop_reason"] == "time_limit"
+    assert _filesystem_snapshot(matter) == before
 
 
 def test_export_excludes_access_events_and_supports_cursor(tmp_path: Path) -> None:
@@ -2007,6 +2519,7 @@ def test_concurrent_exports_atomically_count_all_prior_access_events(
 ) -> None:
     matter = tmp_path / "empty-matter"
     matter.mkdir()
+    _initialize_empty_decision_record_journal(matter)
 
     with ProcessPoolExecutor(max_workers=8) as pool:
         exported = list(
@@ -2028,17 +2541,13 @@ def test_concurrent_exports_atomically_count_all_prior_access_events(
     events = {record["record_id"]: record for record in raw["records"]}
     for item in exported:
         event = events[item["record_id"]]
-        prior_event_count = sum(
-            other_id < item["record_id"] for other_id in events
-        )
+        prior_event_count = sum(other_id < item["record_id"] for other_id in events)
         assert item["access_count"] == prior_event_count
         assert event["result"]["access_count"] == prior_event_count
         assert event["result"]["total_count"] == item["total_count"]
         assert event["result"]["returned_count"] == item["returned_count"]
         assert event["result"]["truncated"] == item["truncated"]
-        assert event["result"]["next_before_record_id"] == item[
-            "next_before_record_id"
-        ]
+        assert event["result"]["next_before_record_id"] == item["next_before_record_id"]
 
 
 def test_export_write_failure_before_snapshot_falls_back_to_read(
@@ -2047,20 +2556,23 @@ def test_export_write_failure_before_snapshot_falls_back_to_read(
 ) -> None:
     matter = tmp_path / "matter"
     matter.mkdir()
-    assert records.write_record(
-        workspace=matter,
-        tool_name="list_rounds",
-        input_payload={"folder": str(matter)},
-        result={"status": "ok", "folder": str(matter), "rounds": [], "skipped": []},
-        provenance={"rounds": [], "skipped": []},
-    )["record_status"] == "written"
+    assert (
+        records.write_record(
+            workspace=matter,
+            tool_name="list_rounds",
+            input_payload={"folder": str(matter)},
+            result={"status": "ok", "folder": str(matter), "rounds": [], "skipped": []},
+            provenance={"rounds": [], "skipped": []},
+        )["record_status"]
+        == "written"
+    )
     journal = matter / records.SIDECAR_DIR / records.JOURNAL_NAME
     before = journal.read_bytes()
 
     def fail_open(*_args, **_kwargs):
         raise OSError(errno.EROFS, "simulated read-only journal")
 
-    monkeypatch.setattr(records, "_open_journal_for_append", fail_open)
+    monkeypatch.setattr(records, "_open_existing_journal_for_append", fail_open)
     exported = server.export_decision_record(str(matter))
 
     assert exported["record_status"] == "write_failed"
@@ -2071,19 +2583,61 @@ def test_export_write_failure_before_snapshot_falls_back_to_read(
     assert journal.read_bytes() == before
 
 
+def test_export_does_not_recreate_a_journal_removed_after_discovery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matter = tmp_path / "matter"
+    matter.mkdir()
+    assert (
+        records.write_record(
+            workspace=matter,
+            tool_name="list_rounds",
+            input_payload={"folder": str(matter)},
+            result={"status": "ok", "folder": str(matter), "rounds": [], "skipped": []},
+            provenance={"rounds": [], "skipped": []},
+        )["record_status"]
+        == "written"
+    )
+    journal = matter / records.SIDECAR_DIR / records.JOURNAL_NAME
+    moved = journal.with_name("decision-records.moved.jsonl")
+    before = journal.read_bytes()
+    real_open = records._open_existing_journal_for_append
+
+    def move_then_open(sidecar_fd: int, path: Path):
+        journal.rename(moved)
+        return real_open(sidecar_fd, path)
+
+    monkeypatch.setattr(
+        records,
+        "_open_existing_journal_for_append",
+        move_then_open,
+    )
+
+    with pytest.raises(records.DecisionRecordError) as error:
+        _export_core(matter)
+
+    assert error.value.code == "workspace_changed"
+    assert not journal.exists()
+    assert moved.read_bytes() == before
+
+
 def test_export_fsync_failure_returns_frozen_snapshot_without_retry(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     matter = tmp_path / "matter"
     matter.mkdir()
-    assert records.write_record(
-        workspace=matter,
-        tool_name="list_rounds",
-        input_payload={"folder": str(matter)},
-        result={"status": "ok", "folder": str(matter), "rounds": [], "skipped": []},
-        provenance={"rounds": [], "skipped": []},
-    )["record_status"] == "written"
+    assert (
+        records.write_record(
+            workspace=matter,
+            tool_name="list_rounds",
+            input_payload={"folder": str(matter)},
+            result={"status": "ok", "folder": str(matter), "rounds": [], "skipped": []},
+            provenance={"rounds": [], "skipped": []},
+        )["record_status"]
+        == "written"
+    )
     real_fsync = records.os.fsync
     failed = False
 
@@ -2133,13 +2687,21 @@ def test_invalid_cursor_is_rejected_before_any_history_fast_path(
         journal.parent.mkdir()
         journal.write_bytes(b"")
     elif history_state == "substantive_history":
-        assert records.write_record(
-            workspace=matter,
-            tool_name="list_rounds",
-            input_payload={"folder": str(matter)},
-            result={"status": "ok", "folder": str(matter), "rounds": [], "skipped": []},
-            provenance={"rounds": [], "skipped": []},
-        )["record_status"] == "written"
+        assert (
+            records.write_record(
+                workspace=matter,
+                tool_name="list_rounds",
+                input_payload={"folder": str(matter)},
+                result={
+                    "status": "ok",
+                    "folder": str(matter),
+                    "rounds": [],
+                    "skipped": [],
+                },
+                provenance={"rounds": [], "skipped": []},
+            )["record_status"]
+            == "written"
+        )
     before_exists = journal.exists()
     before_bytes = journal.read_bytes() if before_exists else None
 
@@ -2197,13 +2759,16 @@ def test_read_records_defaults_to_compact_but_full_history_remains_available(
     matter = tmp_path / "matter"
     matter.mkdir()
     sentinel = "PRIVATE_LOCAL_FULL_HISTORY_SENTINEL_47"
-    assert records.write_record(
-        workspace=matter,
-        tool_name="verify_quote",
-        input_payload={"quote": sentinel},
-        result={"status": "ok", "verdict": "not_found"},
-        provenance={},
-    )["record_status"] == "written"
+    assert (
+        records.write_record(
+            workspace=matter,
+            tool_name="verify_quote",
+            input_payload={"quote": sentinel},
+            result={"status": "ok", "verdict": "not_found"},
+            provenance={},
+        )["record_status"]
+        == "written"
+    )
 
     compact = records.read_records(str(matter), max_records=1)
     full = records.read_records(str(matter), max_records=1, include_payload=True)
@@ -2219,26 +2784,29 @@ def test_historical_full_access_event_remains_readable_and_projectable(
 ) -> None:
     matter = tmp_path / "matter"
     matter.mkdir()
-    assert records.write_record(
-        workspace=matter,
-        tool_name="export_decision_record",
-        input_payload={
-            "workspace": str(matter),
-            "max_records": 50,
-            "before_record_id": None,
-            "include_payload": True,
-        },
-        result={
-            "status": "ok",
-            "total_count": 1,
-            "access_count": 0,
-            "returned_count": 1,
-            "truncated": False,
-            "next_before_record_id": None,
-            "payloads": "full",
-        },
-        provenance={"workspace": str(matter)},
-    )["record_status"] == "written"
+    assert (
+        records.write_record(
+            workspace=matter,
+            tool_name="export_decision_record",
+            input_payload={
+                "workspace": str(matter),
+                "max_records": 50,
+                "before_record_id": None,
+                "include_payload": True,
+            },
+            result={
+                "status": "ok",
+                "total_count": 1,
+                "access_count": 0,
+                "returned_count": 1,
+                "truncated": False,
+                "next_before_record_id": None,
+                "payloads": "full",
+            },
+            provenance={"workspace": str(matter)},
+        )["record_status"]
+        == "written"
+    )
 
     full = records.read_records(
         str(matter),
@@ -2282,7 +2850,9 @@ def test_compact_export_omits_clause_and_change_text(tmp_path: Path) -> None:
     assert cap["old_text"] not in encoded
     assert cap["new_text"] not in encoded
     verify_record = next(
-        record for record in exported["records"] if record["tool_name"] == "verify_quote"
+        record
+        for record in exported["records"]
+        if record["tool_name"] == "verify_quote"
     )
     match = verify_record["result"]["matches"]["sample"][0]
     assert "clause" not in match
@@ -2318,7 +2888,7 @@ def test_preflight_and_apply_records_preserve_configured_author(
     ]
     preflight = server.preflight_edits(str(source), edits)
     output = matter / "round-3.docx"
-    applied = server.apply_edits(str(source), str(output), edits)
+    applied = _server_apply_edits(str(source), str(output), edits)
 
     assert preflight["tracked_change_author"] == server._tracked_change_author()
     assert applied["tracked_change_author"] == server._tracked_change_author()
@@ -2346,7 +2916,7 @@ def test_controlled_apply_refusal_records_configured_author(
     monkeypatch.setattr(server, "_tracked_change_author", lambda: "John Deer")
 
     with pytest.raises(veqtor_docx.ApplyError) as err:
-        server.apply_edits(
+        _server_apply_edits(
             str(source),
             str(matter / "never.docx"),
             [
@@ -2377,7 +2947,7 @@ def test_controlled_apply_refusal_records_configured_author(
     assert refused_compact["provenance"]["tracked_change_author"] == "John Deer"
 
 
-def test_compact_export_omits_client_asserted_anchor_fields(tmp_path: Path) -> None:
+def test_compact_export_omits_rejected_client_anchor_fields(tmp_path: Path) -> None:
     matter = _matter(tmp_path)
     source = matter / "round-2-counterparty-redline.docx"
     _, anchor = _cap_from_tool(source)
@@ -2388,20 +2958,24 @@ def test_compact_export_omits_client_asserted_anchor_fields(tmp_path: Path) -> N
         "revision_ids": [sentinel],
     }
 
-    result = server.verify_quote(
-        str(source),
-        asserted_anchor,
-        "the total fees paid by Client under this Agreement",
-    )
-    assert result["verdict"] == "exact"
+    with pytest.raises(veqtor_docx.VerifyError) as error:
+        server.verify_quote(
+            str(source),
+            asserted_anchor,
+            "the total fees paid by Client under this Agreement",
+        )
+    assert error.value.code == "invalid_anchor"
 
     exported = server.export_decision_record(str(matter), max_records=10)
     encoded = json.dumps(exported, ensure_ascii=False)
     assert sentinel not in encoded
     assert str(matter.resolve()) not in encoded
     verify_record = next(
-        record for record in exported["records"] if record["tool_name"] == "verify_quote"
+        record
+        for record in exported["records"]
+        if record["tool_name"] == "verify_quote"
     )
+    assert verify_record["result"]["error_code"] == "invalid_anchor"
     assert verify_record["provenance"]["input_anchor"]["omitted"] is True
     full_records = records.read_records(str(matter), max_records=10)["records"]
     assert sentinel not in json.dumps(full_records, ensure_ascii=False)
@@ -2419,7 +2993,7 @@ def test_compact_export_hashes_failed_client_claims(tmp_path: Path) -> None:
     }
 
     with pytest.raises(veqtor_docx.ApplyError):
-        server.apply_edits(
+        _server_apply_edits(
             str(source),
             str(tmp_path / "never.docx"),
             [{"anchor": bad_anchor, "delete_text": "x", "insert_text": "y"}],
@@ -2429,9 +3003,7 @@ def test_compact_export_hashes_failed_client_claims(tmp_path: Path) -> None:
     encoded = json.dumps(exported, ensure_ascii=False)
     assert sentinel not in encoded
     error_record = next(
-        record
-        for record in exported["records"]
-        if record["tool_name"] == "apply_edits"
+        record for record in exported["records"] if record["tool_name"] == "apply_edits"
     )
     assert error_record["provenance"]["claimed_source_sha256"]["omitted"] is True
     assert error_record["provenance"]["anchors"]["sample"] == []
@@ -2481,7 +3053,9 @@ def test_compact_export_filters_non_ascii_observed_revision_ids(
     encoded = json.dumps(exported, ensure_ascii=False)
     assert sentinel not in encoded
     verify_record = next(
-        record for record in exported["records"] if record["tool_name"] == "verify_quote"
+        record
+        for record in exported["records"]
+        if record["tool_name"] == "verify_quote"
     )
     revision_ids = verify_record["result"]["matches"]["sample"][0]["revision_ids"]
     assert revision_ids["count"] >= 1
@@ -2569,9 +3143,7 @@ def test_docx_producer_domains_are_shared_with_v1_projection() -> None:
     assert records.MATCH_SIDES_V1 is docx_contracts.MATCH_SIDES_V1
     assert records.RESULT_STATUS_OK == docx_contracts.RESULT_STATUS_OK
     assert records.RESULT_STATUS_ERROR == docx_contracts.RESULT_STATUS_ERROR
-    assert records.ROUND_TRIP_STATUSES_V1 is (
-        docx_contracts.ROUND_TRIP_STATUSES_V1
-    )
+    assert records.ROUND_TRIP_STATUSES_V1 is (docx_contracts.ROUND_TRIP_STATUSES_V1)
     assert records.ROUND_TRIP_COMPARISONS_V1 is (
         docx_contracts.ROUND_TRIP_COMPARISONS_V1
     )
@@ -2603,6 +3175,8 @@ def test_docx_producer_domains_are_shared_with_v1_projection() -> None:
         "surgery",
         "serialization",
         "round_trip",
+        "preflight_binding",
+        "publication",
     }
     assert docx_contracts.ROUND_TRIP_COMPARISON_CURRENT == (
         "ooxml_semantic_diff_outside_touched_anchors"
@@ -2812,6 +3386,10 @@ def test_synthetic_extract_revision_categories_survive_compact_export(
     source = sorted(matter.glob("*.docx"))[1]
 
     extracted = server.extract_redlines(str(source))
+    raw = records.read_records(str(matter), max_records=10, include_payload=True)
+    raw_extract_record = next(
+        record for record in raw["records"] if record["tool_name"] == "extract_redlines"
+    )
     exported = server.export_decision_record(str(matter), max_records=10)
     extract_record = next(
         record
@@ -2819,9 +3397,7 @@ def test_synthetic_extract_revision_categories_survive_compact_export(
         if record["tool_name"] == "extract_redlines"
     )
     snapshot = extract_record["result"]["unsupported_revisions"]
-    projected_categories = {
-        item["key"]: item["value"] for item in snapshot["sample"]
-    }
+    projected_categories = {item["key"]: item["value"] for item in snapshot["sample"]}
 
     assert extracted["unsupported_revisions"] == {
         "rPrChange": 1,
@@ -2831,6 +3407,22 @@ def test_synthetic_extract_revision_categories_survive_compact_export(
     assert projected_categories == extracted["unsupported_revisions"]
     assert snapshot["count"] == 3
     assert snapshot["truncated"] is False
+    assert (
+        raw_extract_record["result"]["revision_inventory"]
+        == extracted["revision_inventory"]
+    )
+    inventory = extract_record["result"]["revision_inventory"]
+    assert inventory["total_revision_elements"] == 13
+    assert inventory["decoded_revision_elements"] == 9
+    assert inventory["unsupported_revision_occurrences"] == 4
+    assert inventory["unsupported_revision_kind_count"] == 3
+    assert inventory["emitted_change_unit_count"] == 6
+    assert inventory["partition_valid"] is True
+    assert inventory["all_revision_elements_decoded"] is False
+    assert {
+        item["key"]: item["value"]
+        for item in inventory["unsupported_by_kind"]["sample"]
+    } == extracted["unsupported_revisions"]
 
 
 def test_ten_thousand_anchors_have_bounded_journal_and_export(tmp_path: Path) -> None:
@@ -2875,9 +3467,10 @@ def test_ten_thousand_anchors_have_bounded_journal_and_export(tmp_path: Path) ->
 
     exported = server.export_decision_record(str(matter), max_records=1)
     assert len(json.dumps(exported, ensure_ascii=False).encode()) < 20_000
-    assert exported["records"][0]["provenance"]["anchors"] == stored[
-        "provenance"
-    ]["anchors"]
+    assert (
+        exported["records"][0]["provenance"]["anchors"]
+        == stored["provenance"]["anchors"]
+    )
 
 
 def test_compact_export_reprojects_prebounded_anchor_snapshots(
@@ -3047,9 +3640,10 @@ def test_clean_prebounded_snapshot_projection_is_idempotent() -> None:
         "truncated": False,
     }
 
-    assert records._validated_bounded_snapshot(
-        snapshot, records._observed_anchor_summary
-    ) == snapshot
+    assert (
+        records._validated_bounded_snapshot(snapshot, records._observed_anchor_summary)
+        == snapshot
+    )
 
 
 @pytest.mark.parametrize(
@@ -3097,9 +3691,7 @@ def test_malformed_provenance_skipped_is_safe_in_compact_export(
     )
 
     assert meta["record_status"] == "written"
-    compact = records.read_records(
-        str(matter), max_records=1, include_payload=False
-    )
+    compact = records.read_records(str(matter), max_records=1, include_payload=False)
     encoded = json.dumps(compact, ensure_ascii=False)
 
     assert compact["records"][0]["provenance"]["skipped_count"] is None
@@ -3112,16 +3704,19 @@ def test_unexpected_compact_projection_failure_is_controlled(
 ) -> None:
     matter = tmp_path / "matter"
     matter.mkdir()
-    assert records.write_record(
-        workspace=matter,
-        tool_name="list_rounds",
-        input_payload={},
-        result={"status": "ok", "rounds": [], "skipped": []},
-        provenance={},
-    )["record_status"] == "written"
-    assert records.read_records(
-        str(matter), max_records=1, include_payload=True
-    )["records"]
+    assert (
+        records.write_record(
+            workspace=matter,
+            tool_name="list_rounds",
+            input_payload={},
+            result={"status": "ok", "rounds": [], "skipped": []},
+            provenance={},
+        )["record_status"]
+        == "written"
+    )
+    assert records.read_records(str(matter), max_records=1, include_payload=True)[
+        "records"
+    ]
 
     def fail_projection(_record: dict[str, object]) -> dict[str, object]:
         raise RuntimeError("PRIVATE_PROJECTION_FAILURE")
@@ -3158,9 +3753,7 @@ def test_schema_readable_preflight_status_list_does_not_poison_compact_export(
     assert written["record_status"] == "written"
     raw = records.read_records(str(matter), max_records=1, include_payload=True)
     assert raw["records"][0]["result"] == result
-    compact = records.read_records(
-        str(matter), max_records=1, include_payload=False
-    )
+    compact = records.read_records(str(matter), max_records=1, include_payload=False)
     edits = compact["records"][0]["result"]["edits"]
     assert edits["count"] == 1
     assert edits["sample"] == []
@@ -3271,8 +3864,7 @@ def test_compact_projection_is_total_for_schema_readable_nested_json() -> None:
         "export_decision_record": {"workspace": "/matter"},
     }
     result_fields = {
-        tool_name: tuple(result)
-        for tool_name, result in base_results.items()
+        tool_name: tuple(result) for tool_name, result in base_results.items()
     }
     provenance_fields = {
         tool_name: tuple(provenance)
@@ -3381,7 +3973,7 @@ def test_compact_item_projectors_are_total_for_nested_json_types() -> None:
                 "change_unit_id": "cu_001",
                 "operation": "replace",
                 "match_count": 1,
-                "position_supported": True,
+                "position_status": "supported",
                 "refusal_code": None,
             },
             (
@@ -3390,7 +3982,7 @@ def test_compact_item_projectors_are_total_for_nested_json_types() -> None:
                 "change_unit_id",
                 "operation",
                 "match_count",
-                "position_supported",
+                "position_status",
                 "refusal_code",
             ),
         ),
@@ -3415,9 +4007,7 @@ def test_compact_item_projectors_are_total_for_nested_json_types() -> None:
                     projected = projector(value)
                 except Exception as exc:
                     pytest.fail(f"item projection was not total for {case}: {exc}")
-                assert sentinel not in json.dumps(
-                    projected, ensure_ascii=False
-                ), case
+                assert sentinel not in json.dumps(projected, ensure_ascii=False), case
 
 
 def test_compact_projection_never_copies_unvalidated_scalars() -> None:
@@ -3735,13 +4325,16 @@ def test_empty_lf_terminated_frames_are_corrupt(
 def test_blank_frame_after_valid_record_is_corrupt(tmp_path: Path) -> None:
     matter = tmp_path / "matter"
     matter.mkdir()
-    assert records.write_record(
-        workspace=matter,
-        tool_name="list_rounds",
-        input_payload={},
-        result={"status": "ok"},
-        provenance={},
-    )["record_status"] == "written"
+    assert (
+        records.write_record(
+            workspace=matter,
+            tool_name="list_rounds",
+            input_payload={},
+            result={"status": "ok"},
+            provenance={},
+        )["record_status"]
+        == "written"
+    )
     journal = matter / records.SIDECAR_DIR / records.JOURNAL_NAME
     journal.write_bytes(journal.read_bytes() + b"\n")
 
@@ -3957,8 +4550,7 @@ def test_v1_export_payload_registry_preserves_local_full_history_reads() -> None
                 "юрист": "Юрист 🧑‍⚖️📄",
                 "a": [None, True, 0.1, 1e-7, {"z": 2, "b": 1}],
             },
-            '{"a":[null,true,0.1,1e-07,{"b":1,"z":2}],'
-            '"юрист":"Юрист 🧑‍⚖️📄"}',
+            '{"a":[null,true,0.1,1e-07,{"b":1,"z":2}],"юрист":"Юрист 🧑‍⚖️📄"}',
             "6f405e23f9b6a8d1e1e1536a68438b4351dfdf26edc2f4685d602781b56f9eb0",
         ),
         (
@@ -3977,7 +4569,7 @@ def test_v1_export_payload_registry_preserves_local_full_history_reads() -> None
                 "\ue000": "bmp-private-use",
                 "é": "nfc-key",
                 "e\u0301": "nfd-key",
-                "controls": "\x00\n\"\\\b\f\r\t",
+                "controls": '\x00\n"\\\b\f\r\t',
                 "negative_zero": -0.0,
             },
             '{"controls":"\\u0000\\n\\"\\\\\\b\\f\\r\\t",'
@@ -4018,13 +4610,16 @@ def test_retired_tool_history_remains_readable_but_is_not_writable(
 ) -> None:
     matter = tmp_path / "matter"
     matter.mkdir()
-    assert records.write_record(
-        workspace=matter,
-        tool_name="verify_quote",
-        input_payload={},
-        result={"status": "ok", "verdict": "exact"},
-        provenance={},
-    )["record_status"] == "written"
+    assert (
+        records.write_record(
+            workspace=matter,
+            tool_name="verify_quote",
+            input_payload={},
+            result={"status": "ok", "verdict": "exact"},
+            provenance={},
+        )["record_status"]
+        == "written"
+    )
     journal = matter / records.SIDECAR_DIR / records.JOURNAL_NAME
     before = journal.read_bytes()
     monkeypatch.setattr(
@@ -4076,15 +4671,12 @@ def test_golden_v1_journal_stays_readable_and_appendable(tmp_path: Path) -> None
     sidecar.mkdir()
     fixture = Path(__file__).parent / "data" / "decision-records-v1-golden.jsonl"
     expected_projection = (
-        Path(__file__).parent
-        / "data"
-        / "decision-records-v1-compact-golden.json"
+        Path(__file__).parent / "data" / "decision-records-v1-compact-golden.json"
     )
     journal = sidecar / records.JOURNAL_NAME
     fixture_bytes = fixture.read_bytes()
     stored_records = [
-        json.loads(line)
-        for line in fixture_bytes.decode("utf-8").splitlines()
+        json.loads(line) for line in fixture_bytes.decode("utf-8").splitlines()
     ]
     expected_compact_records = json.loads(
         expected_projection.read_text(encoding="utf-8")
@@ -4200,13 +4792,16 @@ def test_semantically_invalid_tool_type_pair_is_corrupt_and_blocks_append(
 ) -> None:
     matter = tmp_path / "matter"
     matter.mkdir()
-    assert records.write_record(
-        workspace=matter,
-        tool_name=seed_tool,
-        input_payload={},
-        result={"status": "ok"},
-        provenance={},
-    )["record_status"] == "written"
+    assert (
+        records.write_record(
+            workspace=matter,
+            tool_name=seed_tool,
+            input_payload={},
+            result={"status": "ok"},
+            provenance={},
+        )["record_status"]
+        == "written"
+    )
     journal = matter / records.SIDECAR_DIR / records.JOURNAL_NAME
     stored = json.loads(journal.read_text(encoding="utf-8"))
     stored["tool_name"] = mutated_tool
@@ -4245,22 +4840,26 @@ def test_record_id_capacity_refuses_append_without_poisoning_journal(
 ) -> None:
     matter = tmp_path / "matter"
     matter.mkdir()
-    assert records.write_record(
-        workspace=matter,
-        tool_name="list_rounds",
-        input_payload={},
-        result={"status": "ok"},
-        provenance={},
-    )["record_status"] == "written"
+    assert (
+        records.write_record(
+            workspace=matter,
+            tool_name="list_rounds",
+            input_payload={},
+            result={"status": "ok"},
+            provenance={},
+        )["record_status"]
+        == "written"
+    )
     journal = matter / records.SIDECAR_DIR / records.JOURNAL_NAME
     record = json.loads(journal.read_text(encoding="utf-8"))
     # This literal is the accepted v1 floor; do not derive it from the limit.
     maximum_id = "dr_" + "9" * 32
     record["record_id"] = maximum_id
     journal.write_text(json.dumps(record) + "\n", encoding="utf-8")
-    assert records.read_records(str(matter), max_records=10)["records"][0][
-        "record_id"
-    ] == maximum_id
+    assert (
+        records.read_records(str(matter), max_records=10)["records"][0]["record_id"]
+        == maximum_id
+    )
     before = journal.read_bytes()
 
     failed = records.write_record(
@@ -4349,13 +4948,16 @@ def test_inconsistent_final_snapshot_is_refused_without_journal_mutation(
 ) -> None:
     matter = tmp_path / "matter"
     matter.mkdir()
-    assert records.write_record(
-        workspace=matter,
-        tool_name="list_rounds",
-        input_payload={},
-        result={"status": "ok"},
-        provenance={},
-    )["record_status"] == "written"
+    assert (
+        records.write_record(
+            workspace=matter,
+            tool_name="list_rounds",
+            input_payload={},
+            result={"status": "ok"},
+            provenance={},
+        )["record_status"]
+        == "written"
+    )
     journal = matter / records.SIDECAR_DIR / records.JOURNAL_NAME
     before = journal.read_bytes()
     result = {"status": "ok", "value": "before"}
@@ -4401,9 +5003,7 @@ def test_inconsistent_final_snapshot_is_refused_without_journal_mutation(
             ("maximum depth",),
         ),
         (
-            b"["
-            + b",".join([b"0"] * records.MAX_JOURNAL_NODES)
-            + b"]",
+            b"[" + b",".join([b"0"] * records.MAX_JOURNAL_NODES) + b"]",
             ("maximum node count",),
         ),
         (b'{"value":1,"value":2}', ("duplicate JSON object key",)),
@@ -4707,9 +5307,7 @@ def test_valid_non_ascii_journal_strings_are_accepted(tmp_path: Path) -> None:
 
     loaded = records.read_records(str(matter), max_records=10, include_payload=True)
 
-    assert loaded["records"][0]["input"]["unicode"] == {
-        "ключ": ["Юрист", "⚖️"]
-    }
+    assert loaded["records"][0]["input"]["unicode"] == {"ключ": ["Юрист", "⚖️"]}
 
 
 def test_valid_escaped_surrogate_pair_decodes_to_emoji(tmp_path: Path) -> None:

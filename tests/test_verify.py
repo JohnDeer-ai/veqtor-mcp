@@ -176,6 +176,11 @@ def test_fail_closed_errors(cap, demo_dir: Path) -> None:
     assert err.value.code == "anchor_missing"
     assert err.value.metadata == {}
 
+    with pytest.raises(VerifyError) as err:
+        verify_quote(path, {**anchor, "unexpected": 1}, CAP_R2)
+    assert err.value.code == "invalid_anchor"
+    assert err.value.metadata == {}
+
 
 def test_verdict_and_hash_come_from_one_snapshot(demo_dir: Path, monkeypatch) -> None:
     """TOCTOU regression: if the file is swapped while verify_quote runs, the

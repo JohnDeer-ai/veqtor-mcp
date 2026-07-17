@@ -6,6 +6,51 @@ All notable changes to Veqtor MCP are documented here.
 Publication dates are authoritative in each version's immutable GitHub Release
 through its `published_at` timestamp.
 
+## Unreleased
+
+Development-branch changes only. The package version and published release
+remain `0.1.2`; this section does not claim a tag, artifact or publication.
+
+### Added
+
+- MCP contract `veqtor.mcp.v0.2`, advertised in every tool's metadata and
+  output schema, with closed nested edit, anchor and preflight-proof inputs and
+  explicit structured output schemas for all six tools.
+- `preflight_proof.v1` binds the exact source bytes, canonical edits, configured
+  tracked-change author, producer build and predicted candidate. The v0.2 MCP
+  `apply_edits` input requires the complete proof and verifies it before output
+  publication. This is deterministic drift detection, not authentication or a
+  digital signature.
+- `revision_inventory.v1` exposes total, decoded and unsupported revision
+  occurrence counts, unsupported-kind count, emitted change-unit count and the
+  checked decoded-plus-unsupported partition.
+- `list_rounds` accepts a complete `ordered_filenames` positional manifest and
+  reports whether it used that sequence or the disclosed
+  `filename_lexicographic_v1` default. Neither mode claims chronology or lineage.
+- Decision-record export now requires an already initialized exact workspace.
+  Wrong-parent, ambiguous-child, uninitialized and bounded-incomplete discovery
+  states fail closed without creating a second sidecar. Direct-child discovery
+  excludes the service `.veqtor` directory and uses a cooperative elapsed-time
+  budget between filesystem operations, not a hard syscall timeout.
+- A regression for the previously reported, but not reproduced, 14-operation
+  counter/reinstate hang shape verifies a terminal structured refusal. No
+  timeout or cancellation contract is added.
+
+### Changed
+
+- Preflight diagnostics replace nullable `position_supported` with the closed
+  `position_status` enum and preserve an explicit `failure_phase` through live
+  results and compact decision-record projections.
+- Successful MCP apply results state that the preflight binding was verified and
+  make the predicted-candidate/output SHA-256 equality explicit.
+
+### Compatibility
+
+- The six MCP tool names and `decision_record.v1` historical pairs remain
+  unchanged and readable. The v0.2 MCP input contract intentionally makes
+  `preflight_proof` mandatory for `apply_edits`; the lower-level Python function
+  retains its optional-proof v0.1 behavior.
+
 ## 0.1.2
 
 Veqtor v0.1.2 Alpha release contents.
