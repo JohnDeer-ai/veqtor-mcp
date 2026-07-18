@@ -18,7 +18,10 @@ or decide whether contract wording is legally or commercially suitable.
    approve installation in Claude Desktop.
 4. Enter the name that should appear as the author of any new Word tracked
    changes. Veqtor does not infer this name from the document.
-5. Run the bundled `try_veqtor_demo` prompt, or paste the prompt from
+5. Open Claude Desktop's extension settings and confirm that Veqtor is enabled
+   and its local MCP server is connected. If the status does not become
+   connected, fully quit Claude Desktop and reopen it before continuing.
+6. Run the bundled `try_veqtor_demo` prompt, or paste the prompt from
    `demo/FIRST_PROMPT.txt`.
 
 The first activation may need internet access while Claude Desktop's UV runtime
@@ -34,8 +37,14 @@ directory, so the relative folder name `demo` is a valid Veqtor workspace for
 the first read-only prompt.
 
 Read operations normally append a private local `.veqtor` sidecar inside the
-workspace. The four DOCX inputs remain unchanged. If you ask Veqtor to create a
-new file, choose a separate output path you control.
+workspace. The four bundled DOCX inputs are immutable release assets and the
+first prompt is read-only. Do not use the installed `demo` folder for a write
+test. Copy the four DOCX files to a fresh writable folder outside the installed
+extension, then create any output only inside that copied workspace.
+
+After a demo apply, ask Claude to run `list_rounds` again and re-extract the new
+output. Confirm that the original source SHA-256 is unchanged and that the new
+file's hashes from `apply_edits`, `list_rounds` and `extract_redlines` agree.
 
 ## Update, rollback and uninstall
 

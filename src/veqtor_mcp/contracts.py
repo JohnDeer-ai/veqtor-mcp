@@ -14,6 +14,7 @@ from typing import Annotated, Any, ClassVar, Literal
 
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, ConfigDict, WithJsonSchema
+from veqtor_docx.contracts import REVISION_COUNT_BASIS_V1
 
 MCP_CONTRACT_SCHEMA_VERSION = "veqtor.mcp.v0.2"
 MCP_CONTRACT_META_KEY = "veqtor.pro/contractSchemaVersion"
@@ -297,6 +298,7 @@ LIST_ROUNDS_RESULT_SCHEMA = _output_schema(
             "required": ["kind", "lineage_verified", "round_id_semantics"],
             "additionalProperties": True,
         },
+        "revision_count_basis": {"const": REVISION_COUNT_BASIS_V1},
         "rounds": {
             "type": "array",
             "items": {
@@ -334,7 +336,14 @@ LIST_ROUNDS_RESULT_SCHEMA = _output_schema(
             },
         },
     },
-    ["folder", "ordering_source", "order_basis", "rounds", "skipped"],
+    [
+        "folder",
+        "ordering_source",
+        "order_basis",
+        "revision_count_basis",
+        "rounds",
+        "skipped",
+    ],
 )
 
 _CHANGE_UNIT_SCHEMA: dict[str, Any] = {
@@ -410,6 +419,7 @@ EXTRACT_REDLINES_RESULT_SCHEMA = _output_schema(
         "file_sha256": _SHA256,
         "part_name": _NONEMPTY_STRING,
         "revision_count": _NONNEGATIVE_INTEGER,
+        "revision_count_basis": {"const": REVISION_COUNT_BASIS_V1},
         "change_units": {"type": "array", "items": _CHANGE_UNIT_SCHEMA},
         "unsupported_revisions": {
             "type": "object",
@@ -452,6 +462,7 @@ EXTRACT_REDLINES_RESULT_SCHEMA = _output_schema(
         "file_sha256",
         "part_name",
         "revision_count",
+        "revision_count_basis",
         "change_units",
         "unsupported_revisions",
         "revision_inventory",
@@ -726,6 +737,7 @@ class ListRoundsResult(_ContractResult):
     folder: str
     ordering_source: str
     order_basis: dict[str, Any]
+    revision_count_basis: Literal[REVISION_COUNT_BASIS_V1]
     rounds: list[dict[str, Any]]
     skipped: list[dict[str, Any]]
 
@@ -736,6 +748,7 @@ class ExtractRedlinesResult(_ContractResult):
     file_sha256: str
     part_name: str
     revision_count: int
+    revision_count_basis: Literal[REVISION_COUNT_BASIS_V1]
     change_units: list[dict[str, Any]]
     unsupported_revisions: dict[str, int]
     revision_inventory: dict[str, Any]

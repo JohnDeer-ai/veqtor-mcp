@@ -280,6 +280,43 @@ def test_successful_tool_calls_write_decision_records(tmp_path: Path) -> None:
     assert apply_record["provenance"]["candidate_output_sha256_match"] is True
 
 
+def test_relative_tool_workspaces_are_canonical_and_match_export_digest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    demo = tmp_path / "demo"
+    generate_demo_rounds(demo)
+    monkeypatch.chdir(tmp_path)
+
+    listed = server.list_rounds("demo")
+    extracted = server.extract_redlines(
+        "demo/round-2-counterparty-redline.docx"
+    )
+
+    assert listed["record_status"] == "written"
+    assert extracted["record_status"] == "written"
+
+    exported = server.export_decision_record("demo", max_records=10)
+    assert exported["record_status"] == "written"
+    assert len(exported["records"]) == 2
+    assert all(
+        record["workspace"] == exported["workspace"]
+        for record in exported["records"]
+    )
+
+    full = records.read_records(
+        "demo",
+        max_records=10,
+        include_access_events=True,
+        include_payload=True,
+    )
+    expected_workspace = str(demo.resolve())
+    assert full["workspace"] == expected_workspace
+    assert {record["workspace"] for record in full["records"]} == {
+        expected_workspace
+    }
+
+
 @pytest.mark.parametrize(
     "mutation",
     [
@@ -3143,6 +3180,9 @@ def test_docx_producer_domains_are_shared_with_v1_projection() -> None:
     assert records.MATCH_SIDES_V1 is docx_contracts.MATCH_SIDES_V1
     assert records.RESULT_STATUS_OK == docx_contracts.RESULT_STATUS_OK
     assert records.RESULT_STATUS_ERROR == docx_contracts.RESULT_STATUS_ERROR
+    assert records.REVISION_COUNT_BASES_V1 is (
+        docx_contracts.REVISION_COUNT_BASES_V1
+    )
     assert records.ROUND_TRIP_STATUSES_V1 is (docx_contracts.ROUND_TRIP_STATUSES_V1)
     assert records.ROUND_TRIP_COMPARISONS_V1 is (
         docx_contracts.ROUND_TRIP_COMPARISONS_V1
@@ -3185,6 +3225,28 @@ def test_docx_producer_domains_are_shared_with_v1_projection() -> None:
         "exact",
         "ooxml_semantic_diff_outside_touched_anchors",
     }
+
+
+def test_revision_count_basis_survives_current_compact_projections() -> None:
+    basis = docx_contracts.REVISION_COUNT_BASIS_V1
+    for tool_name in ("list_rounds", "extract_redlines"):
+        record = {
+            "tool_name": tool_name,
+            "result": {"status": "ok", "revision_count_basis": basis},
+            "provenance": {"revision_count_basis": basis},
+        }
+        assert records._summary_result(record)["revision_count_basis"] == basis
+        assert records._summary_provenance(record)["revision_count_basis"] == basis
+
+        legacy_record = {
+            "tool_name": tool_name,
+            "result": {"status": "ok"},
+            "provenance": {},
+        }
+        assert "revision_count_basis" not in records._summary_result(legacy_record)
+        assert "revision_count_basis" not in records._summary_provenance(
+            legacy_record
+        )
 
 
 @pytest.mark.parametrize(

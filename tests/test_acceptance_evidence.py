@@ -110,12 +110,19 @@ def _packet() -> dict:
             "manual_python_install_absent": True,
             "host_managed_uv_runtime_confirmed": True,
             "tracked_change_author_confirmed": True,
+            "extension_enabled_confirmed": True,
+            "server_connected_confirmed": True,
             "visible_tools": list(MCPB_REQUIRED_TOOLS),
             "called_tools": list(MCPB_REQUIRED_TOOLS),
             "runtime_producer_build": PRODUCER_BUILD,
             "runtime_version": RUNTIME_VERSION,
             "demo_round_count": 4,
             "bundled_demo_prompt_completed": True,
+            "post_apply_list_rounds_status": "passed",
+            "post_apply_round_count": 5,
+            "source_sha256_unchanged": True,
+            "output_sha256_matches_list_rounds": True,
+            "output_sha256_matches_reextract": True,
             "session_transcript_sha256": "2" * 64,
             "demo_journal_sha256": "3" * 64,
             "lifecycle_scenario": "first_public_mcpb",
@@ -142,10 +149,10 @@ def test_complete_exact_candidate_evidence_passes() -> None:
     _validate(_packet())
 
 
-def test_documented_working_template_matches_executable_v3_schema() -> None:
+def test_documented_working_template_matches_executable_v4_schema() -> None:
     releasing = (ROOT / "RELEASING.md").read_text()
-    template = releasing.split("<!-- acceptance-v3-template-begin -->", 1)[1]
-    template = template.split("<!-- acceptance-v3-template-end -->", 1)[0]
+    template = releasing.split("<!-- acceptance-v4-template-begin -->", 1)[1]
+    template = template.split("<!-- acceptance-v4-template-end -->", 1)[0]
     packet = json.loads(template.split("```json\n", 1)[1].split("\n```", 1)[0])
 
     validate_evidence(
@@ -231,6 +238,18 @@ def test_documented_working_template_matches_executable_v3_schema() -> None:
         ),
         (
             lambda packet: packet["desktop_extension"].update(
+                {"extension_enabled_confirmed": False}
+            ),
+            "extension activation did not pass",
+        ),
+        (
+            lambda packet: packet["desktop_extension"].update(
+                {"server_connected_confirmed": False}
+            ),
+            "extension activation did not pass",
+        ),
+        (
+            lambda packet: packet["desktop_extension"].update(
                 {"visible_tools": ["list_rounds"]}
             ),
             "tool inventory differs",
@@ -240,6 +259,36 @@ def test_documented_working_template_matches_executable_v3_schema() -> None:
                 {"called_tools": ["list_rounds"]}
             ),
             "tool call coverage differs",
+        ),
+        (
+            lambda packet: packet["desktop_extension"].update(
+                {"post_apply_list_rounds_status": "failed"}
+            ),
+            "post_apply_list_rounds_status did not pass",
+        ),
+        (
+            lambda packet: packet["desktop_extension"].update(
+                {"post_apply_round_count": 4}
+            ),
+            "post_apply_round_count does not equal",
+        ),
+        (
+            lambda packet: packet["desktop_extension"].update(
+                {"source_sha256_unchanged": False}
+            ),
+            "post-apply readback failed",
+        ),
+        (
+            lambda packet: packet["desktop_extension"].update(
+                {"output_sha256_matches_list_rounds": False}
+            ),
+            "post-apply readback failed",
+        ),
+        (
+            lambda packet: packet["desktop_extension"].update(
+                {"output_sha256_matches_reextract": False}
+            ),
+            "post-apply readback failed",
         ),
         (
             lambda packet: packet["desktop_extension"].update(
@@ -267,8 +316,15 @@ def test_documented_working_template_matches_executable_v3_schema() -> None:
         "desktop_wrong_build",
         "mcpb_digest",
         "mcpb_clean_host",
+        "mcpb_enabled",
+        "mcpb_connected",
         "mcpb_tools",
         "mcpb_tool_calls",
+        "mcpb_post_apply_list",
+        "mcpb_post_apply_count",
+        "mcpb_source_unchanged",
+        "mcpb_output_list_hash",
+        "mcpb_output_reextract_hash",
         "mcpb_uninstall",
         "mcpb_first_release_lifecycle",
     ],
@@ -280,9 +336,15 @@ def test_incomplete_or_non_private_shape_fails(mutate, message: str) -> None:
         _validate(packet)
 
 
-def test_v2_packet_is_rejected_before_shape_validation() -> None:
+@pytest.mark.parametrize(
+    "schema_version",
+    ["veqtor_release_acceptance.v2", "veqtor_release_acceptance.v3"],
+)
+def test_older_packet_is_rejected_before_shape_validation(
+    schema_version: str,
+) -> None:
     packet = _packet()
-    packet["schema_version"] = "veqtor_release_acceptance.v2"
+    packet["schema_version"] = schema_version
     packet.pop("desktop_extension")
 
     with pytest.raises(EvidenceError, match="schema version is unsupported"):
@@ -307,6 +369,7 @@ def test_runtime_versions_and_builds_are_candidate_bound() -> None:
         ("payment_preflight", "match_count", 1.0),
         ("installed_two_export", "first_access_count", 0.0),
         ("installed_two_export", "second_access_count", 1.0),
+        ("desktop_extension", "post_apply_round_count", 5.0),
     ],
 )
 def test_exact_count_fields_reject_json_floats(

@@ -30,6 +30,7 @@ from veqtor_docx.contracts import (
     PREFLIGHT_EDIT_STATUSES_V1,
     PREFLIGHT_FAILURE_PHASES_V1,
     PREFLIGHT_POSITION_STATUSES_V1,
+    REVISION_COUNT_BASES_V1,
     RESULT_STATUS_ERROR,
     RESULT_STATUS_OK,
     ROUND_TRIP_COMPARISONS_V1,
@@ -439,8 +440,15 @@ def _ensure_private_gitignore(sidecar_fd: int, sidecar: Path) -> None:
 
 
 @contextmanager
-def _sidecar_for_write(workspace: str | Path):
-    root, expected_identity = _canonical_workspace(workspace)
+def _sidecar_for_write(
+    workspace: str | Path,
+    *,
+    expected_identity: tuple[int, int] | None = None,
+):
+    if expected_identity is None:
+        root, expected_identity = _canonical_workspace(workspace)
+    else:
+        root = Path(workspace)
     root_fd = _open_workspace_fd(root, expected_identity)
     sidecar = root / SIDECAR_DIR
     try:
@@ -1323,10 +1331,11 @@ def write_record(
     if disabled():
         return {"record_id": None, "record_status": "disabled"}
     try:
+        root, expected_identity = _canonical_workspace(workspace)
         try:
             record = _base_record(
                 tool_name=tool_name,
-                workspace=workspace,
+                workspace=root,
                 input_payload=input_payload,
                 result=result,
                 tool_result=tool_result,
@@ -1336,7 +1345,10 @@ def write_record(
             _preflight_record(record)
         except (_JsonBoundaryError, _RecordSchemaError) as exc:
             raise DecisionRecordError("record_invalid", str(exc)) from exc
-        with _sidecar_for_write(workspace) as (sidecar, sidecar_fd):
+        with _sidecar_for_write(
+            root,
+            expected_identity=expected_identity,
+        ) as (sidecar, sidecar_fd):
             record_id = _append_locked(sidecar_fd, sidecar / JOURNAL_NAME, record)
     except Exception as exc:
         return {
@@ -1855,7 +1867,7 @@ def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
         return summary
     if projection_kind == "list_rounds":
         rounds = result.get("rounds")
-        return {
+        summary = {
             "status": _known_value(result.get("status"), V1_OK_STATUSES),
             "folder": _path_digest(result.get("folder")),
             "round_count": _list_count(rounds) if "rounds" in result else None,
@@ -1868,6 +1880,11 @@ def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
                 _list_count(result["skipped"]) if "skipped" in result else None
             ),
         }
+        if "revision_count_basis" in result:
+            summary["revision_count_basis"] = _known_value(
+                result.get("revision_count_basis"), REVISION_COUNT_BASES_V1
+            )
+        return summary
     if projection_kind == "extract_redlines":
         summary = {
             "status": _known_value(result.get("status"), V1_OK_STATUSES),
@@ -1887,6 +1904,10 @@ def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
         if "revision_inventory" in result:
             summary["revision_inventory"] = _revision_inventory_summary(
                 result.get("revision_inventory")
+            )
+        if "revision_count_basis" in result:
+            summary["revision_count_basis"] = _known_value(
+                result.get("revision_count_basis"), REVISION_COUNT_BASES_V1
             )
         return summary
     if projection_kind == "apply_edits":
@@ -2071,6 +2092,10 @@ def _summary_provenance(record: dict[str, Any]) -> dict[str, Any]:
             )
         if "skipped" in provenance:
             summary["skipped_count"] = _list_count(provenance["skipped"])
+    if "revision_count_basis" in provenance:
+        summary["revision_count_basis"] = _known_value(
+            provenance.get("revision_count_basis"), REVISION_COUNT_BASES_V1
+        )
     return summary
 
 

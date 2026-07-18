@@ -14,7 +14,7 @@ on:
         required: true
         type: string
       acceptance_evidence:
-        description: Path-free veqtor_release_acceptance.v3 JSON for this commit
+        description: Path-free veqtor_release_acceptance.v4 JSON for this commit
         required: true
         type: string
       acceptance_evidence_sha256:

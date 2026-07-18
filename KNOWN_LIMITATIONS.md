@@ -141,6 +141,11 @@ filesystem sandbox; Veqtor runs with the current user's permissions.
   malicious process running as the same user is outside scope.
 - The raw journal may contain matter text and has no rotation or aggregate size
   cap in v0.1.
+- Decision-record reads, appends and export use blocking POSIX file locks with
+  no acquisition timeout. Another Veqtor process holding the same workspace or
+  journal lock can therefore delay a tool response until that lock is released.
+  Process exit releases the lock, but the Alpha does not yet return a bounded
+  `journal_busy` refusal for a live lock holder.
 - Read-only list, extract, verify and preflight calls normally append local
   provenance too. Decision-record export normally appends an access event after
   taking its response snapshot, so observation is not side-effect free unless

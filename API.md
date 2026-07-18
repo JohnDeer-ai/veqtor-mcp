@@ -174,6 +174,11 @@ natural-number order (`Round 10` can precede `Round 2`), so zero-pad filenames o
 provide a complete manifest when positional order matters. Both modes disclose
 `lineage_verified: false` and `round_id_semantics: "position_only"`; neither
 order is evidence of chronology, legal sequence or document lineage.
+`revision_count_basis` is
+`word_document_xml_w_ins_w_del_elements_v1`: every per-file
+`revision_count` is the raw number of `w:ins` and `w:del` elements in
+`word/document.xml`. It is neither a logical-edit count nor the broader
+`revision_inventory.total_revision_elements` reported by extraction.
 
 Word lock files (`~$*`) are ignored, the scan is non-recursive, and files
 that cannot be read as DOCX are reported in `skipped` with a stable reason code
@@ -198,6 +203,7 @@ the folder before retrying:
     "lineage_verified": false,
     "round_id_semantics": "position_only"
   },
+  "revision_count_basis": "word_document_xml_w_ins_w_del_elements_v1",
   "rounds": [
     {
       "round_id": "round-001",
@@ -285,6 +291,7 @@ guessed:
   "file_sha256": "example",
   "part_name": "word/document.xml",
   "revision_count": 2,
+  "revision_count_basis": "word_document_xml_w_ins_w_del_elements_v1",
   "change_units": [
     {
       "change_unit_id": "cu_001",
@@ -790,6 +797,13 @@ All four states fail closed and create no files in the supplied folder. An
 existing exact-workspace journal always wins over child candidates. This is
 bounded wrong-parent diagnosis, not recursive matter discovery.
 
+New records store one canonical absolute workspace path before both journal
+publication and later compact hashing, so the top-level compact workspace
+digest and each new record's workspace digest identify the same root. Existing
+legacy records remain readable and are not rewritten; a record created by a
+pre-canonicalization build from a relative path may therefore retain a digest
+of that historical path spelling.
+
 To protect context and privacy, the MCP export is always compact: verbatim `input`
 payloads, paths, clause headings, raw error text and free-form provenance are
 replaced by digests. Only format-validated identifiers, hashes and counters
@@ -798,6 +812,13 @@ and unused extra anchor fields are not journaled. Repeated facts are bounded
 snapshots `{count, sha256, sample, truncated}`; samples contain at most 20
 validated items while the digest covers the complete source collection. Large
 extract results therefore stay bounded and re-verifiable.
+For successful `preflight_edits` and `apply_edits`, the edit anchors originated
+as client-asserted input rather than a fresh observation. Their compact
+`provenance.anchors` therefore keeps the complete collection digest and count
+but deliberately emits `sample: []` and `truncated: true`, even when the count
+is one. Validated observed edit outcomes remain available in `result.edits` or
+`result.applied`; the empty asserted-anchor sample is a privacy policy, not a
+lost observed anchor.
 Only a genuine empty list or mapping is represented by `count: 0` with
 `truncated: false`. If readable historical JSON stores the wrong container type,
 compact projection returns `count: null`, a digest of that original malformed
@@ -964,6 +985,12 @@ journal writer, so both digests cover that summary; the newly assigned access
 event id and final live-response metadata do not yet exist at that point.
 These are content fingerprints for re-checking and debugging, not
 tamper-evidence or a way to reconstruct omitted content.
+For `extract_redlines`, `result_sha256` and `tool_result_sha256` normally differ:
+the stored raw-journal result is a bounded summary, while the full operation
+result also contains the extracted change units. Equality of these two fields
+is not a consistency gate. The full-result fingerprint can also include the
+caller's path spelling, so it is not a location-independent document-content
+identity.
 
 ### Canonical JSON v1
 

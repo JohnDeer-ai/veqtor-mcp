@@ -260,16 +260,21 @@ and rolls back the complete batch after an expected publication failure.
   projection, including both access-event exclusions above.
 - The exact macOS MCPB passes on a clean Mac without manually installed uv,
   Python or a developer toolchain, using Claude Desktop's host-managed UV
-  runtime, with explicit
-  tracked-change-author confirmation, exposes exactly the six public tools,
-  calls each of those tools, completes the bundled four-round demo prompt, and
-  records the tested client and macOS versions plus private transcript and demo
-  journal digests. For the first public MCPB, uninstall, post-uninstall tool
-  absence and same-artifact reinstall are exercised; upgrade and rollback are
-  explicitly not applicable because no older public MCPB exists. Starting with
-  the next MCPB release, its acceptance schema must require a real upgrade from
-  and rollback to the previous immutable public extension. The packet binds
-  this rehearsal to the exact MCPB SHA-256 later reproduced by CI.
+  runtime. Acceptance explicitly confirms the extension is enabled and its
+  server is connected, confirms the tracked-change author, exposes exactly the
+  six public tools, calls each tool and completes the bundled four-round
+  read-only demo prompt. The write workflow runs only on a fresh writable copy
+  of those four DOCX files outside the immutable installed extension. After
+  apply, a second `list_rounds` must report five files, retain the exact source
+  SHA-256 and report the output SHA-256 returned by apply; re-extraction of that
+  output must report the same SHA-256. The packet records the tested client and
+  macOS versions plus private transcript and copied-workspace journal digests.
+  For the first public MCPB, uninstall, post-uninstall tool absence and
+  same-artifact reinstall are exercised; upgrade and rollback are explicitly
+  not applicable because no older public MCPB exists. Starting with the next
+  MCPB release, its acceptance schema must require a real upgrade from and
+  rollback to the previous immutable public extension. The packet binds this
+  rehearsal to the exact MCPB SHA-256 later reproduced by CI.
 - Any maintainer-only corpus, transcript and journal evidence stays outside the
   repository. Only the canonical path-free acceptance packet may enter the
   workflow input; it contains digests, counts, stable status codes and runtime
@@ -279,7 +284,7 @@ The acceptance packet has one canonical byte representation and is exact-SHA,
 tree and build bound. Its executable schema remains in
 `scripts/check_acceptance_evidence.py`.
 
-### Construct the v3 acceptance packet
+### Construct the v4 acceptance packet
 
 Freeze one clean candidate before collecting evidence. These three values must
 come from that checkout and the same `producer_build` value must be copied into
@@ -323,19 +328,19 @@ retained evidence.
 | `five_edit_batch` | From the maintained five-edit scenario: applicable preflight, successful apply of five edits, passing round trip, zero collateral changes and the fixed output digest shown below. |
 | `installed_two_export` | Copy the JSON fields printed by `scripts/installed_wheel_smoke.py` when run from the installed candidate wheel: access counts 0 then 1, both exclusion booleans `true`, and the installed version/build. |
 | `desktop_rehearsal` | Record the exact literals and booleans shown below plus the installed version/build and SHA-256 digests of the retained private transcript and raw journal. |
-| `desktop_extension` | On a clean Mac without manually installed uv or Python, install the exact candidate `.mcpb` downloaded from the final commit's successful CI artifact on a fresh-copy Claude Desktop for macOS and confirm its host-managed UV runtime. Record the MCPB SHA-256, tested client/OS labels, author confirmation, exact six-tool visible and called lists, version/build, four-round bundled-demo result, private session transcript and demo-journal digests, fresh install, uninstall, post-uninstall absence and same-artifact reinstall. For this first public MCPB only, record the two closed not-applicable lifecycle values shown below. |
+| `desktop_extension` | On a clean Mac without manually installed uv or Python, install the exact candidate `.mcpb` downloaded from the final commit's successful CI artifact on a fresh-copy Claude Desktop for macOS and confirm its host-managed UV runtime. Explicitly confirm that the extension is enabled and its server is connected. Record the MCPB SHA-256, tested client/OS labels, author confirmation, exact six-tool visible and called lists, version/build and four-round bundled read-only demo result. For the write check, copy only the four synthetic DOCX files to a fresh writable folder outside the installed extension. Record the pre-apply source hash, create the output in that copied folder, call `list_rounds` again and require five rounds, an unchanged source hash and an output hash equal to apply; re-extract the output and require the same hash. Retain only the path-free booleans/count plus private session transcript and copied-workspace journal digests in the packet. Also record fresh install, uninstall, post-uninstall absence and same-artifact reinstall. For this first public MCPB only, record the two closed not-applicable lifecycle values shown below. |
 
-The following is the complete, type-correct v3 working template. Its repeated
+The following is the complete, type-correct v4 working template. Its repeated
 sample digests are deliberately not candidate values and will fail exact-SHA
 validation. Replace the candidate SHA/tree/build, all private evidence digests,
 and the observed private pass/skip counts. Keep the fixed statuses, booleans,
 version and five-edit output digest exactly as shown unless the executable
 schema changes in a later release.
 
-<!-- acceptance-v3-template-begin -->
+<!-- acceptance-v4-template-begin -->
 ```json
 {
-  "schema_version": "veqtor_release_acceptance.v3",
+  "schema_version": "veqtor_release_acceptance.v4",
   "candidate_sha": "0000000000000000000000000000000000000000",
   "candidate_tree": "1111111111111111111111111111111111111111",
   "producer_build": "source-snapshot-v1-sha256:2222222222222222222222222222222222222222222222222222222222222222",
@@ -403,6 +408,8 @@ schema changes in a later release.
     "manual_python_install_absent": true,
     "host_managed_uv_runtime_confirmed": true,
     "tracked_change_author_confirmed": true,
+    "extension_enabled_confirmed": true,
+    "server_connected_confirmed": true,
     "visible_tools": [
       "list_rounds",
       "extract_redlines",
@@ -423,6 +430,11 @@ schema changes in a later release.
     "runtime_version": "0.2.0",
     "demo_round_count": 4,
     "bundled_demo_prompt_completed": true,
+    "post_apply_list_rounds_status": "passed",
+    "post_apply_round_count": 5,
+    "source_sha256_unchanged": true,
+    "output_sha256_matches_list_rounds": true,
+    "output_sha256_matches_reextract": true,
     "session_transcript_sha256": "8888888888888888888888888888888888888888888888888888888888888888",
     "demo_journal_sha256": "9999999999999999999999999999999999999999999999999999999999999999",
     "lifecycle_scenario": "first_public_mcpb",
@@ -435,10 +447,10 @@ schema changes in a later release.
   }
 }
 ```
-<!-- acceptance-v3-template-end -->
+<!-- acceptance-v4-template-end -->
 
-Every field is required and exact; v1 and v2 packets are rejected. No filenames,
-local paths, quotes or document text are allowed by the packet schema. The
+Every field is required and exact; v1, v2 and v3 packets are rejected. No
+filenames, local paths, quotes or document text are allowed by the packet schema. The
 packet has one accepted byte representation: UTF-8 JSON produced with sorted
 keys, `ensure_ascii=False`, `allow_nan=False`, separators `(",", ":")`, and no
 trailing newline or whitespace. After replacing the sample values in a private

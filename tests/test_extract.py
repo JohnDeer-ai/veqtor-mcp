@@ -13,6 +13,7 @@ from veqtor_docx import extract_redlines, verify_quote
 from veqtor_docx._ooxml import parse_xml, w
 from veqtor_docx.contracts import (
     EXTRACT_REVISION_CATEGORIES_V1,
+    REVISION_COUNT_BASIS_V1,
     TEXT_REVISION_SUFFIX_BY_NAME_V1,
 )
 from veqtor_docx.synthetic import (
@@ -151,6 +152,7 @@ def test_clean_round_has_no_changes(demo_dir: Path) -> None:
     result = _round(demo_dir, 1)
     assert result["change_units"] == []
     assert result["revision_count"] == 0
+    assert result["revision_count_basis"] == REVISION_COUNT_BASIS_V1
     assert result["unsupported_revisions"] == {}
     assert result["revision_inventory"] == {
         "schema_version": "revision_inventory.v1",
@@ -224,6 +226,7 @@ def test_round2_units(demo_dir: Path) -> None:
         "paragraphMarkIns": 2,
     }
     assert result["revision_count"] == 12
+    assert result["revision_count_basis"] == REVISION_COUNT_BASIS_V1
     inventory = result["revision_inventory"]
     assert inventory["total_revision_elements"] == 13
     assert inventory["decoded_revision_elements"] == 9
@@ -352,6 +355,7 @@ def test_revision_inventory_partitions_mixed_revision_markup_once(
         "all_revision_elements_decoded": False,
     }
     assert result["revision_count"] == 3
+    assert result["revision_count_basis"] == REVISION_COUNT_BASIS_V1
     assert result["unsupported_revisions"] == inventory["unsupported_by_kind"]
 
 

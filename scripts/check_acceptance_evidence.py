@@ -14,7 +14,7 @@ from typing import Any
 from release_contract import FIVE_EDIT_OUTPUT_SHA256, MCPB_REQUIRED_TOOLS, VERSION
 
 
-SCHEMA_VERSION = "veqtor_release_acceptance.v3"
+SCHEMA_VERSION = "veqtor_release_acceptance.v4"
 MAX_EVIDENCE_BYTES = 64 * 1024
 MAX_PACKET_INTEGER_DIGITS = 128
 HEX = frozenset("0123456789abcdef")
@@ -271,12 +271,19 @@ def validate_evidence(
             "manual_python_install_absent",
             "host_managed_uv_runtime_confirmed",
             "tracked_change_author_confirmed",
+            "extension_enabled_confirmed",
+            "server_connected_confirmed",
             "visible_tools",
             "called_tools",
             "runtime_producer_build",
             "runtime_version",
             "demo_round_count",
             "bundled_demo_prompt_completed",
+            "post_apply_list_rounds_status",
+            "post_apply_round_count",
+            "source_sha256_unchanged",
+            "output_sha256_matches_list_rounds",
+            "output_sha256_matches_reextract",
             "session_transcript_sha256",
             "demo_journal_sha256",
             "lifecycle_scenario",
@@ -302,6 +309,8 @@ def validate_evidence(
         or extension["manual_python_install_absent"] is not True
         or extension["host_managed_uv_runtime_confirmed"] is not True
         or extension["tracked_change_author_confirmed"] is not True
+        or extension["extension_enabled_confirmed"] is not True
+        or extension["server_connected_confirmed"] is not True
         or extension["bundled_demo_prompt_completed"] is not True
         or extension["lifecycle_scenario"] != "first_public_mcpb"
         or extension["upgrade_status"]
@@ -326,6 +335,21 @@ def validate_evidence(
     _exact_count(
         extension["demo_round_count"], 4, "desktop_extension.demo_round_count"
     )
+    _passed(
+        extension["post_apply_list_rounds_status"],
+        "desktop_extension.post_apply_list_rounds_status",
+    )
+    _exact_count(
+        extension["post_apply_round_count"],
+        5,
+        "desktop_extension.post_apply_round_count",
+    )
+    if (
+        extension["source_sha256_unchanged"] is not True
+        or extension["output_sha256_matches_list_rounds"] is not True
+        or extension["output_sha256_matches_reextract"] is not True
+    ):
+        raise EvidenceError("Claude Desktop extension post-apply readback failed")
     _hex_digest(
         extension["session_transcript_sha256"],
         64,

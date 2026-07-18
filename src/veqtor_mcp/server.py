@@ -253,6 +253,7 @@ def _list_rounds_provenance(result: dict[str, Any]) -> dict[str, Any]:
         "folder": result["folder"],
         "ordering_source": result["ordering_source"],
         "order_basis": result["order_basis"],
+        "revision_count_basis": result["revision_count_basis"],
         "rounds": [
             {
                 "path": item["path"],
@@ -279,6 +280,7 @@ def _extract_provenance(result: dict[str, Any]) -> dict[str, Any]:
         "path": result["path"],
         "file_sha256": result["file_sha256"],
         "part_name": result["part_name"],
+        "revision_count_basis": result["revision_count_basis"],
         "revision_inventory": result["revision_inventory"],
         "anchors": records.bounded_observed_anchors(anchors),
     }
@@ -291,6 +293,7 @@ def _extract_record_result(result: dict[str, Any]) -> dict[str, Any]:
         "file_sha256": result["file_sha256"],
         "part_name": result["part_name"],
         "revision_count": result["revision_count"],
+        "revision_count_basis": result["revision_count_basis"],
         "change_unit_count": len(result["change_units"]),
         "unsupported_revisions": result["unsupported_revisions"],
         "revision_inventory": result["revision_inventory"],
@@ -503,8 +506,10 @@ def list_rounds(
     filename by default. ``ordered_filenames`` may instead provide the exact,
     complete filename sequence, but that positional order is not evidence of
     chronology or document lineage. Each entry carries the file's sha256 and
-    the raw count of tracked revisions inside. Unreadable files are reported in
-    ``skipped``.
+    ``revision_count``. The top-level ``revision_count_basis`` declares that
+    this count is the raw number of ``w:ins`` and ``w:del`` elements in
+    ``word/document.xml``; it is not the broader revision-inventory total or a
+    logical change-unit count. Unreadable files are reported in ``skipped``.
     Folder-level candidate, input and actual expanded-output limits bound the
     complete scan. If a shared limit is exceeded, split the folder and retry;
     the call fails without returning a partial round list.
@@ -562,8 +567,13 @@ def extract_redlines(path: str) -> ExtractRedlinesResult:
     anchor, bounded before/after context from the current paragraph reading,
     a conservative explicit manual paragraph label, and a reference (path,
     OOXML part, revision ids, file sha256) that lets any quote be re-checked
-    against the document. Revision kinds the tool does not decode are counted in
-    ``unsupported_revisions`` rather than silently dropped.
+    against the document. ``revision_count_basis`` declares that
+    ``revision_count`` is the raw number of ``w:ins`` and ``w:del`` elements in
+    ``word/document.xml``. It is distinct from both logical change units and
+    ``revision_inventory.total_revision_elements``, whose scope also covers
+    recognized unsupported revision markup. Revision kinds the tool does not
+    decode are counted in ``unsupported_revisions`` rather than silently
+    dropped.
     """
     def operation(workspace, input_payload):
         try:

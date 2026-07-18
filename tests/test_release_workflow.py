@@ -48,7 +48,7 @@ def test_release_guard_precedes_execution_of_requested_commit() -> None:
     assert "private_dogfood_passed" not in workflow
     assert "acceptance_evidence:" in workflow
     assert "acceptance_evidence_sha256:" in workflow
-    assert "veqtor_release_acceptance.v3" in workflow
+    assert "veqtor_release_acceptance.v4" in workflow
     assert "expected_mcpb_sha256" in verify
     assert '"desktop_extension"]["artifact_sha256"]' in guard
     assert "mcpb_sha256=%s" in guard
@@ -442,8 +442,8 @@ def test_product_acceptance_documents_complete_path_free_packet() -> None:
     assert "Do not infer or" in releasing
     assert "Only after all required gates" in releasing
 
-    template = releasing.split("<!-- acceptance-v3-template-begin -->", 1)[1]
-    template = template.split("<!-- acceptance-v3-template-end -->", 1)[0]
+    template = releasing.split("<!-- acceptance-v4-template-begin -->", 1)[1]
+    template = template.split("<!-- acceptance-v4-template-end -->", 1)[0]
     packet = json.loads(template.split("```json\n", 1)[1].split("\n```", 1)[0])
     assert set(packet) == {
         "schema_version",

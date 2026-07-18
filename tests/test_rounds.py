@@ -12,6 +12,7 @@ import pytest
 from veqtor_docx import RoundError, extract_redlines, list_rounds
 from veqtor_docx import _ooxml
 from veqtor_docx import rounds as rounds_module
+from veqtor_docx.contracts import REVISION_COUNT_BASIS_V1
 
 
 _DOCUMENT_XML = b'''<?xml version="1.0" encoding="UTF-8"?>
@@ -434,10 +435,14 @@ def test_lists_rounds_in_filename_order(demo_dir: Path) -> None:
 
 
 def test_hashes_and_revision_counts_match_extraction(demo_dir: Path) -> None:
-    for entry in list_rounds(str(demo_dir))["rounds"]:
+    listed = list_rounds(str(demo_dir))
+    assert listed["revision_count_basis"] == REVISION_COUNT_BASIS_V1
+    for entry in listed["rounds"]:
         payload = Path(entry["path"]).read_bytes()
         assert entry["sha256"] == hashlib.sha256(payload).hexdigest()
-        assert entry["revision_count"] == extract_redlines(entry["path"])["revision_count"]
+        extracted = extract_redlines(entry["path"])
+        assert extracted["revision_count_basis"] == REVISION_COUNT_BASIS_V1
+        assert entry["revision_count"] == extracted["revision_count"]
 
 
 def test_ignores_junk_and_survives_corrupt_files(demo_dir: Path, tmp_path: Path) -> None:

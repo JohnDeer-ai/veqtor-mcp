@@ -75,11 +75,13 @@ const desktopAuthorSetting = `"env": {
             <li>Download the file ending in <code>-macos.mcpb</code> from the official v0.2.0 release.</li>
             <li>Open it and approve installation in Claude Desktop.</li>
             <li>Enter the name that Word should show as the author of new tracked changes.</li>
+            <li>Open Claude Desktop's extension settings. Make sure Veqtor is enabled and its local server shows as connected. If it does not connect, fully quit and reopen Claude Desktop.</li>
             <li>Open a new chat and run the bundled <strong>try_veqtor_demo</strong> prompt.</li>
           </ol>
           <p>The first start may download a compatible Python runtime and the dependencies pinned in the extension. Later starts can use the local host cache.</p>
           <h3>First prompt</h3>
           <blockquote>Using the Veqtor tools, what happened to the limitation of liability across the four Word rounds in the folder named demo? Start with list_rounds. Keep tool-confirmed document facts separate from your interpretation, and do not treat filename order as verified chronology.</blockquote>
+          <p>The bundled prompt is read-only. For a write test, first copy the four synthetic DOCX files to a new writable folder outside the installed extension and create the output only in that copy. After apply, ask Claude to list the folder again and re-extract the output; the source hash should stay unchanged and the output hash should agree across apply, list and extraction.</p>
           <h3>Optional advanced integrity check</h3>
           <p>The ordinary path is to download from the official immutable GitHub Release and open the extension. Advanced users can also download <code>SHA256SUMS.txt</code>, run the commands below and compare the two values. The current artifact is checksum-bound but not digitally signed.</p>
           <div class="code-block"><div class="code-block__head"><span>Terminal · optional</span><span>SHA-256</span></div><pre><code>{`shasum -a 256 veqtor-mcp-0.2.0-macos.mcpb
@@ -144,7 +146,7 @@ grep ' veqtor-mcp-0.2.0-macos.mcpb$' SHA256SUMS.txt`}</code></pre></div>
           <h3>Claude Code does not show Veqtor</h3>
           <p>Run <code>claude mcp get veqtor</code> in Terminal. If the registration appears, close the current Claude Code session and start a new one.</p>
           <h3>Claude Desktop does not show Veqtor</h3>
-          <p>Fully quit and reopen Claude Desktop, then check <strong>+ → Connectors</strong> in a new chat. Open <strong>Settings → Developer</strong> to check the connection status and server logs. Do not use <code>claude mcp get veqtor</code> for this check; it reads Claude Code registrations, not <code>claude_desktop_config.json</code>.</p>
+          <p>Open Claude Desktop's extension settings and confirm that Veqtor is enabled and connected. If it is enabled but not connected, fully quit and reopen Claude Desktop. Then check <strong>+ → Connectors</strong> in a new chat. For the manual JSON fallback, open <strong>Settings → Developer</strong> to inspect the connection status and server logs. Do not use <code>claude mcp get veqtor</code> for this check; it reads Claude Code registrations, not Desktop extensions or <code>claude_desktop_config.json</code>.</p>
           <h3>Claude Desktop stopped showing another server</h3>
           <p>Restore your backup, then add only the <code>veqtor</code> entry inside its existing <code>mcpServers</code> object. Preserve all other entries and root-level settings, and check the commas between JSON entries.</p>
           <h3>Claude Desktop cannot start the server</h3>

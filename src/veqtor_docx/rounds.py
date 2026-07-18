@@ -21,6 +21,7 @@ from ._ooxml import (
     read_docx_payload,
     resolve_user_path,
 )
+from .contracts import REVISION_COUNT_BASIS_V1
 
 MAX_ROUND_CANDIDATES = 500
 MAX_ROUND_TOTAL_INPUT_BYTES = 500 * 1024 * 1024
@@ -233,6 +234,7 @@ def list_rounds(
         "folder": str(root),
         "ordering_source": ordering_source,
         "order_basis": order_basis,
+        "revision_count_basis": REVISION_COUNT_BASIS_V1,
         "rounds": rounds,
         "skipped": skipped,
     }
