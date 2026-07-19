@@ -17,6 +17,7 @@ import zipfile
 import zlib
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 from lxml import etree
@@ -122,7 +123,10 @@ def _add_internal_alt_chunks(path: Path, part_names: list[str]) -> None:
         )
         relationship.set("Id", relationship_id)
         relationship.set("Type", alt_chunk_relationship_type)
-        relationship.set("Target", part_name.removeprefix("word/"))
+        relationship.set(
+            "Target",
+            quote(part_name.removeprefix("word/"), safe="/"),
+        )
         parts[part_name] = b"<html><body>Excluded fixture content.</body></html>"
 
     parts["word/document.xml"] = etree.tostring(
@@ -770,6 +774,107 @@ def test_compact_export_redacts_and_bounds_document_controlled_altchunk_names(
     assert private_part in raw_record["result"]["coverage"]["excluded_parts"]
 
 
+def test_compact_export_hashes_live_valid_long_altchunk_part_name(
+    tmp_path: Path,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-1-outgoing-draft.docx"
+    long_part = f"word/{'x' * 1_020}.html"
+    assert len(long_part) > 1_024
+    _add_internal_alt_chunks(source, [long_part])
+
+    inspected = server.inspect_document(str(source), "outline")
+    dynamic_parts = inspected["coverage"]["excluded_parts"][
+        len(records.INSPECT_FIXED_EXCLUDED_PARTS_V1) :
+    ]
+    assert dynamic_parts == [long_part]
+
+    exported = server.export_decision_record(str(matter), max_records=10)
+    compact_record = next(
+        record
+        for record in exported["records"]
+        if record["tool_name"] == "inspect_document"
+    )
+    assert "compact_projection_error" not in compact_record["result"]
+    assert compact_record["result"]["coverage"]["excluded_internal_parts"] == {
+        "count": 1,
+        "sha256": records._stable_digest(dynamic_parts),
+        "sample": [],
+        "truncated": True,
+    }
+    assert long_part not in json.dumps(exported, ensure_ascii=False)
+
+
+def test_compact_export_hashes_live_valid_percent_decoded_altchunk_part_names(
+    tmp_path: Path,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-1-outgoing-draft.docx"
+    decoded_parts = [
+        "word/private%matter.html",
+        "word/private:matter.html",
+        "word/private?matter.html",
+        "word/private#matter.html",
+    ]
+    _add_internal_alt_chunks(source, decoded_parts)
+
+    inspected = server.inspect_document(str(source), "outline")
+    dynamic_parts = inspected["coverage"]["excluded_parts"][
+        len(records.INSPECT_FIXED_EXCLUDED_PARTS_V1) :
+    ]
+    assert dynamic_parts == sorted(decoded_parts)
+
+    exported = server.export_decision_record(str(matter), max_records=10)
+    compact_record = next(
+        record
+        for record in exported["records"]
+        if record["tool_name"] == "inspect_document"
+    )
+    assert "compact_projection_error" not in compact_record["result"]
+    assert compact_record["result"]["coverage"]["excluded_internal_parts"] == {
+        "count": 4,
+        "sha256": records._stable_digest(dynamic_parts),
+        "sample": [],
+        "truncated": True,
+    }
+    compact_json = json.dumps(exported, ensure_ascii=False)
+    assert all(part_name not in compact_json for part_name in decoded_parts)
+
+
+def test_compact_export_hashes_altchunk_names_equal_to_fixed_scope_descriptors(
+    tmp_path: Path,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-1-outgoing-draft.docx"
+    colliding_parts = ["word/header*.xml", "word/comments*.xml"]
+    _add_internal_alt_chunks(source, colliding_parts)
+
+    inspected = server.inspect_document(str(source), "outline")
+    dynamic_parts = inspected["coverage"]["excluded_parts"][
+        len(records.INSPECT_FIXED_EXCLUDED_PARTS_V1) :
+    ]
+    assert dynamic_parts == sorted(colliding_parts)
+
+    exported = server.export_decision_record(str(matter), max_records=10)
+    compact_record = next(
+        record
+        for record in exported["records"]
+        if record["tool_name"] == "inspect_document"
+    )
+    compact_coverage = compact_record["result"]["coverage"]
+    assert compact_coverage["excluded_parts"] == list(
+        records.INSPECT_FIXED_EXCLUDED_PARTS_V1
+    )
+    assert compact_coverage["excluded_internal_parts"] == {
+        "count": 2,
+        "sha256": records._stable_digest(dynamic_parts),
+        "sample": [],
+        "truncated": True,
+    }
+    assert compact_coverage["excluded_parts"].count("word/header*.xml") == 1
+    assert compact_coverage["excluded_parts"].count("word/comments*.xml") == 1
+
+
 @pytest.mark.parametrize(
     "part_name",
     [
@@ -777,8 +882,10 @@ def test_compact_export_redacts_and_bounds_document_controlled_altchunk_names(
         "/word/chunk.html",
         "word/../chunk.html",
         "word\\chunk.html",
-        "word/chunk.html?private=1",
-        "word/%2e%2e/chunk.html",
+        "word//chunk.html",
+        "word/./chunk.html",
+        "word/chunk\n.html",
+        "word/chunk\ud800.html",
     ],
 )
 def test_inspection_coverage_compact_projection_rejects_unsafe_altchunk_parts(

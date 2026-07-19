@@ -38,6 +38,7 @@ from ._ooxml import (
     current_text_atom,
     iter_canonical_paragraph_nodes,
     load_validated_docx,
+    normalized_internal_package_part_name,
     parse_xml,
     read_docx_payload,
     require_single_direct_document_body,
@@ -332,9 +333,7 @@ def _internal_relationship_part(target: str) -> str | None:
         candidate = posixpath.normpath(decoded.lstrip("/"))
     else:
         candidate = posixpath.normpath(posixpath.join("word", decoded))
-    if candidate in {"", ".", ".."} or candidate.startswith("../"):
-        return None
-    return candidate
+    return normalized_internal_package_part_name(candidate)
 
 
 def _alt_chunk_excluded_parts(

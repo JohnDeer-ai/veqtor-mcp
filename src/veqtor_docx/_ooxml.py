@@ -1026,6 +1026,38 @@ def tracked_change_author_validation_error(value: object) -> str | None:
     return None
 
 
+def normalized_internal_package_part_name(value: object) -> str | None:
+    """Validate one normalized, package-relative internal OPC part name.
+
+    Relationship targets are URI-decoded and normalized by their caller before
+    reaching this boundary. The live coverage name and any compact digest
+    projection must share this exact domain: no host-path syntax, traversal or
+    control characters, but no narrower display-oriented length or punctuation
+    policy either.
+    """
+    if (
+        not isinstance(value, str)
+        or not value
+        or value.startswith("/")
+        or "\\" in value
+        or "\x00" in value
+    ):
+        return None
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return None
+    segments = value.split("/")
+    if any(
+        not segment
+        or segment in {".", ".."}
+        or any(ord(character) < 0x20 or ord(character) == 0x7F for character in segment)
+        for segment in segments
+    ):
+        return None
+    return value
+
+
 def resolve_user_path(value: object) -> str:
     """Resolve one text path without leaking ``pathlib`` exceptions."""
     if not isinstance(value, (str, os.PathLike)):

@@ -41,7 +41,11 @@ from veqtor_docx.contracts import (
     ROUND_TRIP_STATUSES_V1,
     VERIFY_VERDICTS_V1,
 )
-from veqtor_docx._ooxml import UserPathError, resolve_user_path
+from veqtor_docx._ooxml import (
+    UserPathError,
+    normalized_internal_package_part_name,
+    resolve_user_path,
+)
 from veqtor_mcp import __version__
 
 SCHEMA_VERSION = "decision_record.v1"
@@ -53,7 +57,6 @@ DEFAULT_MAX_RECORDS = 50
 MAX_MAX_RECORDS = 500
 COMPACT_SAMPLE_LIMIT = 20
 MAX_COMPACT_ID_LENGTH = 32
-MAX_COMPACT_PACKAGE_PART_LENGTH = 1024
 MAX_JOURNAL_LINE_BYTES = 1_048_576
 MAX_JOURNAL_DEPTH = 64
 MAX_JOURNAL_NODES = 100_000
@@ -1569,27 +1572,6 @@ def _part_name(value: Any) -> str | None:
     return value if value == DOCUMENT_PART_V1 else None
 
 
-def _internal_package_part_name(value: Any) -> str | None:
-    """Return one safe, normalized package-relative part name for compact output."""
-    if (
-        not isinstance(value, str)
-        or not 1 <= len(value) <= MAX_COMPACT_PACKAGE_PART_LENGTH
-        or value.startswith("/")
-        or "\\" in value
-        or any(char in value for char in ("\x00", ":", "?", "#", "%"))
-    ):
-        return None
-    segments = value.split("/")
-    if any(
-        not segment
-        or segment in {".", ".."}
-        or any(ord(char) < 0x20 or ord(char) == 0x7F for char in segment)
-        for segment in segments
-    ):
-        return None
-    return value
-
-
 def _contains_incomplete_snapshot(value: Any) -> bool:
     if isinstance(value, dict):
         if {
@@ -2313,15 +2295,11 @@ def _inspection_coverage_summary(value: Any) -> dict[str, Any] | None:
         return None
     dynamic_parts = excluded_parts[len(INSPECT_FIXED_EXCLUDED_PARTS_V1) :]
     safe_dynamic_parts = [
-        _internal_package_part_name(part_name) for part_name in dynamic_parts
+        normalized_internal_package_part_name(part_name) for part_name in dynamic_parts
     ]
-    if (
-        any(part_name is None for part_name in safe_dynamic_parts)
-        or dynamic_parts != sorted(set(dynamic_parts))
-        or any(
-            part_name in INSPECT_FIXED_EXCLUDED_PARTS_V1 for part_name in dynamic_parts
-        )
-    ):
+    if any(
+        part_name is None for part_name in safe_dynamic_parts
+    ) or dynamic_parts != sorted(set(dynamic_parts)):
         return None
     # The live inspect result discloses safe package-relative altChunk targets so a
     # caller can understand the exact coverage gap. Those names are controlled by
