@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import zipfile
 from pathlib import Path
 
@@ -14,6 +15,16 @@ from lxml import etree
 from veqtor_docx import InspectError, inspect_document, verify_quote
 from veqtor_docx import inspect as inspect_module
 from veqtor_docx._ooxml import ResourceLimitError, parse_xml, w
+
+_PACKAGE_RELATIONSHIPS_NS = (
+    "http://schemas.openxmlformats.org/package/2006/relationships"
+)
+_OFFICE_RELATIONSHIPS_NS = (
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+)
+_ALT_CHUNK_RELATIONSHIP_TYPE = (
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/aFChunk"
+)
 
 
 def _round(demo_dir: Path, number: int) -> str:
@@ -32,6 +43,60 @@ def _rewrite_document(source: Path, target: Path, mutate) -> None:
                     + etree.tostring(document)
                 )
             output.writestr(info, payload)
+
+
+def _rewrite_with_alt_chunk(
+    source: Path,
+    target: Path,
+    *,
+    relationship_target: str,
+    html_payload: bytes | None,
+    target_mode: str | None = None,
+    wrap_in_unknown: bool = False,
+) -> None:
+    rel_id = "rIdInspectionAltChunk"
+    with zipfile.ZipFile(source) as original, zipfile.ZipFile(target, "w") as output:
+        for info in original.infolist():
+            payload = original.read(info)
+            if info.filename == "word/document.xml":
+                document = parse_xml(payload)
+                body = document.find(w("body"))
+                assert body is not None
+                alt_chunk = etree.Element(w("altChunk"))
+                alt_chunk.set(f"{{{_OFFICE_RELATIONSHIPS_NS}}}id", rel_id)
+                block = alt_chunk
+                if wrap_in_unknown:
+                    block = etree.Element("{urn:veqtor:test:unknown}container")
+                    block.append(alt_chunk)
+                section = body.find(w("sectPr"))
+                if section is None:
+                    body.append(block)
+                else:
+                    section.addprevious(block)
+                payload = (
+                    b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n'
+                    + etree.tostring(document)
+                )
+            elif info.filename == "word/_rels/document.xml.rels":
+                relationships = parse_xml(payload)
+                relationship = etree.SubElement(
+                    relationships,
+                    f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship",
+                )
+                relationship.set("Id", rel_id)
+                relationship.set("Type", _ALT_CHUNK_RELATIONSHIP_TYPE)
+                relationship.set("Target", relationship_target)
+                if target_mode is not None:
+                    relationship.set("TargetMode", target_mode)
+                payload = etree.tostring(
+                    relationships,
+                    xml_declaration=True,
+                    encoding="UTF-8",
+                    standalone=True,
+                )
+            output.writestr(info, payload)
+        if html_payload is not None:
+            output.writestr("word/afchunk.html", html_payload)
 
 
 def _run(parent: etree._Element, text: str, *, deleted: bool = False) -> None:
@@ -143,6 +208,178 @@ def test_outline_level_nine_is_body_text_and_invalid_levels_fail_closed(
     assert (
         error.value.metadata["observed_source_sha256"]
         == hashlib.sha256(invalid.read_bytes()).hexdigest()
+    )
+
+
+def test_empty_outline_heading_is_returned_and_navigation_stays_consistent(
+    demo_dir: Path,
+    tmp_path: Path,
+) -> None:
+    source = demo_dir / "round-1-outgoing-draft.docx"
+    target = tmp_path / "empty-outline-heading.docx"
+
+    def add_empty_heading(document: etree._Element) -> None:
+        _replace_body(
+            document,
+            [
+                _paragraph(outline_level=0),
+                _paragraph("Following clause text."),
+            ],
+        )
+
+    _rewrite_document(source, target, add_empty_heading)
+    outline = inspect_document(str(target), "outline")
+
+    assert len(outline["sections"]) == 1
+    section = outline["sections"][0]
+    assert section["label"] is None
+    assert section["heading"] is None
+    assert section["start_paragraph_index"] == 0
+    assert section["end_paragraph_index_exclusive"] == 2
+
+    browsed = inspect_document(str(target), "browse")
+    assert browsed["paragraphs"] == [
+        {
+            **browsed["paragraphs"][0],
+            "text": "Following clause text.",
+            "section_navigation": {
+                "label": None,
+                "heading": None,
+                "level": 0,
+                "basis": "word_outline_level_v1",
+                "label_basis": None,
+            },
+        }
+    ]
+
+
+def test_document_requires_exactly_one_direct_body(
+    demo_dir: Path,
+    tmp_path: Path,
+) -> None:
+    source = demo_dir / "round-1-outgoing-draft.docx"
+    target = tmp_path / "two-bodies.docx"
+
+    def add_second_body(document: etree._Element) -> None:
+        second_body = etree.SubElement(document, w("body"))
+        second_body.append(_paragraph("Text hidden by a second body."))
+
+    _rewrite_document(source, target, add_second_body)
+    with pytest.raises(InspectError) as error:
+        inspect_document(str(target), "browse")
+
+    assert error.value.code == "file_unextractable"
+    assert "exactly one direct w:body" in error.value.detail
+    assert (
+        error.value.metadata["observed_source_sha256"]
+        == hashlib.sha256(target.read_bytes()).hexdigest()
+    )
+
+
+def test_relationship_backed_alt_chunk_is_fail_visible_and_target_is_disclosed(
+    demo_dir: Path,
+    tmp_path: Path,
+) -> None:
+    source = demo_dir / "round-1-outgoing-draft.docx"
+    target = tmp_path / "alt-chunk.docx"
+    governing_law = (
+        b"<html><body>This Agreement is governed by New York law.</body></html>"
+    )
+    _rewrite_with_alt_chunk(
+        source,
+        target,
+        relationship_target="afchunk.html",
+        html_payload=governing_law,
+    )
+
+    result = inspect_document(
+        str(target),
+        "literal_search",
+        phrases=["governed by New York law"],
+        match_basis="exact_literal",
+    )
+
+    assert result["matches"] == []
+    assert result["coverage"]["scan_complete"] is True
+    container_coverage = result["coverage"]["container_coverage"]
+    assert container_coverage["excluded_subtree_count"] == 1
+    assert container_coverage["excluded_by_kind"] == {"alt_chunk": 1}
+    assert container_coverage["coverage_complete"] is False
+    assert container_coverage["legacy_two_field_anchor_safe"] is False
+    assert "word/afchunk.html" in result["coverage"]["excluded_parts"]
+
+
+def test_nested_alt_chunk_cannot_bypass_unknown_container_coverage(
+    demo_dir: Path,
+    tmp_path: Path,
+) -> None:
+    source = demo_dir / "round-1-outgoing-draft.docx"
+    target = tmp_path / "nested-alt-chunk.docx"
+    _rewrite_with_alt_chunk(
+        source,
+        target,
+        relationship_target="afchunk.html",
+        html_payload=b"<html><body>Nested imported clause.</body></html>",
+        wrap_in_unknown=True,
+    )
+
+    result = inspect_document(str(target), "outline")
+
+    container_coverage = result["coverage"]["container_coverage"]
+    assert container_coverage["excluded_subtree_count"] == 1
+    assert container_coverage["excluded_by_kind"] == {"unknown_container": 1}
+    assert container_coverage["coverage_complete"] is False
+    assert container_coverage["legacy_two_field_anchor_safe"] is False
+    assert "word/afchunk.html" in result["coverage"]["excluded_parts"]
+
+
+def test_external_alt_chunk_target_is_never_disclosed(
+    demo_dir: Path,
+    tmp_path: Path,
+) -> None:
+    source = demo_dir / "round-1-outgoing-draft.docx"
+    target = tmp_path / "external-alt-chunk.docx"
+    private_url = "https://private.example.test/contracts/governing-law.html"
+    _rewrite_with_alt_chunk(
+        source,
+        target,
+        relationship_target=private_url,
+        target_mode="External",
+        html_payload=None,
+    )
+
+    result = inspect_document(str(target), "outline")
+    serialized = json.dumps(result, sort_keys=True)
+
+    assert all("altChunk:" not in part for part in result["coverage"]["excluded_parts"])
+    assert result["coverage"]["container_coverage"]["excluded_by_kind"] == {
+        "alt_chunk": 1
+    }
+    assert result["coverage"]["container_coverage"]["coverage_complete"] is False
+    assert private_url not in serialized
+
+
+def test_missing_internal_alt_chunk_target_fails_closed(
+    demo_dir: Path,
+    tmp_path: Path,
+) -> None:
+    source = demo_dir / "round-1-outgoing-draft.docx"
+    target = tmp_path / "missing-alt-chunk-target.docx"
+    _rewrite_with_alt_chunk(
+        source,
+        target,
+        relationship_target="missing-afchunk.html",
+        html_payload=None,
+    )
+
+    with pytest.raises(InspectError) as error:
+        inspect_document(str(target), "outline")
+
+    assert error.value.code == "file_unextractable"
+    assert "internal target is invalid or missing" in error.value.detail
+    assert (
+        error.value.metadata["observed_source_sha256"]
+        == hashlib.sha256(target.read_bytes()).hexdigest()
     )
 
 

@@ -199,7 +199,19 @@ def test_with_record_preserves_explicit_empty_record_result(
         tool_name="list_rounds",
         workspace=tmp_path,
         input_payload={},
-        result={"status": "ok", "value": 1},
+        result={
+            "folder": "demo",
+            "ordering_source": "filename_lexicographic_v1",
+            "order_basis": {
+                "kind": "filename",
+                "rule": "casefold_then_exact",
+                "lineage_verified": False,
+                "round_id_semantics": "position_only",
+            },
+            "revision_count_basis": docx_contracts.REVISION_COUNT_BASIS_V1,
+            "rounds": [],
+            "skipped": [],
+        },
         record_result={},
         provenance={},
     )
@@ -562,6 +574,142 @@ def test_inspection_record_is_compact_text_free_and_keeps_hash_bound_refs(
     assert record["result"]["match_count"] == 1
     assert "matches" not in record["result"]
     assert record["tool_result_sha256"] != record["result_sha256"]
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        {"status": "ok"},
+        {
+            "status": "ok",
+            "mode": "PRIVATE_INVALID_MODE",
+            "coverage": {"scan_complete": True},
+            "limits": {},
+        },
+        {
+            "status": "ok",
+            "mode": "outline",
+            "coverage": {"PRIVATE_COVERAGE": "PRIVATE_COVERAGE_VALUE"},
+            "limits": {"PRIVATE_LIMIT": "PRIVATE_LIMIT_VALUE"},
+        },
+    ],
+)
+def test_compact_export_keeps_schema_readable_invalid_inspection_total_and_safe(
+    tmp_path: Path,
+    result: dict[str, object],
+) -> None:
+    matter = _matter(tmp_path)
+    meta = records.write_record(
+        workspace=matter,
+        tool_name="inspect_document",
+        input_payload={"phrases": ["PRIVATE_SEARCH_PHRASE"]},
+        result=result,
+        provenance={},
+    )
+
+    assert meta["record_status"] == "written"
+    exported = records.read_records(str(matter), max_records=1, include_payload=False)
+    compact_result = exported["records"][0]["result"]
+    assert compact_result == {
+        "status": "ok",
+        "compact_projection_complete": False,
+        "compact_projection_error": "invalid_inspection_result",
+    }
+    assert "PRIVATE" not in json.dumps(exported, ensure_ascii=False)
+
+    raw = records.read_records(str(matter), max_records=1, include_payload=True)
+    assert raw["records"][0]["result"] == result
+
+
+def test_inspection_coverage_compact_projection_accepts_safe_altchunk_parts(
+    tmp_path: Path,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-1-outgoing-draft.docx"
+    inspected = server.inspect_document(str(source), "outline")
+    coverage = dict(inspected["coverage"])
+    coverage["excluded_parts"] = [
+        *coverage["excluded_parts"],
+        "customXml/imported-clause.html",
+        "word/afchunk.html",
+        "word/imports/chunk-2.xhtml",
+    ]
+    container_coverage = dict(coverage["container_coverage"])
+    container_coverage.update(
+        {
+            "excluded_subtree_count": 1,
+            "excluded_by_kind": {"alt_chunk": 1},
+            "coverage_complete": False,
+            "legacy_two_field_anchor_safe": False,
+        }
+    )
+    coverage["container_coverage"] = container_coverage
+
+    projected = records._inspection_coverage_summary(coverage)
+
+    assert projected is not None
+    assert projected["excluded_parts"] == coverage["excluded_parts"]
+    assert projected["container_coverage"]["excluded_by_kind"]["sample"] == [
+        {"key": "alt_chunk", "value": 1}
+    ]
+
+
+@pytest.mark.parametrize(
+    "part_name",
+    [
+        "https://example.test/chunk.html",
+        "/word/chunk.html",
+        "word/../chunk.html",
+        "word\\chunk.html",
+        "word/chunk.html?private=1",
+        "word/%2e%2e/chunk.html",
+    ],
+)
+def test_inspection_coverage_compact_projection_rejects_unsafe_altchunk_parts(
+    tmp_path: Path,
+    part_name: str,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-1-outgoing-draft.docx"
+    inspected = server.inspect_document(str(source), "outline")
+    coverage = dict(inspected["coverage"])
+    coverage["excluded_parts"] = [*coverage["excluded_parts"], part_name]
+
+    assert records._inspection_coverage_summary(coverage) is None
+
+
+def test_incomplete_change_unit_anchor_v2_is_omitted_from_compact_sample() -> None:
+    incomplete = {
+        "schema_version": "change_unit_anchor.v2",
+        "change_unit_id": "cu_001",
+        "container_policy": "canonical_body_flow_v1",
+        "unit_fingerprint_sha256": "b" * 64,
+    }
+
+    projected = records.bounded_observed_anchors([incomplete])
+
+    assert projected["count"] == 1
+    assert projected["sample"] == []
+    assert projected["truncated"] is True
+    assert projected["sha256"] == records._stable_digest([incomplete])
+
+    prebounded = {
+        "count": 1,
+        "sha256": records._stable_digest([incomplete]),
+        "sample": [incomplete],
+        "truncated": False,
+    }
+    reprojected = records._summary_provenance(
+        {
+            "tool_name": "extract_redlines",
+            "result": {"status": "ok"},
+            "provenance": {"anchors": prebounded},
+        }
+    )["anchors"]
+    assert reprojected["count"] == 1
+    assert reprojected["sample"] == []
+    assert reprojected["truncated"] is True
+    assert reprojected["sha256"] == prebounded["sha256"]
 
 
 def test_build_identity_ignores_asserted_environment_commit(

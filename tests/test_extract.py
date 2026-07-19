@@ -1,15 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
 """extract_redlines against the synthetic rounds: every fact must be exact."""
 
+import hashlib
 import json
 import subprocess
 import sys
 import zipfile
 from pathlib import Path
 
+import pytest
 from lxml import etree
 
-from veqtor_docx import extract_redlines, inspect_document, verify_quote
+from veqtor_docx import DocxError, extract_redlines, inspect_document, verify_quote
 from veqtor_docx._ooxml import MC_NS, parse_xml, w
 from veqtor_docx.contracts import (
     EXTRACT_REVISION_CATEGORIES_V1,
@@ -673,6 +675,54 @@ def test_known_property_subtree_with_text_revision_is_fail_visible(
     )
     assert inspected["matches"] == []
     assert inspected["coverage"]["container_coverage"] == policy
+
+
+def test_outline_level_nine_is_body_text_for_clause_anchors_and_bad_range_refuses(
+    demo_dir: Path,
+    tmp_path: Path,
+) -> None:
+    source = demo_dir / "round-1-outgoing-draft.docx"
+    level_nine = tmp_path / "extract-outline-level-nine.docx"
+
+    def add_level_nine_revision(document: etree._Element) -> None:
+        body = document.find(w("body"))
+        assert body is not None
+        paragraph = etree.Element(w("p"))
+        properties = etree.SubElement(paragraph, w("pPr"))
+        outline = etree.SubElement(properties, w("outlineLvl"))
+        outline.set(w("val"), "9")
+        _insertion(paragraph, "825", "Body text, not a heading")
+        body.insert(0, paragraph)
+
+    _rewrite_document(source, level_nine, add_level_nine_revision)
+    extracted = extract_redlines(str(level_nine))
+    unit = next(
+        item
+        for item in extracted["change_units"]
+        if item["reference"]["revision_ids"] == ["825"]
+    )
+    assert unit["clause_anchor"] is None
+
+    invalid = tmp_path / "extract-outline-level-ten.docx"
+
+    def add_invalid_outline_level(document: etree._Element) -> None:
+        body = document.find(w("body"))
+        assert body is not None
+        paragraph = etree.Element(w("p"))
+        properties = etree.SubElement(paragraph, w("pPr"))
+        outline = etree.SubElement(properties, w("outlineLvl"))
+        outline.set(w("val"), "10")
+        _insertion(paragraph, "826", "Invalid heading")
+        _append_body_block(body, paragraph)
+
+    _rewrite_document(source, invalid, add_invalid_outline_level)
+    with pytest.raises(DocxError) as error:
+        extract_redlines(str(invalid))
+    assert "w:outlineLvl must be an integer from 0 through 9" in str(error.value)
+    assert (
+        error.value.metadata["observed_source_sha256"]
+        == hashlib.sha256(invalid.read_bytes()).hexdigest()
+    )
 
 
 def test_manual_paragraph_label_is_distinct_from_heading_anchor(

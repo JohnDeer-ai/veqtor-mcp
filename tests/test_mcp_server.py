@@ -242,8 +242,13 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
         tools = {tool.name: tool for tool in (await session.list_tools()).tools}
 
     assert set(tools) == records.WRITABLE_TOOL_NAMES
+    assert set(server._RESULT_MODELS) == set(tools)
     assert all(callable(getattr(server, name)) for name in tools)
     for name, tool in tools.items():
+        registered_tool = mcp._tool_manager.get_tool(name)
+        assert registered_tool is not None
+        assert registered_tool.fn_metadata.output_model is server._RESULT_MODELS[name]
+        assert server._RESULT_MODELS[name].contract_schema == tool.outputSchema
         assert tool.meta == {MCP_CONTRACT_META_KEY: MCP_CONTRACT_SCHEMA_VERSION}
         assert tool.outputSchema is not None
         assert tool.outputSchema[MCP_CONTRACT_SCHEMA_EXTENSION] == (
@@ -371,10 +376,13 @@ async def test_inspect_transport_rejects_schema_invalid_nested_output(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     original = veqtor_docx.inspect_document
+    sentinel = "PRIVATE_INVALID_OUTPUT_SENTINEL"
+    nested_sentinel = "PRIVATE_INVALID_NESTED_SENTINEL"
 
     def invalid_nested_result(*args, **kwargs):
         result = original(*args, **kwargs)
-        result["sections"] = [{"garbage": True}]
+        result["search_scope"] = sentinel
+        result["sections"] = [{"garbage": nested_sentinel}]
         return result
 
     monkeypatch.setattr(veqtor_docx, "inspect_document", invalid_nested_result)
@@ -386,10 +394,43 @@ async def test_inspect_transport_rejects_schema_invalid_nested_output(
                 "mode": "outline",
             },
         )
+        exported_response = await session.call_tool(
+            "export_decision_record",
+            {"workspace": str(demo_dir), "max_records": 10},
+        )
 
     assert response.isError is True
-    assert "Output validation error" in _error_text(response)
-    assert "Additional properties are not allowed" in _error_text(response)
+    error_text = _error_text(response)
+    assert "output_contract_error" in error_text
+    assert "tool output failed contract validation" in error_text
+    assert sentinel not in error_text
+    assert nested_sentinel not in error_text
+    assert "garbage" not in error_text
+
+    raw = records.read_records(
+        str(demo_dir),
+        max_records=10,
+        include_payload=True,
+    )
+    inspection_records = [
+        item for item in raw["records"] if item["tool_name"] == "inspect_document"
+    ]
+    assert len(inspection_records) == 1
+    assert inspection_records[0]["result"]["status"] == "error"
+    assert inspection_records[0]["result"]["error_code"] == ("output_contract_error")
+    assert inspection_records[0]["provenance"] == {"failure_phase": "output_validation"}
+    assert sentinel not in json.dumps(inspection_records[0], ensure_ascii=False)
+    assert nested_sentinel not in json.dumps(inspection_records[0], ensure_ascii=False)
+
+    assert exported_response.isError is False
+    exported = _payload(exported_response)
+    compact_inspection = next(
+        item for item in exported["records"] if item["tool_name"] == "inspect_document"
+    )
+    assert compact_inspection["result"]["status"] == "error"
+    assert compact_inspection["result"]["error_code"] == "output_contract_error"
+    assert sentinel not in json.dumps(exported, ensure_ascii=False)
+    assert nested_sentinel not in json.dumps(exported, ensure_ascii=False)
 
 
 @pytest.mark.anyio

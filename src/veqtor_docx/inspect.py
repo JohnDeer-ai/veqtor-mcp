@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Bounded, hash-bound inspection of operative DOCX body text.
+"""Bounded, hash-bound inspection of mechanically projected DOCX body text.
 
 ``inspect_document`` deliberately exposes a narrower surface than a generic
 document dump.  It scans the supported ``word/document.xml`` body flow once,
@@ -19,9 +19,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import posixpath
 import re
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import unquote, urlsplit
 
 from lxml import etree
 
@@ -31,6 +33,7 @@ from ._ooxml import (
     ResourceLimitError,
     TEXT_REVISION_TAGS,
     UserPathError,
+    CanonicalBodyFlow,
     canonical_body_flow_v1,
     current_text_atom,
     iter_canonical_paragraph_nodes,
@@ -78,6 +81,21 @@ MAX_LITERAL_OCCURRENCES_PER_CANDIDATE = 10_000
 SNIPPET_RADIUS = 160
 
 _PART_NAME = DOCUMENT_PART
+_DOCUMENT_RELS_PART = "word/_rels/document.xml.rels"
+_PACKAGE_RELATIONSHIPS_NS = (
+    "http://schemas.openxmlformats.org/package/2006/relationships"
+)
+_OFFICE_RELATIONSHIPS_NS = (
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+)
+_ALT_CHUNK_RELATIONSHIP_SUFFIX = "/aFChunk"
+_STATIC_EXCLUDED_PARTS = (
+    "word/header*.xml",
+    "word/footer*.xml",
+    "word/footnotes.xml",
+    "word/endnotes.xml",
+    "word/comments*.xml",
+)
 _CURSOR_SCHEMA_V1 = "cursor.v1"
 _CURSOR_MATCH_POLICY_V1 = "literal_match_normalization_v1"
 _CURSOR_ORDER_POLICY_V1 = "canonical_inspection_result_order_v1"
@@ -164,6 +182,7 @@ class _Snapshot:
     section_by_paragraph: dict[int, _Section]
     container_coverage: dict[str, Any]
     revision_inventory: dict[str, Any]
+    excluded_parts: tuple[str, ...]
 
 
 def _sha256_text(text: str) -> str:
@@ -293,6 +312,100 @@ def _sections(
     return tuple(built), by_paragraph
 
 
+def _internal_relationship_part(target: str) -> str | None:
+    """Resolve an internal relationship target without exposing host paths."""
+    if not target or "\\" in target or "\x00" in target:
+        return None
+    parsed = urlsplit(target)
+    if parsed.scheme or parsed.netloc or parsed.query or parsed.fragment:
+        return None
+    decoded = unquote(parsed.path)
+    if (
+        not decoded
+        or "\\" in decoded
+        or "\x00" in decoded
+        or any(ord(character) < 0x20 or ord(character) == 0x7F for character in decoded)
+    ):
+        return None
+    if decoded.startswith("/"):
+        candidate = posixpath.normpath(decoded.lstrip("/"))
+    else:
+        candidate = posixpath.normpath(posixpath.join("word", decoded))
+    if candidate in {"", ".", ".."} or candidate.startswith("../"):
+        return None
+    return candidate
+
+
+def _alt_chunk_excluded_parts(
+    flow: CanonicalBodyFlow,
+    relationships_payload: bytes | None,
+    member_names: frozenset[str],
+) -> tuple[str, ...]:
+    """Return safe, deterministic relationship targets for excluded chunks."""
+    alt_chunks: list[etree._Element] = []
+    seen_alt_chunks: set[int] = set()
+    for excluded in flow.excluded_subtrees:
+        for alt_chunk in excluded.element.iter(w("altChunk")):
+            identity = id(alt_chunk)
+            if identity not in seen_alt_chunks:
+                seen_alt_chunks.add(identity)
+                alt_chunks.append(alt_chunk)
+    if not alt_chunks:
+        return ()
+
+    relationships: dict[str, tuple[str, str, str]] = {}
+    duplicate_ids: set[str] = set()
+    if relationships_payload is not None:
+        root = parse_xml(relationships_payload)
+        relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
+        if root.tag == f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationships":
+            for relationship in root.findall(relationship_tag):
+                rel_id = relationship.get("Id")
+                if not rel_id:
+                    continue
+                if rel_id in relationships:
+                    duplicate_ids.add(rel_id)
+                    continue
+                relationships[rel_id] = (
+                    relationship.get("Type") or "",
+                    relationship.get("Target") or "",
+                    relationship.get("TargetMode") or "",
+                )
+
+    disclosed: set[str] = set()
+    relationship_id_attr = f"{{{_OFFICE_RELATIONSHIPS_NS}}}id"
+    for alt_chunk in alt_chunks:
+        rel_id = alt_chunk.get(relationship_id_attr)
+        relationship = relationships.get(rel_id or "")
+        if rel_id in duplicate_ids or relationship is None:
+            raise InspectError(
+                "file_unextractable",
+                "w:altChunk relationship is missing or ambiguous",
+            )
+        relationship_type, target, target_mode = relationship
+        if not relationship_type.endswith(_ALT_CHUNK_RELATIONSHIP_SUFFIX):
+            raise InspectError(
+                "file_unextractable",
+                "w:altChunk relationship type is invalid",
+            )
+        if not target:
+            raise InspectError(
+                "file_unextractable",
+                "w:altChunk relationship target is missing",
+            )
+        parsed = urlsplit(target)
+        if target_mode.casefold() == "external" or parsed.scheme or parsed.netloc:
+            continue
+        package_part = _internal_relationship_part(target)
+        if package_part is None or package_part not in member_names:
+            raise InspectError(
+                "file_unextractable",
+                "w:altChunk internal target is invalid or missing",
+            )
+        disclosed.add(package_part)
+    return tuple(sorted(disclosed))
+
+
 def _load_snapshot(path: str) -> _Snapshot:
     try:
         resolved = resolve_user_path(path)
@@ -309,15 +422,28 @@ def _load_snapshot(path: str) -> _Snapshot:
     try:
         package = load_validated_docx(
             payload,
-            capture=(_PART_NAME, "word/styles.xml", "word/numbering.xml"),
+            capture=(
+                _PART_NAME,
+                "word/styles.xml",
+                "word/numbering.xml",
+                _DOCUMENT_RELS_PART,
+            ),
         )
         document_payload = package.parts.get(_PART_NAME)
         if document_payload is None:
             raise InspectError("file_unextractable", f"no {_PART_NAME}")
         document = parse_xml(document_payload)
-        body = document.find(w("body"))
-        if body is None:
-            raise InspectError("file_unextractable", "document has no w:body")
+        direct_bodies = (
+            [child for child in document if child.tag == w("body")]
+            if document.tag == w("document")
+            else []
+        )
+        if len(direct_bodies) != 1:
+            raise InspectError(
+                "file_unextractable",
+                "word/document.xml must contain exactly one direct w:body",
+            )
+        body = direct_bodies[0]
         flow = canonical_body_flow_v1(body)
         if len(flow.paragraphs) > MAX_INDEXED_PARAGRAPHS:
             raise ResourceLimitError(
@@ -360,6 +486,11 @@ def _load_snapshot(path: str) -> _Snapshot:
         revision_inventory = dict(
             classify_revision_inventory_v2(document, flow)["revision_inventory"]
         )
+        excluded_parts = _STATIC_EXCLUDED_PARTS + _alt_chunk_excluded_parts(
+            flow,
+            package.parts.get(_DOCUMENT_RELS_PART),
+            package.member_names,
+        )
     except InspectError as exc:
         exc.metadata.setdefault("observed_source_sha256", file_sha256)
         raise
@@ -385,6 +516,7 @@ def _load_snapshot(path: str) -> _Snapshot:
         section_by_paragraph=section_by_paragraph,
         container_coverage=container_coverage,
         revision_inventory=revision_inventory,
+        excluded_parts=excluded_parts,
     )
 
 
@@ -451,7 +583,6 @@ def _outline_items(snapshot: _Snapshot) -> list[dict[str, Any]]:
             "end_paragraph_index_exclusive": section.end_paragraph_index_exclusive,
         }
         for section in snapshot.sections
-        if section.heading.text
     ]
 
 
@@ -1004,13 +1135,7 @@ def _inspect_snapshot(
             len(all_items) if mode == INSPECT_MODE_LITERAL_SEARCH else None
         ),
         "included_parts": ["word/document.xml"],
-        "excluded_parts": [
-            "word/header*.xml",
-            "word/footer*.xml",
-            "word/footnotes.xml",
-            "word/endnotes.xml",
-            "word/comments*.xml",
-        ],
+        "excluded_parts": list(snapshot.excluded_parts),
         "included_containers": ["body", "table_cell"],
         "container_coverage": snapshot.container_coverage,
     }

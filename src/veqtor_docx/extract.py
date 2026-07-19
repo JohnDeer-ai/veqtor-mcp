@@ -82,6 +82,15 @@ class _Style:
     based_on: str | None = None
 
 
+def _normalized_outline_level(value: int | None) -> int | None:
+    """Treat ECMA body-text level 9 as non-heading; reject other bad values."""
+    if value is None or value == 9:
+        return None
+    if 0 <= value <= 8:
+        return value
+    raise DocxError("w:outlineLvl must be an integer from 0 through 9")
+
+
 def _load_extraction_package(payload: bytes, path: str) -> ValidatedDocx:
     """Validate one package snapshot and retain the extraction parts."""
     try:
@@ -113,6 +122,9 @@ def _parse_styles(data: bytes | None) -> dict[str, _Style]:
         if ppr is not None:
             outline = ppr.find(w("outlineLvl"))
             if outline is not None and (val := outline.get(w("val"))) is not None:
+                # Preserve the raw value while resolving style inheritance:
+                # explicit level 9 means body text and must override a basedOn
+                # heading style. Normalize only after the chain is resolved.
                 style.outline_lvl = int(val)
             numpr = ppr.find(w("numPr"))
             if numpr is not None:
@@ -882,7 +894,9 @@ def _extract_snapshot(
                     )
 
         resolved = styles.get(style_id, _Style())
-        outline = para_outline if para_outline is not None else resolved.outline_lvl
+        outline = _normalized_outline_level(
+            para_outline if para_outline is not None else resolved.outline_lvl
+        )
         if para_numpr is not None:
             numpr = None if para_numpr[0] == "0" else para_numpr
         elif resolved.num_id:

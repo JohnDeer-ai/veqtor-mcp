@@ -14,6 +14,7 @@ import sys
 from functools import cache
 from typing import Any, Callable, Literal
 
+import jsonschema
 from mcp.server.fastmcp import FastMCP
 
 import veqtor_docx
@@ -62,6 +63,17 @@ mcp = FastMCP("veqtor")
 mcp._mcp_server.version = __version__
 
 
+_RESULT_MODELS = {
+    "list_rounds": ListRoundsResult,
+    "extract_redlines": ExtractRedlinesResult,
+    "inspect_document": InspectDocumentResult,
+    "preflight_edits": PreflightEditsResult,
+    "apply_edits": ApplyEditsResult,
+    "verify_quote": VerifyQuoteResult,
+    "export_decision_record": ExportDecisionRecordResult,
+}
+
+
 def _producer() -> dict[str, str]:
     return {
         "name": "veqtor-mcp",
@@ -84,6 +96,58 @@ def _error_result(exc: veqtor_docx.DocxError) -> dict[str, Any]:
     }
 
 
+class _OutputContractError(veqtor_docx.DocxError):
+    """A sanitized failure raised before an invalid success can be journaled."""
+
+    code = "output_contract_error"
+
+    def __init__(self) -> None:
+        super().__init__(f"{self.code}: tool output failed contract validation")
+
+
+def _validated_success_result(
+    tool_name: str,
+    result: dict[str, Any],
+    *,
+    record_id: str | None = None,
+    record_status: str = "disabled",
+) -> dict[str, Any]:
+    """Validate and normalize one live result exactly as the MCP boundary does.
+
+    The Pydantic result model is the same return model FastMCP uses.  Its
+    advertised JSON Schema is then applied to the normalized model dump, which
+    mirrors FastMCP's conversion followed by the low-level MCP output-schema
+    gate.  Temporary disabled record metadata makes validation possible before
+    a decision-record id exists.
+    """
+    model = _RESULT_MODELS.get(tool_name)
+    if model is None or not isinstance(result, dict):
+        raise _OutputContractError
+    if "record_id" in result or "record_status" in result:
+        raise _OutputContractError
+
+    candidate = {
+        **result,
+        "record_id": record_id,
+        "record_status": record_status,
+    }
+    try:
+        normalized = model.model_validate(candidate).model_dump(
+            mode="json",
+            by_alias=True,
+        )
+        jsonschema.validate(instance=normalized, schema=model.contract_schema)
+    except Exception:
+        # Validation diagnostics may contain document text, private paths or an
+        # implementation sentinel.  Neither the journal nor the MCP client may
+        # receive those details.
+        raise _OutputContractError from None
+
+    normalized.pop("record_id", None)
+    normalized.pop("record_status", None)
+    return normalized
+
+
 def _with_record(
     *,
     tool_name: str,
@@ -93,6 +157,27 @@ def _with_record(
     provenance: dict[str, Any],
     record_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    try:
+        result = _validated_success_result(tool_name, result)
+    except _OutputContractError as exc:
+        try:
+            _record_error(
+                tool_name=tool_name,
+                workspace=workspace,
+                input_payload=input_payload,
+                exc=exc,
+                # Never derive an error record from a result which just failed
+                # its public contract.  A malformed required field may already
+                # have flowed into the success provenance assembled by the
+                # caller before _with_record was entered.
+                provenance={"failure_phase": "output_validation"},
+            )
+        except Exception:
+            # Output validation must stay fail-closed even when the optional
+            # local journal cannot record the controlled error.
+            pass
+        raise
+
     meta = records.write_record(
         workspace=workspace,
         tool_name=tool_name,
@@ -684,7 +769,9 @@ def extract_redlines(path: str) -> ExtractRedlinesResult:
 
 
 @mcp.tool(
-    annotations=local_journaling_annotations("Inspect operative DOCX body text"),
+    annotations=local_journaling_annotations(
+        "Inspect a mechanical accepted/current DOCX body reading"
+    ),
     meta=contract_meta(),
     structured_output=True,
 )
@@ -702,7 +789,7 @@ def inspect_document(
     cursor: str | None = None,
     max_items: int = DEFAULT_INSPECT_MAX_ITEMS,
 ) -> InspectDocumentResult:
-    """Inspect unchanged operative text without dumping the whole document.
+    """Inspect a mechanical accepted/current reading without a whole-document dump.
 
     ``outline`` returns structural headings without clause-body text.
     ``literal_search`` searches the supplied phrases independently inside each
@@ -1055,7 +1142,44 @@ def export_decision_record(
         assurance = _decision_record_assurance()
         export_scope = _decision_record_export_scope()
 
+        def live_result(snapshot, meta):
+            current_export_event = {
+                "record_id": meta["record_id"],
+                "record_type": records.ACCESS_RECORD_TYPE,
+                "record_status": meta["record_status"],
+                "recorded_locally": meta["record_status"] == "written",
+                "included_in_records": False,
+                "included_in_total_count": False,
+                "included_in_access_count": False,
+            }
+            return {
+                **snapshot,
+                "returned_count": len(snapshot["records"]),
+                "assurance": assurance,
+                **export_scope,
+                "access_events_recorded_locally": current_export_event[
+                    "recorded_locally"
+                ],
+                "current_export_event": current_export_event,
+                **(
+                    {"record_error": meta["record_error"]}
+                    if "record_error" in meta
+                    else {}
+                ),
+            }
+
         def export_summary(result):
+            # The snapshot-dependent live response is validated while the
+            # journal lock is held and before the access event is appended.
+            # Disabled placeholder metadata has the same public schema as the
+            # later written/write_failed metadata.
+            _validated_success_result(
+                "export_decision_record",
+                live_result(
+                    result,
+                    {"record_id": None, "record_status": "disabled"},
+                ),
+            )
             return {
                 "status": records.RESULT_STATUS_OK,
                 "workspace": result["workspace"],
@@ -1076,22 +1200,14 @@ def export_decision_record(
             input_payload=input_payload,
             result_factory=export_summary,
         )
-        current_export_event = {
-            "record_id": meta["record_id"],
-            "record_type": records.ACCESS_RECORD_TYPE,
-            "record_status": meta["record_status"],
-            "recorded_locally": meta["record_status"] == "written",
-            "included_in_records": False,
-            "included_in_total_count": False,
-            "included_in_access_count": False,
-        }
+        normalized = _validated_success_result(
+            "export_decision_record",
+            live_result(result, meta),
+            record_id=meta["record_id"],
+            record_status=meta["record_status"],
+        )
         return {
-            **result,
-            "returned_count": len(result["records"]),
-            "assurance": assurance,
-            **export_scope,
-            "access_events_recorded_locally": current_export_event["recorded_locally"],
-            "current_export_event": current_export_event,
+            **normalized,
             **meta,
         }
 

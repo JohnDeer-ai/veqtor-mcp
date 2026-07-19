@@ -1199,7 +1199,7 @@ _CANONICAL_TEXT_ATOM_TAGS = frozenset(
 
 def _subtree_has_canonical_payload(element: etree._Element) -> bool:
     return any(
-        node.tag == w("p")
+        node.tag in {w("p"), w("altChunk")}
         or node.tag in _CANONICAL_TEXT_ATOM_TAGS
         or node.tag in TEXT_REVISION_TAGS
         or node.tag in MOVE_REVISION_TAGS
@@ -1221,7 +1221,7 @@ def _property_subtree_has_illegal_payload(element: etree._Element) -> bool:
         if node is element:
             continue
         if (
-            node.tag == w("p")
+            node.tag in {w("p"), w("altChunk")}
             or node.tag in _CANONICAL_TEXT_ATOM_TAGS
             or node.tag in MOVE_REVISION_TAGS
         ):
@@ -1245,6 +1245,12 @@ def _property_subtree_has_illegal_payload(element: etree._Element) -> bool:
 
 
 def _explicit_exclusion_kind(element: etree._Element) -> str | None:
+    # altChunk imports relationship-backed content (commonly HTML) that is not
+    # present below the w:altChunk element itself. It must therefore be an
+    # unconditional, fail-visible exclusion rather than relying on descendant
+    # payload detection.
+    if element.tag == w("altChunk"):
+        return "alt_chunk"
     if element.tag in _MC_ALTERNATE_CONTENT_TAGS:
         return "alternate_content"
     if element.tag in _TEXT_BOX_TAGS:

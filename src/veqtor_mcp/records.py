@@ -53,6 +53,7 @@ DEFAULT_MAX_RECORDS = 50
 MAX_MAX_RECORDS = 500
 COMPACT_SAMPLE_LIMIT = 20
 MAX_COMPACT_ID_LENGTH = 32
+MAX_COMPACT_PACKAGE_PART_LENGTH = 1024
 MAX_JOURNAL_LINE_BYTES = 1_048_576
 MAX_JOURNAL_DEPTH = 64
 MAX_JOURNAL_NODES = 100_000
@@ -85,6 +86,13 @@ EXPORT_ACCESS_COUNT_SCOPE = "all_prior_access_events_before_current_export"
 V1_EXPORT_RECORDS_SCOPES = frozenset({EXPORT_RECORDS_SCOPE})
 V1_EXPORT_TOTAL_COUNT_SCOPES = frozenset({EXPORT_TOTAL_COUNT_SCOPE})
 V1_EXPORT_ACCESS_COUNT_SCOPES = frozenset({EXPORT_ACCESS_COUNT_SCOPE})
+INSPECT_FIXED_EXCLUDED_PARTS_V1 = (
+    "word/header*.xml",
+    "word/footer*.xml",
+    "word/footnotes.xml",
+    "word/endnotes.xml",
+    "word/comments*.xml",
+)
 
 Clock = Callable[[], datetime]
 ExportResultFactory = Callable[[dict[str, Any]], dict[str, Any]]
@@ -1561,6 +1569,27 @@ def _part_name(value: Any) -> str | None:
     return value if value == DOCUMENT_PART_V1 else None
 
 
+def _internal_package_part_name(value: Any) -> str | None:
+    """Return one safe, normalized package-relative part name for compact output."""
+    if (
+        not isinstance(value, str)
+        or not 1 <= len(value) <= MAX_COMPACT_PACKAGE_PART_LENGTH
+        or value.startswith("/")
+        or "\\" in value
+        or any(char in value for char in ("\x00", ":", "?", "#", "%"))
+    ):
+        return None
+    segments = value.split("/")
+    if any(
+        not segment
+        or segment in {".", ".."}
+        or any(ord(char) < 0x20 or ord(char) == 0x7F for char in segment)
+        for segment in segments
+    ):
+        return None
+    return value
+
+
 def _contains_incomplete_snapshot(value: Any) -> bool:
     if isinstance(value, dict):
         if {
@@ -1770,12 +1799,19 @@ def _observed_anchor_summary(value: Any) -> dict[str, Any] | None:
         if not _is_sha256(value["unit_fingerprint_sha256"]):
             return None
         summary["unit_fingerprint_sha256"] = value["unit_fingerprint_sha256"]
-    v2_fields = {
+    v2_marker_fields = {
         "schema_version",
         "container_policy",
         "unit_fingerprint_sha256",
     }
-    if any(key in value for key in v2_fields) and not v2_fields.issubset(value):
+    v2_required_fields = {
+        *v2_marker_fields,
+        "change_unit_id",
+        "file_sha256",
+    }
+    if any(
+        key in value for key in v2_marker_fields
+    ) and not v2_required_fields.issubset(value):
         return None
     if "part_name" in value:
         part_name = _part_name(value["part_name"])
@@ -1974,6 +2010,7 @@ def _container_coverage_summary(value: Any) -> dict[str, Any] | None:
     excluded_paragraphs = value.get("excluded_paragraphs_by_kind")
     allowed_exclusions = frozenset(
         {
+            "alt_chunk",
             "alternate_content",
             "text_box",
             "nested_paragraph",
@@ -2050,6 +2087,7 @@ def _revision_inventory_summary(value: Any) -> dict[str, Any] | None:
         unsupported_values = [_nonnegative_int(item) for item in unsupported.values()]
         excluded_values = [_nonnegative_int(item) for item in excluded.values()]
         allowed_exclusions = {
+            "alt_chunk",
             "alternate_content",
             "text_box",
             "nested_paragraph",
@@ -2262,19 +2300,32 @@ def _inspection_coverage_summary(value: Any) -> dict[str, Any] | None:
         summary["complete_literal_match_count"] = parsed_matches
     closed_lists = {
         "included_parts": [DOCUMENT_PART_V1],
-        "excluded_parts": [
-            "word/header*.xml",
-            "word/footer*.xml",
-            "word/footnotes.xml",
-            "word/endnotes.xml",
-            "word/comments*.xml",
-        ],
         "included_containers": ["body", "table_cell"],
     }
     for key, expected in closed_lists.items():
         if value.get(key) != expected:
             return None
         summary[key] = list(expected)
+    excluded_parts = value.get("excluded_parts")
+    if not isinstance(excluded_parts, list) or excluded_parts[
+        : len(INSPECT_FIXED_EXCLUDED_PARTS_V1)
+    ] != list(INSPECT_FIXED_EXCLUDED_PARTS_V1):
+        return None
+    dynamic_parts = excluded_parts[len(INSPECT_FIXED_EXCLUDED_PARTS_V1) :]
+    safe_dynamic_parts = [
+        _internal_package_part_name(part_name) for part_name in dynamic_parts
+    ]
+    if (
+        any(part_name is None for part_name in safe_dynamic_parts)
+        or dynamic_parts != sorted(set(dynamic_parts))
+        or any(
+            part_name in INSPECT_FIXED_EXCLUDED_PARTS_V1 for part_name in dynamic_parts
+        )
+    ):
+        return None
+    summary["excluded_parts"] = list(INSPECT_FIXED_EXCLUDED_PARTS_V1) + [
+        part_name for part_name in safe_dynamic_parts if part_name is not None
+    ]
     container_coverage = _container_coverage_summary(value.get("container_coverage"))
     if container_coverage is None:
         return None
@@ -2372,7 +2423,11 @@ def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
         coverage = _inspection_coverage_summary(result.get("coverage"))
         limits = _inspection_limits_summary(result.get("limits"))
         if mode is None or coverage is None or limits is None:
-            raise _RecordSchemaError("invalid inspect_document result")
+            return {
+                "status": _known_value(result.get("status"), V1_OK_STATUSES),
+                "compact_projection_complete": False,
+                "compact_projection_error": "invalid_inspection_result",
+            }
         return {
             "status": _known_value(result.get("status"), V1_OK_STATUSES),
             "path": _path_digest(result.get("path")),
