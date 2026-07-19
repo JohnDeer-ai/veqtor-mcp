@@ -5,8 +5,10 @@
 This file defines the public tool surface. Output examples are part of the API
 because models use them to decide how to call tools and how to cite results.
 
-Version `0.2.0` advertises MCP contract `veqtor.mcp.v0.2`. These remain separate
-identities. Every
+Source version `0.2.0` advertises MCP contract `veqtor.mcp.v0.2`. Package,
+contract and publication status are separate identities: only matching entries
+on public PyPI and the immutable GitHub Releases list establish distribution.
+This file alone does not. Every
 tool exposes `veqtor.pro/contractSchemaVersion: veqtor.mcp.v0.2` in its MCP
 metadata and the same value under `x-veqtor-contract-schema-version` in its
 output schema. Nested anchors, edits and preflight proofs are closed objects;
@@ -798,11 +800,14 @@ existing exact-workspace journal always wins over child candidates. This is
 bounded wrong-parent diagnosis, not recursive matter discovery.
 
 New records store one canonical absolute workspace path before both journal
-publication and later compact hashing, so the top-level compact workspace
-digest and each new record's workspace digest identify the same root. Existing
-legacy records remain readable and are not rewritten; a record created by a
-pre-canonicalization build from a relative path may therefore retain a digest
-of that historical path spelling.
+publication and later compact hashing. Where the host exposes a descriptor-
+backed path, Veqtor uses the filesystem's own directory-entry spelling, so case
+aliases of one inode on a case-insensitive volume produce one identity without
+case-folding distinct directories on case-sensitive volumes. The top-level
+compact workspace digest and each new record's workspace digest therefore
+identify the same root. Existing legacy records remain readable and are not
+rewritten; a record created by a pre-canonicalization build from a relative or
+caller-spelled path may retain a digest of that historical spelling.
 
 To protect context and privacy, the MCP export is always compact: verbatim `input`
 payloads, paths, clause headings, raw error text and free-form provenance are

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -18,6 +19,13 @@ SCHEMA_VERSION = "veqtor_release_acceptance.v4"
 MAX_EVIDENCE_BYTES = 64 * 1024
 MAX_PACKET_INTEGER_DIGITS = 128
 HEX = frozenset("0123456789abcdef")
+_VERSION_COMPONENT = r"(?:0|[1-9][0-9]{0,5})"
+_CLIENT_VERSION_PATTERN = re.compile(
+    rf"{_VERSION_COMPONENT}(?:\.{_VERSION_COMPONENT}){{2,3}}"
+)
+_PLATFORM_VERSION_PATTERN = re.compile(
+    rf"{_VERSION_COMPONENT}(?:\.{_VERSION_COMPONENT}){{1,2}}"
+)
 
 
 class EvidenceError(ValueError):
@@ -60,14 +68,15 @@ def _passed(value: Any, location: str) -> None:
         raise EvidenceError(f"{location} did not pass")
 
 
-def _label(value: Any, location: str) -> str:
-    if (
-        not isinstance(value, str)
-        or not value
-        or len(value) > 128
-        or any(character in value for character in ("\x00", "\r", "\n"))
-    ):
-        raise EvidenceError(f"{location} is not a bounded label")
+def _version(
+    value: Any,
+    *,
+    pattern: re.Pattern[str],
+    grammar: str,
+    location: str,
+) -> str:
+    if not isinstance(value, str) or pattern.fullmatch(value) is None:
+        raise EvidenceError(f"{location} does not match {grammar}")
     return value
 
 
@@ -320,8 +329,18 @@ def validate_evidence(
         or extension["post_uninstall_tools_absent"] is not True
     ):
         raise EvidenceError("Claude Desktop extension activation did not pass")
-    _label(extension["client_version"], "desktop_extension.client_version")
-    _label(extension["platform_version"], "desktop_extension.platform_version")
+    _version(
+        extension["client_version"],
+        pattern=_CLIENT_VERSION_PATTERN,
+        grammar="MAJOR.MINOR.PATCH[.BUILD]",
+        location="desktop_extension.client_version",
+    )
+    _version(
+        extension["platform_version"],
+        pattern=_PLATFORM_VERSION_PATTERN,
+        grammar="MAJOR.MINOR[.PATCH]",
+        location="desktop_extension.platform_version",
+    )
     if extension["visible_tools"] != list(MCPB_REQUIRED_TOOLS):
         raise EvidenceError("Desktop extension tool inventory differs")
     if extension["called_tools"] != list(MCPB_REQUIRED_TOOLS):

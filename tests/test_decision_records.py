@@ -317,6 +317,112 @@ def test_relative_tool_workspaces_are_canonical_and_match_export_digest(
     }
 
 
+def test_case_aliases_use_filesystem_spelling_for_workspace_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    actual = tmp_path / "DemoMatter"
+    generate_demo_rounds(actual)
+    alias = tmp_path / "demomatter"
+    if not alias.exists():
+        pytest.skip("requires a case-insensitive filesystem")
+    assert os.path.samefile(actual, alias)
+
+    canonical, _identity = records._canonical_workspace(alias)
+    assert canonical == actual.resolve(strict=True)
+
+    monkeypatch.chdir(tmp_path)
+    listed = server.list_rounds("demomatter")
+    extracted = server.extract_redlines(
+        "DEMOMATTER/round-2-counterparty-redline.docx"
+    )
+    exported = server.export_decision_record("dEmOmAtTeR", max_records=10)
+
+    assert listed["record_status"] == "written"
+    assert extracted["record_status"] == "written"
+    assert exported["record_status"] == "written"
+    assert len(exported["records"]) == 2
+    assert all(
+        record["workspace"] == exported["workspace"]
+        for record in exported["records"]
+    )
+    full = records.read_records(
+        "DEMOMATTER",
+        max_records=10,
+        include_access_events=True,
+        include_payload=True,
+    )
+    assert {record["workspace"] for record in full["records"]} == {
+        str(actual.resolve(strict=True))
+    }
+
+
+def test_descriptor_path_spelling_is_used_when_available(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    actual = tmp_path / "StoredCase"
+    actual.mkdir()
+    resolved = actual.resolve(strict=True)
+    info = resolved.stat()
+    fd = os.open(resolved, os.O_RDONLY | records.O_DIRECTORY)
+    payload = os.fsencode(resolved) + b"\0"
+    payload = payload.ljust(records.F_GETPATH_BUFFER_BYTES, b"\0")
+
+    monkeypatch.setattr(records.fcntl, "F_GETPATH", 50, raising=False)
+
+    def fake_fcntl(given_fd: int, operation: int, buffer: bytes) -> bytes:
+        assert given_fd == fd
+        assert operation == 50
+        assert len(buffer) == records.F_GETPATH_BUFFER_BYTES
+        return payload
+
+    monkeypatch.setattr(records.fcntl, "fcntl", fake_fcntl)
+    monkeypatch.setattr(
+        records.os,
+        "readlink",
+        lambda _path: pytest.fail("F_GETPATH should provide the descriptor path"),
+    )
+    try:
+        assert records._filesystem_spelled_workspace(
+            fd,
+            tmp_path / "caller-spelled-fallback",
+            (info.st_dev, info.st_ino),
+        ) == resolved
+    finally:
+        os.close(fd)
+
+
+def test_case_sensitive_workspace_names_are_not_casefolded(tmp_path: Path) -> None:
+    upper = tmp_path / "Matter"
+    lower = tmp_path / "matter"
+    upper.mkdir()
+    try:
+        lower.mkdir()
+    except FileExistsError:
+        pytest.skip("requires a case-sensitive filesystem")
+
+    upper_root, upper_identity = records._canonical_workspace(upper)
+    lower_root, lower_identity = records._canonical_workspace(lower)
+
+    assert upper_root == upper.resolve(strict=True)
+    assert lower_root == lower.resolve(strict=True)
+    assert upper_root != lower_root
+    assert upper_identity != lower_identity
+
+    for workspace in (upper, lower):
+        assert records.write_record(
+            workspace=workspace,
+            tool_name="list_rounds",
+            input_payload={},
+            result={"status": "ok"},
+            provenance={},
+        )["record_status"] == "written"
+    assert records.read_records(str(upper), max_records=1)["workspace"] != (
+        records.read_records(str(lower), max_records=1)["workspace"]
+    )
+
+
 @pytest.mark.parametrize(
     "mutation",
     [

@@ -62,6 +62,7 @@ HEX = frozenset("0123456789abcdef")
 O_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
 O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 O_NONBLOCK = getattr(os, "O_NONBLOCK", 0)
+F_GETPATH_BUFFER_BYTES = 1024
 JOURNAL_OPEN_ATTEMPTS = 4
 MAX_WORKSPACE_DISCOVERY_DEPTH = 1
 MAX_WORKSPACE_DISCOVERY_ENTRIES = 500
@@ -244,6 +245,54 @@ def journal_path(workspace: str | Path) -> Path:
     return workspace_for_folder(workspace) / SIDECAR_DIR / JOURNAL_NAME
 
 
+def _filesystem_spelled_workspace(
+    fd: int,
+    fallback: Path,
+    expected_identity: tuple[int, int],
+) -> Path:
+    """Return the filesystem's spelling for an already-open workspace."""
+    # Descriptor-backed paths preserve the directory entry's spelling. Do not
+    # lower/casefold here: case-sensitive volumes may contain both names.
+    value: str | bytes | None = None
+    getpath = getattr(fcntl, "F_GETPATH", None)
+    if isinstance(getpath, int):
+        try:
+            payload = fcntl.fcntl(
+                fd,
+                getpath,
+                b"\0" * F_GETPATH_BUFFER_BYTES,
+            )
+        except (OSError, ValueError):
+            payload = None
+        if isinstance(payload, bytes):
+            path_bytes, separator, _remainder = payload.partition(b"\0")
+            if separator and path_bytes:
+                value = path_bytes
+    if value is None:
+        try:
+            value = os.readlink(f"/proc/self/fd/{fd}")
+        except OSError:
+            pass
+    if value is None:
+        return fallback
+    try:
+        candidate = Path(os.fsdecode(value))
+    except (TypeError, ValueError, UnicodeError):
+        return fallback
+    if not candidate.is_absolute():
+        return fallback
+    try:
+        info = candidate.lstat()
+    except OSError:
+        return fallback
+    if (
+        not stat.S_ISDIR(info.st_mode)
+        or (info.st_dev, info.st_ino) != expected_identity
+    ):
+        return fallback
+    return candidate
+
+
 def _canonical_workspace(workspace: str | Path) -> tuple[Path, tuple[int, int]]:
     root = workspace_for_folder(workspace)
     try:
@@ -262,7 +311,20 @@ def _canonical_workspace(workspace: str | Path) -> tuple[Path, tuple[int, int]]:
         raise DecisionRecordError(
             "workspace_not_directory", f"workspace is not a directory: {resolved}"
         )
-    return resolved, (info.st_dev, info.st_ino)
+    identity = (info.st_dev, info.st_ino)
+    try:
+        fd = _open_workspace_fd(resolved, identity)
+    except DecisionRecordError:
+        raise
+    except OSError as exc:
+        raise DecisionRecordError(
+            "workspace_unreadable", "workspace cannot be read"
+        ) from exc
+    try:
+        canonical = _filesystem_spelled_workspace(fd, resolved, identity)
+    finally:
+        os.close(fd)
+    return canonical, identity
 
 
 def _reject_special(path: Path, kind: str) -> None:

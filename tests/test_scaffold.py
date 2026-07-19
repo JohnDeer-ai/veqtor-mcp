@@ -124,18 +124,46 @@ def test_current_release_changelog_is_status_neutral() -> None:
     assert "`published_at` timestamp" in releasing
 
 
-def test_public_readme_uses_parseable_version_pinned_claude_commands() -> None:
+def test_release_copy_is_promotion_safe_and_site_stays_on_published_version() -> None:
     readme = (ROOT / "README.md").read_text()
-
+    immutable_docs = "\n".join(
+        (ROOT / name).read_text()
+        for name in ("README.md", "API.md", "KNOWN_LIMITATIONS.md", "ROADMAP.md")
+    )
+    setup = (ROOT / "website" / "src" / "pages" / "setup.astro").read_text()
+    public_pages = "\n".join(
+        path.read_text()
+        for path in (ROOT / "website" / "src" / "pages").rglob("*.astro")
+    )
+    releasing = (ROOT / "RELEASING.md").read_text()
     assert (
         "claude mcp add --transport stdio --scope user veqtor -- "
-        "uvx veqtor-mcp@0.2.0"
+        "uvx veqtor-mcp@X.Y.Z"
     ) in readme
     assert (
         "claude mcp add --transport stdio --scope user veqtor "
         '-e VEQTOR_TRACKED_CHANGE_AUTHOR="Your Name" -- '
-        "uvx veqtor-mcp@0.2.0"
+        "uvx veqtor-mcp@X.Y.Z"
     ) in readme
+    assert '"args": ["veqtor-mcp@0.1.2"]' in setup
+    assert "https://pypi.org/project/veqtor-mcp/" in readme
+    assert "Both sources expose `0.2.0`" in readme
+    assert "| Otherwise | `0.1.2` |" in readme
+    assert "current public distribution" not in immutable_docs.lower()
+    assert "current public release" not in immutable_docs.lower()
+    assert "v0.2.0 is not public yet" in setup
+    for forbidden in (
+        "releases/tag/v0.2.0",
+        "releases/download/v0.2.0",
+    ):
+        assert forbidden not in readme
+        assert forbidden not in public_pages
+    assert "state-neutral version-selection" in releasing
+    assert re.search(
+        r"must activate the public `v0\.2\.0` links.*deploy them, and\s+smoke the live setup page",
+        releasing,
+        re.DOTALL,
+    )
 
 
 def test_pypi_long_description_has_no_repository_relative_links() -> None:

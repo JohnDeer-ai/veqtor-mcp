@@ -22,7 +22,7 @@ publication occurred.
 - A closed MCPB artifact verifier, independent byte-for-byte rebuild gate and
   four-file GitHub Release contract. PyPI remains strictly wheel and sdist;
   `SHA256SUMS.txt` binds those two payloads plus the macOS MCPB.
-- Acceptance packet v3 binds clean Desktop activation, exact MCPB SHA-256,
+- Acceptance packet v4 binds clean Desktop activation, exact MCPB SHA-256,
   runtime identity, exact visible and called tool inventories, private session
   and demo-journal digests, demo result, uninstall and same-artifact reinstall
   to the candidate later rebuilt by CI. Upgrade and rollback are explicitly

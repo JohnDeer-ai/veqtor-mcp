@@ -1,5 +1,10 @@
 # Veqtor for Claude Desktop
 
+> **Release-candidate packaging notes:** there is no official public
+> `v0.2.0` MCPB merely because this directory can build one. These installation
+> steps apply only after the exact candidate passes clean-Mac acceptance and is
+> attached to the immutable GitHub Release by the promotion workflow.
+
 Veqtor is a local MCP server for reviewing DOCX redlines with Claude. It reads
 Word files only when Claude calls a Veqtor tool with their path. Processing and
 the optional `.veqtor` decision-record sidecar stay on this computer; there is
@@ -11,8 +16,9 @@ or decide whether contract wording is legally or commercially suitable.
 
 ## Install
 
-1. Download the versioned macOS `.mcpb` and `SHA256SUMS.txt` from the same
-   immutable Veqtor GitHub Release.
+1. After promotion, download the versioned macOS `.mcpb` and
+   `SHA256SUMS.txt` from the same immutable Veqtor GitHub Release. Before then,
+   do not guess an asset URL or install a bundle copied from CI or a branch.
 2. Check the SHA-256 before opening the bundle.
 3. Open the `.mcpb`, review the requested local access and configuration, and
    approve installation in Claude Desktop.
@@ -37,10 +43,11 @@ directory, so the relative folder name `demo` is a valid Veqtor workspace for
 the first read-only prompt.
 
 Read operations normally append a private local `.veqtor` sidecar inside the
-workspace. The four bundled DOCX inputs are immutable release assets and the
-first prompt is read-only. Do not use the installed `demo` folder for a write
-test. Copy the four DOCX files to a fresh writable folder outside the installed
-extension, then create any output only inside that copied workspace.
+workspace. The four bundled DOCX inputs are immutable candidate-build inputs
+and become release assets only after promotion. The first prompt is read-only.
+Do not use the installed `demo` folder for a write test. Copy the four DOCX
+files to a fresh writable folder outside the installed extension, then create
+any output only inside that copied workspace.
 
 After a demo apply, ask Claude to run `list_rounds` again and re-extract the new
 output. Confirm that the original source SHA-256 is unchanged and that the new
@@ -48,8 +55,9 @@ file's hashes from `apply_edits`, `list_rounds` and `extract_redlines` agree.
 
 ## Update, rollback and uninstall
 
-- Update by downloading and approving a newer versioned `.mcpb`; verify its
-  checksum first. Do not assume automatic updates.
+- After the first public MCPB exists, update by downloading and approving a
+  newer versioned `.mcpb`; verify its checksum first. Do not assume automatic
+  updates.
 - Starting with the release after the first public MCPB, rollback means a
   manual uninstall and reinstall of the previous immutable extension where
   Claude Desktop permits it. The first MCPB has no older public extension to

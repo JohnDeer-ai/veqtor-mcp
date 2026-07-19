@@ -12,7 +12,8 @@ Some source revisions use the author value `53` deliberately. It is an unusual
 but valid raw Word author string used to prove that Veqtor preserves source
 metadata without inventing or verifying a person's identity.
 
-The DOCX files are immutable release inputs. Veqtor may add a private `.veqtor`
+The DOCX files are immutable candidate-build inputs. They become release inputs
+only if the exact extension is promoted. Veqtor may add a private `.veqtor`
 sidecar when a tool is called, but it does not modify the four source files.
 Never create a write-test output in this bundled folder. Release acceptance
 copies only these four DOCX files to a fresh writable folder outside the

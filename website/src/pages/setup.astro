@@ -4,17 +4,17 @@ import PageHero from '../components/PageHero.astro'
 import SiteCta from '../components/SiteCta.astro'
 
 const title = 'Connect Veqtor MCP to Claude Desktop or Claude Code'
-const description = 'Install the Veqtor 0.2.0 Claude Desktop Extension on macOS without editing JSON, or use the version-pinned Claude Code setup on macOS or Linux.'
-const desktopExtensionUrl = 'https://github.com/JohnDeer-ai/veqtor-mcp/releases/download/v0.2.0/veqtor-mcp-0.2.0-macos.mcpb'
+const description = 'Install the current public Veqtor 0.1.2 package for Claude Code or manual Claude Desktop setup, and check the publication status of the v0.2.0 Desktop Extension candidate.'
+const releasesUrl = 'https://github.com/JohnDeer-ai/veqtor-mcp/releases'
 const desktopServerEntry = `"veqtor": {
   "command": "/absolute/path/to/uvx",
-  "args": ["veqtor-mcp@0.2.0"]
+  "args": ["veqtor-mcp@0.1.2"]
 }`
 
 const desktopServersProperty = `"mcpServers": {
   "veqtor": {
     "command": "/absolute/path/to/uvx",
-    "args": ["veqtor-mcp@0.2.0"]
+    "args": ["veqtor-mcp@0.1.2"]
   }
 }`
 
@@ -22,7 +22,7 @@ const freshDesktopConfig = `{
   "mcpServers": {
     "veqtor": {
       "command": "/absolute/path/to/uvx",
-      "args": ["veqtor-mcp@0.2.0"]
+      "args": ["veqtor-mcp@0.1.2"]
     }
   }
 }`
@@ -36,8 +36,8 @@ const desktopAuthorSetting = `"env": {
   <PageHero
     eyebrow="Connect"
     title="Connect Veqtor to Claude."
-    lede="On a Mac, Claude Desktop installs Veqtor as an extension: download, open, and choose the name Word should show on your tracked changes. No JSON editing is needed."
-    meta="Veqtor 0.2.0 · Desktop extension for macOS · Claude Code on macOS and Linux"
+    lede="The current public release is 0.1.2 on PyPI with matching immutable GitHub artifacts. The v0.2.0 macOS extension is still a release candidate, not a public download."
+    meta="Public v0.1.2 · v0.2.0 release candidate · macOS and Linux"
     breadcrumbs={[{ label: 'Connect' }]}
   />
 
@@ -59,56 +59,59 @@ const desktopAuthorSetting = `"env": {
           <ul>
             <li>A Mac or Linux computer.</li>
             <li>Claude Code on Mac or Linux, or Claude Desktop on a Mac.</li>
-            <li>For the Desktop extension: Claude Desktop on a Mac. You do not need to install uv or edit a configuration file.</li>
-            <li>For Claude Code or the older Desktop fallback: <a href="https://docs.astral.sh/uv/getting-started/installation/">uv installed</a>.</li>
+            <li>For the future Desktop extension: Claude Desktop on a Mac. The public MCPB is not available yet.</li>
+            <li>For the current public Claude Code or Desktop setup: <a href="https://docs.astral.sh/uv/getting-started/installation/">uv installed</a>.</li>
           </ul>
+          <div class="notice"><strong>v0.2.0 is not public yet.</strong><p>A package version in source or a CI artifact is not a release. The macOS MCPB becomes installable only after clean-Mac acceptance, public PyPI verification and immutable GitHub Release publication all succeed for the same candidate.</p></div>
           <div class="notice"><strong>Windows is not supported in the public Alpha.</strong><p>Do not improvise a Windows installation for real matters; the current local record locking and release tests target Mac and Linux.</p></div>
         </section>
 
         <section id="claude-desktop">
-          <p class="eyebrow">Recommended on Mac</p>
-          <h2>Claude Desktop Extension</h2>
-          <p>Veqtor 0.2.0 packages the local server, its exact dependency lock and four synthetic Word rounds into one macOS extension. It still processes documents locally; the extension does not create a Veqtor account or upload your files to a Veqtor service.</p>
-          <div class="notice"><strong>Use the official release</strong><p>The button downloads the versioned artifact from the immutable v0.2.0 GitHub Release. Do not install an MCPB copied from an unrelated site or chat.</p></div>
-          <p><a class="button button--primary" href={desktopExtensionUrl}>Download Veqtor for Claude Desktop</a></p>
+          <p class="eyebrow">Release-candidate status</p>
+          <h2>Claude Desktop Extension for Mac</h2>
+          <p>The v0.2.0 candidate packages the local server, its exact dependency lock and four synthetic Word rounds into one macOS extension. It still processes documents locally; the extension does not create a Veqtor account or upload your files to a Veqtor service.</p>
+          <div class="notice"><strong>There is no official v0.2.0 download yet.</strong><p>Do not guess a release-asset URL or install an MCPB copied from CI, a branch, chat, issue or unrelated site. Publication must follow the exact release workflow; the source tree cannot declare itself immutable.</p></div>
+          <p><a class="button button--secondary" href={releasesUrl}>Check official GitHub Releases ↗</a></p>
+          <p>After v0.2.0 appears in that release list with the exact MCPB and checksum manifest:</p>
           <ol>
-            <li>Download the file ending in <code>-macos.mcpb</code> from the official v0.2.0 release.</li>
+            <li>Download the file ending in <code>-macos.mcpb</code> from that official release.</li>
             <li>Open it and approve installation in Claude Desktop.</li>
             <li>Enter the name that Word should show as the author of new tracked changes.</li>
             <li>Open Claude Desktop's extension settings. Make sure Veqtor is enabled and its local server shows as connected. If it does not connect, fully quit and reopen Claude Desktop.</li>
             <li>Open a new chat and run the bundled <strong>try_veqtor_demo</strong> prompt.</li>
           </ol>
-          <p>The first start may download a compatible Python runtime and the dependencies pinned in the extension. Later starts can use the local host cache.</p>
+          <p>After publication, the first start may download a compatible Python runtime and the dependencies pinned in the extension. Later starts can use the local host cache.</p>
           <h3>First prompt</h3>
           <blockquote>Using the Veqtor tools, what happened to the limitation of liability across the four Word rounds in the folder named demo? Start with list_rounds. Keep tool-confirmed document facts separate from your interpretation, and do not treat filename order as verified chronology.</blockquote>
           <p>The bundled prompt is read-only. For a write test, first copy the four synthetic DOCX files to a new writable folder outside the installed extension and create the output only in that copy. After apply, ask Claude to list the folder again and re-extract the output; the source hash should stay unchanged and the output hash should agree across apply, list and extraction.</p>
           <h3>Optional advanced integrity check</h3>
-          <p>The ordinary path is to download from the official immutable GitHub Release and open the extension. Advanced users can also download <code>SHA256SUMS.txt</code>, run the commands below and compare the two values. The current artifact is checksum-bound but not digitally signed.</p>
+          <p>After promotion, the ordinary path will be to download from the official immutable GitHub Release and open the extension. Advanced users can also download <code>SHA256SUMS.txt</code>, run the commands below and compare the two values. The future public artifact will be checksum-bound but not digitally signed.</p>
           <div class="code-block"><div class="code-block__head"><span>Terminal · optional</span><span>SHA-256</span></div><pre><code>{`shasum -a 256 veqtor-mcp-0.2.0-macos.mcpb
 grep ' veqtor-mcp-0.2.0-macos.mcpb$' SHA256SUMS.txt`}</code></pre></div>
           <h3>Remove or reinstall</h3>
-          <p>Uninstall Veqtor from Claude Desktop's extension settings. The first public MCPB has no older extension to roll back to; its release gate covers clean install, uninstall, confirmation that the tools disappear, and reinstall of the same artifact. Real upgrade and rollback become required for the next extension release.</p>
+          <p>Once published, uninstall Veqtor from Claude Desktop's extension settings. The first public MCPB has no older extension to roll back to; before promotion its gate covers a clean Mac without a manually installed uv or Python, all six tools, uninstall, confirmation that the tools disappear, and reinstall of the same artifact. Real upgrade and rollback become required for the next extension release.</p>
         </section>
 
         <section id="claude-code">
           <p class="eyebrow">Option A</p>
           <h2>Claude Code on Mac or Linux</h2>
-          <p>Register the exact public release for your user account:</p>
-          <div class="code-block"><div class="code-block__head"><span>Terminal</span><span>One-time setup</span></div><pre><code>claude mcp add --transport stdio --scope user veqtor -- uvx veqtor-mcp@0.2.0</code></pre></div>
+          <p>Register the exact current public version from PyPI for your user account:</p>
+          <div class="code-block"><div class="code-block__head"><span>Terminal</span><span>Public v0.1.2</span></div><pre><code>claude mcp add --transport stdio --scope user veqtor -- uvx veqtor-mcp@0.1.2</code></pre></div>
           <p>Then confirm that Claude Code can see the registration:</p>
           <div class="code-block"><div class="code-block__head"><span>Terminal</span><span>Verify</span></div><pre><code>claude mcp get veqtor</code></pre></div>
           <p>Open a new Claude Code session after registering Veqtor. The user scope keeps this private local connection available across your projects on this computer. It does not make Veqtor a network service.</p>
           <h3>Set the author shown in new tracked changes</h3>
           <p>If you want Word to show your name as the author of new changes, register the server with this environment setting. Replace <code>Your Name</code> with your actual name:</p>
-          <div class="code-block"><div class="code-block__head"><span>Terminal</span><span>Optional</span></div><pre><code>claude mcp add --transport stdio --scope user veqtor \
+          <div class="code-block"><div class="code-block__head"><span>Terminal</span><span>Optional · public v0.1.2</span></div><pre><code>{`claude mcp add --transport stdio --scope user veqtor \
   -e VEQTOR_TRACKED_CHANGE_AUTHOR="Your Name" -- \
-  uvx veqtor-mcp@0.2.0</code></pre></div>
+  uvx veqtor-mcp@0.1.2`}</code></pre></div>
           <p>If you do not set a name, Word will show <code>Veqtor MCP</code>. The author is fixed when the server starts and Claude cannot change it for an individual edit.</p>
         </section>
 
         <section id="desktop-manual">
-          <p class="eyebrow">Fallback</p>
+          <p class="eyebrow">Current public fallback</p>
           <h2>Manual Claude Desktop setup</h2>
+          <p>This path uses the exact public PyPI version 0.1.2. Matching wheel, sdist and checksum artifacts remain available from the immutable GitHub v0.1.2 release while the v0.2.0 Desktop Extension completes its separate release gate.</p>
           <p>Desktop apps may not see the same terminal paths as your shell. First find the full path to <code>uvx</code>:</p>
           <div class="code-block"><div class="code-block__head"><span>Terminal</span><span>Find uvx</span></div><pre><code>command -v uvx</code></pre></div>
           <p>In Claude Desktop, open <strong>Settings → Developer → Edit Config</strong>. This opens <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>.</p>
@@ -134,7 +137,7 @@ grep ' veqtor-mcp-0.2.0-macos.mcpb$' SHA256SUMS.txt`}</code></pre></div>
           <p class="eyebrow">First run</p>
           <h2>Verify the connection with sample documents</h2>
           <p>Create a fresh, disposable four-round negotiation:</p>
-          <div class="code-block"><div class="code-block__head"><span>Terminal</span><span>Synthetic documents</span></div><pre><code>uvx --from "veqtor-mcp==0.2.0" veqtor-demo-rounds ~/veqtor-demo-rounds</code></pre></div>
+          <div class="code-block"><div class="code-block__head"><span>Terminal</span><span>Public v0.1.2</span></div><pre><code>uvx --from "veqtor-mcp==0.1.2" veqtor-demo-rounds ~/veqtor-demo-rounds</code></pre></div>
           <p>In a new Claude session, ask:</p>
           <blockquote>Using the Veqtor tools, what happened to the limitation of liability across the rounds in ~/veqtor-demo-rounds?</blockquote>
           <p>If Claude identifies and explains the four rounds, the connection is working. Continue with the <a href="/demo">recorded demo</a> before trying a write workflow.</p>
@@ -152,7 +155,7 @@ grep ' veqtor-mcp-0.2.0-macos.mcpb$' SHA256SUMS.txt`}</code></pre></div>
           <h3>Claude Desktop cannot start the server</h3>
           <p>Use the absolute path returned by <code>command -v uvx</code>. Do not assume the desktop app inherits your shell path.</p>
           <h3>Run local diagnostics</h3>
-          <div class="code-block"><div class="code-block__head"><span>Terminal</span><span>Diagnostics</span></div><pre><code>uvx veqtor-mcp@0.2.0 doctor</code></pre></div>
+          <div class="code-block"><div class="code-block__head"><span>Terminal</span><span>Public v0.1.2</span></div><pre><code>uvx veqtor-mcp@0.1.2 doctor</code></pre></div>
           <h3>Still blocked?</h3>
           <p>Search or open a <a href="https://github.com/JohnDeer-ai/veqtor-mcp/issues">GitHub Issue</a> using synthetic files only. Never post client wording, local paths, credentials or local activity records.</p>
         </section>

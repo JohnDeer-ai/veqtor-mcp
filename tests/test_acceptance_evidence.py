@@ -364,6 +364,51 @@ def test_runtime_versions_and_builds_are_candidate_bound() -> None:
 
 
 @pytest.mark.parametrize(
+    ("field", "value", "grammar"),
+    [
+        ("client_version", "1.0", r"MAJOR\.MINOR\.PATCH"),
+        ("client_version", "01.0.0", r"MAJOR\.MINOR\.PATCH"),
+        ("client_version", "1.0.0-beta", r"MAJOR\.MINOR\.PATCH"),
+        ("client_version", "1.0.0/Users/example", r"MAJOR\.MINOR\.PATCH"),
+        ("platform_version", "15", r"MAJOR\.MINOR"),
+        ("platform_version", "15.05", r"MAJOR\.MINOR"),
+        ("platform_version", "macOS 15.5", r"MAJOR\.MINOR"),
+        ("platform_version", "../../15.5", r"MAJOR\.MINOR"),
+        ("platform_version", "15.5.1.2", r"MAJOR\.MINOR"),
+    ],
+)
+def test_extension_versions_use_path_free_numeric_grammars(
+    field: str,
+    value: str,
+    grammar: str,
+) -> None:
+    packet = _packet()
+    packet["desktop_extension"][field] = value
+
+    with pytest.raises(EvidenceError, match=grammar):
+        _validate(packet)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("client_version", "1.22209.0"),
+        ("client_version", "1.22209.0.42"),
+        ("platform_version", "26.5"),
+        ("platform_version", "26.5.1"),
+    ],
+)
+def test_extension_versions_accept_public_numeric_formats(
+    field: str,
+    value: str,
+) -> None:
+    packet = _packet()
+    packet["desktop_extension"][field] = value
+
+    _validate(packet)
+
+
+@pytest.mark.parametrize(
     ("section", "field", "value"),
     [
         ("payment_preflight", "match_count", 1.0),

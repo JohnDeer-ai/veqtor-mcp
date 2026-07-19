@@ -330,6 +330,11 @@ retained evidence.
 | `desktop_rehearsal` | Record the exact literals and booleans shown below plus the installed version/build and SHA-256 digests of the retained private transcript and raw journal. |
 | `desktop_extension` | On a clean Mac without manually installed uv or Python, install the exact candidate `.mcpb` downloaded from the final commit's successful CI artifact on a fresh-copy Claude Desktop for macOS and confirm its host-managed UV runtime. Explicitly confirm that the extension is enabled and its server is connected. Record the MCPB SHA-256, tested client/OS labels, author confirmation, exact six-tool visible and called lists, version/build and four-round bundled read-only demo result. For the write check, copy only the four synthetic DOCX files to a fresh writable folder outside the installed extension. Record the pre-apply source hash, create the output in that copied folder, call `list_rounds` again and require five rounds, an unchanged source hash and an output hash equal to apply; re-extract the output and require the same hash. Retain only the path-free booleans/count plus private session transcript and copied-workspace journal digests in the packet. Also record fresh install, uninstall, post-uninstall absence and same-artifact reinstall. For this first public MCPB only, record the two closed not-applicable lifecycle values shown below. |
 
+`desktop_extension.client_version` must be a public numeric
+`MAJOR.MINOR.PATCH[.BUILD]` value, and `platform_version` must be
+`MAJOR.MINOR[.PATCH]`. Record only those public version numbers: product names,
+paths, build labels and free-form OS text are rejected by the packet validator.
+
 The following is the complete, type-correct v4 working template. Its repeated
 sample digests are deliberately not candidate values and will fail exact-SHA
 validation. Replace the candidate SHA/tree/build, all private evidence digests,
@@ -532,7 +537,20 @@ test implementation tip
 → publish and verify PyPI
 → publish and verify the immutable GitHub Release
 → install the exact public PyPI release for the demo
+→ activate the website's v0.2.0 release copy in a separate docs/site change
+→ verify the deployed setup page and every public download/install link
 ```
+
+Public installation copy follows that external state; it never predicts it.
+The immutable README and package metadata use a state-neutral version-selection
+rule: `0.2.0` is selected only when both public verifiers expose it; otherwise
+the explicit fallback is `0.1.2`. Before those verifiers pass, website install
+commands remain pinned to public PyPI `0.1.2`, matching download links remain on
+the immutable GitHub `v0.1.2` release, and the Desktop Extension is labelled a
+`v0.2.0` candidate or preview. After both pass, a separate docs/site change
+must activate the public `v0.2.0` links and release wording, deploy them, and
+smoke the live setup page. That required copy activation does not amend the tag,
+replace clean-Mac acceptance, or waive any gate above.
 
 If promotion stops after reservation, the protected tag remains the only
 permitted recovery anchor. If it stops during or after PyPI publication, a full

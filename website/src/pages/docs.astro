@@ -4,15 +4,15 @@ import PageHero from '../components/PageHero.astro'
 import SiteCta from '../components/SiteCta.astro'
 
 const title = 'Veqtor MCP Documentation — Tools, Workflow and Boundaries'
-const description = 'Technical overview of Veqtor 0.2.0: local MCP connection, supported Word redline workflow, six public tools, output behavior, privacy boundary and primary source documentation.'
+const description = 'Technical overview of the Veqtor 0.2.0 source candidate: local MCP connection, supported Word redline workflow, six tools, output behavior, privacy boundary and release status.'
 ---
 
 <BaseLayout title={title} description={description} canonicalPath="/docs">
   <PageHero
     eyebrow="Documentation"
-    title="A technical map of Veqtor 0.2.0."
-    lede="Start here for the public tool surface and operating model. Use the versioned GitHub documents when you need the exact request, response and error contract."
-    meta="Public technical Alpha · Current site docs: v0.2.0"
+    title="A technical map of the Veqtor 0.2.0 candidate."
+    lede="Start here for the candidate tool surface and operating model. The current public distribution remains v0.1.2; a source branch is not an immutable v0.2.0 release."
+    meta="Source candidate v0.2.0 · Public distribution v0.1.2"
     breadcrumbs={[{ label: 'Documentation' }]}
   />
 
@@ -57,15 +57,16 @@ const description = 'Technical overview of Veqtor 0.2.0: local MCP connection, s
         </section>
 
         <section id="primary-docs">
-          <h2>Versioned primary documentation</h2>
+          <h2>Primary documentation and release status</h2>
           <ul>
-            <li><a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/v0.2.0/README.md">README and installation</a></li>
-            <li><a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/v0.2.0/API.md">Exact MCP tool API</a></li>
-            <li><a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/v0.2.0/KNOWN_LIMITATIONS.md">Known limitations</a></li>
-            <li><a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/v0.2.0/SECURITY.md">Security policy and threat model</a></li>
-            <li><a href="https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/v0.2.0">Release artifacts</a></li>
+            <li><a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/README.md">Default-branch README and release-status guard</a></li>
+            <li><a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/API.md">Default-branch MCP tool API</a></li>
+            <li><a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/KNOWN_LIMITATIONS.md">Default-branch known limitations</a></li>
+            <li><a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/SECURITY.md">Security policy and threat model</a></li>
+            <li><a href="https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/v0.1.2">Current public v0.1.2 artifacts</a></li>
+            <li><a href="https://github.com/JohnDeer-ai/veqtor-mcp/releases">Check the live release list for v0.2.0</a></li>
           </ul>
-          <div class="notice"><strong>Why link to the tagged version?</strong><p>The site explains the product. The tagged files define the exact behavior of the release you install.</p></div>
+          <div class="notice"><strong>No tagged v0.2.0 contract exists before promotion.</strong><p>The site can describe candidate behavior, but only a published immutable tag and its verified assets define the v0.2.0 release users may install.</p></div>
         </section>
       </article>
       <aside class="side-index" aria-label="Documentation sections">

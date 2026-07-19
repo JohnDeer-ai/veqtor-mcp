@@ -2,17 +2,22 @@
 
 # Known limitations
 
-Veqtor `0.2.0` is a local technical Alpha for early adopters and advertises MCP
-contract `veqtor.mcp.v0.2`. Both identities remain intentionally narrow.
+This file describes Veqtor source version `0.2.0` and MCP contract
+`veqtor.mcp.v0.2`. It defines public release limits only when matching `0.2.0`
+artifacts exist on PyPI and the immutable GitHub Releases list; source version
+alone does not prove publication. Both supported surfaces remain intentionally
+narrow.
 
-The MCPB v0.4 extension is macOS-only. Linux keeps the CLI setup. There is no
-Windows extension, catalog listing, automatic update promise, silent
-installation or guaranteed in-app rollback. Because `0.2.0` is the first public
-MCPB, it has no older public extension to restore; real upgrade and rollback
-testing starts with the next extension release. The first UV activation may
-download a compatible Python runtime and locked dependencies, so it is not
-guaranteed to work offline. MCPB installation does not add an operating-system
-filesystem sandbox; Veqtor runs with the current user's permissions.
+The MCPB v0.4 extension is macOS-only and is public only when the exact artifact
+is attached to the matching verified release after clean-Mac acceptance. Linux
+keeps the CLI setup. There is no Windows extension, catalog listing, automatic
+update promise, silent installation or guaranteed in-app rollback. If
+published, `0.2.0` is the first public MCPB and has no older public extension to
+restore; real upgrade and rollback testing starts with the next extension
+release. The first UV activation may download a compatible Python runtime and
+locked dependencies, so it is not guaranteed to work offline. MCPB installation
+does not add an operating-system filesystem sandbox; Veqtor runs with the
+current user's permissions.
 
 ## Documents and revisions
 
