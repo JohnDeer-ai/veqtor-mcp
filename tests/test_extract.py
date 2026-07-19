@@ -725,6 +725,54 @@ def test_outline_level_nine_is_body_text_for_clause_anchors_and_bad_range_refuse
     )
 
 
+def test_extract_rejects_revision_hidden_in_second_direct_body(
+    demo_dir: Path,
+    tmp_path: Path,
+) -> None:
+    source = demo_dir / "round-1-outgoing-draft.docx"
+    invalid = tmp_path / "extract-two-bodies.docx"
+
+    def add_second_body_with_revision(document: etree._Element) -> None:
+        assert document.tag == w("document")
+        assert len([child for child in document if child.tag == w("body")]) == 1
+        second_body = etree.SubElement(document, w("body"))
+        paragraph = etree.SubElement(second_body, w("p"))
+        _insertion(paragraph, "827", "Revision outside the first body")
+
+    _rewrite_document(source, invalid, add_second_body_with_revision)
+
+    with pytest.raises(DocxError) as error:
+        extract_redlines(str(invalid))
+
+    assert "must contain exactly one direct w:body" in str(error.value)
+    assert (
+        error.value.metadata["observed_source_sha256"]
+        == hashlib.sha256(invalid.read_bytes()).hexdigest()
+    )
+
+
+def test_extract_rejects_non_document_root(
+    demo_dir: Path,
+    tmp_path: Path,
+) -> None:
+    source = demo_dir / "round-1-outgoing-draft.docx"
+    invalid = tmp_path / "extract-bad-document-root.docx"
+
+    def replace_document_root(document: etree._Element) -> None:
+        document.tag = w("body")
+
+    _rewrite_document(source, invalid, replace_document_root)
+
+    with pytest.raises(DocxError) as error:
+        extract_redlines(str(invalid))
+
+    assert "must contain exactly one direct w:body" in str(error.value)
+    assert (
+        error.value.metadata["observed_source_sha256"]
+        == hashlib.sha256(invalid.read_bytes()).hexdigest()
+    )
+
+
 def test_manual_paragraph_label_is_distinct_from_heading_anchor(
     demo_dir: Path,
 ) -> None:

@@ -980,6 +980,25 @@ def w(tag: str) -> str:
     return f"{{{W_NS}}}{tag}"
 
 
+def require_single_direct_document_body(
+    document: etree._Element,
+) -> etree._Element:
+    """Return the sole direct ``w:body`` of a ``w:document`` root.
+
+    Extraction and bounded inspection must share this structural gate: reading
+    only the first body while another consumer inventories the entire XML tree
+    can otherwise make their coverage claims contradict each other.
+    """
+    direct_bodies = (
+        [child for child in document if child.tag == w("body")]
+        if document.tag == w("document")
+        else []
+    )
+    if len(direct_bodies) != 1:
+        raise DocxError("word/document.xml must contain exactly one direct w:body")
+    return direct_bodies[0]
+
+
 def is_xml_text_compatible(value: str) -> bool:
     """Whether every character is allowed by the XML 1.0 ``Char`` rule."""
     return all(

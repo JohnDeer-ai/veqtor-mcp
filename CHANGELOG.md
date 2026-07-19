@@ -32,6 +32,10 @@ establish publication and do not provide a public `0.3` installation target.
 - Relationship-backed `w:altChunk` content is now a fail-visible canonical-flow
   exclusion; safe internal target parts are disclosed without returning
   external URLs.
+- Compact export replaces document-controlled internal `altChunk` part names
+  with a constant-size count/digest projection and an always-empty sample.
+- Inspection and extraction now share one fail-closed `w:document` / single
+  direct `w:body` structural gate; preflight and apply inherit it before edits.
 - Documentation now consistently describes `accepted_current_v1` as a
   mechanical projection, discloses that `w:rPr/w:vanish` is not interpreted,
   and distinguishes private raw-journal payloads from compact export.

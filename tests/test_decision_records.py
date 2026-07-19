@@ -19,6 +19,7 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
+from lxml import etree
 
 import veqtor_mcp
 import veqtor_docx
@@ -84,6 +85,63 @@ def _rewrite_docx_part(path: Path, part_name: str, transform) -> None:
     with zipfile.ZipFile(path, "w") as archive:
         for info in infos:
             archive.writestr(info, parts[info.filename])
+
+
+def _add_internal_alt_chunks(path: Path, part_names: list[str]) -> None:
+    """Add relationship-backed altChunks whose package names are fixture-controlled."""
+    package_relationships_ns = (
+        "http://schemas.openxmlformats.org/package/2006/relationships"
+    )
+    office_relationships_ns = (
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    )
+    alt_chunk_relationship_type = (
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/aFChunk"
+    )
+    with zipfile.ZipFile(path, "r") as archive:
+        infos = archive.infolist()
+        parts = {info.filename: archive.read(info.filename) for info in infos}
+
+    document = _ooxml.parse_xml(parts["word/document.xml"])
+    body = document.find(_ooxml.w("body"))
+    assert body is not None
+    section = body.find(_ooxml.w("sectPr"))
+    relationships = _ooxml.parse_xml(parts["word/_rels/document.xml.rels"])
+    for index, part_name in enumerate(part_names, start=1):
+        assert part_name.startswith("word/")
+        relationship_id = f"rIdPrivateAltChunk{index}"
+        alt_chunk = etree.Element(_ooxml.w("altChunk"))
+        alt_chunk.set(f"{{{office_relationships_ns}}}id", relationship_id)
+        if section is None:
+            body.append(alt_chunk)
+        else:
+            section.addprevious(alt_chunk)
+        relationship = etree.SubElement(
+            relationships,
+            f"{{{package_relationships_ns}}}Relationship",
+        )
+        relationship.set("Id", relationship_id)
+        relationship.set("Type", alt_chunk_relationship_type)
+        relationship.set("Target", part_name.removeprefix("word/"))
+        parts[part_name] = b"<html><body>Excluded fixture content.</body></html>"
+
+    parts["word/document.xml"] = etree.tostring(
+        document,
+        xml_declaration=True,
+        encoding="UTF-8",
+        standalone=True,
+    )
+    parts["word/_rels/document.xml.rels"] = etree.tostring(
+        relationships,
+        xml_declaration=True,
+        encoding="UTF-8",
+        standalone=True,
+    )
+    with zipfile.ZipFile(path, "w") as archive:
+        for info in infos:
+            archive.writestr(info, parts.pop(info.filename))
+        for part_name, payload in sorted(parts.items()):
+            archive.writestr(part_name, payload)
 
 
 def _mark_zip_member_encrypted(path: Path, member_name: str) -> None:
@@ -648,10 +706,68 @@ def test_inspection_coverage_compact_projection_accepts_safe_altchunk_parts(
     projected = records._inspection_coverage_summary(coverage)
 
     assert projected is not None
-    assert projected["excluded_parts"] == coverage["excluded_parts"]
+    assert projected["excluded_parts"] == list(records.INSPECT_FIXED_EXCLUDED_PARTS_V1)
+    dynamic_parts = coverage["excluded_parts"][
+        len(records.INSPECT_FIXED_EXCLUDED_PARTS_V1) :
+    ]
+    assert projected["excluded_internal_parts"] == {
+        "count": 3,
+        "sha256": records._stable_digest(dynamic_parts),
+        "sample": [],
+        "truncated": True,
+    }
     assert projected["container_coverage"]["excluded_by_kind"]["sample"] == [
         {"key": "alt_chunk", "value": 1}
     ]
+
+
+def test_compact_export_redacts_and_bounds_document_controlled_altchunk_names(
+    tmp_path: Path,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-1-outgoing-draft.docx"
+    private_part = "word/PRIVATE_CLIENT_ACQUISITION.html"
+    dynamic_parts = [
+        private_part,
+        *[f"word/private-chunk-{index:02d}.html" for index in range(24)],
+    ]
+    _add_internal_alt_chunks(source, dynamic_parts)
+
+    inspected = server.inspect_document(str(source), "outline")
+    observed_dynamic_parts = inspected["coverage"]["excluded_parts"][
+        len(records.INSPECT_FIXED_EXCLUDED_PARTS_V1) :
+    ]
+    assert observed_dynamic_parts == sorted(dynamic_parts)
+
+    exported = server.export_decision_record(str(matter), max_records=10)
+    compact_record = next(
+        record
+        for record in exported["records"]
+        if record["tool_name"] == "inspect_document"
+    )
+    compact_coverage = compact_record["result"]["coverage"]
+    assert compact_coverage["excluded_parts"] == list(
+        records.INSPECT_FIXED_EXCLUDED_PARTS_V1
+    )
+    assert compact_coverage["excluded_internal_parts"] == {
+        "count": 25,
+        "sha256": records._stable_digest(observed_dynamic_parts),
+        "sample": [],
+        "truncated": True,
+    }
+    compact_json = json.dumps(exported, ensure_ascii=False)
+    assert private_part not in compact_json
+    assert "private-chunk" not in compact_json
+
+    raw = records.read_records(
+        str(matter),
+        max_records=10,
+        include_payload=True,
+    )
+    raw_record = next(
+        record for record in raw["records"] if record["tool_name"] == "inspect_document"
+    )
+    assert private_part in raw_record["result"]["coverage"]["excluded_parts"]
 
 
 @pytest.mark.parametrize(

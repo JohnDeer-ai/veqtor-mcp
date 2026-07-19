@@ -110,7 +110,9 @@ container_policy: canonical_body_flow_v1
 
 `canonical_body_flow_v1` starts at `w:document/w:body` in
 `word/document.xml` and indexes each supported `w:p` once in XML order. It does
-not use unrestricted descendant traversal as paragraph identity.
+not use unrestricted descendant traversal as paragraph identity. Inspection
+and extraction require a `w:document` root with exactly one direct `w:body`;
+anything else is refused before paragraph or revision facts are emitted.
 
 The allowlisted pass-through block containers are:
 
@@ -539,7 +541,10 @@ fixtures proving:
 4. Text boxes, drawings/objects, relationship-backed altChunk content,
    AlternateContent, nested paragraphs and unknown text-bearing wrappers are
    pruned, counted and never leak text. Internal altChunk target parts are
-   disclosed safely, while external URLs are not.
+   disclosed safely in the live inspection response, while external URLs are
+   not. Compact decision-record export never repeats document-controlled target
+   names: it retains their count and complete-list digest in the bounded
+   `excluded_internal_parts` projection with an empty sample.
 5. Headers, footers, footnotes, endnotes and comments stay visibly outside the
    declared scope.
 6. Outline contains no paragraph text, preview, snippet or matched-text field;

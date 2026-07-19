@@ -59,10 +59,16 @@ current user's permissions.
 - Extraction and writing cover `word/document.xml`. `inspect_document` is
   narrower still: it exposes only the canonical main-body paragraph flow.
   Comments, headers, footers, footnotes and endnotes are not analyzed or edited.
+- `inspect_document` and `extract_redlines` require a `w:document` root with
+  exactly one direct `w:body`; preflight and apply inherit that refusal before
+  editing. `list_rounds` is a bounded scanner and does not make the same full
+  body-structure claim.
 - Relationship-backed `w:altChunk` content is excluded rather than imported.
-  Internal target parts are disclosed as package-relative exclusions; external
-  target URLs are not returned. Missing, ambiguous or unsafe internal targets
-  refuse inspection.
+  Live inspection and the private raw journal disclose internal target parts as
+  package-relative exclusions; external target URLs are not returned. Compact
+  export replaces document-controlled target names with a count and full-list
+  digest, and always leaves their sample empty. Missing, ambiguous or unsafe
+  internal targets refuse inspection.
 - Formatting, move, paragraph-mark and structural revision categories are
   counted but not all are converted into editable change units.
 - The extractor and inspector report `revision_inventory.v2` so callers can
@@ -173,10 +179,11 @@ current user's permissions.
   journal lock can therefore delay a tool response until that lock is released.
   Process exit releases the lock, but the Alpha does not yet return a bounded
   `journal_busy` refusal for a live lock holder.
-- Read-only list, extract, verify and preflight calls normally append local
-  provenance too. Decision-record export normally appends an access event after
-  taking its response snapshot, so observation is not side-effect free unless
-  decision records are disabled.
+- Read-only `list_rounds`, `extract_redlines`, `inspect_document`,
+  `verify_quote` and `preflight_edits` calls normally append local provenance
+  too. Decision-record export normally appends an access event after taking its
+  response snapshot, so observation is not side-effect free unless decision
+  records are disabled.
 - Development-contract export never initializes a journal in an uninitialized
   supplied folder. If exactly one direct child contains a valid journal it
   refuses with `workspace_mismatch` and a safe relative suggestion; multiple

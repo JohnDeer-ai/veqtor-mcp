@@ -40,6 +40,7 @@ from ._ooxml import (
     load_validated_docx,
     parse_xml,
     read_docx_payload,
+    require_single_direct_document_body,
     resolve_user_path,
     text_atom,
     validate_docx_payload_size,
@@ -858,9 +859,7 @@ def _extract_snapshot(
         _parse_numbering(package.parts.get("word/numbering.xml"))
     )
 
-    body = document.find(w("body"))
-    if body is None:
-        raise DocxError(f"no w:body in {path}")
+    body = require_single_direct_document_body(document)
     body_flow = canonical_body_flow_v1(body)
     _validate_text_revision_nesting(body_flow)
 

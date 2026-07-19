@@ -2483,6 +2483,51 @@ def test_source_parse_failure_after_snapshot_carries_observed_sha(
     assert not output.exists()
 
 
+def test_apply_rejects_source_with_multiple_direct_bodies_before_surgery(
+    round2: Path,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "apply-two-bodies.docx"
+
+    def add_second_body(document: etree._Element) -> None:
+        assert document.tag == w("document")
+        second_body = etree.SubElement(document, w("body"))
+        paragraph = etree.SubElement(second_body, w("p"))
+        insertion = etree.SubElement(paragraph, w("ins"))
+        insertion.set(w("id"), "999")
+        insertion.set(w("author"), "Hidden revision")
+        run = etree.SubElement(insertion, w("r"))
+        text = etree.SubElement(run, w("t"))
+        text.text = "Revision outside the first body"
+
+    _rewrite_document_xml(round2, source, add_second_body)
+    observed = hashlib.sha256(source.read_bytes()).hexdigest()
+    output = tmp_path / "never.docx"
+
+    with pytest.raises(DocxError) as error:
+        apply_edits(
+            str(source),
+            str(output),
+            [
+                {
+                    "anchor": {
+                        "change_unit_id": "cu_001",
+                        "file_sha256": observed,
+                    },
+                    "delete_text": "anything",
+                    "insert_text": "replacement",
+                }
+            ],
+        )
+
+    assert "must contain exactly one direct w:body" in str(error.value)
+    assert error.value.metadata == {
+        "failure_phase": "source",
+        "observed_source_sha256": observed,
+    }
+    assert not output.exists()
+
+
 def test_temp_creation_failure_after_snapshot_carries_observed_sha(
     round2: Path,
     tmp_path: Path,

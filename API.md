@@ -452,6 +452,10 @@ otherwise non-text Word property subtrees. A valid existing internal altChunk
 target is disclosed as a normalized package-relative `excluded_parts` entry;
 external target URLs are never returned. Missing, ambiguous or unsafe internal
 targets refuse inspection.
+`inspect_document` and `extract_redlines` also require `word/document.xml` to
+have a `w:document` root with exactly one direct `w:body`; preflight and apply
+inherit that extraction refusal before editing begins. `list_rounds` remains a
+bounded file/revision scanner, not full body-structure validation.
 Headers, footers, footnotes, endnotes and comments are separate excluded OPC
 parts. `accepted_current_v1` is a mechanical current-reading projection:
 inserted/move-to text is included and deleted/move-from text is excluded. It is
@@ -1096,6 +1100,13 @@ and unused extra anchor fields are not journaled. Repeated facts are bounded
 snapshots `{count, sha256, sample, truncated}`; samples contain at most 20
 validated items while the digest covers the complete source collection. Large
 extract results therefore stay bounded and re-verifiable.
+The live `inspect_document` coverage object discloses validated internal
+`altChunk` target names so the caller can identify the exact uninspected package
+parts. Because those names are controlled by the document and can contain
+matter-private labels, compact export retains only the fixed public
+`excluded_parts` scope plus an `excluded_internal_parts` snapshot containing
+the dynamic count and complete-list digest. Its sample is always empty and
+`truncated` is true whenever one or more dynamic names were omitted.
 For successful `preflight_edits` and `apply_edits`, the edit anchors originated
 as client-asserted input rather than a fresh observation. Their compact
 `provenance.anchors` therefore keeps the complete collection digest and count

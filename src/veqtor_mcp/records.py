@@ -2323,9 +2323,18 @@ def _inspection_coverage_summary(value: Any) -> dict[str, Any] | None:
         )
     ):
         return None
-    summary["excluded_parts"] = list(INSPECT_FIXED_EXCLUDED_PARTS_V1) + [
-        part_name for part_name in safe_dynamic_parts if part_name is not None
-    ]
+    # The live inspect result discloses safe package-relative altChunk targets so a
+    # caller can understand the exact coverage gap. Those names are controlled by
+    # the document, however, and may themselves contain private matter labels. The
+    # compact journal projection therefore retains only the fixed public scope and
+    # a bounded, re-checkable fingerprint of the complete dynamic tail.
+    summary["excluded_parts"] = list(INSPECT_FIXED_EXCLUDED_PARTS_V1)
+    summary["excluded_internal_parts"] = {
+        "count": len(dynamic_parts),
+        "sha256": _stable_digest(dynamic_parts),
+        "sample": [],
+        "truncated": bool(dynamic_parts),
+    }
     container_coverage = _container_coverage_summary(value.get("container_coverage"))
     if container_coverage is None:
         return None

@@ -40,6 +40,7 @@ from ._ooxml import (
     load_validated_docx,
     parse_xml,
     read_docx_payload,
+    require_single_direct_document_body,
     resolve_user_path,
     w,
 )
@@ -433,17 +434,10 @@ def _load_snapshot(path: str) -> _Snapshot:
         if document_payload is None:
             raise InspectError("file_unextractable", f"no {_PART_NAME}")
         document = parse_xml(document_payload)
-        direct_bodies = (
-            [child for child in document if child.tag == w("body")]
-            if document.tag == w("document")
-            else []
-        )
-        if len(direct_bodies) != 1:
-            raise InspectError(
-                "file_unextractable",
-                "word/document.xml must contain exactly one direct w:body",
-            )
-        body = direct_bodies[0]
+        try:
+            body = require_single_direct_document_body(document)
+        except DocxError as exc:
+            raise InspectError("file_unextractable", str(exc)) from exc
         flow = canonical_body_flow_v1(body)
         if len(flow.paragraphs) > MAX_INDEXED_PARAGRAPHS:
             raise ResourceLimitError(
