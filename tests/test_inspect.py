@@ -51,6 +51,7 @@ def _rewrite_with_alt_chunk(
     *,
     relationship_target: str,
     html_payload: bytes | None,
+    html_member_name: str = "word/afchunk.html",
     target_mode: str | None = None,
     wrap_in_unknown: bool = False,
 ) -> None:
@@ -96,7 +97,7 @@ def _rewrite_with_alt_chunk(
                 )
             output.writestr(info, payload)
         if html_payload is not None:
-            output.writestr("word/afchunk.html", html_payload)
+            output.writestr(html_member_name, html_payload)
 
 
 def _run(parent: etree._Element, text: str, *, deleted: bool = False) -> None:
@@ -381,6 +382,61 @@ def test_missing_internal_alt_chunk_target_fails_closed(
         error.value.metadata["observed_source_sha256"]
         == hashlib.sha256(target.read_bytes()).hexdigest()
     )
+
+
+@pytest.mark.parametrize(
+    ("relationship_target", "member_name"),
+    [
+        ("%FF.html", "word/\ufffd.html"),
+        ("%ED%A0%80.html", "word/\ufffd\ufffd\ufffd.html"),
+        ("%ZZ.html", "word/%ZZ.html"),
+    ],
+)
+def test_invalid_percent_encoded_alt_chunk_target_fails_closed_before_member_lookup(
+    demo_dir: Path,
+    tmp_path: Path,
+    relationship_target: str,
+    member_name: str,
+) -> None:
+    source = demo_dir / "round-1-outgoing-draft.docx"
+    target = (
+        tmp_path
+        / f"invalid-percent-{hashlib.sha256(relationship_target.encode()).hexdigest()[:8]}.docx"
+    )
+    _rewrite_with_alt_chunk(
+        source,
+        target,
+        relationship_target=relationship_target,
+        html_payload=b"<html><body>Must not be disclosed.</body></html>",
+        html_member_name=member_name,
+    )
+
+    with pytest.raises(InspectError) as error:
+        inspect_document(str(target), "outline")
+
+    assert error.value.code == "file_unextractable"
+    assert "internal target is invalid or missing" in error.value.detail
+    assert member_name not in json.dumps(error.value.metadata, ensure_ascii=False)
+
+
+def test_literal_replacement_character_alt_chunk_does_not_collide_with_invalid_utf8(
+    demo_dir: Path,
+    tmp_path: Path,
+) -> None:
+    source = demo_dir / "round-1-outgoing-draft.docx"
+    member_name = "word/\ufffd.html"
+    target = tmp_path / "literal-replacement-character.docx"
+    _rewrite_with_alt_chunk(
+        source,
+        target,
+        relationship_target="\ufffd.html",
+        html_payload=b"<html><body>Literal replacement character.</body></html>",
+        html_member_name=member_name,
+    )
+
+    result = inspect_document(str(target), "outline")
+
+    assert member_name in result["coverage"]["excluded_parts"]
 
 
 def test_literal_search_bases_and_complete_count_are_deterministic(

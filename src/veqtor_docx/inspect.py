@@ -23,7 +23,7 @@ import posixpath
 import re
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import unquote, urlsplit
+from urllib.parse import unquote_to_bytes, urlsplit
 
 from lxml import etree
 
@@ -321,7 +321,22 @@ def _internal_relationship_part(target: str) -> str | None:
     parsed = urlsplit(target)
     if parsed.scheme or parsed.netloc or parsed.query or parsed.fragment:
         return None
-    decoded = unquote(parsed.path)
+    path = parsed.path
+    cursor = 0
+    while cursor < len(path):
+        if path[cursor] != "%":
+            cursor += 1
+            continue
+        escape = path[cursor + 1 : cursor + 3]
+        if len(escape) != 2 or any(
+            character not in "0123456789abcdefABCDEF" for character in escape
+        ):
+            return None
+        cursor += 3
+    try:
+        decoded = unquote_to_bytes(path).decode("utf-8", errors="strict")
+    except (UnicodeDecodeError, UnicodeEncodeError):
+        return None
     if (
         not decoded
         or "\\" in decoded
