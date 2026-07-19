@@ -439,6 +439,80 @@ def test_literal_replacement_character_alt_chunk_does_not_collide_with_invalid_u
     assert member_name in result["coverage"]["excluded_parts"]
 
 
+@pytest.mark.parametrize(
+    ("xml_whitespace", "serialized_reference"),
+    [
+        ("\t", b"&#9;"),
+        ("\n", b"&#10;"),
+        ("\r", b"&#13;"),
+    ],
+)
+def test_alt_chunk_target_preserves_xsd_any_uri_whitespace_as_a_space(
+    demo_dir: Path,
+    tmp_path: Path,
+    xml_whitespace: str,
+    serialized_reference: bytes,
+) -> None:
+    source = demo_dir / "round-1-outgoing-draft.docx"
+    target = tmp_path / f"any-uri-{ord(xml_whitespace)}.docx"
+    member_name = "word/foo .html"
+    _rewrite_with_alt_chunk(
+        source,
+        target,
+        relationship_target=f"foo{xml_whitespace}.html",
+        html_payload=b"<html><body>Collapsed anyURI whitespace.</body></html>",
+        html_member_name=member_name,
+    )
+
+    with zipfile.ZipFile(target) as archive:
+        relationships_payload = archive.read("word/_rels/document.xml.rels")
+    assert serialized_reference in relationships_payload
+
+    result = inspect_document(str(target), "outline")
+
+    assert member_name in result["coverage"]["excluded_parts"]
+
+
+def test_alt_chunk_target_collapses_repeated_and_edge_xsd_any_uri_whitespace(
+    demo_dir: Path,
+    tmp_path: Path,
+) -> None:
+    source = demo_dir / "round-1-outgoing-draft.docx"
+    target = tmp_path / "collapsed-any-uri-whitespace.docx"
+    member_name = "word/imports/ governing law.html"
+    _rewrite_with_alt_chunk(
+        source,
+        target,
+        relationship_target="  imports/\t \n\r  governing law.html   ",
+        html_payload=b"<html><body>Collapsed anyURI whitespace.</body></html>",
+        html_member_name=member_name,
+    )
+
+    result = inspect_document(str(target), "outline")
+
+    assert member_name in result["coverage"]["excluded_parts"]
+
+
+def test_alt_chunk_target_does_not_collapse_percent_decoded_spaces(
+    demo_dir: Path,
+    tmp_path: Path,
+) -> None:
+    source = demo_dir / "round-1-outgoing-draft.docx"
+    target = tmp_path / "percent-decoded-spaces.docx"
+    member_name = "word/foo  bar.html"
+    _rewrite_with_alt_chunk(
+        source,
+        target,
+        relationship_target="foo%20%20bar.html",
+        html_payload=b"<html><body>Two encoded spaces.</body></html>",
+        html_member_name=member_name,
+    )
+
+    result = inspect_document(str(target), "outline")
+
+    assert member_name in result["coverage"]["excluded_parts"]
+
+
 def test_literal_search_bases_and_complete_count_are_deterministic(
     demo_dir: Path,
 ) -> None:

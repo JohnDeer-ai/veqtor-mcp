@@ -102,6 +102,7 @@ _CURSOR_SCHEMA_V1 = "cursor.v1"
 _CURSOR_MATCH_POLICY_V1 = "literal_match_normalization_v1"
 _CURSOR_ORDER_POLICY_V1 = "canonical_inspection_result_order_v1"
 _CURSOR_RE = re.compile(r"^c1:([0-9]{1,10}):([0-9a-f]{64})$")
+_XSD_WHITESPACE_RE = re.compile(r"[\x09\x0A\x0D\x20]+")
 _PARAGRAPH_REF_KEYS = frozenset(
     {
         "file_sha256",
@@ -314,8 +315,14 @@ def _sections(
     return tuple(built), by_paragraph
 
 
+def _collapse_xsd_any_uri_whitespace(value: str) -> str:
+    """Apply the XML Schema ``whiteSpace=collapse`` facet for ``xsd:anyURI``."""
+    return _XSD_WHITESPACE_RE.sub(" ", value).strip(" ")
+
+
 def _internal_relationship_part(target: str) -> str | None:
     """Resolve an internal relationship target without exposing host paths."""
+    target = _collapse_xsd_any_uri_whitespace(target)
     if not target or "\\" in target or "\x00" in target:
         return None
     parsed = urlsplit(target)
@@ -403,6 +410,7 @@ def _alt_chunk_excluded_parts(
                 "file_unextractable",
                 "w:altChunk relationship type is invalid",
             )
+        target = _collapse_xsd_any_uri_whitespace(target)
         if not target:
             raise InspectError(
                 "file_unextractable",
