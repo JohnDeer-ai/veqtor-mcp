@@ -5,9 +5,10 @@
 This file defines the public tool surface. Output examples are part of the API
 because models use them to decide how to call tools and how to cite results.
 
-The current source advertises MCP contract `veqtor.mcp.v0.2`. This is a tool
-schema version, independent from the package version: the package and published
-release remain `0.1.2` until a separately verified release changes them. Every
+Source version `0.2.0` advertises MCP contract `veqtor.mcp.v0.2`. Package,
+contract and publication status are separate identities: only matching entries
+on public PyPI and the immutable GitHub Releases list establish distribution.
+This file alone does not. Every
 tool exposes `veqtor.pro/contractSchemaVersion: veqtor.mcp.v0.2` in its MCP
 metadata and the same value under `x-veqtor-contract-schema-version` in its
 output schema. Nested anchors, edits and preflight proofs are closed objects;
@@ -175,6 +176,11 @@ natural-number order (`Round 10` can precede `Round 2`), so zero-pad filenames o
 provide a complete manifest when positional order matters. Both modes disclose
 `lineage_verified: false` and `round_id_semantics: "position_only"`; neither
 order is evidence of chronology, legal sequence or document lineage.
+`revision_count_basis` is
+`word_document_xml_w_ins_w_del_elements_v1`: every per-file
+`revision_count` is the raw number of `w:ins` and `w:del` elements in
+`word/document.xml`. It is neither a logical-edit count nor the broader
+`revision_inventory.total_revision_elements` reported by extraction.
 
 Word lock files (`~$*`) are ignored, the scan is non-recursive, and files
 that cannot be read as DOCX are reported in `skipped` with a stable reason code
@@ -199,6 +205,7 @@ the folder before retrying:
     "lineage_verified": false,
     "round_id_semantics": "position_only"
   },
+  "revision_count_basis": "word_document_xml_w_ins_w_del_elements_v1",
   "rounds": [
     {
       "round_id": "round-001",
@@ -286,6 +293,7 @@ guessed:
   "file_sha256": "example",
   "part_name": "word/document.xml",
   "revision_count": 2,
+  "revision_count_basis": "word_document_xml_w_ins_w_del_elements_v1",
   "change_units": [
     {
       "change_unit_id": "cu_001",
@@ -440,7 +448,7 @@ Output:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.1.2",
+    "version": "0.2.0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "batch_applicable": true,
@@ -491,7 +499,7 @@ for example:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.1.2",
+    "version": "0.2.0",
     "build": "source-snapshot-v1-sha256:example"
   },
   "batch_applicable": false,
@@ -550,7 +558,7 @@ before text matching and therefore returns:
 ```
 
 The earlier 14-operation paired counter/reinstate hang report remains
-unreproduced. The development regression exercises that batch shape and asserts
+unreproduced. The regression exercises that batch shape and asserts
 a terminal structured `edits_overlap` result with all 14 diagnostics. It does
 not establish a general wall-clock bound and adds no timeout or cancellation
 API.
@@ -723,7 +731,7 @@ Output:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.1.2",
+    "version": "0.2.0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "applied": [
@@ -791,6 +799,16 @@ All four states fail closed and create no files in the supplied folder. An
 existing exact-workspace journal always wins over child candidates. This is
 bounded wrong-parent diagnosis, not recursive matter discovery.
 
+New records store one canonical absolute workspace path before both journal
+publication and later compact hashing. Where the host exposes a descriptor-
+backed path, Veqtor uses the filesystem's own directory-entry spelling, so case
+aliases of one inode on a case-insensitive volume produce one identity without
+case-folding distinct directories on case-sensitive volumes. The top-level
+compact workspace digest and each new record's workspace digest therefore
+identify the same root. Existing legacy records remain readable and are not
+rewritten; a record created by a pre-canonicalization build from a relative or
+caller-spelled path may retain a digest of that historical spelling.
+
 To protect context and privacy, the MCP export is always compact: verbatim `input`
 payloads, paths, clause headings, raw error text and free-form provenance are
 replaced by digests. Only format-validated identifiers, hashes and counters
@@ -799,6 +817,13 @@ and unused extra anchor fields are not journaled. Repeated facts are bounded
 snapshots `{count, sha256, sample, truncated}`; samples contain at most 20
 validated items while the digest covers the complete source collection. Large
 extract results therefore stay bounded and re-verifiable.
+For successful `preflight_edits` and `apply_edits`, the edit anchors originated
+as client-asserted input rather than a fresh observation. Their compact
+`provenance.anchors` therefore keeps the complete collection digest and count
+but deliberately emits `sample: []` and `truncated: true`, even when the count
+is one. Validated observed edit outcomes remain available in `result.edits` or
+`result.applied`; the empty asserted-anchor sample is a privacy policy, not a
+lost observed anchor.
 Only a genuine empty list or mapping is represented by `count: 0` with
 `truncated: false`. If readable historical JSON stores the wrong container type,
 compact projection returns `count: null`, a digest of that original malformed
@@ -897,7 +922,7 @@ Output:
       "created_at": "2026-07-09T12:00:00Z",
       "tool_name": "verify_quote",
       "workspace": {"sha256": "example-workspace-digest", "omitted": true},
-      "producer": {"name": "veqtor-mcp", "version": "0.1.2", "build": "source-snapshot-v1-sha256:..."},
+      "producer": {"name": "veqtor-mcp", "version": "0.2.0", "build": "source-snapshot-v1-sha256:..."},
       "payloads": "compact",
       "input": {"sha256": "example-input-digest", "omitted": true},
       "result": {
@@ -965,6 +990,12 @@ journal writer, so both digests cover that summary; the newly assigned access
 event id and final live-response metadata do not yet exist at that point.
 These are content fingerprints for re-checking and debugging, not
 tamper-evidence or a way to reconstruct omitted content.
+For `extract_redlines`, `result_sha256` and `tool_result_sha256` normally differ:
+the stored raw-journal result is a bounded summary, while the full operation
+result also contains the extracted change units. Equality of these two fields
+is not a consistency gate. The full-result fingerprint can also include the
+caller's path spelling, so it is not a location-independent document-content
+identity.
 
 ### Canonical JSON v1
 

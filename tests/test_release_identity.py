@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Positive-identity tests for the closed v0.1 release inventory."""
+"""Positive-identity tests for the closed release inventory."""
 
 from __future__ import annotations
 

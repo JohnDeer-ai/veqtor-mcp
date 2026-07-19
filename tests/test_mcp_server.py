@@ -11,13 +11,17 @@ from pathlib import Path
 import pytest
 from mcp.client.session import ClientSession
 from mcp.shared.memory import create_connected_server_and_client_session
+from pydantic import ValidationError
 
 import veqtor_docx
 from veqtor_docx import rounds as rounds_module
+from veqtor_docx.contracts import REVISION_COUNT_BASIS_V1
 from veqtor_mcp import __version__
 from veqtor_mcp import records
 from veqtor_mcp import server
 from veqtor_mcp.contracts import (
+    ExtractRedlinesResult,
+    ListRoundsResult,
     MCP_CONTRACT_META_KEY,
     MCP_CONTRACT_SCHEMA_EXTENSION,
     MCP_CONTRACT_SCHEMA_VERSION,
@@ -56,6 +60,48 @@ def _dummy_preflight_proof() -> dict[str, str]:
     }
 
 
+@pytest.mark.parametrize(
+    ("model", "payload"),
+    [
+        (
+            ListRoundsResult,
+            {
+                "folder": "demo",
+                "ordering_source": "filename_lexicographic_v1",
+                "order_basis": {},
+                "rounds": [],
+                "skipped": [],
+            },
+        ),
+        (
+            ExtractRedlinesResult,
+            {
+                "path": "demo/round.docx",
+                "file_sha256": "0" * 64,
+                "part_name": "word/document.xml",
+                "revision_count": 0,
+                "change_units": [],
+                "unsupported_revisions": {},
+                "revision_inventory": {},
+            },
+        ),
+    ],
+)
+def test_revision_count_basis_is_enforced_by_runtime_result_models(
+    model,
+    payload: dict,
+) -> None:
+    with pytest.raises(ValidationError):
+        model.model_validate(
+            {
+                **payload,
+                "revision_count_basis": "wrong",
+                "record_id": None,
+                "record_status": "disabled",
+            }
+        )
+
+
 @pytest.mark.anyio
 async def test_protocol_initialization_reports_veqtor_version(monkeypatch) -> None:
     initialize = ClientSession.initialize
@@ -79,11 +125,18 @@ async def test_protocol_initialization_reports_veqtor_version(monkeypatch) -> No
 @pytest.mark.anyio
 async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> None:
     expected_output_core = {
-        "list_rounds": {"folder", "ordering_source", "order_basis", "rounds"},
+        "list_rounds": {
+            "folder",
+            "ordering_source",
+            "order_basis",
+            "revision_count_basis",
+            "rounds",
+        },
         "extract_redlines": {
             "path",
             "file_sha256",
             "revision_count",
+            "revision_count_basis",
             "change_units",
             "unsupported_revisions",
         },
@@ -212,6 +265,12 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
         "disabled",
         "write_failed",
     ]
+    for tool_name in ("list_rounds", "extract_redlines"):
+        output_schema = tools[tool_name].outputSchema
+        assert output_schema["properties"]["revision_count_basis"] == {
+            "const": REVISION_COUNT_BASIS_V1
+        }
+        assert "revision_count_basis" in output_schema["required"]
 
 
 @pytest.mark.anyio
@@ -291,6 +350,9 @@ async def test_tools_are_exposed_and_callable(demo_dir: Path) -> None:
             tool for tool in tools.tools if tool.name == "export_decision_record"
         )
         list_tool = next(tool for tool in tools.tools if tool.name == "list_rounds")
+        extract_tool = next(
+            tool for tool in tools.tools if tool.name == "extract_redlines"
+        )
         apply_tool = next(
             tool for tool in tools.tools if tool.name == "apply_edits"
         )
@@ -301,6 +363,12 @@ async def test_tools_are_exposed_and_callable(demo_dir: Path) -> None:
         assert "actual expanded-output limits" in list_tool.description
         assert "split the folder and retry" in list_tool.description
         assert "without returning a partial round list" in list_tool.description
+        assert "revision_count_basis" in list_tool.description
+        assert "w:ins" in list_tool.description
+        assert "revision_count_basis" in extract_tool.description
+        assert "revision_inventory.total_revision_elements" in (
+            extract_tool.description
+        )
         assert "does not accept, reject or remove" in apply_tool.description
         assert "not a tamper-evident audit log" in export_tool.description
         assert "not authentication or a hash chain" in export_tool.description
@@ -316,6 +384,7 @@ async def test_tools_are_exposed_and_callable(demo_dir: Path) -> None:
         listed_payload = _payload(listed)
         assert listed_payload["record_status"] == "written"
         assert listed_payload["record_id"].startswith("dr_")
+        assert listed_payload["revision_count_basis"] == REVISION_COUNT_BASIS_V1
         rounds = listed_payload["rounds"]
         assert len(rounds) == 4
 
@@ -323,6 +392,9 @@ async def test_tools_are_exposed_and_callable(demo_dir: Path) -> None:
             "extract_redlines", {"path": rounds[1]["path"]}
         )
         assert not extracted.isError
+        assert _payload(extracted)["revision_count_basis"] == (
+            REVISION_COUNT_BASIS_V1
+        )
         payload = _payload(extracted)
         assert payload["record_status"] == "written"
         assert payload["file_sha256"] == rounds[1]["sha256"]
@@ -759,7 +831,7 @@ def test_blank_author_keeps_version_and_makes_doctor_and_startup_diagnostic() ->
     )
 
     assert version.returncode == 0
-    assert version.stdout.strip() == "veqtor-mcp 0.1.2"
+    assert version.stdout.strip() == "veqtor-mcp 0.2.0"
     assert "Traceback" not in version.stderr
     assert doctor.returncode == 2
     diagnosis = json.loads(doctor.stdout)
@@ -777,13 +849,13 @@ def test_blank_author_keeps_version_and_makes_doctor_and_startup_diagnostic() ->
 def test_cli_version_and_doctor(monkeypatch, capsys) -> None:
     monkeypatch.setattr(server.sys, "argv", ["veqtor-mcp", "--version"])
     server.main()
-    assert capsys.readouterr().out.strip() == "veqtor-mcp 0.1.2"
+    assert capsys.readouterr().out.strip() == "veqtor-mcp 0.2.0"
 
     monkeypatch.setattr(server.sys, "argv", ["veqtor-mcp", "doctor"])
     server.main()
     doctor = json.loads(capsys.readouterr().out)
     assert doctor["name"] == "veqtor-mcp"
-    assert doctor["version"] == "0.1.2"
+    assert doctor["version"] == "0.2.0"
     assert doctor["build"] == records.SOURCE_SNAPSHOT_IDENTITY
     assert doctor["tracked_change_author"] == server._tracked_change_author()
     assert doctor["configuration_error"] is None

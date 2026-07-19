@@ -6,18 +6,26 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
-from release_contract import FIVE_EDIT_OUTPUT_SHA256, VERSION
+from release_contract import FIVE_EDIT_OUTPUT_SHA256, MCPB_REQUIRED_TOOLS, VERSION
 
 
-SCHEMA_VERSION = "veqtor_release_acceptance.v2"
+SCHEMA_VERSION = "veqtor_release_acceptance.v4"
 MAX_EVIDENCE_BYTES = 64 * 1024
 MAX_PACKET_INTEGER_DIGITS = 128
 HEX = frozenset("0123456789abcdef")
+_VERSION_COMPONENT = r"(?:0|[1-9][0-9]{0,5})"
+_CLIENT_VERSION_PATTERN = re.compile(
+    rf"{_VERSION_COMPONENT}(?:\.{_VERSION_COMPONENT}){{2,3}}"
+)
+_PLATFORM_VERSION_PATTERN = re.compile(
+    rf"{_VERSION_COMPONENT}(?:\.{_VERSION_COMPONENT}){{1,2}}"
+)
 
 
 class EvidenceError(ValueError):
@@ -58,6 +66,18 @@ def _exact_count(value: Any, expected: int, location: str) -> int:
 def _passed(value: Any, location: str) -> None:
     if value != "passed":
         raise EvidenceError(f"{location} did not pass")
+
+
+def _version(
+    value: Any,
+    *,
+    pattern: re.Pattern[str],
+    grammar: str,
+    location: str,
+) -> str:
+    if not isinstance(value, str) or pattern.fullmatch(value) is None:
+        raise EvidenceError(f"{location} does not match {grammar}")
+    return value
 
 
 def _validate_private_run(value: Any, location: str) -> None:
@@ -107,6 +127,7 @@ def validate_evidence(
             "five_edit_batch",
             "installed_two_export",
             "desktop_rehearsal",
+            "desktop_extension",
         },
         "packet",
     )
@@ -245,6 +266,125 @@ def validate_evidence(
         64,
         "desktop_rehearsal.raw_journal_sha256",
     )
+
+    extension = _exact_keys(
+        packet["desktop_extension"],
+        {
+            "artifact_sha256",
+            "installation_channel",
+            "platform",
+            "client",
+            "client_version",
+            "platform_version",
+            "manual_uv_install_absent",
+            "manual_python_install_absent",
+            "host_managed_uv_runtime_confirmed",
+            "tracked_change_author_confirmed",
+            "extension_enabled_confirmed",
+            "server_connected_confirmed",
+            "visible_tools",
+            "called_tools",
+            "runtime_producer_build",
+            "runtime_version",
+            "demo_round_count",
+            "bundled_demo_prompt_completed",
+            "post_apply_list_rounds_status",
+            "post_apply_round_count",
+            "source_sha256_unchanged",
+            "output_sha256_matches_list_rounds",
+            "output_sha256_matches_reextract",
+            "session_transcript_sha256",
+            "demo_journal_sha256",
+            "lifecycle_scenario",
+            "fresh_install_status",
+            "upgrade_status",
+            "rollback_status",
+            "reinstall_same_artifact_status",
+            "uninstall_status",
+            "post_uninstall_tools_absent",
+        },
+        "desktop_extension",
+    )
+    _hex_digest(
+        extension["artifact_sha256"],
+        64,
+        "desktop_extension.artifact_sha256",
+    )
+    if (
+        extension["installation_channel"] != "direct_download_mcpb"
+        or extension["platform"] != "darwin"
+        or extension["client"] != "claude_desktop_fresh_copy"
+        or extension["manual_uv_install_absent"] is not True
+        or extension["manual_python_install_absent"] is not True
+        or extension["host_managed_uv_runtime_confirmed"] is not True
+        or extension["tracked_change_author_confirmed"] is not True
+        or extension["extension_enabled_confirmed"] is not True
+        or extension["server_connected_confirmed"] is not True
+        or extension["bundled_demo_prompt_completed"] is not True
+        or extension["lifecycle_scenario"] != "first_public_mcpb"
+        or extension["upgrade_status"]
+        != "not_applicable_first_public_mcpb"
+        or extension["rollback_status"]
+        != "not_applicable_no_prior_public_mcpb"
+        or extension["post_uninstall_tools_absent"] is not True
+    ):
+        raise EvidenceError("Claude Desktop extension activation did not pass")
+    _version(
+        extension["client_version"],
+        pattern=_CLIENT_VERSION_PATTERN,
+        grammar="MAJOR.MINOR.PATCH[.BUILD]",
+        location="desktop_extension.client_version",
+    )
+    _version(
+        extension["platform_version"],
+        pattern=_PLATFORM_VERSION_PATTERN,
+        grammar="MAJOR.MINOR[.PATCH]",
+        location="desktop_extension.platform_version",
+    )
+    if extension["visible_tools"] != list(MCPB_REQUIRED_TOOLS):
+        raise EvidenceError("Desktop extension tool inventory differs")
+    if extension["called_tools"] != list(MCPB_REQUIRED_TOOLS):
+        raise EvidenceError("Desktop extension tool call coverage differs")
+    if extension["runtime_producer_build"] != producer_build:
+        raise EvidenceError("Desktop extension build does not equal the source tree")
+    if extension["runtime_version"] != VERSION:
+        raise EvidenceError(
+            "Desktop extension runtime version does not equal the candidate"
+        )
+    _exact_count(
+        extension["demo_round_count"], 4, "desktop_extension.demo_round_count"
+    )
+    _passed(
+        extension["post_apply_list_rounds_status"],
+        "desktop_extension.post_apply_list_rounds_status",
+    )
+    _exact_count(
+        extension["post_apply_round_count"],
+        5,
+        "desktop_extension.post_apply_round_count",
+    )
+    if (
+        extension["source_sha256_unchanged"] is not True
+        or extension["output_sha256_matches_list_rounds"] is not True
+        or extension["output_sha256_matches_reextract"] is not True
+    ):
+        raise EvidenceError("Claude Desktop extension post-apply readback failed")
+    _hex_digest(
+        extension["session_transcript_sha256"],
+        64,
+        "desktop_extension.session_transcript_sha256",
+    )
+    _hex_digest(
+        extension["demo_journal_sha256"],
+        64,
+        "desktop_extension.demo_journal_sha256",
+    )
+    for field in (
+        "fresh_install_status",
+        "reinstall_same_artifact_status",
+        "uninstall_status",
+    ):
+        _passed(extension[field], f"desktop_extension.{field}")
 
 
 def _git(source_root: Path, *arguments: str) -> str:

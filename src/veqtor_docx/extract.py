@@ -41,6 +41,7 @@ from ._ooxml import (
     w,
 )
 from .contracts import (
+    REVISION_COUNT_BASIS_V1,
     STRUCTURAL_REVISION_PARENT_NAMES_V1,
     TEXT_REVISION_SUFFIX_BY_NAME_V1,
 )
@@ -870,6 +871,7 @@ def _extract_snapshot(
         "file_sha256": file_sha256,
         "part_name": DOCUMENT_PART,
         "revision_count": revision_count,
+        "revision_count_basis": REVISION_COUNT_BASIS_V1,
         "change_units": change_units,
         "unsupported_revisions": unsupported,
         "revision_inventory": revision_inventory,

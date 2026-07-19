@@ -13,6 +13,8 @@ from types import MappingProxyType
 DOCUMENT_PART_V1 = "word/document.xml"
 RESULT_STATUS_OK = "ok"
 RESULT_STATUS_ERROR = "error"
+REVISION_COUNT_BASIS_V1 = "word_document_xml_w_ins_w_del_elements_v1"
+REVISION_COUNT_BASES_V1 = frozenset({REVISION_COUNT_BASIS_V1})
 
 TEXT_REVISION_SUFFIX_BY_NAME_V1 = MappingProxyType(
     {"ins": "Ins", "del": "Del"}

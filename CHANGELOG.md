@@ -6,13 +6,28 @@ All notable changes to Veqtor MCP are documented here.
 Publication dates are authoritative in each version's immutable GitHub Release
 through its `published_at` timestamp.
 
-## Unreleased
+## 0.2.0
 
-Development-branch changes only. The package version and published release
-remain `0.1.2`; this section does not claim a tag, artifact or publication.
+Veqtor v0.2.0 Alpha release contents. The immutable GitHub Release
+`published_at` timestamp, not this file, is authoritative for whether and when
+publication occurred.
 
 ### Added
 
+- A deterministic macOS Claude Desktop Extension build using MCPB manifest v0.4
+  and the host-managed UV runtime. The extension requires explicit
+  tracked-change-author configuration, declares the six existing tools and
+  includes the deterministic four-round synthetic activation corpus and first
+  prompt. Publication requires the clean Desktop acceptance gate.
+- A closed MCPB artifact verifier, independent byte-for-byte rebuild gate and
+  four-file GitHub Release contract. PyPI remains strictly wheel and sdist;
+  `SHA256SUMS.txt` binds those two payloads plus the macOS MCPB.
+- Acceptance packet v4 binds clean Desktop activation, exact MCPB SHA-256,
+  runtime identity, exact visible and called tool inventories, private session
+  and demo-journal digests, demo result, uninstall and same-artifact reinstall
+  to the candidate later rebuilt by CI. Upgrade and rollback are explicitly
+  marked not applicable for the first public MCPB instead of inventing an
+  older extension release.
 - MCP contract `veqtor.mcp.v0.2`, advertised in every tool's metadata and
   output schema, with closed nested edit, anchor and preflight-proof inputs and
   explicit structured output schemas for all six tools.

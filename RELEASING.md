@@ -1,8 +1,8 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Release acceptance contract — v0.1 Alpha
+# Release acceptance contract — Alpha
 
-This contract defines the finite promotion boundary for Veqtor v0.1. A release
+This contract defines the finite promotion boundary for Veqtor Alpha. A release
 candidate is accepted only when every invariant below passes against one exact
 commit. A review finding reopens the release only when it violates an invariant,
 contradicts a public claim, or demonstrates concrete privacy/reliability harm
@@ -11,9 +11,10 @@ source of truth when this document and implementation differ.
 
 ## Threat model
 
-The v0.1 release gates protect against:
+The Alpha release gates protect against:
 
-- accidental inclusion of untracked, ignored, local or private files;
+- accidental inclusion of untracked, ignored, local or private files in the
+  Python distributions or Desktop extension;
 - private paths or configured private markers in public sources or artifacts;
 - build-backend drift, malformed archives and ambiguous container structure;
 - oversized, sparse or otherwise resource-amplifying archive members;
@@ -23,10 +24,10 @@ The v0.1 release gates protect against:
   workflow, or with bytes that differ from the approved CI artifacts;
 - publication of an immutable GitHub Release before the public PyPI files and
   provenance have been verified;
-- replacement of a reserved tag or published release asset;
+- replacement of a reserved tag or published wheel, sdist or MCPB asset;
 - parseable but unsupported OOXML returning an uncontrolled exception.
 
-The v0.1 gates do not claim to protect against a malicious maintainer who can
+The Alpha gates do not claim to protect against a malicious maintainer who can
 change code, this contract and release approvals together; a compromised GitHub
 or hosted runner; or cryptographic provenance beyond GitHub's immutable-release
 guarantee and PyPI Trusted Publisher attestations. Those require a separate
@@ -48,6 +49,11 @@ signing and trusted-builder design.
   downloaded build-job wheel and sdist must be byte-identical to that rebuild.
 - Wheel and sdist member sets equal the allowlists in
   `scripts/release_contract.py`; extra and missing members both fail.
+- The MCPB member set equals its separate allowlist. Reviewed source members
+  equal the exact candidate git blobs, the four DOCX members equal the
+  deterministic synthetic generator, and the manifest, locked UV project,
+  required author configuration, six-tool list and macOS-only compatibility
+  equal the extension contract.
 - Every source-derived member is byte-identical to its approved git blob.
 - Complete raw Core Metadata bytes (headers, separator and README body), wheel
   metadata and `RECORD` equal their approved source contracts. Parser-hidden
@@ -63,6 +69,10 @@ uv run --frozen python scripts/check_reproducible_build.py \
   --source-root . --approved-dir dist
 uv run --frozen python scripts/check_release_artifacts.py \
   --source-root . --commit HEAD dist/*.whl dist/*.tar.gz
+uv run --frozen python scripts/build_mcpb.py \
+  --source-root . --out-dir dist --stage-dir /tmp/veqtor-mcpb-stage
+uv run --frozen python scripts/check_mcpb_artifact.py \
+  --source-root . --commit HEAD dist/*.mcpb
 ```
 
 ### I3 — bounded, unambiguous containers
@@ -88,14 +98,17 @@ defense-in-depth: malformed inputs must fail before unbounded allocation.
 
 ### I4 — reproducible and installable bits
 
-- Build inputs (Python, uv, Hatchling and source epoch) are pinned, and two
-  isolated clean builds of the exact tree are byte-identical.
+- Build inputs (Python, Node, uv, Hatchling, MCPB CLI and source epoch) are
+  pinned. Two isolated clean builds of both the Python distributions and the
+  deterministic MCPB are byte-identical.
 - Twine, current-dependency wheel smoke and minimum-dependency wheel smoke pass.
 - Ruff and the exact locked runtime dependency audit pass before build.
-- `SHA256SUMS.txt` contains only flat basenames and validates after the three
-  release assets are copied into one clean directory.
+- `SHA256SUMS.txt` contains exactly three flat payload basenames (wheel, sdist
+  and macOS MCPB) and validates after those payloads plus the checksum file are
+  copied into one clean directory.
 - One attempt-scoped wheel/sdist pair is byte-identical to the pair consumed by
-  GitHub Release publication and PyPI Trusted Publishing.
+  GitHub Release publication and PyPI Trusted Publishing. The attempt-scoped
+  MCPB is independently rebuilt and is published only to the GitHub Release.
 
 ### I5 — durable exact-tag reservation and recoverable promotion
 
@@ -175,8 +188,9 @@ defense-in-depth: malformed inputs must fail before unbounded allocation.
   Trusted Publisher provenance and runs the version-pinned public `uvx`
   onboarding path.
 - Only successful PyPI verification unlocks GitHub Release publication. The
-  final job creates or recovers the exact-tag draft, verifies its body and
-  assets, publishes it, and requires the API to report `immutable: true`.
+  final job creates or recovers the exact-tag draft, verifies its body and all
+  four assets (wheel, sdist, macOS MCPB and checksum file), publishes it, and
+  requires the API to report `immutable: true`.
 - Release title, prerelease flag, body, tag target, asset names, sizes and
   SHA-256 digests equal the approved candidate. A tokenless consumer verifier
   downloads the public GitHub assets, validates the flat checksum manifest and
@@ -244,6 +258,23 @@ and rolls back the complete batch after an expected publication failure.
   apply, re-extract and export against the exact installed candidate. It must
   also explain the difference between the private raw journal and compact
   projection, including both access-event exclusions above.
+- The exact macOS MCPB passes on a clean Mac without manually installed uv,
+  Python or a developer toolchain, using Claude Desktop's host-managed UV
+  runtime. Acceptance explicitly confirms the extension is enabled and its
+  server is connected, confirms the tracked-change author, exposes exactly the
+  six public tools, calls each tool and completes the bundled four-round
+  read-only demo prompt. The write workflow runs only on a fresh writable copy
+  of those four DOCX files outside the immutable installed extension. After
+  apply, a second `list_rounds` must report five files, retain the exact source
+  SHA-256 and report the output SHA-256 returned by apply; re-extraction of that
+  output must report the same SHA-256. The packet records the tested client and
+  macOS versions plus private transcript and copied-workspace journal digests.
+  For the first public MCPB, uninstall, post-uninstall tool absence and
+  same-artifact reinstall are exercised; upgrade and rollback are explicitly
+  not applicable because no older public MCPB exists. Starting with the next
+  MCPB release, its acceptance schema must require a real upgrade from and
+  rollback to the previous immutable public extension. The packet binds this
+  rehearsal to the exact MCPB SHA-256 later reproduced by CI.
 - Any maintainer-only corpus, transcript and journal evidence stays outside the
   repository. Only the canonical path-free acceptance packet may enter the
   workflow input; it contains digests, counts, stable status codes and runtime
@@ -253,11 +284,12 @@ The acceptance packet has one canonical byte representation and is exact-SHA,
 tree and build bound. Its executable schema remains in
 `scripts/check_acceptance_evidence.py`.
 
-### Construct the v2 acceptance packet
+### Construct the v4 acceptance packet
 
 Freeze one clean candidate before collecting evidence. These three values must
 come from that checkout and the same `producer_build` value must be copied into
-the packet root, `installed_two_export` and `desktop_rehearsal`:
+the packet root, `installed_two_export`, `desktop_rehearsal` and
+`desktop_extension`:
 
 ```bash
 test -z "$(git status --porcelain --untracked-files=all)"
@@ -266,6 +298,23 @@ git rev-parse 'HEAD^{tree}'
 uv run --frozen python -c \
   'from veqtor_mcp.records import SOURCE_SNAPSHOT_IDENTITY; print(SOURCE_SNAPSHOT_IDENTITY)'
 ```
+
+The Desktop candidate must come from CI, not from an unrecorded local rebuild.
+After that exact commit is on `main` and its required CI jobs are green, open
+the CI run for the commit and download the Actions artifact named
+`veqtor-mcp-dist-<run_id>-<run_attempt>`. Extract it outside the repository,
+confirm that it contains the exact four-file release set, and compare:
+
+```bash
+shasum -a 256 veqtor-mcp-0.2.0-macos.mcpb
+grep ' veqtor-mcp-0.2.0-macos.mcpb$' SHA256SUMS.txt
+```
+
+The two digests must match. Install that exact MCPB on the clean acceptance Mac
+and copy its digest into `desktop_extension.artifact_sha256`. Retain the CI run
+ID and attempt number with the private acceptance evidence. The later release
+dispatch passes that accepted digest back into CI and refuses any independently
+rebuilt MCPB whose bytes differ.
 
 Collect every section below against that exact candidate. Do not infer or
 pre-fill a passing result: copy observed counts, identities and digests from the
@@ -279,18 +328,24 @@ retained evidence.
 | `five_edit_batch` | From the maintained five-edit scenario: applicable preflight, successful apply of five edits, passing round trip, zero collateral changes and the fixed output digest shown below. |
 | `installed_two_export` | Copy the JSON fields printed by `scripts/installed_wheel_smoke.py` when run from the installed candidate wheel: access counts 0 then 1, both exclusion booleans `true`, and the installed version/build. |
 | `desktop_rehearsal` | Record the exact literals and booleans shown below plus the installed version/build and SHA-256 digests of the retained private transcript and raw journal. |
+| `desktop_extension` | On a clean Mac without manually installed uv or Python, install the exact candidate `.mcpb` downloaded from the final commit's successful CI artifact on a fresh-copy Claude Desktop for macOS and confirm its host-managed UV runtime. Explicitly confirm that the extension is enabled and its server is connected. Record the MCPB SHA-256, tested client/OS labels, author confirmation, exact six-tool visible and called lists, version/build and four-round bundled read-only demo result. For the write check, copy only the four synthetic DOCX files to a fresh writable folder outside the installed extension. Record the pre-apply source hash, create the output in that copied folder, call `list_rounds` again and require five rounds, an unchanged source hash and an output hash equal to apply; re-extract the output and require the same hash. Retain only the path-free booleans/count plus private session transcript and copied-workspace journal digests in the packet. Also record fresh install, uninstall, post-uninstall absence and same-artifact reinstall. For this first public MCPB only, record the two closed not-applicable lifecycle values shown below. |
 
-The following is the complete, type-correct v2 working template. Its repeated
+`desktop_extension.client_version` must be a public numeric
+`MAJOR.MINOR.PATCH[.BUILD]` value, and `platform_version` must be
+`MAJOR.MINOR[.PATCH]`. Record only those public version numbers: product names,
+paths, build labels and free-form OS text are rejected by the packet validator.
+
+The following is the complete, type-correct v4 working template. Its repeated
 sample digests are deliberately not candidate values and will fail exact-SHA
 validation. Replace the candidate SHA/tree/build, all private evidence digests,
 and the observed private pass/skip counts. Keep the fixed statuses, booleans,
 version and five-edit output digest exactly as shown unless the executable
 schema changes in a later release.
 
-<!-- acceptance-v2-template-begin -->
+<!-- acceptance-v4-template-begin -->
 ```json
 {
-  "schema_version": "veqtor_release_acceptance.v2",
+  "schema_version": "veqtor_release_acceptance.v4",
   "candidate_sha": "0000000000000000000000000000000000000000",
   "candidate_tree": "1111111111111111111111111111111111111111",
   "producer_build": "source-snapshot-v1-sha256:2222222222222222222222222222222222222222222222222222222222222222",
@@ -333,7 +388,7 @@ schema changes in a later release.
     "first_event_absent_from_windows": true,
     "current_event_outside_own_snapshot": true,
     "runtime_producer_build": "source-snapshot-v1-sha256:2222222222222222222222222222222222222222222222222222222222222222",
-    "runtime_version": "0.1.2"
+    "runtime_version": "0.2.0"
   },
   "desktop_rehearsal": {
     "verdict": "passed",
@@ -343,24 +398,72 @@ schema changes in a later release.
     "current_event_not_in_access_count": true,
     "raw_vs_compact_explained": true,
     "runtime_producer_build": "source-snapshot-v1-sha256:2222222222222222222222222222222222222222222222222222222222222222",
-    "runtime_version": "0.1.2",
+    "runtime_version": "0.2.0",
     "transcript_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
     "raw_journal_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+  },
+  "desktop_extension": {
+    "artifact_sha256": "7777777777777777777777777777777777777777777777777777777777777777",
+    "installation_channel": "direct_download_mcpb",
+    "platform": "darwin",
+    "client": "claude_desktop_fresh_copy",
+    "client_version": "1.0.0",
+    "platform_version": "15.5",
+    "manual_uv_install_absent": true,
+    "manual_python_install_absent": true,
+    "host_managed_uv_runtime_confirmed": true,
+    "tracked_change_author_confirmed": true,
+    "extension_enabled_confirmed": true,
+    "server_connected_confirmed": true,
+    "visible_tools": [
+      "list_rounds",
+      "extract_redlines",
+      "verify_quote",
+      "preflight_edits",
+      "apply_edits",
+      "export_decision_record"
+    ],
+    "called_tools": [
+      "list_rounds",
+      "extract_redlines",
+      "verify_quote",
+      "preflight_edits",
+      "apply_edits",
+      "export_decision_record"
+    ],
+    "runtime_producer_build": "source-snapshot-v1-sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "runtime_version": "0.2.0",
+    "demo_round_count": 4,
+    "bundled_demo_prompt_completed": true,
+    "post_apply_list_rounds_status": "passed",
+    "post_apply_round_count": 5,
+    "source_sha256_unchanged": true,
+    "output_sha256_matches_list_rounds": true,
+    "output_sha256_matches_reextract": true,
+    "session_transcript_sha256": "8888888888888888888888888888888888888888888888888888888888888888",
+    "demo_journal_sha256": "9999999999999999999999999999999999999999999999999999999999999999",
+    "lifecycle_scenario": "first_public_mcpb",
+    "fresh_install_status": "passed",
+    "upgrade_status": "not_applicable_first_public_mcpb",
+    "rollback_status": "not_applicable_no_prior_public_mcpb",
+    "reinstall_same_artifact_status": "passed",
+    "uninstall_status": "passed",
+    "post_uninstall_tools_absent": true
   }
 }
 ```
-<!-- acceptance-v2-template-end -->
+<!-- acceptance-v4-template-end -->
 
-Every field is required and exact; v1 packets are rejected. No filenames,
-local paths, quotes or document text are allowed by the packet schema. The
+Every field is required and exact; v1, v2 and v3 packets are rejected. No
+filenames, local paths, quotes or document text are allowed by the packet schema. The
 packet has one accepted byte representation: UTF-8 JSON produced with sorted
 keys, `ensure_ascii=False`, `allow_nan=False`, separators `(",", ":")`, and no
 trailing newline or whitespace. After replacing the sample values in a private
 working copy of the template, create the canonical compact file with:
 
 ```bash
-WORKING_PACKET=/secure/external/veqtor-v0.1.2-acceptance.working.json
-EVIDENCE_PACKET=/secure/external/veqtor-v0.1.2-acceptance.json
+WORKING_PACKET=/secure/external/veqtor-v0.2.0-acceptance.working.json
+EVIDENCE_PACKET=/secure/external/veqtor-v0.2.0-acceptance.json
 uv run --frozen python - "$WORKING_PACKET" "$EVIDENCE_PACKET" <<'PY'
 import json
 import sys
@@ -384,7 +487,7 @@ the canonical file against that exact candidate:
 
 ```bash
 uv run --frozen python scripts/check_acceptance_evidence.py \
-  --source-root . /secure/external/veqtor-v0.1.2-acceptance.json
+  --source-root . /secure/external/veqtor-v0.2.0-acceptance.json
 ```
 
 The validator rejects every non-canonical representation and prints the SHA-256
@@ -392,7 +495,7 @@ of the exact packet bytes. Retain supporting private material outside git.
 Before dispatch, capture the same digest from the canonical file:
 
 ```bash
-EVIDENCE_PACKET=/secure/external/veqtor-v0.1.2-acceptance.json
+EVIDENCE_PACKET=/secure/external/veqtor-v0.2.0-acceptance.json
 EVIDENCE_SHA256=$(shasum -a 256 "$EVIDENCE_PACKET" | awk '{print $1}')
 ```
 
@@ -404,7 +507,7 @@ job; it is not a boundary that runs before candidate code:
 
 ```bash
 gh workflow run release.yml \
-  -f version=0.1.2 \
+  -f version=0.2.0 \
   -f commit_sha="$(git rev-parse HEAD)" \
   -f acceptance_evidence="$(<"$EVIDENCE_PACKET")" \
   -f acceptance_evidence_sha256="$EVIDENCE_SHA256"
@@ -434,7 +537,20 @@ test implementation tip
 → publish and verify PyPI
 → publish and verify the immutable GitHub Release
 → install the exact public PyPI release for the demo
+→ activate the website's v0.2.0 release copy in a separate docs/site change
+→ verify the deployed setup page and every public download/install link
 ```
+
+Public installation copy follows that external state; it never predicts it.
+The immutable README and package metadata use a state-neutral version-selection
+rule: `0.2.0` is selected only when both public verifiers expose it; otherwise
+the explicit fallback is `0.1.2`. Before those verifiers pass, website install
+commands remain pinned to public PyPI `0.1.2`, matching download links remain on
+the immutable GitHub `v0.1.2` release, and the Desktop Extension is labelled a
+`v0.2.0` candidate or preview. After both pass, a separate docs/site change
+must activate the public `v0.2.0` links and release wording, deploy them, and
+smoke the live setup page. That required copy activation does not amend the tag,
+replace clean-Mac acceptance, or waive any gate above.
 
 If promotion stops after reservation, the protected tag remains the only
 permitted recovery anchor. If it stops during or after PyPI publication, a full
@@ -442,6 +558,6 @@ rerun must revalidate the same tag and current-attempt artifacts, complete or
 verify the exact PyPI file set, and pass the public onboarding smoke before the
 GitHub Release can become visible and immutable.
 
-Once one exact-SHA review passes this contract, the v0.1 scope freezes. A later
+Once one exact-SHA review passes this contract, that version's scope freezes. A later
 candidate must rerun the whole contract; a nonblocking improvement moves to the
 next version rather than silently expanding the Alpha release.

@@ -2,10 +2,22 @@
 
 # Known limitations
 
-Veqtor `0.1.2` remains the published local technical Alpha for early adopters.
-The current development source still has package version `0.1.2`, but advertises
-MCP contract `veqtor.mcp.v0.2`; that contract identifier does not mean a new
-release has been published. Both surfaces remain intentionally narrow.
+This file describes Veqtor source version `0.2.0` and MCP contract
+`veqtor.mcp.v0.2`. It defines public release limits only when matching `0.2.0`
+artifacts exist on PyPI and the immutable GitHub Releases list; source version
+alone does not prove publication. Both supported surfaces remain intentionally
+narrow.
+
+The MCPB v0.4 extension is macOS-only and is public only when the exact artifact
+is attached to the matching verified release after clean-Mac acceptance. Linux
+keeps the CLI setup. There is no Windows extension, catalog listing, automatic
+update promise, silent installation or guaranteed in-app rollback. If
+published, `0.2.0` is the first public MCPB and has no older public extension to
+restore; real upgrade and rollback testing starts with the next extension
+release. The first UV activation may download a compatible Python runtime and
+locked dependencies, so it is not guaranteed to work offline. MCPB installation
+does not add an operating-system filesystem sandbox; Veqtor runs with the
+current user's permissions.
 
 ## Documents and revisions
 
@@ -47,7 +59,7 @@ release has been published. Both surfaces remain intentionally narrow.
   footers, footnotes and endnotes are not analyzed or edited.
 - Formatting, move, paragraph-mark and structural revision categories are
   counted but not all are converted into editable change units.
-- The development extractor reports `revision_inventory.v1` so callers can
+- The extractor reports `revision_inventory.v1` so callers can
   check `total_revision_elements == decoded_revision_elements +
   unsupported_revision_occurrences`. `emitted_change_unit_count` is separate:
   one change unit may represent multiple decoded text-revision elements, so it
@@ -134,6 +146,11 @@ release has been published. Both surfaces remain intentionally narrow.
   malicious process running as the same user is outside scope.
 - The raw journal may contain matter text and has no rotation or aggregate size
   cap in v0.1.
+- Decision-record reads, appends and export use blocking POSIX file locks with
+  no acquisition timeout. Another Veqtor process holding the same workspace or
+  journal lock can therefore delay a tool response until that lock is released.
+  Process exit releases the lock, but the Alpha does not yet return a bounded
+  `journal_busy` refusal for a live lock holder.
 - Read-only list, extract, verify and preflight calls normally append local
   provenance too. Decision-record export normally appends an access event after
   taking its response snapshot, so observation is not side-effect free unless

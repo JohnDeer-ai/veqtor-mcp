@@ -30,6 +30,7 @@ from veqtor_docx.contracts import (
     PREFLIGHT_EDIT_STATUSES_V1,
     PREFLIGHT_FAILURE_PHASES_V1,
     PREFLIGHT_POSITION_STATUSES_V1,
+    REVISION_COUNT_BASES_V1,
     RESULT_STATUS_ERROR,
     RESULT_STATUS_OK,
     ROUND_TRIP_COMPARISONS_V1,
@@ -61,6 +62,7 @@ HEX = frozenset("0123456789abcdef")
 O_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
 O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 O_NONBLOCK = getattr(os, "O_NONBLOCK", 0)
+F_GETPATH_BUFFER_BYTES = 1024
 JOURNAL_OPEN_ATTEMPTS = 4
 MAX_WORKSPACE_DISCOVERY_DEPTH = 1
 MAX_WORKSPACE_DISCOVERY_ENTRIES = 500
@@ -243,6 +245,54 @@ def journal_path(workspace: str | Path) -> Path:
     return workspace_for_folder(workspace) / SIDECAR_DIR / JOURNAL_NAME
 
 
+def _filesystem_spelled_workspace(
+    fd: int,
+    fallback: Path,
+    expected_identity: tuple[int, int],
+) -> Path:
+    """Return the filesystem's spelling for an already-open workspace."""
+    # Descriptor-backed paths preserve the directory entry's spelling. Do not
+    # lower/casefold here: case-sensitive volumes may contain both names.
+    value: str | bytes | None = None
+    getpath = getattr(fcntl, "F_GETPATH", None)
+    if isinstance(getpath, int):
+        try:
+            payload = fcntl.fcntl(
+                fd,
+                getpath,
+                b"\0" * F_GETPATH_BUFFER_BYTES,
+            )
+        except (OSError, ValueError):
+            payload = None
+        if isinstance(payload, bytes):
+            path_bytes, separator, _remainder = payload.partition(b"\0")
+            if separator and path_bytes:
+                value = path_bytes
+    if value is None:
+        try:
+            value = os.readlink(f"/proc/self/fd/{fd}")
+        except OSError:
+            pass
+    if value is None:
+        return fallback
+    try:
+        candidate = Path(os.fsdecode(value))
+    except (TypeError, ValueError, UnicodeError):
+        return fallback
+    if not candidate.is_absolute():
+        return fallback
+    try:
+        info = candidate.lstat()
+    except OSError:
+        return fallback
+    if (
+        not stat.S_ISDIR(info.st_mode)
+        or (info.st_dev, info.st_ino) != expected_identity
+    ):
+        return fallback
+    return candidate
+
+
 def _canonical_workspace(workspace: str | Path) -> tuple[Path, tuple[int, int]]:
     root = workspace_for_folder(workspace)
     try:
@@ -261,7 +311,20 @@ def _canonical_workspace(workspace: str | Path) -> tuple[Path, tuple[int, int]]:
         raise DecisionRecordError(
             "workspace_not_directory", f"workspace is not a directory: {resolved}"
         )
-    return resolved, (info.st_dev, info.st_ino)
+    identity = (info.st_dev, info.st_ino)
+    try:
+        fd = _open_workspace_fd(resolved, identity)
+    except DecisionRecordError:
+        raise
+    except OSError as exc:
+        raise DecisionRecordError(
+            "workspace_unreadable", "workspace cannot be read"
+        ) from exc
+    try:
+        canonical = _filesystem_spelled_workspace(fd, resolved, identity)
+    finally:
+        os.close(fd)
+    return canonical, identity
 
 
 def _reject_special(path: Path, kind: str) -> None:
@@ -439,8 +502,15 @@ def _ensure_private_gitignore(sidecar_fd: int, sidecar: Path) -> None:
 
 
 @contextmanager
-def _sidecar_for_write(workspace: str | Path):
-    root, expected_identity = _canonical_workspace(workspace)
+def _sidecar_for_write(
+    workspace: str | Path,
+    *,
+    expected_identity: tuple[int, int] | None = None,
+):
+    if expected_identity is None:
+        root, expected_identity = _canonical_workspace(workspace)
+    else:
+        root = Path(workspace)
     root_fd = _open_workspace_fd(root, expected_identity)
     sidecar = root / SIDECAR_DIR
     try:
@@ -1323,10 +1393,11 @@ def write_record(
     if disabled():
         return {"record_id": None, "record_status": "disabled"}
     try:
+        root, expected_identity = _canonical_workspace(workspace)
         try:
             record = _base_record(
                 tool_name=tool_name,
-                workspace=workspace,
+                workspace=root,
                 input_payload=input_payload,
                 result=result,
                 tool_result=tool_result,
@@ -1336,7 +1407,10 @@ def write_record(
             _preflight_record(record)
         except (_JsonBoundaryError, _RecordSchemaError) as exc:
             raise DecisionRecordError("record_invalid", str(exc)) from exc
-        with _sidecar_for_write(workspace) as (sidecar, sidecar_fd):
+        with _sidecar_for_write(
+            root,
+            expected_identity=expected_identity,
+        ) as (sidecar, sidecar_fd):
             record_id = _append_locked(sidecar_fd, sidecar / JOURNAL_NAME, record)
     except Exception as exc:
         return {
@@ -1855,7 +1929,7 @@ def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
         return summary
     if projection_kind == "list_rounds":
         rounds = result.get("rounds")
-        return {
+        summary = {
             "status": _known_value(result.get("status"), V1_OK_STATUSES),
             "folder": _path_digest(result.get("folder")),
             "round_count": _list_count(rounds) if "rounds" in result else None,
@@ -1868,6 +1942,11 @@ def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
                 _list_count(result["skipped"]) if "skipped" in result else None
             ),
         }
+        if "revision_count_basis" in result:
+            summary["revision_count_basis"] = _known_value(
+                result.get("revision_count_basis"), REVISION_COUNT_BASES_V1
+            )
+        return summary
     if projection_kind == "extract_redlines":
         summary = {
             "status": _known_value(result.get("status"), V1_OK_STATUSES),
@@ -1887,6 +1966,10 @@ def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
         if "revision_inventory" in result:
             summary["revision_inventory"] = _revision_inventory_summary(
                 result.get("revision_inventory")
+            )
+        if "revision_count_basis" in result:
+            summary["revision_count_basis"] = _known_value(
+                result.get("revision_count_basis"), REVISION_COUNT_BASES_V1
             )
         return summary
     if projection_kind == "apply_edits":
@@ -2071,6 +2154,10 @@ def _summary_provenance(record: dict[str, Any]) -> dict[str, Any]:
             )
         if "skipped" in provenance:
             summary["skipped_count"] = _list_count(provenance["skipped"])
+    if "revision_count_basis" in provenance:
+        summary["revision_count_basis"] = _known_value(
+            provenance.get("revision_count_basis"), REVISION_COUNT_BASES_V1
+        )
     return summary
 
 

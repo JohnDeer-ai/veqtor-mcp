@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 from typing import Any, Callable, Sequence
@@ -16,6 +17,9 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 from release_contract import (  # noqa: E402
+    CHECKSUMS_FILENAME,
+    GITHUB_PAYLOAD_FILENAMES,
+    GITHUB_RELEASE_FILENAMES,
     RELEASE_NOTES_PATH,
     RELEASE_TITLE,
     VERSION as CONTRACT_VERSION,
@@ -227,12 +231,23 @@ def reserve_tag(
 
 
 def _expected_assets(dist_dir: Path, checksums: Path) -> dict[str, dict[str, object]]:
-    candidates = [*dist_dir.glob("*.whl"), *dist_dir.glob("*.tar.gz"), checksums]
-    if len(candidates) != 3 or any(not path.is_file() for path in candidates):
-        raise PromotionError("expected one wheel, one sdist and SHA256SUMS.txt")
+    artifact_paths = [dist_dir / name for name in GITHUB_PAYLOAD_FILENAMES]
+    candidates = [*artifact_paths, checksums]
+    try:
+        observed_names = {path.name for path in dist_dir.iterdir()}
+    except OSError as exc:
+        raise PromotionError("cannot inspect release artifact directory") from exc
+    if (
+        checksums.name != CHECKSUMS_FILENAME
+        or checksums.parent.resolve() != dist_dir.resolve()
+        or observed_names != set(GITHUB_RELEASE_FILENAMES)
+        or any(not stat.S_ISREG(path.lstat().st_mode) for path in candidates)
+    ):
+        raise PromotionError(
+            "expected the exact wheel, sdist, macOS MCPB and SHA256SUMS.txt"
+        )
     if len({path.name for path in candidates}) != len(candidates):
         raise PromotionError("release artifact names are not unique")
-    artifact_paths = [path for path in candidates if path != checksums]
     expected_manifest = {
         path.name: hashlib.sha256(path.read_bytes()).hexdigest()
         for path in artifact_paths
@@ -592,11 +607,7 @@ def promote(
     expected = _expected_assets(dist_dir, checksums)
     asset_paths = {
         path.name: path
-        for path in (
-            *sorted(dist_dir.glob("*.whl")),
-            *sorted(dist_dir.glob("*.tar.gz")),
-            checksums,
-        )
+        for path in (*[dist_dir / name for name in GITHUB_PAYLOAD_FILENAMES], checksums)
     }
     payload = _create_or_recover_release(
         runner,

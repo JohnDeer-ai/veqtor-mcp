@@ -35,9 +35,15 @@ uv export --frozen --no-dev --no-emit-project \
 uvx pip-audit==2.10.1 --requirement "$LOCKED_REQUIREMENTS" \
   --require-hashes --disable-pip --progress-spinner off
 uv build --clear
-uvx twine check dist/*
+uv run --frozen python scripts/build_mcpb.py \
+  --source-root . --out-dir dist --stage-dir /tmp/veqtor-mcpb-stage
+uvx twine check dist/*.whl dist/*.tar.gz
 uv run --frozen python scripts/check_release_artifacts.py \
   --source-root . --commit HEAD dist/*.whl dist/*.tar.gz
+uv run --frozen python scripts/check_mcpb_artifact.py \
+  --source-root . --commit HEAD dist/*.mcpb
+npx --yes @anthropic-ai/mcpb@2.1.2 validate \
+  /tmp/veqtor-mcpb-stage/manifest.json
 ```
 
 Changes to the permanent `decision_record.v1` tool pairs or compact projection
