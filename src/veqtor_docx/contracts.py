@@ -16,9 +16,7 @@ RESULT_STATUS_ERROR = "error"
 REVISION_COUNT_BASIS_V1 = "word_document_xml_w_ins_w_del_elements_v1"
 REVISION_COUNT_BASES_V1 = frozenset({REVISION_COUNT_BASIS_V1})
 
-TEXT_REVISION_SUFFIX_BY_NAME_V1 = MappingProxyType(
-    {"ins": "Ins", "del": "Del"}
-)
+TEXT_REVISION_SUFFIX_BY_NAME_V1 = MappingProxyType({"ins": "Ins", "del": "Del"})
 TEXT_REVISION_NAMES_V1 = frozenset(TEXT_REVISION_SUFFIX_BY_NAME_V1)
 MOVE_REVISION_NAMES_V1 = frozenset({"moveFrom", "moveTo"})
 UNSUPPORTED_REVISION_NAMES_V1 = frozenset(
@@ -34,12 +32,8 @@ UNSUPPORTED_REVISION_NAMES_V1 = frozenset(
         "cellDel",
     }
 )
-STRUCTURAL_REVISION_PARENT_NAMES_V1 = frozenset(
-    {"trPr", "tcPr", "tblPr", "sectPr"}
-)
-STRUCTURAL_REVISION_SUFFIXES_V1 = frozenset(
-    TEXT_REVISION_SUFFIX_BY_NAME_V1.values()
-)
+STRUCTURAL_REVISION_PARENT_NAMES_V1 = frozenset({"trPr", "tcPr", "tblPr", "sectPr"})
+STRUCTURAL_REVISION_SUFFIXES_V1 = frozenset(TEXT_REVISION_SUFFIX_BY_NAME_V1.values())
 EXTRACT_REVISION_CATEGORIES_V1 = frozenset(
     UNSUPPORTED_REVISION_NAMES_V1
     | MOVE_REVISION_NAMES_V1
@@ -48,10 +42,7 @@ EXTRACT_REVISION_CATEGORIES_V1 = frozenset(
         for parent in STRUCTURAL_REVISION_PARENT_NAMES_V1
         for suffix in STRUCTURAL_REVISION_SUFFIXES_V1
     }
-    | {
-        f"paragraphMark{suffix}"
-        for suffix in STRUCTURAL_REVISION_SUFFIXES_V1
-    }
+    | {f"paragraphMark{suffix}" for suffix in STRUCTURAL_REVISION_SUFFIXES_V1}
 )
 
 VERIFY_VERDICT_EXACT = "exact"
@@ -68,6 +59,32 @@ MATCH_SIDE_NEW = "new"
 MATCH_SIDE_OLD = "old"
 MATCH_SIDES_V1 = frozenset({MATCH_SIDE_NEW, MATCH_SIDE_OLD})
 
+INSPECT_MODE_OUTLINE = "outline"
+INSPECT_MODE_LITERAL_SEARCH = "literal_search"
+INSPECT_MODE_BROWSE = "browse"
+INSPECT_MODE_READ = "read"
+INSPECT_MODES_V1 = frozenset(
+    {
+        INSPECT_MODE_OUTLINE,
+        INSPECT_MODE_LITERAL_SEARCH,
+        INSPECT_MODE_BROWSE,
+        INSPECT_MODE_READ,
+    }
+)
+INSPECT_MATCH_EXACT_LITERAL = "exact_literal"
+INSPECT_MATCH_NORMALIZED_LITERAL = "normalized_literal"
+INSPECT_MATCH_NORMALIZED_CASEFOLD_LITERAL = "normalized_casefold_literal"
+INSPECT_MATCH_BASES_V1 = frozenset(
+    {
+        INSPECT_MATCH_EXACT_LITERAL,
+        INSPECT_MATCH_NORMALIZED_LITERAL,
+        INSPECT_MATCH_NORMALIZED_CASEFOLD_LITERAL,
+    }
+)
+INSPECT_SEARCH_SCOPE_V1 = "word_document_xml_body_v1"
+INSPECT_READING_MODE_V1 = "accepted_current_v1"
+INSPECT_CONTAINER_POLICY_V1 = "canonical_body_flow_v1"
+
 APPLY_OPERATION_REPLACE = "replace"
 APPLY_OPERATION_DELETE = "delete"
 APPLY_OPERATION_COUNTER = "counter"
@@ -83,9 +100,7 @@ APPLY_OPERATIONS_V1 = frozenset(
 
 ROUND_TRIP_STATUS_PASSED = "passed"
 ROUND_TRIP_STATUS_FAILED = "failed"
-ROUND_TRIP_STATUSES_V1 = frozenset(
-    {ROUND_TRIP_STATUS_PASSED, ROUND_TRIP_STATUS_FAILED}
-)
+ROUND_TRIP_STATUSES_V1 = frozenset({ROUND_TRIP_STATUS_PASSED, ROUND_TRIP_STATUS_FAILED})
 ROUND_TRIP_COMPARISON_CURRENT = "ooxml_semantic_diff_outside_touched_anchors"
 ROUND_TRIP_COMPARISONS_V1 = frozenset(
     {

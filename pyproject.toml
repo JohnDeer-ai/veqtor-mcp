@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "veqtor-mcp"
-version = "0.2.0"
+version = "0.3.0.dev0"
 description = "Local MCP server for verifiable DOCX redline history and fail-closed tracked-change edits"
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
@@ -61,6 +61,7 @@ include = [
   "/src/veqtor_docx/apply.py",
   "/src/veqtor_docx/contracts.py",
   "/src/veqtor_docx/extract.py",
+  "/src/veqtor_docx/inspect.py",
   "/src/veqtor_docx/rounds.py",
   "/src/veqtor_docx/synthetic.py",
   "/src/veqtor_docx/verify.py",
@@ -75,6 +76,7 @@ include = [
   "/API.md",
   "/CHANGELOG.md",
   "/CONTRIBUTING.md",
+  "/INSPECT_DOCUMENT_V0.3.md",
   "/KNOWN_LIMITATIONS.md",
   "/LICENSE",
   "/NOTICE",
@@ -89,6 +91,7 @@ include = [
   "/src/veqtor_docx/apply.py",
   "/src/veqtor_docx/contracts.py",
   "/src/veqtor_docx/extract.py",
+  "/src/veqtor_docx/inspect.py",
   "/src/veqtor_docx/rounds.py",
   "/src/veqtor_docx/synthetic.py",
   "/src/veqtor_docx/verify.py",

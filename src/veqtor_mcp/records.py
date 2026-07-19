@@ -26,6 +26,10 @@ from veqtor_docx.contracts import (
     APPLY_OPERATIONS_V1,
     DOCUMENT_PART_V1,
     EXTRACT_REVISION_CATEGORIES_V1,
+    INSPECT_CONTAINER_POLICY_V1,
+    INSPECT_MODES_V1,
+    INSPECT_READING_MODE_V1,
+    INSPECT_SEARCH_SCOPE_V1,
     MATCH_SIDES_V1,
     PREFLIGHT_EDIT_STATUSES_V1,
     PREFLIGHT_FAILURE_PHASES_V1,
@@ -188,6 +192,7 @@ V1_HISTORICAL_TOOL_SPECS: Mapping[str, _V1ToolSpec] = MappingProxyType(
     {
         "list_rounds": _V1ToolSpec("tool_observation.v1", "list_rounds"),
         "extract_redlines": _V1ToolSpec("tool_observation.v1", "extract_redlines"),
+        "inspect_document": _V1ToolSpec("inspection.v1", "inspect_document"),
         "verify_quote": _V1ToolSpec("verification.v1", "verify_quote"),
         "preflight_edits": _V1ToolSpec("verification.v1", "preflight_edits"),
         "apply_edits": _V1ToolSpec("decision.v1", "apply_edits"),
@@ -200,6 +205,7 @@ WRITABLE_TOOL_NAMES = frozenset(
     {
         "list_rounds",
         "extract_redlines",
+        "inspect_document",
         "verify_quote",
         "preflight_edits",
         "apply_edits",
@@ -1607,7 +1613,10 @@ def _invalid_bounded_snapshot(value: Any) -> dict[str, Any]:
     }
 
 
-def _bounded_mapping(value: Any) -> dict[str, Any]:
+def _bounded_mapping(
+    value: Any,
+    allowed_keys: frozenset[str] = EXTRACT_REVISION_CATEGORIES_V1,
+) -> dict[str, Any]:
     if not isinstance(value, dict):
         return _invalid_bounded_snapshot(value)
     raw = value
@@ -1621,7 +1630,7 @@ def _bounded_mapping(value: Any) -> dict[str, Any]:
             return None
         key = item.get("key")
         count = _nonnegative_int(item.get("value"))
-        if key not in EXTRACT_REVISION_CATEGORIES_V1 or count is None:
+        if key not in allowed_keys or count is None:
             return None
         return {"key": key, "value": count}
 
@@ -1699,14 +1708,75 @@ def _revision_ids_summary(value: Any) -> dict[str, Any]:
 def _observed_anchor_summary(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         return None
+
+    if value.get("schema_version") == "paragraph_ref.v1":
+        required = {
+            "schema_version",
+            "ref_type",
+            "file_sha256",
+            "part_name",
+            "paragraph_index",
+            "paragraph_text_sha256",
+            "reading_mode",
+            "container_policy",
+        }
+        if (
+            not required.issubset(value)
+            or value.get("ref_type") != "paragraph"
+            or not _is_sha256(value.get("file_sha256"))
+            or _part_name(value.get("part_name")) != DOCUMENT_PART_V1
+            or _nonnegative_int(value.get("paragraph_index")) is None
+            or not _is_sha256(value.get("paragraph_text_sha256"))
+            or value.get("reading_mode") != INSPECT_READING_MODE_V1
+            or value.get("container_policy") != INSPECT_CONTAINER_POLICY_V1
+        ):
+            return None
+        summary: dict[str, Any] = {
+            "schema_version": "paragraph_ref.v1",
+            "ref_type": "paragraph",
+            "file_sha256": value["file_sha256"],
+            "part_name": DOCUMENT_PART_V1,
+            "paragraph_index": value["paragraph_index"],
+            "paragraph_text_sha256": value["paragraph_text_sha256"],
+            "reading_mode": INSPECT_READING_MODE_V1,
+            "container_policy": INSPECT_CONTAINER_POLICY_V1,
+        }
+        if "revision_ids" in value:
+            summary["revision_ids"] = _revision_ids_summary(value["revision_ids"])
+        if "side" in value:
+            if value["side"] != "paragraph_current":
+                return None
+            summary["side"] = "paragraph_current"
+        return summary
+
     change_unit_id = _change_unit_id(value.get("change_unit_id"))
     if change_unit_id is None:
         return None
     summary: dict[str, Any] = {"change_unit_id": change_unit_id}
+    schema_version = value.get("schema_version")
+    if schema_version is not None:
+        if schema_version != "change_unit_anchor.v2":
+            return None
+        summary["schema_version"] = schema_version
     if "file_sha256" in value:
         if not _is_sha256(value["file_sha256"]):
             return None
         summary["file_sha256"] = value["file_sha256"]
+    if "container_policy" in value:
+        if value["container_policy"] != INSPECT_CONTAINER_POLICY_V1:
+            return None
+        summary["container_policy"] = value["container_policy"]
+    if "unit_fingerprint_sha256" in value:
+        if not _is_sha256(value["unit_fingerprint_sha256"]):
+            return None
+        summary["unit_fingerprint_sha256"] = value["unit_fingerprint_sha256"]
+    v2_fields = {
+        "schema_version",
+        "container_policy",
+        "unit_fingerprint_sha256",
+    }
+    if any(key in value for key in v2_fields) and not v2_fields.issubset(value):
+        return None
     if "part_name" in value:
         part_name = _part_name(value["part_name"])
         if part_name is None:
@@ -1735,6 +1805,92 @@ def _observed_anchor_summary(value: Any) -> dict[str, Any] | None:
 
 def bounded_observed_anchors(value: Any) -> dict[str, Any]:
     return _bounded_collection(value, _observed_anchor_summary)
+
+
+def _observed_inspection_ref_summary(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict) or set(value) not in (
+        {"paragraph_ref"},
+        {"section_ref"},
+    ):
+        return None
+    ref_kind = next(iter(value))
+    ref = value[ref_kind]
+    if not isinstance(ref, dict):
+        return None
+    if (
+        not _is_sha256(ref.get("file_sha256"))
+        or _part_name(ref.get("part_name")) is None
+        or ref.get("reading_mode") != INSPECT_READING_MODE_V1
+        or ref.get("container_policy") != INSPECT_CONTAINER_POLICY_V1
+    ):
+        return None
+    summary: dict[str, Any] = {
+        "file_sha256": ref["file_sha256"],
+        "part_name": ref["part_name"],
+        "reading_mode": ref["reading_mode"],
+        "container_policy": ref["container_policy"],
+    }
+    if ref_kind == "paragraph_ref":
+        if set(ref) != {
+            "schema_version",
+            "ref_type",
+            "file_sha256",
+            "part_name",
+            "paragraph_index",
+            "paragraph_text_sha256",
+            "reading_mode",
+            "container_policy",
+        }:
+            return None
+        if (
+            ref.get("schema_version") != "paragraph_ref.v1"
+            or ref.get("ref_type") != "paragraph"
+        ):
+            return None
+        index = _nonnegative_int(ref.get("paragraph_index"))
+        if index is None or not _is_sha256(ref.get("paragraph_text_sha256")):
+            return None
+        summary.update(
+            {
+                "schema_version": ref["schema_version"],
+                "ref_type": ref["ref_type"],
+                "paragraph_index": index,
+                "paragraph_text_sha256": ref["paragraph_text_sha256"],
+            }
+        )
+    else:
+        if set(ref) != {
+            "schema_version",
+            "ref_type",
+            "file_sha256",
+            "part_name",
+            "heading_paragraph_index",
+            "heading_text_sha256",
+            "reading_mode",
+            "container_policy",
+        }:
+            return None
+        if (
+            ref.get("schema_version") != "section_ref.v1"
+            or ref.get("ref_type") != "section"
+        ):
+            return None
+        index = _nonnegative_int(ref.get("heading_paragraph_index"))
+        if index is None or not _is_sha256(ref.get("heading_text_sha256")):
+            return None
+        summary.update(
+            {
+                "schema_version": ref["schema_version"],
+                "ref_type": ref["ref_type"],
+                "heading_paragraph_index": index,
+                "heading_text_sha256": ref["heading_text_sha256"],
+            }
+        )
+    return {ref_kind: summary}
+
+
+def bounded_observed_inspection_refs(value: Any) -> dict[str, Any]:
+    return _bounded_collection(value, _observed_inspection_ref_summary)
 
 
 def _observed_round_summary(value: Any) -> dict[str, Any] | None:
@@ -1803,9 +1959,153 @@ def _preflight_edit_summary(value: Any) -> dict[str, Any] | None:
     return summary
 
 
+def _container_coverage_summary(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    count_keys = (
+        "indexed_paragraph_count",
+        "body_paragraph_count",
+        "table_cell_paragraph_count",
+        "excluded_subtree_count",
+        "excluded_paragraph_count",
+    )
+    counts = {key: _nonnegative_int(value.get(key)) for key in count_keys}
+    excluded = value.get("excluded_by_kind")
+    excluded_paragraphs = value.get("excluded_paragraphs_by_kind")
+    allowed_exclusions = frozenset(
+        {
+            "alternate_content",
+            "text_box",
+            "nested_paragraph",
+            "unknown_container",
+        }
+    )
+    if (
+        value.get("schema_version") != INSPECT_CONTAINER_POLICY_V1
+        or any(item is None for item in counts.values())
+        or not isinstance(excluded, dict)
+        or not isinstance(excluded_paragraphs, dict)
+        or any(key not in allowed_exclusions for key in excluded)
+        or any(key not in allowed_exclusions for key in excluded_paragraphs)
+    ):
+        return None
+    excluded_values = [_nonnegative_int(item) for item in excluded.values()]
+    excluded_paragraph_values = [
+        _nonnegative_int(item) for item in excluded_paragraphs.values()
+    ]
+    if (
+        any(item is None for item in excluded_values)
+        or any(item is None for item in excluded_paragraph_values)
+        or counts["indexed_paragraph_count"]
+        != counts["body_paragraph_count"] + counts["table_cell_paragraph_count"]
+        or counts["excluded_subtree_count"]
+        != sum(item for item in excluded_values if item is not None)
+        or counts["excluded_paragraph_count"]
+        != sum(item for item in excluded_paragraph_values if item is not None)
+        or value.get("coverage_complete") is not (counts["excluded_subtree_count"] == 0)
+        or value.get("legacy_two_field_anchor_safe")
+        is not (counts["excluded_subtree_count"] == 0)
+    ):
+        return None
+    return {
+        "schema_version": INSPECT_CONTAINER_POLICY_V1,
+        **counts,
+        "excluded_by_kind": _bounded_mapping(excluded, allowed_exclusions),
+        "excluded_paragraphs_by_kind": _bounded_mapping(
+            excluded_paragraphs, allowed_exclusions
+        ),
+        "coverage_complete": counts["excluded_subtree_count"] == 0,
+        "legacy_two_field_anchor_safe": counts["excluded_subtree_count"] == 0,
+    }
+
+
 def _revision_inventory_summary(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         return None
+    if value.get("schema_version") == "revision_inventory.v2":
+        scope = _part_name(value.get("scope"))
+        count_keys = (
+            "tracked_text_revision_elements",
+            "total_revision_elements",
+            "in_scope_revision_elements",
+            "decoded_revision_elements",
+            "unsupported_revision_occurrences",
+            "unsupported_revision_kind_count",
+            "excluded_container_occurrences",
+            "excluded_container_kind_count",
+        )
+        counts = {key: _nonnegative_int(value.get(key)) for key in count_keys}
+        unsupported = value.get("unsupported_by_kind")
+        excluded = value.get("excluded_by_container")
+        container_policy = value.get("container_policy")
+        container_summary = _container_coverage_summary(container_policy)
+        if (
+            scope != DOCUMENT_PART_V1
+            or any(item is None for item in counts.values())
+            or not isinstance(unsupported, dict)
+            or not isinstance(excluded, dict)
+            or container_summary is None
+        ):
+            return None
+        unsupported_values = [_nonnegative_int(item) for item in unsupported.values()]
+        excluded_values = [_nonnegative_int(item) for item in excluded.values()]
+        allowed_exclusions = {
+            "alternate_content",
+            "text_box",
+            "nested_paragraph",
+            "unknown_container",
+        }
+        if (
+            any(item is None for item in unsupported_values)
+            or any(item is None for item in excluded_values)
+            or any(key not in EXTRACT_REVISION_CATEGORIES_V1 for key in unsupported)
+            or any(key not in allowed_exclusions for key in excluded)
+            or counts["total_revision_elements"]
+            != counts["in_scope_revision_elements"]
+            + counts["excluded_container_occurrences"]
+            or counts["in_scope_revision_elements"]
+            != counts["decoded_revision_elements"]
+            + counts["unsupported_revision_occurrences"]
+            or sum(item for item in unsupported_values if item is not None)
+            != counts["unsupported_revision_occurrences"]
+            or sum(item for item in excluded_values if item is not None)
+            != counts["excluded_container_occurrences"]
+            or len(unsupported) != counts["unsupported_revision_kind_count"]
+            or len(excluded) != counts["excluded_container_kind_count"]
+            or value.get("partition_valid") is not True
+            or value.get("all_in_scope_revision_elements_decoded")
+            is not (counts["unsupported_revision_occurrences"] == 0)
+            or value.get("all_revision_elements_decoded")
+            is not (
+                counts["unsupported_revision_occurrences"] == 0
+                and counts["excluded_container_occurrences"] == 0
+            )
+        ):
+            return None
+        summary = {
+            "schema_version": "revision_inventory.v2",
+            "scope": DOCUMENT_PART_V1,
+            **counts,
+            "container_policy": container_summary,
+            "unsupported_by_kind": _bounded_mapping(unsupported),
+            "excluded_by_container": _bounded_mapping(
+                excluded, frozenset(allowed_exclusions)
+            ),
+            "partition_valid": True,
+            "all_in_scope_revision_elements_decoded": (
+                counts["unsupported_revision_occurrences"] == 0
+            ),
+            "all_revision_elements_decoded": (
+                counts["unsupported_revision_occurrences"] == 0
+                and counts["excluded_container_occurrences"] == 0
+            ),
+        }
+        if "emitted_change_unit_count" in value:
+            emitted = _nonnegative_int(value.get("emitted_change_unit_count"))
+            if emitted is None:
+                return None
+            summary["emitted_change_unit_count"] = emitted
+        return summary
     if value.get("schema_version") != "revision_inventory.v1":
         return None
     scope = _part_name(value.get("scope"))
@@ -1863,16 +2163,34 @@ def _observed_match_summary(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         return None
     part_name = _part_name(value.get("part_name"))
-    side = _known_value(value.get("side"), MATCH_SIDES_V1)
+    side = _known_value(value.get("side"), MATCH_SIDES_V1 | {"paragraph_current"})
     if part_name is None or side is None or "revision_ids" not in value:
         return None
     clause = value.get("clause")
-    return {
+    summary = {
         "part_name": part_name,
         "revision_ids": _revision_ids_summary(value["revision_ids"]),
         "side": side,
         "clause_sha256": _stable_digest(clause) if clause is not None else None,
     }
+    if side == "paragraph_current":
+        paragraph_index = _nonnegative_int(value.get("paragraph_index"))
+        if (
+            part_name != DOCUMENT_PART_V1
+            or paragraph_index is None
+            or not _is_sha256(value.get("paragraph_text_sha256"))
+            or value.get("reading_mode") != INSPECT_READING_MODE_V1
+            or value.get("revision_ids") != []
+        ):
+            return None
+        summary.update(
+            {
+                "paragraph_index": paragraph_index,
+                "paragraph_text_sha256": value["paragraph_text_sha256"],
+                "reading_mode": INSPECT_READING_MODE_V1,
+            }
+        )
+    return summary
 
 
 def _round_trip_summary(value: Any) -> dict[str, Any]:
@@ -1913,6 +2231,83 @@ def _preflight_binding_summary(value: Any) -> dict[str, Any]:
         "preflight_candidate_sha256": candidate,
         "candidate_output_sha256_match": True,
     }
+
+
+def _inspection_coverage_summary(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict) or value.get("scan_complete") is not True:
+        return None
+    summary: dict[str, Any] = {"scan_complete": True}
+    for key in (
+        "body_paragraph_count",
+        "nonempty_body_paragraph_count",
+        "eligible_item_count",
+        "returned_item_count",
+        "cursor_offset",
+    ):
+        parsed = _nonnegative_int(value.get(key))
+        if parsed is None:
+            return None
+        summary[key] = parsed
+    truncated = _strict_bool(value.get("output_truncated"))
+    if truncated is None:
+        return None
+    summary["output_truncated"] = truncated
+    complete_matches = value.get("complete_literal_match_count")
+    if complete_matches is None:
+        summary["complete_literal_match_count"] = None
+    else:
+        parsed_matches = _nonnegative_int(complete_matches)
+        if parsed_matches is None:
+            return None
+        summary["complete_literal_match_count"] = parsed_matches
+    closed_lists = {
+        "included_parts": [DOCUMENT_PART_V1],
+        "excluded_parts": [
+            "word/header*.xml",
+            "word/footer*.xml",
+            "word/footnotes.xml",
+            "word/endnotes.xml",
+            "word/comments*.xml",
+        ],
+        "included_containers": ["body", "table_cell"],
+    }
+    for key, expected in closed_lists.items():
+        if value.get(key) != expected:
+            return None
+        summary[key] = list(expected)
+    container_coverage = _container_coverage_summary(value.get("container_coverage"))
+    if container_coverage is None:
+        return None
+    summary["container_coverage"] = container_coverage
+    return summary
+
+
+def _inspection_limits_summary(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    count_keys = (
+        "requested_max_items",
+        "max_items",
+        "max_phrases",
+        "max_phrase_chars",
+        "max_total_phrase_chars",
+        "max_paragraph_text_chars",
+        "max_returned_text_chars",
+        "max_indexed_paragraphs",
+        "max_aggregate_text_chars",
+        "max_literal_match_candidates",
+        "max_literal_occurrences_per_candidate",
+    )
+    summary: dict[str, Any] = {}
+    for key in count_keys:
+        parsed = _nonnegative_int(value.get(key))
+        if parsed is None or parsed == 0:
+            return None
+        summary[key] = parsed
+    if value.get("wall_clock_partial_results") is not False:
+        return None
+    summary["wall_clock_partial_results"] = False
+    return summary
 
 
 def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
@@ -1972,6 +2367,44 @@ def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
                 result.get("revision_count_basis"), REVISION_COUNT_BASES_V1
             )
         return summary
+    if projection_kind == "inspect_document":
+        mode = _known_value(result.get("mode"), INSPECT_MODES_V1)
+        coverage = _inspection_coverage_summary(result.get("coverage"))
+        limits = _inspection_limits_summary(result.get("limits"))
+        if mode is None or coverage is None or limits is None:
+            raise _RecordSchemaError("invalid inspect_document result")
+        return {
+            "status": _known_value(result.get("status"), V1_OK_STATUSES),
+            "path": _path_digest(result.get("path")),
+            "file_sha256": (
+                result.get("file_sha256")
+                if _is_sha256(result.get("file_sha256"))
+                else None
+            ),
+            "part_name": _part_name(result.get("part_name")),
+            "mode": mode,
+            "search_scope": _known_value(
+                result.get("search_scope"), {INSPECT_SEARCH_SCOPE_V1}
+            ),
+            "reading_mode": _known_value(
+                result.get("reading_mode"), {INSPECT_READING_MODE_V1}
+            ),
+            "container_policy": _known_value(
+                result.get("container_policy"), {INSPECT_CONTAINER_POLICY_V1}
+            ),
+            "has_tracked_text_revisions": _strict_bool(
+                result.get("has_tracked_text_revisions")
+            ),
+            "revision_inventory": _revision_inventory_summary(
+                result.get("revision_inventory")
+            ),
+            "coverage": coverage,
+            "limits": limits,
+            "section_count": _nonnegative_int(result.get("section_count")),
+            "match_count": _nonnegative_int(result.get("match_count")),
+            "paragraph_count": _nonnegative_int(result.get("paragraph_count")),
+            "next_cursor_present": _strict_bool(result.get("next_cursor_present")),
+        }
     if projection_kind == "apply_edits":
         summary = {
             "status": _known_value(result.get("status"), V1_OK_STATUSES),
@@ -2154,10 +2587,45 @@ def _summary_provenance(record: dict[str, Any]) -> dict[str, Any]:
             )
         if "skipped" in provenance:
             summary["skipped_count"] = _list_count(provenance["skipped"])
+    if projection_kind == "inspect_document":
+        mode = _known_value(provenance.get("mode"), INSPECT_MODES_V1)
+        if mode is not None:
+            summary["mode"] = mode
+        for key, expected in (
+            ("search_scope", INSPECT_SEARCH_SCOPE_V1),
+            ("reading_mode", INSPECT_READING_MODE_V1),
+            ("container_policy", INSPECT_CONTAINER_POLICY_V1),
+        ):
+            known = _known_value(provenance.get(key), {expected})
+            if known is not None:
+                summary[key] = known
+        tracked = _strict_bool(provenance.get("has_tracked_text_revisions"))
+        if tracked is not None:
+            summary["has_tracked_text_revisions"] = tracked
+        coverage = _inspection_coverage_summary(provenance.get("coverage"))
+        if coverage is not None:
+            summary["coverage"] = coverage
+        limits = _inspection_limits_summary(provenance.get("limits"))
+        if limits is not None:
+            summary["limits"] = limits
+        if "inspection_refs" in provenance:
+            refs = _validated_bounded_snapshot(
+                provenance["inspection_refs"],
+                _observed_inspection_ref_summary,
+            )
+            summary["inspection_refs"] = (
+                refs
+                if refs is not None
+                else _invalid_bounded_snapshot(provenance["inspection_refs"])
+            )
     if "revision_count_basis" in provenance:
         summary["revision_count_basis"] = _known_value(
             provenance.get("revision_count_basis"), REVISION_COUNT_BASES_V1
         )
+    if "revision_inventory" in provenance:
+        inventory = _revision_inventory_summary(provenance["revision_inventory"])
+        if inventory is not None:
+            summary["revision_inventory"] = inventory
     return summary
 
 

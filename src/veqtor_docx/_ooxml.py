@@ -8,7 +8,7 @@ import os
 import struct
 import zipfile
 import zlib
-from collections.abc import Collection
+from collections.abc import Collection, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
@@ -23,9 +23,12 @@ from .contracts import (
 )
 
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
+VML_NS = "urn:schemas-microsoft-com:vml"
 NSMAP = {"w": W_NS}
 
 DOCUMENT_PART = DOCUMENT_PART_V1
+CANONICAL_BODY_FLOW_POLICY_V1 = "canonical_body_flow_v1"
 MAX_TRACKED_CHANGE_AUTHOR_LENGTH = 255
 
 # Public-Alpha resource envelope.  DOCX packages are ZIP archives, so their
@@ -43,17 +46,13 @@ MAX_DOCX_XML_NODES = 100_000
 MAX_DOCX_COMPRESSION_RATIO = 200
 COMPRESSION_RATIO_MIN_UNCOMPRESSED_BYTES = 10 * MIB
 ZIP_DECODE_CHUNK_BYTES = 64 * 1024
-SUPPORTED_DOCX_COMPRESSION = frozenset(
-    {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}
-)
+SUPPORTED_DOCX_COMPRESSION = frozenset({zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED})
 
 _ZIP_DESCRIPTOR_FLAG = 0x0008
 _ZIP_UTF8_FLAG = 0x0800
 _ZIP_ENCRYPTION_FLAGS = 0x0001 | 0x0040 | 0x2000
 _ZIP_DEFLATE_OPTION_FLAGS = 0x0002 | 0x0004
-_ZIP_ALLOWED_FLAGS = (
-    _ZIP_DESCRIPTOR_FLAG | _ZIP_UTF8_FLAG | _ZIP_DEFLATE_OPTION_FLAGS
-)
+_ZIP_ALLOWED_FLAGS = _ZIP_DESCRIPTOR_FLAG | _ZIP_UTF8_FLAG | _ZIP_DEFLATE_OPTION_FLAGS
 _ZIP64_EXTRA_ID = 0x0001
 
 try:
@@ -403,8 +402,7 @@ def _validate_declared_entries(entries: Collection[_CentralEntry]) -> None:
         if entry.file_size > COMPRESSION_RATIO_MIN_UNCOMPRESSED_BYTES:
             ratio_exceeded = (
                 entry.compress_size == 0
-                or entry.file_size
-                > MAX_DOCX_COMPRESSION_RATIO * entry.compress_size
+                or entry.file_size > MAX_DOCX_COMPRESSION_RATIO * entry.compress_size
             )
             if ratio_exceeded:
                 observed_ratio = (
@@ -446,9 +444,9 @@ def validate_docx_central_directory(payload: bytes) -> _CentralDirectory:
         if candidate < 0:
             break
         if candidate + eocd_size <= len(payload):
-            candidate_comment_size = struct.unpack_from(
-                "<H", payload, candidate + 20
-            )[0]
+            candidate_comment_size = struct.unpack_from("<H", payload, candidate + 20)[
+                0
+            ]
             if candidate + eocd_size + candidate_comment_size == len(payload):
                 eocd_offset = candidate
                 break
@@ -522,9 +520,7 @@ def validate_docx_central_directory(payload: bytes) -> _CentralDirectory:
         ) = struct.unpack_from("<4s6H3L5H2L", payload, position)
         entry_end = position + 46 + name_size + extra_size + member_comment_size
         if entry_end > eocd_offset:
-            raise ArchiveValidationError(
-                "invalid ZIP central-directory entry bounds"
-            )
+            raise ArchiveValidationError("invalid ZIP central-directory entry bounds")
         if (
             disk_start == 0xFFFF
             or compress_size == 0xFFFFFFFF
@@ -755,17 +751,12 @@ def _observe_member_output(
             observed_bytes=total_before + member_bytes,
             observed_at_least=True,
         )
-    if (
-        member_bytes > COMPRESSION_RATIO_MIN_UNCOMPRESSED_BYTES
-        and (
-            entry.compress_size == 0
-            or member_bytes > MAX_DOCX_COMPRESSION_RATIO * entry.compress_size
-        )
+    if member_bytes > COMPRESSION_RATIO_MIN_UNCOMPRESSED_BYTES and (
+        entry.compress_size == 0
+        or member_bytes > MAX_DOCX_COMPRESSION_RATIO * entry.compress_size
     ):
         observed_ratio = (
-            None
-            if entry.compress_size == 0
-            else member_bytes / entry.compress_size
+            None if entry.compress_size == 0 else member_bytes / entry.compress_size
         )
         raise ResourceLimitError(
             "compression_ratio",
@@ -1019,9 +1010,7 @@ def tracked_change_author_validation_error(value: object) -> str | None:
 def resolve_user_path(value: object) -> str:
     """Resolve one text path without leaking ``pathlib`` exceptions."""
     if not isinstance(value, (str, os.PathLike)):
-        raise UserPathError(
-            "invalid_path", "path must be a string or path-like object"
-        )
+        raise UserPathError("invalid_path", "path must be a string or path-like object")
     try:
         raw = os.fspath(value)
     except Exception:
@@ -1052,9 +1041,7 @@ MOVE_REVISION_TAGS = frozenset(w(name) for name in MOVE_REVISION_NAMES_V1)
 
 # Revision markup M1 does not extract as change units. These are counted and
 # reported so the caller knows facts were present but not decoded.
-UNSUPPORTED_REVISION_TAGS = frozenset(
-    w(name) for name in UNSUPPORTED_REVISION_NAMES_V1
-)
+UNSUPPORTED_REVISION_TAGS = frozenset(w(name) for name in UNSUPPORTED_REVISION_NAMES_V1)
 
 
 def text_atom(
@@ -1096,6 +1083,329 @@ def current_text_atom(
         if ancestor.tag in (w("del"), w("moveFrom")):
             return None
     return contribution
+
+
+@dataclass(frozen=True)
+class CanonicalParagraph:
+    """One supported paragraph in the versioned body-flow index."""
+
+    element: etree._Element
+    paragraph_index: int
+    container_kind: str  # "body" | "table_cell"
+
+
+@dataclass(frozen=True)
+class CanonicalExcludedSubtree:
+    """One non-overlapping subtree pruned from canonical paragraph reading."""
+
+    element: etree._Element
+    kind: str
+
+
+@dataclass(frozen=True)
+class CanonicalBodyFlow:
+    """Deterministic paragraph membership and exclusion facts for one body."""
+
+    paragraphs: tuple[CanonicalParagraph, ...]
+    excluded_subtrees: tuple[CanonicalExcludedSubtree, ...]
+    excluded_node_kinds: dict[etree._Element, str]
+    excluded_paragraph_count: int
+    excluded_paragraphs_by_kind: dict[str, int]
+
+    def exclusion_kind_for(self, element: etree._Element) -> str | None:
+        """Return the pruned-container reason that owns ``element``, if any."""
+        return self.excluded_node_kinds.get(element)
+
+    @property
+    def container_policy(self) -> dict[str, object]:
+        excluded_by_kind: dict[str, int] = {}
+        for excluded in self.excluded_subtrees:
+            excluded_by_kind[excluded.kind] = excluded_by_kind.get(excluded.kind, 0) + 1
+        body_count = sum(
+            paragraph.container_kind == "body" for paragraph in self.paragraphs
+        )
+        table_count = len(self.paragraphs) - body_count
+        return {
+            "schema_version": CANONICAL_BODY_FLOW_POLICY_V1,
+            "indexed_paragraph_count": len(self.paragraphs),
+            "body_paragraph_count": body_count,
+            "table_cell_paragraph_count": table_count,
+            "excluded_subtree_count": len(self.excluded_subtrees),
+            "excluded_paragraph_count": self.excluded_paragraph_count,
+            "excluded_by_kind": excluded_by_kind,
+            "excluded_paragraphs_by_kind": dict(self.excluded_paragraphs_by_kind),
+            "coverage_complete": not self.excluded_subtrees,
+            # v0.2 two-field anchors carry no traversal-policy identity. They
+            # are safe to resolve under v0.3 only when filtering changed no
+            # paragraph membership or reading surface for these exact bytes.
+            "legacy_two_field_anchor_safe": not self.excluded_subtrees,
+        }
+
+
+_MC_ALTERNATE_CONTENT_TAGS = frozenset(
+    f"{{{MC_NS}}}{name}" for name in ("AlternateContent", "Choice", "Fallback")
+)
+_TEXT_BOX_TAGS = frozenset(
+    {
+        w("drawing"),
+        w("object"),
+        w("pict"),
+        w("txbxContent"),
+        f"{{{VML_NS}}}textbox",
+    }
+)
+_CANONICAL_BLOCK_PASS_THROUGH = frozenset(
+    {w("tbl"), w("tr"), w("tc"), w("sdt"), w("sdtContent")}
+)
+_CANONICAL_INLINE_PASS_THROUGH = frozenset(
+    {
+        w("bdo"),
+        w("customXml"),
+        w("del"),
+        w("dir"),
+        w("fldSimple"),
+        w("hyperlink"),
+        w("ins"),
+        w("moveFrom"),
+        w("moveTo"),
+        w("r"),
+        w("sdt"),
+        w("sdtContent"),
+        w("smartTag"),
+    }
+)
+_CANONICAL_PROPERTY_SUBTREES = frozenset(
+    {
+        w("customXmlPr"),
+        w("pPr"),
+        w("rPr"),
+        w("sdtEndPr"),
+        w("sdtPr"),
+        w("sectPr"),
+        w("tblGrid"),
+        w("tblPr"),
+        w("tblPrEx"),
+        w("tcPr"),
+        w("trPr"),
+    }
+)
+_CANONICAL_STRUCTURAL_REVISION_PROPERTY_TAGS = frozenset(
+    {w("trPr"), w("tcPr"), w("tblPr"), w("sectPr")}
+)
+_CANONICAL_TEXT_ATOM_TAGS = frozenset(
+    {w("t"), w("delText"), w("tab"), w("br"), w("cr"), w("noBreakHyphen")}
+)
+
+
+def _subtree_has_canonical_payload(element: etree._Element) -> bool:
+    return any(
+        node.tag == w("p")
+        or node.tag in _CANONICAL_TEXT_ATOM_TAGS
+        or node.tag in TEXT_REVISION_TAGS
+        or node.tag in MOVE_REVISION_TAGS
+        or node.tag in UNSUPPORTED_REVISION_TAGS
+        for node in element.iter()
+    )
+
+
+def _property_subtree_has_illegal_payload(element: etree._Element) -> bool:
+    """Detect rendered or text-revision payload hidden in Word properties.
+
+    Property subtrees normally carry only formatting metadata.  The two text
+    revision shapes below are legitimate property/structural revision markup
+    and remain in-scope unsupported inventory.  Any paragraph, rendered text,
+    move revision, or differently nested insertion/deletion is not part of the
+    canonical body reading and must become a fail-visible exclusion.
+    """
+    for node in element.iter():
+        if node is element:
+            continue
+        if (
+            node.tag == w("p")
+            or node.tag in _CANONICAL_TEXT_ATOM_TAGS
+            or node.tag in MOVE_REVISION_TAGS
+        ):
+            return True
+        if node.tag not in TEXT_REVISION_TAGS:
+            continue
+        parent = node.getparent()
+        if parent is None:
+            return True
+        if parent.tag in _CANONICAL_STRUCTURAL_REVISION_PROPERTY_TAGS:
+            continue
+        grandparent = parent.getparent()
+        if (
+            parent.tag == w("rPr")
+            and grandparent is not None
+            and grandparent.tag == w("pPr")
+        ):
+            continue
+        return True
+    return False
+
+
+def _explicit_exclusion_kind(element: etree._Element) -> str | None:
+    if element.tag in _MC_ALTERNATE_CONTENT_TAGS:
+        return "alternate_content"
+    if element.tag in _TEXT_BOX_TAGS:
+        return "text_box"
+    if element.tag == w("p"):
+        return "nested_paragraph"
+    return None
+
+
+def _canonical_inline_child_kind(element: etree._Element) -> tuple[bool, str | None]:
+    """Return (traverse, exclusion_kind) for one paragraph descendant."""
+    explicit = _explicit_exclusion_kind(element)
+    if explicit is not None:
+        return False, explicit
+    if element.tag in _CANONICAL_PROPERTY_SUBTREES:
+        return (
+            False,
+            "unknown_container"
+            if _property_subtree_has_illegal_payload(element)
+            else None,
+        )
+    if (
+        element.tag in _CANONICAL_INLINE_PASS_THROUGH
+        or element.tag in _CANONICAL_TEXT_ATOM_TAGS
+    ):
+        return True, None
+    if _subtree_has_canonical_payload(element):
+        return False, "unknown_container"
+    return False, None
+
+
+def canonical_paragraph_children(
+    element: etree._Element,
+) -> Iterator[etree._Element]:
+    """Yield supported children, pruning the v1 excluded-container boundary."""
+    for child in element:
+        traverse, _ = _canonical_inline_child_kind(child)
+        if traverse:
+            yield child
+
+
+def iter_canonical_paragraph_nodes(
+    element: etree._Element,
+) -> Iterator[etree._Element]:
+    """Pre-order paragraph traversal with excluded subtrees removed."""
+    yield element
+    for child in canonical_paragraph_children(element):
+        yield from iter_canonical_paragraph_nodes(child)
+
+
+def canonical_run_text(
+    element: etree._Element,
+    *,
+    include_deleted_text: bool = True,
+) -> str:
+    """Read a run/wrapper without leaking text from excluded subtrees."""
+    parts: list[str] = []
+    for node in iter_canonical_paragraph_nodes(element):
+        value = text_atom(node, include_deleted_text=include_deleted_text)
+        if value is not None:
+            parts.append(value)
+    return "".join(parts)
+
+
+def _inline_excluded_roots(paragraph: etree._Element) -> list[CanonicalExcludedSubtree]:
+    excluded: list[CanonicalExcludedSubtree] = []
+
+    def walk(element: etree._Element) -> None:
+        for child in element:
+            traverse, kind = _canonical_inline_child_kind(child)
+            if kind is not None:
+                excluded.append(CanonicalExcludedSubtree(child, kind))
+            elif traverse:
+                walk(child)
+
+    walk(paragraph)
+    return excluded
+
+
+def canonical_body_flow_v1(body: etree._Element) -> CanonicalBodyFlow:
+    """Classify body paragraphs and build one non-overlapping pruning policy.
+
+    Paragraph identity is positional within this filtered, deterministic index.
+    Content controls are transparent; text boxes, AlternateContent, nested
+    paragraphs and unknown text-bearing wrappers are fail-visible exclusions.
+    """
+    if body.tag != w("body"):
+        raise ValueError("canonical_body_flow_v1 requires a w:body element")
+
+    supported: list[tuple[etree._Element, str]] = []
+    roots: list[CanonicalExcludedSubtree] = []
+
+    def exclude(element: etree._Element, kind: str) -> None:
+        # Traversal stops at the first unsupported boundary, so these roots are
+        # non-overlapping by construction and every hidden node has one owner.
+        roots.append(CanonicalExcludedSubtree(element, kind))
+
+    def walk_block(element: etree._Element, *, in_table_cell: bool) -> None:
+        for child in element:
+            if child.tag == w("p"):
+                supported.append((child, "table_cell" if in_table_cell else "body"))
+                roots.extend(_inline_excluded_roots(child))
+                continue
+
+            explicit = _explicit_exclusion_kind(child)
+            if explicit is not None:
+                exclude(child, explicit)
+                continue
+
+            if child.tag in _CANONICAL_BLOCK_PASS_THROUGH:
+                walk_block(
+                    child,
+                    in_table_cell=in_table_cell or child.tag == w("tc"),
+                )
+                continue
+
+            if child.tag in _CANONICAL_PROPERTY_SUBTREES:
+                # These are known non-text metadata surfaces. Do not include
+                # them in paragraph reading, but leave any revision descendants
+                # unowned so revision_inventory classifies them as in-scope
+                # unsupported structural/property markup.
+                if _property_subtree_has_illegal_payload(child):
+                    exclude(child, "unknown_container")
+                continue
+
+            # Benign unlisted markers (for example bookmarks) are ignored only
+            # while they carry no paragraph, rendered text atom or recognized
+            # revision markup. The first unknown payload-bearing container is
+            # the exclusion root, rather than each paragraph below it, so
+            # coverage and revision partitioning remain non-overlapping.
+            if _subtree_has_canonical_payload(child):
+                exclude(child, "unknown_container")
+
+    walk_block(body, in_table_cell=False)
+
+    excluded_paragraph_count = 0
+    excluded_paragraphs_by_kind: dict[str, int] = {}
+    for root in roots:
+        paragraph_count = sum(1 for _ in root.element.iter(w("p")))
+        excluded_paragraph_count += paragraph_count
+        if paragraph_count:
+            excluded_paragraphs_by_kind[root.kind] = (
+                excluded_paragraphs_by_kind.get(root.kind, 0) + paragraph_count
+            )
+
+    excluded_node_kinds: dict[etree._Element, str] = {}
+    for root in roots:
+        for node in root.element.iter():
+            excluded_node_kinds[node] = root.kind
+
+    paragraphs = tuple(
+        CanonicalParagraph(paragraph, index, container_kind)
+        for index, (paragraph, container_kind) in enumerate(supported)
+    )
+    return CanonicalBodyFlow(
+        paragraphs=paragraphs,
+        excluded_subtrees=tuple(roots),
+        excluded_node_kinds=excluded_node_kinds,
+        excluded_paragraph_count=excluded_paragraph_count,
+        excluded_paragraphs_by_kind=excluded_paragraphs_by_kind,
+    )
 
 
 def run_text(element: etree._Element) -> str:

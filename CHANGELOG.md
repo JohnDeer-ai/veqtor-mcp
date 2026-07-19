@@ -6,6 +6,27 @@ All notable changes to Veqtor MCP are documented here.
 Publication dates are authoritative in each version's immutable GitHub Release
 through its `published_at` timestamp.
 
+## Unreleased — 0.3.0.dev0
+
+Development-only Stage 3 work. This section and the package version do not
+establish publication and do not provide a public `0.3` installation target.
+
+### Added
+
+- Draft MCP contract `veqtor.mcp.v0.3` and the read-only `inspect_document`
+  tool for bounded outline, literal-search, browse and read views over canonical
+  main-body text, with hash-bound paragraph and section references.
+- `change_unit_anchor.v2` and `revision_inventory.v2` so evidence and revision
+  coverage disclose the canonical container/body-flow policy they depend on.
+
+### Changed
+
+- Development package identity is `0.3.0.dev0`, separated from the frozen v0.2
+  release inventory and its six-tool MCPB.
+- Development CI builds and smokes wheel/sdist artifacts and the seven-tool
+  surface without presenting them as a sealed release set. Frozen MCPB,
+  checksum and independent release-reproduction gates remain v0.2-only.
+
 ## 0.2.0
 
 Veqtor v0.2.0 Alpha release contents. The immutable GitHub Release

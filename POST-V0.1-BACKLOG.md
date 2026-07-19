@@ -63,13 +63,72 @@ public commitments. `ROADMAP.md` remains the source for public direction.
 
 ## Stage 3 product value
 
-- Add hash-bound paragraph/clause anchors for unchanged operative text, so a
-  user can verify and cite important language even when it is not itself a
-  tracked change.
-- Build a bounded round map whose links are explicitly classified as verified
-  evidence or navigation-only inference. Filename order must never become
-  implicit chronology or lineage proof.
-- Validate the primary user job before choosing the next write mode:
-  negotiation-history preservation and a clean sendable redline need separate
-  semantics. A sendable deliverable requires explicit accept/reject/normalize
-  rules and must not silently collapse the evidence-preserving ledger.
+### Stage 3A — clause evidence (`inspect_document` v0.3)
+
+The specification-first slice is
+[`INSPECT_DOCUMENT_V0.3.md`](INSPECT_DOCUMENT_V0.3.md). It is a shadow-backlog
+design, not a public v0.3 commitment or implementation claim.
+
+- Add one read-only, closed `inspect_document` contract for finding and citing
+  unchanged main-body text. Do not call a mechanical tracked-change projection
+  legally operative text; v0.3 names the projection `accepted_current_v1`.
+- Enumerate paragraphs only through `canonical_body_flow_v1`. Pass through
+  supported SDT content and table rows/cells in XML order, including supported
+  nesting, without using unrestricted descendant traversal or synthesizing
+  table delimiters.
+- Exclude text boxes, altChunk, block custom XML, AlternateContent, unknown
+  block containers, malformed text/revision payload inside property subtrees
+  and non-main parts. Report a fixed `container_policy` and complete coverage
+  counts so a successful body inspection cannot be mistaken for whole-DOCX
+  text coverage.
+- Support only the closed `outline`, `literal_search`, `browse` and `read`
+  modes. Outline omits paragraph text; literal search accepts bounded phrases
+  and an explicit match basis and returns snippets/anchors; browse uses
+  deterministic source-bound cursor pagination; read returns complete selected
+  paragraph or section text.
+- Use path-free, hash-bound `paragraph_ref.v1` and `section_ref.v1` observations
+  as the evidence anchors. Bind exact file bytes, canonical position, reading
+  policy and text hash; labels and headings remain navigation-only facts.
+- Add a container-aware `revision_inventory.v2` partition across in-scope,
+  unsupported and excluded-container revision occurrences. Keep change-unit
+  grouping outside the revision-element partition.
+- Apply deterministic paragraph, character, phrase, hit, browse-page and read
+  caps. The tool contract has no wall-clock cutoff that selects a partial
+  success; transport cancellation does not establish a document fact.
+- Gate schema-less v0.2 change-unit anchors with canonical container analysis.
+  They remain usable only when `legacy_two_field_anchor_safe` is true: zero
+  compatibility-impacting excluded/unknown subtrees, including plain-text
+  containers. Otherwise quote verification, preflight and apply return
+  `legacy_anchor_ambiguous`; apply repeats the gate independently.
+- Scope product acceptance to English. Exact Unicode preservation is still a
+  mechanical invariant, but Russian heading grammar, morphology and localized
+  clause discovery are not v0.3 claims.
+- Do not enable paragraph-anchor writes in the first slice. Reusing these
+  anchors for new tracked changes requires its own proof-bound write review.
+- Definition of done requires only synthetic redistributable fixtures covering
+  plain body flow, accepted/current composition, SDT/table nesting, excluded
+  containers and parts, outline text omission, literal-search snippets, browse
+  cursors, complete reads, positional convergence, anchor drift, both sides of
+  the legacy ambiguity gate, inventory equations, every cap, no-partial
+  transport behavior, compact provenance and an English Claude citation
+  workflow.
+
+### Stage 3B — bounded round map
+
+- Build the map only after paragraph evidence is stable. Classify every link by
+  its actual claim and basis: a Veqtor source/output record may prove
+  derivation; an exact text hash proves content equality but not derivation;
+  labels or similarity remain navigation-only candidates.
+- Filename order, an explicit positional manifest and a generic confidence
+  score must never become implicit chronology or lineage proof. Preserve
+  ambiguous and unresolved candidates instead of forcing one chain.
+
+### Stage 3C — validate the next write job
+
+- Validate whether external users primarily need evidence-preserving
+  negotiation history or a clean sendable redline before adding another write
+  mode.
+- Keep the existing history-preserving ledger separate from a future sendable
+  deliverable. The latter needs an explicit baseline and complete
+  accept/reject/normalize dispositions, a new output artifact and its own
+  preflight proof; it must never silently collapse prior negotiation evidence.

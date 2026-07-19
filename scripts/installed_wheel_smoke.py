@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import nullcontext
+from importlib.metadata import distribution
 import json
 import os
 import tempfile
@@ -26,7 +27,9 @@ def _payload(result) -> dict:
 
 
 async def smoke() -> dict:
-    assert __version__ == "0.2.0"
+    installed = distribution("veqtor-mcp")
+    assert installed.metadata["Name"] == "veqtor-mcp"
+    assert installed.version == __version__
     configured_matter = os.environ.get("VEQTOR_SMOKE_MATTER")
     workspace = (
         nullcontext(configured_matter)
@@ -48,6 +51,7 @@ async def smoke() -> dict:
             assert names == {
                 "list_rounds",
                 "extract_redlines",
+                "inspect_document",
                 "verify_quote",
                 "preflight_edits",
                 "apply_edits",
@@ -57,6 +61,18 @@ async def smoke() -> dict:
                 await session.call_tool("list_rounds", {"folder": str(matter)})
             )
             source = listed["rounds"][1]["path"]
+            inspected = _payload(
+                await session.call_tool(
+                    "inspect_document",
+                    {"path": source, "mode": "outline", "max_items": 1},
+                )
+            )
+            assert inspected["mode"] == "outline"
+            assert inspected["file_sha256"] == listed["rounds"][1]["sha256"]
+            assert inspected["search_scope"] == "word_document_xml_body_v1"
+            assert inspected["revision_inventory"]["schema_version"] == (
+                "revision_inventory.v2"
+            )
             extracted = _payload(
                 await session.call_tool("extract_redlines", {"path": source})
             )
@@ -108,9 +124,9 @@ async def smoke() -> dict:
             )
             assert output.is_file()
             assert applied["preflight_binding_status"] == "verified"
-            assert applied["preflight_candidate_sha256"] == preflight[
-                "candidate_sha256"
-            ]
+            assert (
+                applied["preflight_candidate_sha256"] == preflight["candidate_sha256"]
+            )
             assert applied["candidate_output_sha256_match"] is True
             assert applied["output_sha256"] == preflight["candidate_sha256"]
             exported = _payload(
@@ -127,8 +143,7 @@ async def smoke() -> dict:
             first_access_id = exported["current_export_event"]["record_id"]
             assert first_access_id == exported["record_id"]
             assert all(
-                record["record_id"] != first_access_id
-                for record in exported["records"]
+                record["record_id"] != first_access_id for record in exported["records"]
             )
 
             exported_again = _payload(
@@ -139,9 +154,7 @@ async def smoke() -> dict:
             )
             assert exported_again["total_count"] == exported["total_count"]
             assert exported_again["access_count"] == 1
-            assert (
-                exported_again["access_count_includes_current_export"] is False
-            )
+            assert exported_again["access_count_includes_current_export"] is False
             assert exported_again["returned_count"] == 3
             assert all(
                 record["record_type"] != "access_event.v1"
@@ -158,6 +171,8 @@ async def smoke() -> dict:
                 "current_event_outside_own_snapshot": True,
                 "runtime_producer_build": SOURCE_SNAPSHOT_IDENTITY,
                 "runtime_version": __version__,
+                "installed_metadata_version": installed.version,
+                "tool_count": len(names),
                 "used_bundled_demo": configured_matter is not None,
             }
 

@@ -2,14 +2,15 @@
 
 # Known limitations
 
-This file describes Veqtor source version `0.2.0` and MCP contract
-`veqtor.mcp.v0.2`. It defines public release limits only when matching `0.2.0`
-artifacts exist on PyPI and the immutable GitHub Releases list; source version
-alone does not prove publication. Both supported surfaces remain intentionally
-narrow.
+This file describes development source `0.3.0.dev0` and draft MCP contract
+`veqtor.mcp.v0.3`. It does not establish that a `0.3` package, extension or
+release exists. Published installation status comes only from matching entries
+on PyPI and the immutable GitHub Releases list. The frozen v0.2 release contract
+and this development surface remain intentionally narrow.
 
-The MCPB v0.4 extension is macOS-only and is public only when the exact artifact
-is attached to the matching verified release after clean-Mac acceptance. Linux
+The frozen v0.2 MCPB v0.4 extension is macOS-only and is public only when the
+exact artifact is attached to the matching verified release after clean-Mac
+acceptance. Development source `0.3.0.dev0` has no corresponding MCPB. Linux
 keeps the CLI setup. There is no Windows extension, catalog listing, automatic
 update promise, silent installation or guaranteed in-app rollback. If
 published, `0.2.0` is the first public MCPB and has no older public extension to
@@ -55,15 +56,22 @@ current user's permissions.
   load DTDs or expand custom XML entities.
 - ZIP packages with duplicate member names are refused as ambiguous; no tool
   silently chooses one duplicate OPC part over another.
-- Extraction and writing cover `word/document.xml`. Comments, headers,
-  footers, footnotes and endnotes are not analyzed or edited.
+- Extraction and writing cover `word/document.xml`. `inspect_document` is
+  narrower still: it exposes only the canonical main-body paragraph flow.
+  Comments, headers, footers, footnotes and endnotes are not analyzed or edited.
 - Formatting, move, paragraph-mark and structural revision categories are
   counted but not all are converted into editable change units.
-- The extractor reports `revision_inventory.v1` so callers can
-  check `total_revision_elements == decoded_revision_elements +
+- The extractor and inspector report `revision_inventory.v2` so callers can
+  check both partitions: `total_revision_elements ==
+  in_scope_revision_elements + excluded_container_occurrences`, and
+  `in_scope_revision_elements == decoded_revision_elements +
   unsupported_revision_occurrences`. `emitted_change_unit_count` is separate:
   one change unit may represent multiple decoded text-revision elements, so it
-  is not another side of that partition.
+  is not another side of either partition. V2 also discloses the canonical
+  container/body-flow coverage used for text-bearing revision classification.
+- `inspect_document` is bounded retrieval, not semantic contract analysis. Its
+  outline, literal-search, browse and read modes do not decide clause meaning,
+  infer omitted concepts or search outside the declared main-body scope.
 - Complex adjacent or nested OOXML layouts may be refused with a stable error
   rather than rewritten approximately.
 - Tracked text revisions may be nested at most two levels. This supports the
@@ -74,7 +82,9 @@ current user's permissions.
 - Numbering is a navigation aid, not evidence. Numbering templates, computed
   labels and explicit manual labels are capped at 256 characters, and Roman
   labels are supported only for values 1-3999. Word numbering levels 0-8 are
-  supported; labels outside those bounds are omitted.
+  supported; labels outside those bounds are omitted. Word outline levels 0-8
+  create sections, level 9 means body text, and malformed out-of-range outline
+  values refuse inspection rather than becoming invalid navigation facts.
 - Revision ids are provenance, not unique document addresses. Edits are bound
   to hash-scoped paragraph/group positions and a full change-unit fingerprint;
   duplicate ids are handled structurally. New-id allocation supports ASCII
@@ -95,8 +105,9 @@ current user's permissions.
   DOCX exactly once and remains only an explicit positional manifest.
 - There is no semantic cross-round clause matcher or authorship forensics.
 - `clause_anchor` and `manual_label` are best-effort navigation aids. Durable
-  evidence remains file SHA plus change-unit id, structural paragraph/group
-  locator and verified old/new wording.
+  evidence remains an exact file SHA plus either a complete change-unit anchor
+  and verified old/new wording or a hash-bound paragraph reference and verified
+  operative wording.
 - The calling model supplies legal analysis and drafting. Veqtor does not
   establish legal correctness.
 
@@ -109,13 +120,14 @@ current user's permissions.
   same source bytes, build, configured author and edits. Apply can still fail if
   the source changes, the output exists, or publication encounters permissions,
   storage or filesystem races.
-- Under MCP contract `veqtor.mcp.v0.2`, `apply_edits` requires the complete
-  `preflight_proof` returned by a successful preflight. The proof binds the
-  source SHA-256, canonical edits digest, configured author, producer build and
-  candidate SHA-256; it does not bind the destination path. It is an unkeyed
-  drift detector, not authentication, a digital signature, a trusted timestamp
-  or proof of who approved the edit. The lower-level Python API keeps its v0.1
-  optional-proof behavior for compatibility.
+- Under MCP contract `veqtor.mcp.v0.2` and draft `veqtor.mcp.v0.3`,
+  `apply_edits` requires the complete `preflight_proof` returned by a successful
+  preflight. The proof binds the source SHA-256, canonical edits digest,
+  configured author, producer build and candidate SHA-256; it does not bind the
+  destination path. It is an unkeyed drift detector, not authentication, a
+  digital signature, a trusted timestamp or proof of who approved the edit. The
+  lower-level Python API keeps its v0.1 optional-proof behavior for
+  compatibility.
 - Development preflight diagnostics use closed `position_status` values
   (`supported`, `unsupported`, `not_evaluated`) and an explicit
   `failure_phase`; other diagnostic facts can still be `null` when processing

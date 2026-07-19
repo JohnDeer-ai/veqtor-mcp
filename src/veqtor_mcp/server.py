@@ -12,30 +12,35 @@ import os
 import platform
 import sys
 from functools import cache
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 from mcp.server.fastmcp import FastMCP
 
 import veqtor_docx
 from veqtor_docx._ooxml import tracked_change_author_validation_error
 from veqtor_docx.apply import DEFAULT_AUTHOR
+from veqtor_docx.inspect import DEFAULT_MAX_ITEMS as DEFAULT_INSPECT_MAX_ITEMS
 from veqtor_mcp import __version__
 from veqtor_mcp import records
 from veqtor_mcp.contracts import (
-    AnchorInput,
     ApplyEditsResult,
     EditInput,
     ExportDecisionRecordResult,
     ExtractRedlinesResult,
+    InspectDocumentResult,
+    InspectSelectionInput,
     ListRoundsResult,
     PreflightEditsResult,
     PreflightProofInput,
+    VerifyAnchorInput,
     VerifyQuoteResult,
     contract_meta,
     local_journaling_annotations,
 )
 
 TRACKED_CHANGE_AUTHOR_ENV = "VEQTOR_TRACKED_CHANGE_AUTHOR"
+
+
 def _tracked_change_author_from_environment() -> str:
     value = os.environ.get(TRACKED_CHANGE_AUTHOR_ENV, DEFAULT_AUTHOR)
     value = value.strip()
@@ -67,9 +72,7 @@ def _producer() -> dict[str, str]:
 
 def _ok_result(result: dict[str, Any]) -> dict[str, Any]:
     return (
-        result
-        if "status" in result
-        else {"status": records.RESULT_STATUS_OK, **result}
+        result if "status" in result else {"status": records.RESULT_STATUS_OK, **result}
     )
 
 
@@ -183,9 +186,7 @@ def _run_tool_boundary(
         # Journal-layer diagnostics may contain resolved workspace paths.
         # Preserve the stable machine code but never the local detail at the
         # MCP transport boundary.
-        raise _McpBoundaryError(
-            exc.code, "decision-record operation refused"
-        ) from None
+        raise _McpBoundaryError(exc.code, "decision-record operation refused") from None
     except Exception:
         if workspace is not None:
             try:
@@ -203,15 +204,31 @@ def _run_tool_boundary(
                 # Journaling is best effort and must never replace the safe
                 # public error boundary with another implementation detail.
                 pass
-        raise _McpBoundaryError(
-            "internal_error", "unexpected tool failure"
-        ) from None
+        raise _McpBoundaryError("internal_error", "unexpected tool failure") from None
 
 
 def _anchor_from_verify(anchor: dict) -> dict[str, Any]:
+    """Copy only the closed public change-unit anchor fields.
+
+    Legacy two-field anchors remain accepted for v0.2 clients.  New v0.3
+    anchors bind the same unit to the canonical container policy and to the
+    complete public unit fingerprint; journaling and edit forwarding must not
+    silently downgrade those stronger bindings.
+    """
     return {
         key: anchor[key]
-        for key in ("change_unit_id", "file_sha256")
+        for key in (
+            "schema_version",
+            "ref_type",
+            "change_unit_id",
+            "file_sha256",
+            "part_name",
+            "paragraph_index",
+            "paragraph_text_sha256",
+            "reading_mode",
+            "container_policy",
+            "unit_fingerprint_sha256",
+        )
         if key in anchor
     }
 
@@ -269,8 +286,7 @@ def _list_rounds_provenance(result: dict[str, Any]) -> dict[str, Any]:
 def _extract_provenance(result: dict[str, Any]) -> dict[str, Any]:
     anchors = [
         {
-            "change_unit_id": unit["change_unit_id"],
-            "file_sha256": unit["file_sha256"],
+            **unit["anchor"],
             "revision_ids": unit["reference"]["revision_ids"],
             "clause_anchor": unit["clause_anchor"],
         }
@@ -313,14 +329,82 @@ def _extract_error_provenance(
     return provenance
 
 
-def _verify_provenance(result: dict[str, Any], anchor: dict[str, Any]) -> dict[str, Any]:
+def _inspection_refs(result: dict[str, Any]) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    for item in result.get("sections", []):
+        if isinstance(item, dict) and isinstance(item.get("section_ref"), dict):
+            refs.append({"section_ref": item["section_ref"]})
+    for collection in ("matches", "paragraphs"):
+        for item in result.get(collection, []):
+            if isinstance(item, dict) and isinstance(item.get("paragraph_ref"), dict):
+                refs.append({"paragraph_ref": item["paragraph_ref"]})
+    return refs
+
+
+def _inspect_provenance(result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "path": result["path"],
+        "file_sha256": result["file_sha256"],
+        "part_name": result["part_name"],
+        "mode": result["mode"],
+        "search_scope": result["search_scope"],
+        "reading_mode": result["reading_mode"],
+        "container_policy": result["container_policy"],
+        "has_tracked_text_revisions": result["has_tracked_text_revisions"],
+        "revision_inventory": result["revision_inventory"],
+        "coverage": result["coverage"],
+        "limits": result["limits"],
+        "inspection_refs": records.bounded_observed_inspection_refs(
+            _inspection_refs(result)
+        ),
+    }
+
+
+def _inspect_record_result(result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "status": records.RESULT_STATUS_OK,
+        "path": result["path"],
+        "file_sha256": result["file_sha256"],
+        "part_name": result["part_name"],
+        "mode": result["mode"],
+        "search_scope": result["search_scope"],
+        "reading_mode": result["reading_mode"],
+        "container_policy": result["container_policy"],
+        "has_tracked_text_revisions": result["has_tracked_text_revisions"],
+        "revision_inventory": result["revision_inventory"],
+        "coverage": result["coverage"],
+        "limits": result["limits"],
+        "section_count": len(result.get("sections", [])),
+        "match_count": len(result.get("matches", [])),
+        "paragraph_count": len(result.get("paragraphs", [])),
+        "next_cursor_present": result["next_cursor"] is not None,
+    }
+
+
+def _inspect_error_provenance(
+    path: str,
+    mode: object,
+    exc: veqtor_docx.DocxError,
+) -> dict[str, Any]:
+    provenance: dict[str, Any] = {"path": path, "mode": mode}
+    metadata = getattr(exc, "metadata", None)
+    if isinstance(metadata, dict):
+        for key in ("claimed_source_sha256", "observed_source_sha256"):
+            if key in metadata:
+                provenance[key] = metadata[key]
+    return provenance
+
+
+def _verify_provenance(
+    result: dict[str, Any], anchor: dict[str, Any]
+) -> dict[str, Any]:
     return {
         "file_sha256": result["checked_anchor"]["file_sha256"],
         "checked_anchor": result["checked_anchor"],
         "input_anchor": _anchor_from_verify(anchor),
         "anchors": [
             {
-                "change_unit_id": result["checked_anchor"]["change_unit_id"],
+                **result["checked_anchor"],
                 "revision_ids": match["revision_ids"],
                 "side": match["side"],
             }
@@ -337,9 +421,7 @@ def _verify_error_provenance(
 ) -> dict[str, Any]:
     provenance: dict[str, Any] = {
         "path": path,
-        "input_anchor": _anchor_from_verify(anchor)
-        if isinstance(anchor, dict)
-        else {},
+        "input_anchor": _anchor_from_verify(anchor) if isinstance(anchor, dict) else {},
     }
     metadata = getattr(exc, "metadata", None)
     if isinstance(metadata, dict):
@@ -370,9 +452,7 @@ def _apply_provenance(
         "round_trip_check": result["round_trip_check"],
         "preflight_binding_status": result["preflight_binding_status"],
         "preflight_candidate_sha256": result["preflight_candidate_sha256"],
-        "candidate_output_sha256_match": result[
-            "candidate_output_sha256_match"
-        ],
+        "candidate_output_sha256_match": result["candidate_output_sha256_match"],
     }
 
 
@@ -390,9 +470,7 @@ def _preflight_provenance(
     if result.get("blocking_edit_index") is not None:
         provenance["edit_index"] = result["blocking_edit_index"]
     if result.get("observed_candidate_sha256") is not None:
-        provenance["observed_candidate_sha256"] = result[
-            "observed_candidate_sha256"
-        ]
+        provenance["observed_candidate_sha256"] = result["observed_candidate_sha256"]
     if result.get("failure_phase") is not None:
         provenance["failure_phase"] = result["failure_phase"]
     if result.get("round_trip_check") is not None:
@@ -439,9 +517,7 @@ def _apply_error_provenance(
         provenance["claimed_source_sha256"] = claimed
     if isinstance(metadata, dict):
         if metadata.get("observed_source_sha256") is not None:
-            provenance["observed_source_sha256"] = metadata[
-                "observed_source_sha256"
-            ]
+            provenance["observed_source_sha256"] = metadata["observed_source_sha256"]
         if metadata.get("observed_candidate_sha256") is not None:
             provenance["observed_candidate_sha256"] = metadata[
                 "observed_candidate_sha256"
@@ -514,6 +590,7 @@ def list_rounds(
     complete scan. If a shared limit is exceeded, split the folder and retry;
     the call fails without returning a partial round list.
     """
+
     def operation(workspace, input_payload):
         try:
             result = veqtor_docx.list_rounds(
@@ -575,6 +652,7 @@ def extract_redlines(path: str) -> ExtractRedlinesResult:
     decode are counted in ``unsupported_revisions`` rather than silently
     dropped.
     """
+
     def operation(workspace, input_payload):
         try:
             result = veqtor_docx.extract_redlines(path)
@@ -606,6 +684,92 @@ def extract_redlines(path: str) -> ExtractRedlinesResult:
 
 
 @mcp.tool(
+    annotations=local_journaling_annotations("Inspect operative DOCX body text"),
+    meta=contract_meta(),
+    structured_output=True,
+)
+def inspect_document(
+    path: str,
+    mode: Literal["outline", "literal_search", "browse", "read"],
+    phrases: list[str] | None = None,
+    match_basis: Literal[
+        "exact_literal",
+        "normalized_literal",
+        "normalized_casefold_literal",
+    ]
+    | None = None,
+    selection: InspectSelectionInput | None = None,
+    cursor: str | None = None,
+    max_items: int = DEFAULT_INSPECT_MAX_ITEMS,
+) -> InspectDocumentResult:
+    """Inspect unchanged operative text without dumping the whole document.
+
+    ``outline`` returns structural headings without clause-body text.
+    ``literal_search`` searches the supplied phrases independently inside each
+    supported body paragraph using the explicit ``match_basis``. ``browse``
+    pages supported non-empty paragraphs when outline/search discovery is not
+    sufficient. ``read`` resolves exactly one hash-bound ``paragraph_ref`` or
+    ``section_ref`` from an earlier result. Section reads are cursor-paginated;
+    paragraph reads return one full bounded paragraph and reject cursors.
+
+    All modes use the accepted/current reading of ``word/document.xml`` under
+    the disclosed canonical body-flow policy. Filename order, clause labels and
+    headings remain navigation only; the file and paragraph hashes are the
+    evidence anchors. Calls never mutate the DOCX but normally append local
+    provenance like every current Veqtor tool.
+    """
+
+    def input_payload() -> dict[str, Any]:
+        return {
+            "path": path,
+            "mode": mode,
+            **({"phrases": phrases} if phrases is not None else {}),
+            **({"match_basis": match_basis} if match_basis is not None else {}),
+            **({"selection": selection} if selection is not None else {}),
+            **({"cursor": cursor} if cursor is not None else {}),
+            "max_items": max_items,
+        }
+
+    def operation(workspace, payload):
+        try:
+            core_result = veqtor_docx.inspect_document(
+                path,
+                mode,
+                phrases=phrases,
+                match_basis=match_basis,
+                selection=selection,
+                cursor=cursor,
+                max_items=max_items,
+            )
+            result = {**core_result, "producer": _producer()}
+        except veqtor_docx.DocxError as exc:
+            _record_error(
+                tool_name="inspect_document",
+                workspace=workspace,
+                input_payload=payload,
+                exc=exc,
+                provenance=_inspect_error_provenance(path, mode, exc),
+            )
+            raise
+        return _with_record(
+            tool_name="inspect_document",
+            workspace=workspace,
+            input_payload=payload,
+            result=result,
+            provenance=_inspect_provenance(result),
+            record_result=_inspect_record_result(result),
+        )
+
+    return _run_tool_boundary(
+        tool_name="inspect_document",
+        workspace_resolver=lambda: records.workspace_for_file(path),
+        input_payload_factory=input_payload,
+        internal_provenance_factory=lambda: {"source_path": path, "mode": mode},
+        operation=operation,
+    )
+
+
+@mcp.tool(
     annotations=local_journaling_annotations("Preflight tracked edits"),
     meta=contract_meta(),
     structured_output=True,
@@ -631,9 +795,7 @@ def preflight_edits(
     def internal_provenance() -> dict[str, Any]:
         provenance = {
             "source_path": source_path,
-            "anchors": _anchors_from_edits(edits)
-            if isinstance(edits, list)
-            else [],
+            "anchors": _anchors_from_edits(edits) if isinstance(edits, list) else [],
         }
         if "tracked_change_author" in context:
             provenance["tracked_change_author"] = context["tracked_change_author"]
@@ -722,16 +884,12 @@ def apply_edits(
         provenance = {
             "source_path": source_path,
             "output_path": output_path,
-            "anchors": _anchors_from_edits(edits)
-            if isinstance(edits, list)
-            else [],
+            "anchors": _anchors_from_edits(edits) if isinstance(edits, list) else [],
         }
         if "tracked_change_author" in context:
             provenance["tracked_change_author"] = context["tracked_change_author"]
         if isinstance(preflight_proof, dict):
-            provenance["preflight_proof_sha256"] = preflight_proof.get(
-                "proof_sha256"
-            )
+            provenance["preflight_proof_sha256"] = preflight_proof.get("proof_sha256")
         return provenance
 
     def operation(workspace, input_payload):
@@ -804,26 +962,28 @@ def apply_edits(
 )
 def verify_quote(
     path: str,
-    anchor: AnchorInput,
+    anchor: VerifyAnchorInput,
     quote: str,
 ) -> VerifyQuoteResult:
     """Check a quotation against the document before relying on it.
 
     Call this before using a quote in a memo, email, or negotiation summary.
-    ``anchor`` is {change_unit_id, file_sha256} from ``extract_redlines``.
-    The verdict is ``exact`` (verbatim in the anchored change unit's old or
-    new text), ``normalized`` (matches after collapsing whitespace and
-    typographic quotes/dashes — ``diff`` says so), or ``not_found``.
+    ``anchor`` is either a legacy/v2 change-unit anchor from
+    ``extract_redlines`` or a ``paragraph_ref.v1`` from ``inspect_document``.
+    The verdict is ``exact`` (verbatim in the anchored old/new change text or
+    accepted/current paragraph), ``normalized`` (matches after collapsing
+    whitespace and typographic quotes/dashes — ``diff`` says so), or
+    ``not_found``.
     Matching is case-sensitive and deterministic; a hash mismatch or unknown
     anchor is an error, never a guess. The verdict covers only the anchored
-    change unit, not the whole document or the legal accuracy of the quote.
+    unit or paragraph, not the whole document or the legal accuracy of the
+    quote.
     """
+
     def internal_provenance() -> dict[str, Any]:
         return {
             "source_path": path,
-            "anchor": _anchor_from_verify(anchor)
-            if isinstance(anchor, dict)
-            else None,
+            "anchor": _anchor_from_verify(anchor) if isinstance(anchor, dict) else None,
         }
 
     def operation(workspace, input_payload):
@@ -890,6 +1050,7 @@ def export_decision_record(
     compact projection rather than a copy of the raw journal or the complete
     live tool response.
     """
+
     def operation(root, input_payload):
         assurance = _decision_record_assurance()
         export_scope = _decision_record_export_scope()
@@ -929,9 +1090,7 @@ def export_decision_record(
             "returned_count": len(result["records"]),
             "assurance": assurance,
             **export_scope,
-            "access_events_recorded_locally": current_export_event[
-                "recorded_locally"
-            ],
+            "access_events_recorded_locally": current_export_event["recorded_locally"],
             "current_export_event": current_export_event,
             **meta,
         }

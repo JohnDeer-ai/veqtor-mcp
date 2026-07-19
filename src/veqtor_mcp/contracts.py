@@ -13,10 +13,17 @@ from copy import deepcopy
 from typing import Annotated, Any, ClassVar, Literal
 
 from mcp.types import ToolAnnotations
-from pydantic import BaseModel, ConfigDict, WithJsonSchema
-from veqtor_docx.contracts import REVISION_COUNT_BASIS_V1
+from pydantic import BaseModel, ConfigDict, WithJsonSchema, model_validator
+from veqtor_docx.contracts import (
+    INSPECT_CONTAINER_POLICY_V1,
+    INSPECT_MATCH_BASES_V1,
+    INSPECT_MODES_V1,
+    INSPECT_READING_MODE_V1,
+    INSPECT_SEARCH_SCOPE_V1,
+    REVISION_COUNT_BASIS_V1,
+)
 
-MCP_CONTRACT_SCHEMA_VERSION = "veqtor.mcp.v0.2"
+MCP_CONTRACT_SCHEMA_VERSION = "veqtor.mcp.v0.3"
 MCP_CONTRACT_META_KEY = "veqtor.pro/contractSchemaVersion"
 MCP_CONTRACT_SCHEMA_EXTENSION = "x-veqtor-contract-schema-version"
 
@@ -50,9 +57,7 @@ _NULLABLE_STRING = {"type": ["string", "null"]}
 _SHA256 = {"type": "string", "pattern": "^[0-9a-f]{64}$"}
 _NULLABLE_SHA256 = {"anyOf": [_SHA256, {"type": "null"}]}
 _NONNEGATIVE_INTEGER = {"type": "integer", "minimum": 0}
-_NULLABLE_NONNEGATIVE_INTEGER = {
-    "anyOf": [_NONNEGATIVE_INTEGER, {"type": "null"}]
-}
+_NULLABLE_NONNEGATIVE_INTEGER = {"anyOf": [_NONNEGATIVE_INTEGER, {"type": "null"}]}
 _NULLABLE_FAILURE_PHASE = {
     "anyOf": [
         {
@@ -73,9 +78,7 @@ _NULLABLE_FAILURE_PHASE = {
 }
 
 
-ANCHOR_INPUT_SCHEMA: dict[str, Any] = {
-    "title": "Veqtor change-unit anchor",
-    MCP_CONTRACT_SCHEMA_EXTENSION: MCP_CONTRACT_SCHEMA_VERSION,
+_LEGACY_CHANGE_UNIT_ANCHOR_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "change_unit_id": {
@@ -90,6 +93,37 @@ ANCHOR_INPUT_SCHEMA: dict[str, Any] = {
     },
     "required": ["change_unit_id", "file_sha256"],
     "additionalProperties": False,
+}
+
+_CHANGE_UNIT_ANCHOR_V2_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "schema_version": {"const": "change_unit_anchor.v2"},
+        "change_unit_id": {
+            "type": "string",
+            "pattern": "^cu_[0-9]+$",
+        },
+        "file_sha256": _SHA256,
+        "container_policy": {"const": INSPECT_CONTAINER_POLICY_V1},
+        "unit_fingerprint_sha256": _SHA256,
+    },
+    "required": [
+        "schema_version",
+        "change_unit_id",
+        "file_sha256",
+        "container_policy",
+        "unit_fingerprint_sha256",
+    ],
+    "additionalProperties": False,
+}
+
+ANCHOR_INPUT_SCHEMA: dict[str, Any] = {
+    "title": "Veqtor change-unit anchor",
+    MCP_CONTRACT_SCHEMA_EXTENSION: MCP_CONTRACT_SCHEMA_VERSION,
+    "oneOf": [
+        _LEGACY_CHANGE_UNIT_ANCHOR_SCHEMA,
+        _CHANGE_UNIT_ANCHOR_V2_SCHEMA,
+    ],
 }
 
 EDIT_INPUT_SCHEMA: dict[str, Any] = {
@@ -164,8 +198,101 @@ PREFLIGHT_PROOF_SCHEMA: dict[str, Any] = {
 
 AnchorInput = Annotated[dict[str, Any], WithJsonSchema(ANCHOR_INPUT_SCHEMA)]
 EditInput = Annotated[dict[str, Any], WithJsonSchema(EDIT_INPUT_SCHEMA)]
-PreflightProofInput = Annotated[
-    dict[str, Any], WithJsonSchema(PREFLIGHT_PROOF_SCHEMA)
+PreflightProofInput = Annotated[dict[str, Any], WithJsonSchema(PREFLIGHT_PROOF_SCHEMA)]
+
+
+_INSPECT_POLICY_PROPERTIES: dict[str, Any] = {
+    "file_sha256": _SHA256,
+    "part_name": {"const": "word/document.xml"},
+    "reading_mode": {"const": INSPECT_READING_MODE_V1},
+    "container_policy": {"const": INSPECT_CONTAINER_POLICY_V1},
+}
+
+PARAGRAPH_REF_SCHEMA: dict[str, Any] = {
+    "title": "Veqtor paragraph reference",
+    MCP_CONTRACT_SCHEMA_EXTENSION: MCP_CONTRACT_SCHEMA_VERSION,
+    "type": "object",
+    "properties": {
+        **_INSPECT_POLICY_PROPERTIES,
+        "schema_version": {"const": "paragraph_ref.v1"},
+        "ref_type": {"const": "paragraph"},
+        "paragraph_index": _NONNEGATIVE_INTEGER,
+        "paragraph_text_sha256": _SHA256,
+    },
+    "required": [
+        "file_sha256",
+        "schema_version",
+        "ref_type",
+        "part_name",
+        "paragraph_index",
+        "paragraph_text_sha256",
+        "reading_mode",
+        "container_policy",
+    ],
+    "additionalProperties": False,
+}
+
+VERIFY_ANCHOR_INPUT_SCHEMA: dict[str, Any] = {
+    "title": "Veqtor quote-verification anchor",
+    MCP_CONTRACT_SCHEMA_EXTENSION: MCP_CONTRACT_SCHEMA_VERSION,
+    "oneOf": [
+        _LEGACY_CHANGE_UNIT_ANCHOR_SCHEMA,
+        _CHANGE_UNIT_ANCHOR_V2_SCHEMA,
+        PARAGRAPH_REF_SCHEMA,
+    ],
+}
+
+VerifyAnchorInput = Annotated[
+    dict[str, Any], WithJsonSchema(VERIFY_ANCHOR_INPUT_SCHEMA)
+]
+
+SECTION_REF_SCHEMA: dict[str, Any] = {
+    "title": "Veqtor structural section reference",
+    MCP_CONTRACT_SCHEMA_EXTENSION: MCP_CONTRACT_SCHEMA_VERSION,
+    "type": "object",
+    "properties": {
+        **_INSPECT_POLICY_PROPERTIES,
+        "schema_version": {"const": "section_ref.v1"},
+        "ref_type": {"const": "section"},
+        "heading_paragraph_index": _NONNEGATIVE_INTEGER,
+        "heading_text_sha256": _SHA256,
+    },
+    "required": [
+        "file_sha256",
+        "schema_version",
+        "ref_type",
+        "part_name",
+        "heading_paragraph_index",
+        "heading_text_sha256",
+        "reading_mode",
+        "container_policy",
+    ],
+    "additionalProperties": False,
+}
+
+INSPECT_SELECTION_SCHEMA: dict[str, Any] = {
+    "title": "Veqtor document-inspection selection",
+    MCP_CONTRACT_SCHEMA_EXTENSION: MCP_CONTRACT_SCHEMA_VERSION,
+    "type": "object",
+    "properties": {
+        "paragraph_ref": PARAGRAPH_REF_SCHEMA,
+        "section_ref": SECTION_REF_SCHEMA,
+    },
+    "oneOf": [
+        {
+            "required": ["paragraph_ref"],
+            "not": {"required": ["section_ref"]},
+        },
+        {
+            "required": ["section_ref"],
+            "not": {"required": ["paragraph_ref"]},
+        },
+    ],
+    "additionalProperties": False,
+}
+
+InspectSelectionInput = Annotated[
+    dict[str, Any], WithJsonSchema(INSPECT_SELECTION_SCHEMA)
 ]
 
 
@@ -226,9 +353,7 @@ _PREFLIGHT_DIAGNOSTIC_SCHEMA: dict[str, Any] = {
                 {"type": "null"},
             ]
         },
-        "status": {
-            "enum": ["applicable", "planned", "blocked", "not_evaluated"]
-        },
+        "status": {"enum": ["applicable", "planned", "blocked", "not_evaluated"]},
         "operation": {
             "anyOf": [
                 {"enum": ["replace", "delete", "counter", "reinstate"]},
@@ -238,9 +363,7 @@ _PREFLIGHT_DIAGNOSTIC_SCHEMA: dict[str, Any] = {
         "match_count": _NULLABLE_NONNEGATIVE_INTEGER,
         "target_author": _NULLABLE_STRING,
         "target_revision_ids": {"type": "array", "items": _STRING},
-        "position_status": {
-            "enum": ["supported", "unsupported", "not_evaluated"]
-        },
+        "position_status": {"enum": ["supported", "unsupported", "not_evaluated"]},
         "refusal_code": _NULLABLE_STRING,
     },
     "required": [
@@ -288,9 +411,7 @@ LIST_ROUNDS_RESULT_SCHEMA = _output_schema(
         "order_basis": {
             "type": "object",
             "properties": {
-                "kind": {
-                    "enum": ["filename", "caller_supplied_filename_sequence"]
-                },
+                "kind": {"enum": ["filename", "caller_supplied_filename_sequence"]},
                 "rule": _NONEMPTY_STRING,
                 "lineage_verified": {"const": False},
                 "round_id_semantics": {"const": "position_only"},
@@ -351,11 +472,10 @@ _CHANGE_UNIT_SCHEMA: dict[str, Any] = {
     "properties": {
         "change_unit_id": {"type": "string", "pattern": "^cu_[0-9]+$"},
         "file_sha256": _SHA256,
-        "change_type": {
-            "enum": ["insert", "delete", "replace", "counter"]
-        },
+        "change_type": {"enum": ["insert", "delete", "replace", "counter"]},
         "author": _STRING,
         "date": _NULLABLE_STRING,
+        "anchor": _CHANGE_UNIT_ANCHOR_V2_SCHEMA,
         "clause_anchor": _CLAUSE_ANCHOR_SCHEMA,
         "paragraph_context": {
             "type": "object",
@@ -383,6 +503,7 @@ _CHANGE_UNIT_SCHEMA: dict[str, Any] = {
                 "path": _NONEMPTY_STRING,
                 "part_name": _NONEMPTY_STRING,
                 "paragraph_index": _NONNEGATIVE_INTEGER,
+                "container_kind": {"enum": ["body", "table_cell"]},
                 "group_index": _NONNEGATIVE_INTEGER,
                 "revision_ids": {"type": "array", "items": _STRING},
             },
@@ -390,6 +511,7 @@ _CHANGE_UNIT_SCHEMA: dict[str, Any] = {
                 "path",
                 "part_name",
                 "paragraph_index",
+                "container_kind",
                 "group_index",
                 "revision_ids",
             ],
@@ -403,6 +525,7 @@ _CHANGE_UNIT_SCHEMA: dict[str, Any] = {
         "change_type",
         "author",
         "date",
+        "anchor",
         "clause_anchor",
         "paragraph_context",
         "old_text",
@@ -410,6 +533,89 @@ _CHANGE_UNIT_SCHEMA: dict[str, Any] = {
         "reference",
     ],
     "additionalProperties": True,
+}
+
+_CONTAINER_COVERAGE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "schema_version": {"const": INSPECT_CONTAINER_POLICY_V1},
+        "indexed_paragraph_count": _NONNEGATIVE_INTEGER,
+        "body_paragraph_count": _NONNEGATIVE_INTEGER,
+        "table_cell_paragraph_count": _NONNEGATIVE_INTEGER,
+        "excluded_subtree_count": _NONNEGATIVE_INTEGER,
+        "excluded_paragraph_count": _NONNEGATIVE_INTEGER,
+        "excluded_by_kind": {
+            "type": "object",
+            "additionalProperties": _NONNEGATIVE_INTEGER,
+        },
+        "excluded_paragraphs_by_kind": {
+            "type": "object",
+            "additionalProperties": _NONNEGATIVE_INTEGER,
+        },
+        "coverage_complete": {"type": "boolean"},
+        "legacy_two_field_anchor_safe": {"type": "boolean"},
+    },
+    "required": [
+        "schema_version",
+        "indexed_paragraph_count",
+        "body_paragraph_count",
+        "table_cell_paragraph_count",
+        "excluded_subtree_count",
+        "excluded_paragraph_count",
+        "excluded_by_kind",
+        "excluded_paragraphs_by_kind",
+        "coverage_complete",
+        "legacy_two_field_anchor_safe",
+    ],
+    "additionalProperties": False,
+}
+
+_REVISION_INVENTORY_V2_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "schema_version": {"const": "revision_inventory.v2"},
+        "scope": {"const": "word/document.xml"},
+        "container_policy": _CONTAINER_COVERAGE_SCHEMA,
+        "tracked_text_revision_elements": _NONNEGATIVE_INTEGER,
+        "total_revision_elements": _NONNEGATIVE_INTEGER,
+        "in_scope_revision_elements": _NONNEGATIVE_INTEGER,
+        "decoded_revision_elements": _NONNEGATIVE_INTEGER,
+        "unsupported_revision_occurrences": _NONNEGATIVE_INTEGER,
+        "unsupported_revision_kind_count": _NONNEGATIVE_INTEGER,
+        "excluded_container_occurrences": _NONNEGATIVE_INTEGER,
+        "excluded_container_kind_count": _NONNEGATIVE_INTEGER,
+        "unsupported_by_kind": {
+            "type": "object",
+            "additionalProperties": _NONNEGATIVE_INTEGER,
+        },
+        "excluded_by_container": {
+            "type": "object",
+            "additionalProperties": _NONNEGATIVE_INTEGER,
+        },
+        "partition_valid": {"type": "boolean"},
+        "all_in_scope_revision_elements_decoded": {"type": "boolean"},
+        "all_revision_elements_decoded": {"type": "boolean"},
+        "emitted_change_unit_count": _NONNEGATIVE_INTEGER,
+    },
+    "required": [
+        "schema_version",
+        "scope",
+        "container_policy",
+        "tracked_text_revision_elements",
+        "total_revision_elements",
+        "in_scope_revision_elements",
+        "decoded_revision_elements",
+        "unsupported_revision_occurrences",
+        "unsupported_revision_kind_count",
+        "excluded_container_occurrences",
+        "excluded_container_kind_count",
+        "unsupported_by_kind",
+        "excluded_by_container",
+        "partition_valid",
+        "all_in_scope_revision_elements_decoded",
+        "all_revision_elements_decoded",
+    ],
+    "additionalProperties": False,
 }
 
 EXTRACT_REDLINES_RESULT_SCHEMA = _output_schema(
@@ -425,37 +631,7 @@ EXTRACT_REDLINES_RESULT_SCHEMA = _output_schema(
             "type": "object",
             "additionalProperties": _NONNEGATIVE_INTEGER,
         },
-        "revision_inventory": {
-            "type": "object",
-            "properties": {
-                "schema_version": {"const": "revision_inventory.v1"},
-                "scope": _NONEMPTY_STRING,
-                "total_revision_elements": _NONNEGATIVE_INTEGER,
-                "decoded_revision_elements": _NONNEGATIVE_INTEGER,
-                "unsupported_revision_occurrences": _NONNEGATIVE_INTEGER,
-                "unsupported_revision_kind_count": _NONNEGATIVE_INTEGER,
-                "emitted_change_unit_count": _NONNEGATIVE_INTEGER,
-                "unsupported_by_kind": {
-                    "type": "object",
-                    "additionalProperties": _NONNEGATIVE_INTEGER,
-                },
-                "partition_valid": {"type": "boolean"},
-                "all_revision_elements_decoded": {"type": "boolean"},
-            },
-            "required": [
-                "schema_version",
-                "scope",
-                "total_revision_elements",
-                "decoded_revision_elements",
-                "unsupported_revision_occurrences",
-                "unsupported_revision_kind_count",
-                "emitted_change_unit_count",
-                "unsupported_by_kind",
-                "partition_valid",
-                "all_revision_elements_decoded",
-            ],
-            "additionalProperties": True,
-        },
+        "revision_inventory": _REVISION_INVENTORY_V2_SCHEMA,
     },
     [
         "path",
@@ -468,6 +644,343 @@ EXTRACT_REDLINES_RESULT_SCHEMA = _output_schema(
         "revision_inventory",
     ],
 )
+
+_INSPECT_NAVIGATION_SCHEMA: dict[str, Any] = {
+    "anyOf": [
+        {
+            "type": "object",
+            "properties": {
+                "label": _NULLABLE_STRING,
+                "heading": _NULLABLE_STRING,
+                "level": _NONNEGATIVE_INTEGER,
+                "basis": {"const": "word_outline_level_v1"},
+                "label_basis": {
+                    "anyOf": [
+                        {
+                            "enum": [
+                                "word_numbering_v1",
+                                "explicit_heading_text_v1",
+                            ]
+                        },
+                        {"type": "null"},
+                    ]
+                },
+            },
+            "required": ["label", "heading", "level", "basis", "label_basis"],
+            "additionalProperties": False,
+        },
+        {"type": "null"},
+    ]
+}
+
+_INSPECT_PARAGRAPH_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "paragraph_ref": PARAGRAPH_REF_SCHEMA,
+        "container_kind": {"enum": ["body", "table_cell"]},
+        "has_tracked_text_revisions": {"type": "boolean"},
+        "section_navigation": _INSPECT_NAVIGATION_SCHEMA,
+        "text": _STRING,
+    },
+    "required": [
+        "paragraph_ref",
+        "container_kind",
+        "has_tracked_text_revisions",
+        "section_navigation",
+        "text",
+    ],
+    "additionalProperties": False,
+}
+
+_INSPECT_SECTION_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "section_ref": SECTION_REF_SCHEMA,
+        "label": _NULLABLE_STRING,
+        "heading": _NULLABLE_STRING,
+        "level": _NONNEGATIVE_INTEGER,
+        "basis": {"const": "word_outline_level_v1"},
+        "label_basis": {
+            "anyOf": [
+                {
+                    "enum": [
+                        "word_numbering_v1",
+                        "explicit_heading_text_v1",
+                    ]
+                },
+                {"type": "null"},
+            ]
+        },
+        "start_paragraph_index": _NONNEGATIVE_INTEGER,
+        "end_paragraph_index_exclusive": _NONNEGATIVE_INTEGER,
+    },
+    "required": [
+        "section_ref",
+        "label",
+        "heading",
+        "level",
+        "basis",
+        "label_basis",
+        "start_paragraph_index",
+        "end_paragraph_index_exclusive",
+    ],
+    "additionalProperties": False,
+}
+
+_INSPECT_MATCH_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "phrase_index": _NONNEGATIVE_INTEGER,
+        "match_basis": {"enum": sorted(INSPECT_MATCH_BASES_V1)},
+        "occurrence_count": {"type": "integer", "minimum": 1},
+        "paragraph_ref": PARAGRAPH_REF_SCHEMA,
+        "container_kind": {"enum": ["body", "table_cell"]},
+        "has_tracked_text_revisions": {"type": "boolean"},
+        "section_navigation": _INSPECT_NAVIGATION_SCHEMA,
+        "snippet": {
+            "type": "object",
+            "properties": {
+                "text": _STRING,
+                "match_start": _NONNEGATIVE_INTEGER,
+                "match_end": _NONNEGATIVE_INTEGER,
+                "truncated_before": {"type": "boolean"},
+                "truncated_after": {"type": "boolean"},
+            },
+            "required": [
+                "text",
+                "match_start",
+                "match_end",
+                "truncated_before",
+                "truncated_after",
+            ],
+            "additionalProperties": False,
+        },
+    },
+    "required": [
+        "phrase_index",
+        "match_basis",
+        "occurrence_count",
+        "paragraph_ref",
+        "container_kind",
+        "has_tracked_text_revisions",
+        "section_navigation",
+        "snippet",
+    ],
+    "additionalProperties": False,
+}
+
+INSPECT_DOCUMENT_RESULT_SCHEMA = _output_schema(
+    "inspect_document result",
+    {
+        "mode": {"enum": sorted(INSPECT_MODES_V1)},
+        "path": _NONEMPTY_STRING,
+        "file_sha256": _SHA256,
+        "part_name": {"const": "word/document.xml"},
+        "search_scope": {"const": INSPECT_SEARCH_SCOPE_V1},
+        "reading_mode": {"const": INSPECT_READING_MODE_V1},
+        "container_policy": {"const": INSPECT_CONTAINER_POLICY_V1},
+        "has_tracked_text_revisions": {"type": "boolean"},
+        "revision_inventory": _REVISION_INVENTORY_V2_SCHEMA,
+        "coverage": {
+            "type": "object",
+            "properties": {
+                "scan_complete": {"const": True},
+                "body_paragraph_count": _NONNEGATIVE_INTEGER,
+                "nonempty_body_paragraph_count": _NONNEGATIVE_INTEGER,
+                "eligible_item_count": _NONNEGATIVE_INTEGER,
+                "returned_item_count": _NONNEGATIVE_INTEGER,
+                "cursor_offset": _NONNEGATIVE_INTEGER,
+                "output_truncated": {"type": "boolean"},
+                "complete_literal_match_count": {
+                    "anyOf": [_NONNEGATIVE_INTEGER, {"type": "null"}]
+                },
+                "included_parts": {
+                    "type": "array",
+                    "items": _NONEMPTY_STRING,
+                },
+                "excluded_parts": {
+                    "type": "array",
+                    "items": _NONEMPTY_STRING,
+                },
+                "included_containers": {
+                    "type": "array",
+                    "items": {"enum": ["body", "table_cell"]},
+                },
+                "container_coverage": _CONTAINER_COVERAGE_SCHEMA,
+            },
+            "required": [
+                "scan_complete",
+                "body_paragraph_count",
+                "nonempty_body_paragraph_count",
+                "eligible_item_count",
+                "returned_item_count",
+                "cursor_offset",
+                "output_truncated",
+                "complete_literal_match_count",
+                "included_parts",
+                "excluded_parts",
+                "included_containers",
+                "container_coverage",
+            ],
+            "additionalProperties": False,
+        },
+        "limits": {
+            "type": "object",
+            "properties": {
+                "requested_max_items": {"type": "integer", "minimum": 1},
+                "max_items": {"type": "integer", "minimum": 1},
+                "max_phrases": {"type": "integer", "minimum": 1},
+                "max_phrase_chars": {"type": "integer", "minimum": 1},
+                "max_total_phrase_chars": {"type": "integer", "minimum": 1},
+                "max_paragraph_text_chars": {"type": "integer", "minimum": 1},
+                "max_returned_text_chars": {"type": "integer", "minimum": 1},
+                "max_indexed_paragraphs": {"type": "integer", "minimum": 1},
+                "max_aggregate_text_chars": {"type": "integer", "minimum": 1},
+                "max_literal_match_candidates": {
+                    "type": "integer",
+                    "minimum": 1,
+                },
+                "max_literal_occurrences_per_candidate": {
+                    "type": "integer",
+                    "minimum": 1,
+                },
+                "wall_clock_partial_results": {"const": False},
+            },
+            "required": [
+                "requested_max_items",
+                "max_items",
+                "max_phrases",
+                "max_phrase_chars",
+                "max_total_phrase_chars",
+                "max_paragraph_text_chars",
+                "max_returned_text_chars",
+                "max_indexed_paragraphs",
+                "max_aggregate_text_chars",
+                "max_literal_match_candidates",
+                "max_literal_occurrences_per_candidate",
+                "wall_clock_partial_results",
+            ],
+            "additionalProperties": False,
+        },
+        "next_cursor": {
+            "anyOf": [
+                {"type": "string", "pattern": "^c1:[0-9]+:[0-9a-f]{64}$"},
+                {"type": "null"},
+            ]
+        },
+        "sections": {"type": "array", "items": _INSPECT_SECTION_SCHEMA},
+        "matches": {"type": "array", "items": _INSPECT_MATCH_SCHEMA},
+        "paragraphs": {"type": "array", "items": _INSPECT_PARAGRAPH_SCHEMA},
+        "match_basis": {"enum": sorted(INSPECT_MATCH_BASES_V1)},
+        "phrase_count": _NONNEGATIVE_INTEGER,
+        "selection_kind": {"enum": ["paragraph", "section"]},
+        "section_navigation": _INSPECT_NAVIGATION_SCHEMA,
+        "producer": _PRODUCER_SCHEMA,
+    },
+    [
+        "mode",
+        "path",
+        "file_sha256",
+        "part_name",
+        "search_scope",
+        "reading_mode",
+        "container_policy",
+        "has_tracked_text_revisions",
+        "revision_inventory",
+        "coverage",
+        "limits",
+        "next_cursor",
+        "producer",
+    ],
+)
+INSPECT_DOCUMENT_RESULT_SCHEMA["oneOf"] = [
+    {
+        "properties": {"mode": {"const": "outline"}},
+        "required": ["sections"],
+        "not": {
+            "anyOf": [
+                {"required": [field]}
+                for field in (
+                    "matches",
+                    "paragraphs",
+                    "match_basis",
+                    "phrase_count",
+                    "selection_kind",
+                    "section_navigation",
+                )
+            ]
+        },
+    },
+    {
+        "properties": {"mode": {"const": "literal_search"}},
+        "required": ["matches", "match_basis", "phrase_count"],
+        "not": {
+            "anyOf": [
+                {"required": [field]}
+                for field in (
+                    "sections",
+                    "paragraphs",
+                    "selection_kind",
+                    "section_navigation",
+                )
+            ]
+        },
+    },
+    {
+        "properties": {"mode": {"const": "browse"}},
+        "required": ["paragraphs"],
+        "not": {
+            "anyOf": [
+                {"required": [field]}
+                for field in (
+                    "sections",
+                    "matches",
+                    "match_basis",
+                    "phrase_count",
+                    "selection_kind",
+                    "section_navigation",
+                )
+            ]
+        },
+    },
+    {
+        "properties": {
+            "mode": {"const": "read"},
+            "selection_kind": {"const": "paragraph"},
+        },
+        "required": ["paragraphs", "selection_kind"],
+        "not": {
+            "anyOf": [
+                {"required": [field]}
+                for field in (
+                    "sections",
+                    "matches",
+                    "match_basis",
+                    "phrase_count",
+                    "section_navigation",
+                )
+            ]
+        },
+    },
+    {
+        "properties": {
+            "mode": {"const": "read"},
+            "selection_kind": {"const": "section"},
+        },
+        "required": ["paragraphs", "selection_kind", "section_navigation"],
+        "not": {
+            "anyOf": [
+                {"required": [field]}
+                for field in (
+                    "sections",
+                    "matches",
+                    "match_basis",
+                    "phrase_count",
+                )
+            ]
+        },
+    },
+]
 
 PREFLIGHT_EDITS_RESULT_SCHEMA = _output_schema(
     "preflight_edits result",
@@ -487,12 +1000,8 @@ PREFLIGHT_EDITS_RESULT_SCHEMA = _output_schema(
             "type": "array",
             "items": _PREFLIGHT_DIAGNOSTIC_SCHEMA,
         },
-        "round_trip_check": {
-            "anyOf": [_ROUND_TRIP_SCHEMA, {"type": "null"}]
-        },
-        "preflight_proof": {
-            "anyOf": [PREFLIGHT_PROOF_SCHEMA, {"type": "null"}]
-        },
+        "round_trip_check": {"anyOf": [_ROUND_TRIP_SCHEMA, {"type": "null"}]},
+        "preflight_proof": {"anyOf": [PREFLIGHT_PROOF_SCHEMA, {"type": "null"}]},
         "producer": _PRODUCER_SCHEMA,
     },
     [
@@ -572,7 +1081,7 @@ APPLY_EDITS_RESULT_SCHEMA = _output_schema(
     ],
 )
 
-_VERIFY_MATCH_SCHEMA: dict[str, Any] = {
+_VERIFY_CHANGE_UNIT_MATCH_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "path": _NONEMPTY_STRING,
@@ -585,12 +1094,44 @@ _VERIFY_MATCH_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
+_VERIFY_PARAGRAPH_MATCH_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "path": _NONEMPTY_STRING,
+        "part_name": {"const": "word/document.xml"},
+        "revision_ids": {"type": "array", "maxItems": 0},
+        "clause": _NULLABLE_STRING,
+        "side": {"const": "paragraph_current"},
+        "paragraph_index": _NONNEGATIVE_INTEGER,
+        "paragraph_text_sha256": _SHA256,
+        "reading_mode": {"const": INSPECT_READING_MODE_V1},
+    },
+    "required": [
+        "path",
+        "part_name",
+        "revision_ids",
+        "clause",
+        "side",
+        "paragraph_index",
+        "paragraph_text_sha256",
+        "reading_mode",
+    ],
+    "additionalProperties": False,
+}
+
+_VERIFY_MATCH_SCHEMA: dict[str, Any] = {
+    "oneOf": [
+        _VERIFY_CHANGE_UNIT_MATCH_SCHEMA,
+        _VERIFY_PARAGRAPH_MATCH_SCHEMA,
+    ]
+}
+
 VERIFY_QUOTE_RESULT_SCHEMA = _output_schema(
     "verify_quote result",
     {
         "verdict": {"enum": ["exact", "normalized", "not_found"]},
         "exact": {"type": "boolean"},
-        "checked_anchor": ANCHOR_INPUT_SCHEMA,
+        "checked_anchor": VERIFY_ANCHOR_INPUT_SCHEMA,
         "matches": {"type": "array", "items": _VERIFY_MATCH_SCHEMA},
         "diff": {"type": "array", "items": _STRING},
     },
@@ -675,9 +1216,7 @@ EXPORT_DECISION_RECORD_RESULT_SCHEMA = _output_schema(
                     ]
                 },
                 "record_type": {"const": "access_event.v1"},
-                "record_status": {
-                    "enum": ["written", "disabled", "write_failed"]
-                },
+                "record_status": {"enum": ["written", "disabled", "write_failed"]},
                 "recorded_locally": {"type": "boolean"},
                 "included_in_records": {"const": False},
                 "included_in_total_count": {"const": False},
@@ -714,6 +1253,7 @@ EXPORT_DECISION_RECORD_RESULT_SCHEMA = _output_schema(
         "current_export_event",
     ],
 )
+
 
 class _ContractResult(BaseModel):
     """Additive output model that preserves every key returned by tool code."""
@@ -752,6 +1292,80 @@ class ExtractRedlinesResult(_ContractResult):
     change_units: list[dict[str, Any]]
     unsupported_revisions: dict[str, int]
     revision_inventory: dict[str, Any]
+
+
+class InspectDocumentResult(_ContractResult):
+    contract_schema = INSPECT_DOCUMENT_RESULT_SCHEMA
+    mode: Literal["outline", "literal_search", "browse", "read"]
+    path: str
+    file_sha256: str
+    part_name: Literal["word/document.xml"]
+    search_scope: Literal["word_document_xml_body_v1"]
+    reading_mode: Literal["accepted_current_v1"]
+    container_policy: Literal["canonical_body_flow_v1"]
+    has_tracked_text_revisions: bool
+    revision_inventory: dict[str, Any]
+    coverage: dict[str, Any]
+    limits: dict[str, Any]
+    next_cursor: str | None
+    producer: dict[str, str]
+
+    @model_validator(mode="after")
+    def _validate_mode_specific_shape(self) -> InspectDocumentResult:
+        """Keep runtime serialization aligned with the advertised oneOf."""
+        extras = self.model_extra or {}
+        mode_fields = {
+            "sections",
+            "matches",
+            "paragraphs",
+            "match_basis",
+            "phrase_count",
+            "selection_kind",
+            "section_navigation",
+        }
+        present = set(extras) & mode_fields
+        if self.mode == "outline":
+            expected = {"sections"}
+            collection = extras.get("sections")
+        elif self.mode == "literal_search":
+            expected = {"matches", "match_basis", "phrase_count"}
+            collection = extras.get("matches")
+        elif self.mode == "browse":
+            expected = {"paragraphs"}
+            collection = extras.get("paragraphs")
+        else:
+            selection_kind = extras.get("selection_kind")
+            if selection_kind == "paragraph":
+                expected = {"paragraphs", "selection_kind"}
+            elif selection_kind == "section":
+                expected = {
+                    "paragraphs",
+                    "selection_kind",
+                    "section_navigation",
+                }
+            else:
+                raise ValueError("read result requires one supported selection_kind")
+            collection = extras.get("paragraphs")
+        if present != expected:
+            raise ValueError("result fields do not match inspect_document mode")
+        if not isinstance(collection, list):
+            raise ValueError("inspect_document mode collection must be an array")
+        if self.mode == "literal_search":
+            match_basis = extras.get("match_basis")
+            phrase_count = extras.get("phrase_count")
+            if match_basis not in INSPECT_MATCH_BASES_V1 or phrase_count is None:
+                raise ValueError("literal_search result metadata is incomplete")
+            if (
+                isinstance(phrase_count, bool)
+                or not isinstance(phrase_count, int)
+                or phrase_count < 0
+            ):
+                raise ValueError("literal_search phrase_count is invalid")
+        if extras.get("selection_kind") == "section" and not isinstance(
+            extras.get("section_navigation"), dict
+        ):
+            raise ValueError("section read requires section_navigation")
+        return self
 
 
 class PreflightEditsResult(_ContractResult):

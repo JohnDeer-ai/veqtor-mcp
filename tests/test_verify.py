@@ -9,7 +9,12 @@ from pathlib import Path
 import pytest
 import veqtor_docx.extract as extract_module
 
-from veqtor_docx import VerifyError, extract_redlines, verify_quote
+from veqtor_docx import (
+    VerifyError,
+    extract_redlines,
+    inspect_document,
+    verify_quote,
+)
 from veqtor_docx.synthetic import CAP_R2
 
 
@@ -50,7 +55,9 @@ def test_exact_substring_from_old_text(cap) -> None:
 
 def test_normalized_quote_collapsed_whitespace(cap) -> None:
     path, anchor = cap
-    result = verify_quote(path, anchor, "the total fees paid by Client  under this Agreement")
+    result = verify_quote(
+        path, anchor, "the total fees paid by Client  under this Agreement"
+    )
     assert result["verdict"] == "normalized"
     assert result["exact"] is False
     assert result["matches"][0]["side"] == "old"
@@ -98,7 +105,9 @@ def test_missing_file_is_a_stable_error(cap, tmp_path: Path) -> None:
     assert err.value.metadata == {}
 
 
-def test_malformed_document_xml_is_a_stable_error(demo_dir: Path, tmp_path: Path) -> None:
+def test_malformed_document_xml_is_a_stable_error(
+    demo_dir: Path, tmp_path: Path
+) -> None:
     """A real zip with a truncated word/document.xml must not leak a raw
     lxml XMLSyntaxError past the sha check — same file_unextractable code."""
     from veqtor_docx import DocxError, extract_redlines as extract
@@ -224,3 +233,92 @@ def test_verify_is_deterministic(cap) -> None:
     first = verify_quote(path, anchor, CAP_R2)
     second = verify_quote(path, anchor, CAP_R2)
     assert json.dumps(first, sort_keys=True) == json.dumps(second, sort_keys=True)
+
+
+def test_policy_bound_change_unit_anchor_verifies(demo_dir: Path) -> None:
+    path = str(demo_dir / "round-2-counterparty-redline.docx")
+    unit = next(
+        item
+        for item in extract_redlines(path)["change_units"]
+        if item["new_text"] == CAP_R2
+    )
+
+    result = verify_quote(path, unit["anchor"], CAP_R2)
+
+    assert result["verdict"] == "exact"
+    assert result["checked_anchor"] == unit["anchor"]
+
+
+def test_paragraph_reference_verifies_unchanged_text(demo_dir: Path) -> None:
+    path = str(demo_dir / "round-1-outgoing-draft.docx")
+    discovered = inspect_document(
+        path,
+        "literal_search",
+        phrases=["governed by the laws of England and Wales"],
+        match_basis="exact_literal",
+        max_items=10,
+    )
+    assert len(discovered["matches"]) == 1
+    paragraph_ref = discovered["matches"][0]["paragraph_ref"]
+
+    result = verify_quote(
+        path,
+        paragraph_ref,
+        "This Agreement is governed by the laws of England and Wales.",
+    )
+
+    assert result["verdict"] == "exact"
+    assert result["checked_anchor"] == paragraph_ref
+    assert result["matches"] == [
+        {
+            "path": path,
+            "part_name": "word/document.xml",
+            "revision_ids": [],
+            "clause": "15 Governing Law and Disputes",
+            "side": "paragraph_current",
+            "paragraph_index": paragraph_ref["paragraph_index"],
+            "paragraph_text_sha256": paragraph_ref["paragraph_text_sha256"],
+            "reading_mode": "accepted_current_v1",
+        }
+    ]
+
+
+def test_paragraph_reference_keeps_normalized_verdict(demo_dir: Path) -> None:
+    path = str(demo_dir / "round-1-outgoing-draft.docx")
+    discovered = inspect_document(
+        path,
+        "literal_search",
+        phrases=["governed by the laws"],
+        match_basis="exact_literal",
+    )
+    paragraph_ref = discovered["matches"][0]["paragraph_ref"]
+
+    result = verify_quote(
+        path,
+        paragraph_ref,
+        "This Agreement  is governed by the laws of England and Wales.",
+    )
+
+    assert result["verdict"] == "normalized"
+    assert result["exact"] is False
+
+
+def test_paragraph_reference_rejects_tampered_text_digest(
+    demo_dir: Path,
+) -> None:
+    path = str(demo_dir / "round-1-outgoing-draft.docx")
+    discovered = inspect_document(
+        path,
+        "literal_search",
+        phrases=["governed by the laws"],
+        match_basis="exact_literal",
+    )
+    paragraph_ref = {
+        **discovered["matches"][0]["paragraph_ref"],
+        "paragraph_text_sha256": "0" * 64,
+    }
+
+    with pytest.raises(VerifyError) as error:
+        verify_quote(path, paragraph_ref, "governed by the laws")
+
+    assert error.value.code == "reference_mismatch"

@@ -35,7 +35,7 @@ def test_release_guard_precedes_execution_of_requested_commit() -> None:
     assert "ref: main" in guard
     assert 'test "$GITHUB_REF" = "refs/heads/main"' in guard
     assert 'test "$GITHUB_SHA" = "$COMMIT_SHA"' in guard
-    assert 'git rev-parse origin/main' in guard
+    assert "git rev-parse origin/main" in guard
     assert 'git ls-remote --exit-code --refs origin "$TAG_REF"' in guard
     assert 'test "$TAG_SHA" = "$COMMIT_SHA"' in guard
     assert 'git merge-base --is-ancestor "$COMMIT_SHA" "$MAIN_SHA"' in guard
@@ -53,13 +53,10 @@ def test_release_guard_precedes_execution_of_requested_commit() -> None:
     assert '"desktop_extension"]["artifact_sha256"]' in guard
     assert "mcpb_sha256=%s" in guard
     assert "scripts/check_acceptance_evidence.py" in guard
-    assert 'printf \'%s\' "$ACCEPTANCE_EVIDENCE"' in guard
+    assert "printf '%s' \"$ACCEPTANCE_EVIDENCE\"" in guard
     assert '[[ "$ACCEPTANCE_EVIDENCE_SHA256" =~ ^[0-9a-f]{64}$ ]]' in guard
     assert 'sha256sum "$EVIDENCE_FILE"' in guard
-    assert (
-        'test "$ACTUAL_EVIDENCE_SHA256" = "$ACCEPTANCE_EVIDENCE_SHA256"'
-        in guard
-    )
+    assert 'test "$ACTUAL_EVIDENCE_SHA256" = "$ACCEPTANCE_EVIDENCE_SHA256"' in guard
     assert '--expected-sha256 "$ACCEPTANCE_EVIDENCE_SHA256"' in guard
     assert "uv sync --frozen --no-dev --python 3.12.13" in guard
     detach = 'git checkout --detach "$COMMIT_SHA"'
@@ -69,7 +66,7 @@ def test_release_guard_precedes_execution_of_requested_commit() -> None:
     assert (
         guard.index('test "$VERSION" = "$PACKAGE_VERSION"')
         < guard.index(detach)
-        < guard.index('printf \'%s\' "$ACCEPTANCE_EVIDENCE"')
+        < guard.index("printf '%s' \"$ACCEPTANCE_EVIDENCE\"")
         < guard.index("uv sync --frozen")
         < guard.rindex(head_assertion)
         < guard.index("scripts/check_acceptance_evidence.py")
@@ -134,9 +131,12 @@ def test_detached_checkout_models_tagged_ancestor_recovery(tmp_path: Path) -> No
         check=True,
         capture_output=True,
     )
-    assert subprocess.check_output(
-        ["git", "rev-parse", "HEAD"], cwd=repository, text=True
-    ).strip() == candidate
+    assert (
+        subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=repository, text=True
+        ).strip()
+        == candidate
+    )
 
 
 def test_release_promotion_is_exact_sha_retry_safe_and_write_scoped() -> None:
@@ -162,12 +162,12 @@ def test_release_promotion_is_exact_sha_retry_safe_and_write_scoped() -> None:
     assert "contents: write" in reserve_tag
     assert "id-token:" not in reserve_tag
     assert "actions:" not in reserve_tag
-    assert "reserved_attempt: ${{ steps.reserve.outputs.reserved_attempt }}" in reserve_tag
+    assert (
+        "reserved_attempt: ${{ steps.reserve.outputs.reserved_attempt }}" in reserve_tag
+    )
     assert "printf 'reserved_attempt=%s\\n' \"$GITHUB_RUN_ATTEMPT\"" in reserve_tag
 
-    assert (
-        "needs: [guard, verify, attempt_guard, reserve_tag, verify_pypi]" in publish
-    )
+    assert "needs: [guard, verify, attempt_guard, reserve_tag, verify_pypi]" in publish
     assert "environment: release" in publish
     assert "group: release-${{ inputs.version }}" in workflow
     assert "cancel-in-progress: false" in workflow
@@ -176,23 +176,23 @@ def test_release_promotion_is_exact_sha_retry_safe_and_write_scoped() -> None:
     assert "python3 .github/scripts/promote_release.py" in publish
     assert "RELEASE_ADMIN_READ_TOKEN" in publish
     assert (
-        "uv run --frozen --no-dev python "
-        ".github/scripts/verify_published_release.py"
+        "uv run --frozen --no-dev python .github/scripts/verify_published_release.py"
     ) in publish
     assert "uv sync --frozen --no-dev --python 3.12.13" in publish
     assert "needs.attempt_guard.outputs.verified_attempt" in publish
     assert 'test "$VERIFIED_ATTEMPT" = "$GITHUB_RUN_ATTEMPT"' in publish
     assert "needs.reserve_tag.outputs.reserved_attempt" in publish
     assert 'test "$RESERVED_ATTEMPT" = "$GITHUB_RUN_ATTEMPT"' in publish
-    assert "TAG_RESERVED_ATTEMPT: ${{ needs.reserve_tag.outputs.reserved_attempt }}" in publish
+    assert (
+        "TAG_RESERVED_ATTEMPT: ${{ needs.reserve_tag.outputs.reserved_attempt }}"
+        in publish
+    )
     assert "contents: write" in publish
     assert "id-token:" not in publish
     assert "actions:" not in publish
     assert "sha256sum dist/* >" not in publish
     assert "--target" not in publish
-    promotion = (
-        ROOT / ".github" / "scripts" / "promote_release.py"
-    ).read_text()
+    promotion = (ROOT / ".github" / "scripts" / "promote_release.py").read_text()
     assert 'GITHUB_API_VERSION = "2026-03-10"' in promotion
     assert 'GITHUB_API_HEADER = f"X-GitHub-Api-Version:' in promotion
     assert "--paginate" in promotion
@@ -208,23 +208,25 @@ def test_release_promotion_is_exact_sha_retry_safe_and_write_scoped() -> None:
     assert "verify_release_attempt.py" in attempt_guard
     assert "attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" in attempt_guard
     assert "X-GitHub-Api-Version: 2026-03-10" in attempt_guard
-    assert "--run-id \"$GITHUB_RUN_ID\"" in attempt_guard
-    assert "--attempt \"$GITHUB_RUN_ATTEMPT\"" in attempt_guard
+    assert '--run-id "$GITHUB_RUN_ID"' in attempt_guard
+    assert '--attempt "$GITHUB_RUN_ATTEMPT"' in attempt_guard
 
 
-def test_read_only_artifact_job_owns_and_smokes_the_flat_manifest() -> None:
+def test_frozen_release_artifact_job_owns_and_smokes_the_flat_manifest() -> None:
     workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-    artifact = _job(workflow, "artifact", "reproduce")
+    artifact = _job(workflow, "release-artifact", "reproduce")
 
+    assert "needs: [classify, artifact]" in artifact
+    assert "needs.classify.outputs.release_contract_match == 'true'" in artifact
     assert "sha256sum *.whl *.tar.gz *.mcpb > SHA256SUMS.txt" in artifact
     assert "sha256sum -c SHA256SUMS.txt" in artifact
-    assert "--source-root . --commit \"$VERIFY_REF\"" in artifact
+    assert '--source-root . --commit "$VERIFY_REF"' in artifact
     assert "scripts/build_mcpb.py" in artifact
     assert "scripts/check_mcpb_artifact.py" in artifact
     assert "@anthropic-ai/mcpb@2.1.2 validate" in artifact
     assert "@anthropic-ai/mcpb@2.1.2 info" in artifact
     assert "dist/*.mcpb" in artifact
-    assert "Smoke all six tools against a copy of the bundled demo" in artifact
+    assert "Smoke the frozen tool inventory against the bundled demo" in artifact
     assert "Launch the exact MCPB command over stdio" in artifact
     assert "path: dist/*" not in artifact
     assert "dist/SHA256SUMS.txt" in artifact
@@ -238,7 +240,7 @@ def test_read_only_artifact_job_owns_and_smokes_the_flat_manifest() -> None:
 
 def test_artifact_build_has_pinned_static_and_locked_dependency_gates() -> None:
     workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-    artifact = _job(workflow, "artifact", "reproduce")
+    artifact = _job(workflow, "artifact", "release-artifact")
 
     ruff = "uvx ruff==0.15.21 check ."
     export = "uv export --frozen --no-dev --no-emit-project"
@@ -257,7 +259,8 @@ def test_independent_rebuild_is_a_required_secretless_ci_job() -> None:
     workflow = (ROOT / ".github/workflows/ci.yml").read_text()
     reproduce = _job(workflow, "reproduce", "gitleaks")
 
-    assert "needs: artifact" in reproduce
+    assert "needs: [classify, release-artifact]" in reproduce
+    assert "needs.classify.outputs.release_contract_match == 'true'" in reproduce
     assert "runs-on: ubuntu-24.04" in reproduce
     assert 'python-version: "3.12.13"' in reproduce
     assert 'version: "0.11.28"' in reproduce
@@ -267,8 +270,7 @@ def test_independent_rebuild_is_a_required_secretless_ci_job() -> None:
     assert "check_reproducible_mcpb.py" in reproduce
     assert "uv sync --frozen --no-dev --python 3.12.13" in reproduce
     assert (
-        "uv run --frozen --no-dev python "
-        "scripts/check_reproducible_mcpb.py"
+        "uv run --frozen --no-dev python scripts/check_reproducible_mcpb.py"
     ) in reproduce
     assert "--approved-dir approved-dist" in reproduce
     assert "--mirror-dir approved-pypi-dist" in reproduce
@@ -287,9 +289,11 @@ def test_ci_runs_once_per_change_and_exposes_one_required_gate() -> None:
         workflow,
     )
     assert set(jobs) == {
+        "classify",
         "test",
         "min-versions",
         "artifact",
+        "release-artifact",
         "reproduce",
         "gitleaks",
         "required",
@@ -298,16 +302,67 @@ def test_ci_runs_once_per_change_and_exposes_one_required_gate() -> None:
     required = jobs["required"]
     assert "name: Required CI gate" in required
     assert "if: ${{ always() }}" in required
-    assert "needs: [test, min-versions, artifact, reproduce, gitleaks]" in required
+    assert (
+        "needs: [classify, test, min-versions, artifact, release-artifact, "
+        "reproduce, gitleaks]"
+    ) in required
     for dependency in (
+        "classify",
         "test",
         "min-versions",
         "artifact",
-        "reproduce",
         "gitleaks",
     ):
         assertion = 'test "${{ needs.' + dependency + '.result }}" = "success"'
         assert assertion in required
+    assert 'needs.classify.outputs.release_contract_match }}" = "true"' in required
+    assert 'needs[\'release-artifact\'].result }}" = "success"' in required
+    assert 'needs[\'release-artifact\'].result }}" = "skipped"' in required
+    assert 'needs.reproduce.result }}" = "success"' in required
+    assert 'needs.reproduce.result }}" = "skipped"' in required
+
+
+def test_ci_separates_development_artifacts_from_frozen_release_artifacts() -> None:
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+    classify = _job(workflow, "classify", "test")
+    artifact = _job(workflow, "artifact", "release-artifact")
+    release_artifact = _job(workflow, "release-artifact", "reproduce")
+
+    assert "PROJECT_VERSION=$(python3 -c" in classify
+    assert "RELEASE_CONTRACT_VERSION=$(python3 -c" in classify
+    assert 'test "$PROJECT_VERSION" = "$RELEASE_CONTRACT_VERSION"' in classify
+    assert "release_contract_match=%s" in classify
+
+    assert "Build and smoke Python artifacts" in artifact
+    assert "uv build --clear" in artifact
+    assert "uvx twine check dist/*.whl dist/*.tar.gz" in artifact
+    assert artifact.count("scripts/installed_wheel_smoke.py") == 2
+    assert "scripts/build_mcpb.py" not in artifact
+    assert "scripts/check_release_artifacts.py" not in artifact
+    assert "SHA256SUMS.txt" not in artifact
+    assert "name: ${{ env.PYPI_ARTIFACT_NAME }}" in artifact
+
+    assert "Build and smoke release artifacts" in release_artifact
+    assert "needs.classify.outputs.release_contract_match == 'true'" in (
+        release_artifact
+    )
+    assert "scripts/build_mcpb.py" in release_artifact
+    assert "scripts/check_release_artifacts.py" in release_artifact
+    assert "scripts/check_mcpb_artifact.py" in release_artifact
+    assert "dist/SHA256SUMS.txt" in release_artifact
+    assert "name: ${{ env.DIST_ARTIFACT_NAME }}" in release_artifact
+
+
+def test_development_wheel_smoke_binds_metadata_and_seven_tool_surface() -> None:
+    smoke = (ROOT / "scripts" / "installed_wheel_smoke.py").read_text()
+
+    assert 'distribution("veqtor-mcp")' in smoke
+    assert "installed.version == __version__" in smoke
+    assert '"inspect_document"' in smoke
+    assert 'session.call_tool(\n                    "inspect_document"' in smoke
+    assert 'inspected["revision_inventory"]["schema_version"]' in smoke
+    assert '"installed_metadata_version": installed.version' in smoke
+    assert '"tool_count": len(names)' in smoke
 
 
 def test_release_artifacts_are_scoped_to_the_current_run_attempt() -> None:
@@ -353,8 +408,7 @@ def test_pypi_publish_uses_exact_artifact_oidc_and_public_verification() -> None
     assert "name: ${{ env.PYPI_ARTIFACT_NAME }}" in publish_pypi
     assert "path: dist" in publish_pypi
     assert (
-        "pypa/gh-action-pypi-publish@"
-        "cef221092ed1bacb1cc03d23a2d87d1d172e277b"
+        "pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b"
     ) in publish_pypi
     assert "packages-dir: dist/" in publish_pypi
     assert ".mcpb" not in publish_pypi
@@ -371,9 +425,7 @@ def test_pypi_publish_uses_exact_artifact_oidc_and_public_verification() -> None
     assert 'cd "$RUNNER_TEMP"' in verify_pypi
     assert 'uvx "veqtor-mcp@$VERSION" --version' in verify_pypi
     assert 'uvx "veqtor-mcp@$VERSION" doctor' in verify_pypi
-    assert (
-        'uvx --from "veqtor-mcp==$VERSION" veqtor-demo-rounds' in verify_pypi
-    )
+    assert 'uvx --from "veqtor-mcp==$VERSION" veqtor-demo-rounds' in verify_pypi
     assert '"$RUNNER_TEMP/veqtor-public-demo"' in verify_pypi
     assert "-name '*.docx'" in verify_pypi
     assert verify_pypi.index("verify_published_pypi.py") < verify_pypi.index(
@@ -516,9 +568,9 @@ def test_release_job_graph_has_one_root_and_orders_all_publication() -> None:
         "needs: [guard, verify, attempt_guard, reserve_tag, verify_pypi]"
         in jobs["publish"]
     )
-    assert {
-        name for name, body in jobs.items() if "id-token: write" in body
-    } == {"publish_pypi"}
+    assert {name for name, body in jobs.items() if "id-token: write" in body} == {
+        "publish_pypi"
+    }
 
 
 def test_all_release_actions_are_pinned_to_full_shas() -> None:

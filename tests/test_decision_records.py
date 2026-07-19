@@ -274,9 +274,10 @@ def test_successful_tool_calls_write_decision_records(tmp_path: Path) -> None:
     assert apply_record["provenance"]["applied"][0]["operation"] == "replace"
     assert apply_record["provenance"]["round_trip_check"]["status"] == "passed"
     assert apply_record["provenance"]["preflight_binding_status"] == "verified"
-    assert apply_record["provenance"]["preflight_candidate_sha256"] == applied[
-        "output_sha256"
-    ]
+    assert (
+        apply_record["provenance"]["preflight_candidate_sha256"]
+        == applied["output_sha256"]
+    )
     assert apply_record["provenance"]["candidate_output_sha256_match"] is True
 
 
@@ -289,9 +290,7 @@ def test_relative_tool_workspaces_are_canonical_and_match_export_digest(
     monkeypatch.chdir(tmp_path)
 
     listed = server.list_rounds("demo")
-    extracted = server.extract_redlines(
-        "demo/round-2-counterparty-redline.docx"
-    )
+    extracted = server.extract_redlines("demo/round-2-counterparty-redline.docx")
 
     assert listed["record_status"] == "written"
     assert extracted["record_status"] == "written"
@@ -300,8 +299,7 @@ def test_relative_tool_workspaces_are_canonical_and_match_export_digest(
     assert exported["record_status"] == "written"
     assert len(exported["records"]) == 2
     assert all(
-        record["workspace"] == exported["workspace"]
-        for record in exported["records"]
+        record["workspace"] == exported["workspace"] for record in exported["records"]
     )
 
     full = records.read_records(
@@ -312,9 +310,7 @@ def test_relative_tool_workspaces_are_canonical_and_match_export_digest(
     )
     expected_workspace = str(demo.resolve())
     assert full["workspace"] == expected_workspace
-    assert {record["workspace"] for record in full["records"]} == {
-        expected_workspace
-    }
+    assert {record["workspace"] for record in full["records"]} == {expected_workspace}
 
 
 def test_case_aliases_use_filesystem_spelling_for_workspace_identity(
@@ -333,9 +329,7 @@ def test_case_aliases_use_filesystem_spelling_for_workspace_identity(
 
     monkeypatch.chdir(tmp_path)
     listed = server.list_rounds("demomatter")
-    extracted = server.extract_redlines(
-        "DEMOMATTER/round-2-counterparty-redline.docx"
-    )
+    extracted = server.extract_redlines("DEMOMATTER/round-2-counterparty-redline.docx")
     exported = server.export_decision_record("dEmOmAtTeR", max_records=10)
 
     assert listed["record_status"] == "written"
@@ -343,8 +337,7 @@ def test_case_aliases_use_filesystem_spelling_for_workspace_identity(
     assert exported["record_status"] == "written"
     assert len(exported["records"]) == 2
     assert all(
-        record["workspace"] == exported["workspace"]
-        for record in exported["records"]
+        record["workspace"] == exported["workspace"] for record in exported["records"]
     )
     full = records.read_records(
         "DEMOMATTER",
@@ -384,11 +377,14 @@ def test_descriptor_path_spelling_is_used_when_available(
         lambda _path: pytest.fail("F_GETPATH should provide the descriptor path"),
     )
     try:
-        assert records._filesystem_spelled_workspace(
-            fd,
-            tmp_path / "caller-spelled-fallback",
-            (info.st_dev, info.st_ino),
-        ) == resolved
+        assert (
+            records._filesystem_spelled_workspace(
+                fd,
+                tmp_path / "caller-spelled-fallback",
+                (info.st_dev, info.st_ino),
+            )
+            == resolved
+        )
     finally:
         os.close(fd)
 
@@ -411,15 +407,19 @@ def test_case_sensitive_workspace_names_are_not_casefolded(tmp_path: Path) -> No
     assert upper_identity != lower_identity
 
     for workspace in (upper, lower):
-        assert records.write_record(
-            workspace=workspace,
-            tool_name="list_rounds",
-            input_payload={},
-            result={"status": "ok"},
-            provenance={},
-        )["record_status"] == "written"
-    assert records.read_records(str(upper), max_records=1)["workspace"] != (
-        records.read_records(str(lower), max_records=1)["workspace"]
+        assert (
+            records.write_record(
+                workspace=workspace,
+                tool_name="list_rounds",
+                input_payload={},
+                result={"status": "ok"},
+                provenance={},
+            )["record_status"]
+            == "written"
+        )
+    assert (
+        records.read_records(str(upper), max_records=1)["workspace"]
+        != (records.read_records(str(lower), max_records=1)["workspace"])
     )
 
 
@@ -473,6 +473,13 @@ def test_extract_record_is_compact_and_does_not_duplicate_change_text(
     )
     assert extract_record["tool_result_sha256"] != extract_record["result_sha256"]
     assert extract_record["producer"]["build"]
+    observed_anchor = extract_record["provenance"]["anchors"]["sample"][0]
+    assert observed_anchor["schema_version"] == "change_unit_anchor.v2"
+    assert observed_anchor["container_policy"] == "canonical_body_flow_v1"
+    assert (
+        observed_anchor["unit_fingerprint_sha256"]
+        == extracted["change_units"][0]["anchor"]["unit_fingerprint_sha256"]
+    )
     serialized = json.dumps(extract_record, ensure_ascii=False)
     text = next(
         candidate
@@ -481,6 +488,80 @@ def test_extract_record_is_compact_and_does_not_duplicate_change_text(
         if candidate and len(candidate) > 20
     )
     assert text not in serialized
+
+
+def test_inspection_record_is_compact_text_free_and_keeps_hash_bound_refs(
+    tmp_path: Path,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-1-outgoing-draft.docx"
+    phrase = "Except as set out in Clause 14.3"
+
+    inspected = server.inspect_document(
+        str(source),
+        "literal_search",
+        phrases=[phrase],
+        match_basis="exact_literal",
+        max_items=1,
+    )
+    assert inspected["record_status"] == "written"
+    paragraph_ref = inspected["matches"][0]["paragraph_ref"]
+    verified = server.verify_quote(str(source), paragraph_ref, phrase)
+    assert verified["record_status"] == "written"
+
+    exported = server.export_decision_record(str(matter), max_records=10)
+    compact = next(
+        item for item in exported["records"] if item["tool_name"] == "inspect_document"
+    )
+    assert compact["record_type"] == "inspection.v1"
+    assert compact["result"]["mode"] == "literal_search"
+    assert compact["result"]["file_sha256"] == inspected["file_sha256"]
+    assert compact["result"]["coverage"]["complete_literal_match_count"] == 1
+    container_coverage = compact["result"]["coverage"]["container_coverage"]
+    assert container_coverage["schema_version"] == "canonical_body_flow_v1"
+    assert container_coverage["indexed_paragraph_count"] == (
+        container_coverage["body_paragraph_count"]
+        + container_coverage["table_cell_paragraph_count"]
+    )
+    assert container_coverage["coverage_complete"] is True
+    assert compact["result"]["limits"]["max_items"] == 100
+    assert compact["result"]["limits"]["wall_clock_partial_results"] is False
+    assert compact["result"]["match_count"] == 1
+    assert compact["provenance"]["inspection_refs"]["count"] == 1
+    assert compact["provenance"]["inspection_refs"]["sample"] == [
+        {"paragraph_ref": paragraph_ref}
+    ]
+    assert compact["provenance"]["inspection_refs"]["truncated"] is False
+    assert compact["provenance"]["limits"] == compact["result"]["limits"]
+    encoded = json.dumps(compact, ensure_ascii=False)
+    assert phrase not in encoded
+    assert str(matter.resolve()) not in encoded
+    assert str(source.resolve()) not in encoded
+    assert "snippet" not in encoded
+    assert "paragraphs" not in compact["result"]
+
+    compact_verify = next(
+        item for item in exported["records"] if item["tool_name"] == "verify_quote"
+    )
+    assert compact_verify["result"]["checked_anchor"] == paragraph_ref
+    match = compact_verify["result"]["matches"]["sample"][0]
+    assert match["side"] == "paragraph_current"
+    assert match["paragraph_index"] == paragraph_ref["paragraph_index"]
+    assert match["paragraph_text_sha256"] == paragraph_ref["paragraph_text_sha256"]
+    assert str(source.resolve()) not in json.dumps(compact_verify, ensure_ascii=False)
+
+    raw = records.read_records(
+        str(matter),
+        max_records=10,
+        include_payload=True,
+    )
+    record = next(
+        item for item in raw["records"] if item["tool_name"] == "inspect_document"
+    )
+    assert record["record_type"] == "inspection.v1"
+    assert record["result"]["match_count"] == 1
+    assert "matches" not in record["result"]
+    assert record["tool_result_sha256"] != record["result_sha256"]
 
 
 def test_build_identity_ignores_asserted_environment_commit(
@@ -3286,9 +3367,7 @@ def test_docx_producer_domains_are_shared_with_v1_projection() -> None:
     assert records.MATCH_SIDES_V1 is docx_contracts.MATCH_SIDES_V1
     assert records.RESULT_STATUS_OK == docx_contracts.RESULT_STATUS_OK
     assert records.RESULT_STATUS_ERROR == docx_contracts.RESULT_STATUS_ERROR
-    assert records.REVISION_COUNT_BASES_V1 is (
-        docx_contracts.REVISION_COUNT_BASES_V1
-    )
+    assert records.REVISION_COUNT_BASES_V1 is (docx_contracts.REVISION_COUNT_BASES_V1)
     assert records.ROUND_TRIP_STATUSES_V1 is (docx_contracts.ROUND_TRIP_STATUSES_V1)
     assert records.ROUND_TRIP_COMPARISONS_V1 is (
         docx_contracts.ROUND_TRIP_COMPARISONS_V1
@@ -3350,9 +3429,7 @@ def test_revision_count_basis_survives_current_compact_projections() -> None:
             "provenance": {},
         }
         assert "revision_count_basis" not in records._summary_result(legacy_record)
-        assert "revision_count_basis" not in records._summary_provenance(
-            legacy_record
-        )
+        assert "revision_count_basis" not in records._summary_provenance(legacy_record)
 
 
 @pytest.mark.parametrize(
@@ -4644,6 +4721,7 @@ def test_v1_historical_tool_specs_are_frozen_and_cover_writable_tools() -> None:
     expected = {
         "list_rounds": ("tool_observation.v1", "list_rounds"),
         "extract_redlines": ("tool_observation.v1", "extract_redlines"),
+        "inspect_document": ("inspection.v1", "inspect_document"),
         "verify_quote": ("verification.v1", "verify_quote"),
         "preflight_edits": ("verification.v1", "preflight_edits"),
         "apply_edits": ("decision.v1", "apply_edits"),
@@ -4663,16 +4741,16 @@ def test_v1_historical_tool_specs_are_frozen_and_cover_writable_tools() -> None:
 
 def test_api_historical_pair_list_matches_v1_registry() -> None:
     api = (Path(__file__).parents[1] / "API.md").read_text(encoding="utf-8")
-    section = api.split("The permanent pairs introduced by this release are:", 1)[
-        1
-    ].split("The pair is forward-compatible", 1)[0]
+    section = api.split(
+        "The permanent pairs registered by this source contract are:", 1
+    )[1].split("Each existing pair remains forward-compatible", 1)[0]
     documented = dict(re.findall(r"- `([^`]+)` → `([^`]+)`[.;]", section))
     expected = {
         tool_name: spec.record_type
         for tool_name, spec in records.V1_HISTORICAL_TOOL_SPECS.items()
     }
 
-    assert "The six historical `(tool_name, record_type)` pairs" in api
+    assert "The seven historical `(tool_name, record_type)` pairs" in api
     assert documented == expected
 
 
