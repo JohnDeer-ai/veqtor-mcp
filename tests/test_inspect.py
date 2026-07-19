@@ -52,10 +52,13 @@ def _rewrite_with_alt_chunk(
     relationship_target: str,
     html_payload: bytes | None,
     html_member_name: str = "word/afchunk.html",
+    relationship_type: str = _ALT_CHUNK_RELATIONSHIP_TYPE,
+    relationship_id: str = "rIdInspectionAltChunk",
+    alt_chunk_relationship_id: str = "rIdInspectionAltChunk",
+    additional_relationship_ids: tuple[str, ...] = (),
     target_mode: str | None = None,
     wrap_in_unknown: bool = False,
 ) -> None:
-    rel_id = "rIdInspectionAltChunk"
     with zipfile.ZipFile(source) as original, zipfile.ZipFile(target, "w") as output:
         for info in original.infolist():
             payload = original.read(info)
@@ -64,7 +67,9 @@ def _rewrite_with_alt_chunk(
                 body = document.find(w("body"))
                 assert body is not None
                 alt_chunk = etree.Element(w("altChunk"))
-                alt_chunk.set(f"{{{_OFFICE_RELATIONSHIPS_NS}}}id", rel_id)
+                alt_chunk.set(
+                    f"{{{_OFFICE_RELATIONSHIPS_NS}}}id", alt_chunk_relationship_id
+                )
                 block = alt_chunk
                 if wrap_in_unknown:
                     block = etree.Element("{urn:veqtor:test:unknown}container")
@@ -80,15 +85,16 @@ def _rewrite_with_alt_chunk(
                 )
             elif info.filename == "word/_rels/document.xml.rels":
                 relationships = parse_xml(payload)
-                relationship = etree.SubElement(
-                    relationships,
-                    f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship",
-                )
-                relationship.set("Id", rel_id)
-                relationship.set("Type", _ALT_CHUNK_RELATIONSHIP_TYPE)
-                relationship.set("Target", relationship_target)
-                if target_mode is not None:
-                    relationship.set("TargetMode", target_mode)
+                for rel_id in (relationship_id, *additional_relationship_ids):
+                    relationship = etree.SubElement(
+                        relationships,
+                        f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship",
+                    )
+                    relationship.set("Id", rel_id)
+                    relationship.set("Type", relationship_type)
+                    relationship.set("Target", relationship_target)
+                    if target_mode is not None:
+                        relationship.set("TargetMode", target_mode)
                 payload = etree.tostring(
                     relationships,
                     xml_declaration=True,
@@ -491,6 +497,87 @@ def test_alt_chunk_target_collapses_repeated_and_edge_xsd_any_uri_whitespace(
     result = inspect_document(str(target), "outline")
 
     assert member_name in result["coverage"]["excluded_parts"]
+
+
+def test_alt_chunk_relationship_type_applies_xsd_any_uri_whitespace_collapse(
+    demo_dir: Path,
+    tmp_path: Path,
+) -> None:
+    source = demo_dir / "round-1-outgoing-draft.docx"
+    target = tmp_path / "collapsed-relationship-type.docx"
+    relationship_type = f" \t\n{_ALT_CHUNK_RELATIONSHIP_TYPE}\r  "
+    _rewrite_with_alt_chunk(
+        source,
+        target,
+        relationship_target="afchunk.html",
+        relationship_type=relationship_type,
+        html_payload=b"<html><body>Collapsed relationship Type.</body></html>",
+    )
+
+    result = inspect_document(str(target), "outline")
+
+    assert "word/afchunk.html" in result["coverage"]["excluded_parts"]
+
+
+def test_alt_chunk_relationship_id_applies_xsd_id_whitespace_collapse(
+    demo_dir: Path,
+    tmp_path: Path,
+) -> None:
+    source = demo_dir / "round-1-outgoing-draft.docx"
+    target = tmp_path / "collapsed-relationship-id.docx"
+    _rewrite_with_alt_chunk(
+        source,
+        target,
+        relationship_target="afchunk.html",
+        relationship_id="\t\nrIdInspectionAltChunk\r ",
+        html_payload=b"<html><body>Collapsed relationship Id.</body></html>",
+    )
+
+    result = inspect_document(str(target), "outline")
+
+    assert "word/afchunk.html" in result["coverage"]["excluded_parts"]
+
+
+def test_alt_chunk_relationship_ids_colliding_after_xsd_collapse_fail_closed(
+    demo_dir: Path,
+    tmp_path: Path,
+) -> None:
+    source = demo_dir / "round-1-outgoing-draft.docx"
+    target = tmp_path / "ambiguous-collapsed-relationship-ids.docx"
+    _rewrite_with_alt_chunk(
+        source,
+        target,
+        relationship_target="afchunk.html",
+        additional_relationship_ids=(" \trIdInspectionAltChunk\n ",),
+        html_payload=b"<html><body>Ambiguous relationship.</body></html>",
+    )
+
+    with pytest.raises(InspectError) as error:
+        inspect_document(str(target), "outline")
+
+    assert error.value.code == "file_unextractable"
+    assert "relationship is missing or ambiguous" in error.value.detail
+
+
+def test_alt_chunk_reference_id_is_not_xsd_whitespace_normalized(
+    demo_dir: Path,
+    tmp_path: Path,
+) -> None:
+    source = demo_dir / "round-1-outgoing-draft.docx"
+    target = tmp_path / "uncollapsed-alt-chunk-reference-id.docx"
+    _rewrite_with_alt_chunk(
+        source,
+        target,
+        relationship_target="afchunk.html",
+        alt_chunk_relationship_id="\trIdInspectionAltChunk\n",
+        html_payload=b"<html><body>Unmatched relationship reference.</body></html>",
+    )
+
+    with pytest.raises(InspectError) as error:
+        inspect_document(str(target), "outline")
+
+    assert error.value.code == "file_unextractable"
+    assert "relationship is missing or ambiguous" in error.value.detail
 
 
 def test_alt_chunk_target_does_not_collapse_percent_decoded_spaces(

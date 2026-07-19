@@ -315,14 +315,14 @@ def _sections(
     return tuple(built), by_paragraph
 
 
-def _collapse_xsd_any_uri_whitespace(value: str) -> str:
-    """Apply the XML Schema ``whiteSpace=collapse`` facet for ``xsd:anyURI``."""
+def _collapse_xsd_whitespace(value: str) -> str:
+    """Apply the XML Schema ``whiteSpace=collapse`` facet."""
     return _XSD_WHITESPACE_RE.sub(" ", value).strip(" ")
 
 
 def _internal_relationship_part(target: str) -> str | None:
     """Resolve an internal relationship target without exposing host paths."""
-    target = _collapse_xsd_any_uri_whitespace(target)
+    target = _collapse_xsd_whitespace(target)
     if not target or "\\" in target or "\x00" in target:
         return None
     parsed = urlsplit(target)
@@ -382,15 +382,15 @@ def _alt_chunk_excluded_parts(
         relationship_tag = f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationship"
         if root.tag == f"{{{_PACKAGE_RELATIONSHIPS_NS}}}Relationships":
             for relationship in root.findall(relationship_tag):
-                rel_id = relationship.get("Id")
+                rel_id = _collapse_xsd_whitespace(relationship.get("Id") or "")
                 if not rel_id:
                     continue
                 if rel_id in relationships:
                     duplicate_ids.add(rel_id)
                     continue
                 relationships[rel_id] = (
-                    relationship.get("Type") or "",
-                    relationship.get("Target") or "",
+                    _collapse_xsd_whitespace(relationship.get("Type") or ""),
+                    _collapse_xsd_whitespace(relationship.get("Target") or ""),
                     relationship.get("TargetMode") or "",
                 )
 
@@ -410,7 +410,6 @@ def _alt_chunk_excluded_parts(
                 "file_unextractable",
                 "w:altChunk relationship type is invalid",
             )
-        target = _collapse_xsd_any_uri_whitespace(target)
         if not target:
             raise InspectError(
                 "file_unextractable",
