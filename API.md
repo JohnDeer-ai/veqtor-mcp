@@ -446,13 +446,19 @@ container_policy: canonical_body_flow_v1
 
 The canonical body flow indexes supported body paragraphs, SDT content and
 table-cell paragraphs once in XML order. It prunes text boxes, drawings,
-`AlternateContent`, nested paragraphs, unknown text-bearing containers and
-malformed text/revision payload inside otherwise non-text Word property
-subtrees.
+relationship-backed `altChunk` imports, `AlternateContent`, nested paragraphs,
+unknown text-bearing containers and malformed text/revision payload inside
+otherwise non-text Word property subtrees. A valid existing internal altChunk
+target is disclosed as a normalized package-relative `excluded_parts` entry;
+external target URLs are never returned. Missing, ambiguous or unsafe internal
+targets refuse inspection.
 Headers, footers, footnotes, endnotes and comments are separate excluded OPC
 parts. `accepted_current_v1` is a mechanical current-reading projection:
 inserted/move-to text is included and deleted/move-from text is excluded. It is
 not a legal conclusion that the result is operative wording.
+The projection does not interpret Word hidden-text formatting. In particular,
+text carrying `w:rPr/w:vanish` remains present and can pass anchored
+`verify_quote`; this is not a visual-rendering claim.
 
 Every returned paragraph carries a closed, path-free reference:
 
@@ -587,6 +593,9 @@ journaling succeeds. Compact export omits paths and paragraph/snippet text,
 retains the source hash, mode, policy and coverage facts, and returns a bounded
 digest/sample of observed paragraph or section references. It remains
 best-effort local provenance, not a tamper-evident audit log.
+This omission applies only to the compact export. The private raw
+`.veqtor/decision-records.jsonl` record retains the canonical workspace,
+caller-supplied path and literal-search phrases; keep that sidecar private.
 
 ## `verify_quote`
 
@@ -1260,6 +1269,12 @@ journal writer, so both digests cover that summary; the newly assigned access
 event id and final live-response metadata do not yet exist at that point.
 These are content fingerprints for re-checking and debugging, not
 tamper-evidence or a way to reconstruct omitted content.
+If a base-schema-readable historical `inspection.v1` result lacks the closed
+mode, coverage or limits needed for a safe detailed projection, compact export
+keeps the journal readable and returns only its validated status plus
+`compact_projection_complete: false` and
+`compact_projection_error: invalid_inspection_result`. It never reproduces the
+malformed fields.
 For `extract_redlines`, `result_sha256` and `tool_result_sha256` normally differ:
 the stored raw-journal result is a bounded summary, while the full operation
 result also contains the extracted change units. Equality of these two fields

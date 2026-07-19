@@ -26,6 +26,15 @@ establish publication and do not provide a public `0.3` installation target.
 - Development CI builds and smokes wheel/sdist artifacts and the seven-tool
   surface without presenting them as a sealed release set. Frozen MCPB,
   checksum and independent release-reproduction gates remain v0.2-only.
+- Compact inspection-record projection remains readable when a historical
+  base-schema record lacks the closed v0.3 mode, coverage or limits fields, and
+  incomplete v2 anchors are omitted from observed samples as truncated.
+- Relationship-backed `w:altChunk` content is now a fail-visible canonical-flow
+  exclusion; safe internal target parts are disclosed without returning
+  external URLs.
+- Documentation now consistently describes `accepted_current_v1` as a
+  mechanical projection, discloses that `w:rPr/w:vanish` is not interpreted,
+  and distinguishes private raw-journal payloads from compact export.
 
 ## 0.2.0
 

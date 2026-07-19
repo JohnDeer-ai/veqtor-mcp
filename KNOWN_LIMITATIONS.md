@@ -59,6 +59,10 @@ current user's permissions.
 - Extraction and writing cover `word/document.xml`. `inspect_document` is
   narrower still: it exposes only the canonical main-body paragraph flow.
   Comments, headers, footers, footnotes and endnotes are not analyzed or edited.
+- Relationship-backed `w:altChunk` content is excluded rather than imported.
+  Internal target parts are disclosed as package-relative exclusions; external
+  target URLs are not returned. Missing, ambiguous or unsafe internal targets
+  refuse inspection.
 - Formatting, move, paragraph-mark and structural revision categories are
   counted but not all are converted into editable change units.
 - The extractor and inspector report `revision_inventory.v2` so callers can
@@ -72,6 +76,10 @@ current user's permissions.
 - `inspect_document` is bounded retrieval, not semantic contract analysis. Its
   outline, literal-search, browse and read modes do not decide clause meaning,
   infer omitted concepts or search outside the declared main-body scope.
+- `accepted_current_v1` does not analyze Word hidden-text formatting such as
+  `w:rPr/w:vanish`. Text carrying that formatting remains in the mechanical
+  reading and can pass anchored `verify_quote`; callers must not treat the
+  reading as a visual-rendering or legal-effect conclusion.
 - Complex adjacent or nested OOXML layouts may be refused with a stable error
   rather than rewritten approximately.
 - Tracked text revisions may be nested at most two levels. This supports the
@@ -107,7 +115,7 @@ current user's permissions.
 - `clause_anchor` and `manual_label` are best-effort navigation aids. Durable
   evidence remains an exact file SHA plus either a complete change-unit anchor
   and verified old/new wording or a hash-bound paragraph reference and verified
-  operative wording.
+  accepted/current projected wording.
 - The calling model supplies legal analysis and drafting. Veqtor does not
   establish legal correctness.
 
@@ -156,8 +164,10 @@ current user's permissions.
   authenticated, signed or hash-chained audit records.
 - The threat model is a non-hostile single-user macOS/Linux workspace. A
   malicious process running as the same user is outside scope.
-- The raw journal may contain matter text and has no rotation or aggregate size
-  cap in v0.1.
+- The raw journal retains the canonical workspace and caller-supplied paths,
+  may retain literal-search phrases and other matter text, and has no rotation
+  or aggregate size cap in v0.1. Only compact export provides the documented
+  path/phrase minimization.
 - Decision-record reads, appends and export use blocking POSIX file locks with
   no acquisition timeout. Another Veqtor process holding the same workspace or
   journal lock can therefore delay a tool response until that lock is released.

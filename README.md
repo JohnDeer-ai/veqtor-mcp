@@ -11,8 +11,9 @@
 > history and fail-closed tracked-change edits. Supported on macOS and Linux
 > with Python 3.12-3.14.
 
-Veqtor gives MCP-compatible AI clients deterministic tools to inspect operative
-contract wording, read redlines, verify quotations, dry-run complete
+Veqtor gives MCP-compatible AI clients deterministic tools to inspect a
+mechanical accepted/current projection of contract wording, read redlines,
+verify quotations, dry-run complete
 counterproposal batches, create a new DOCX with real tracked changes, and keep
 re-checkable local provenance. The model remains the legal-reasoning layer;
 Veqtor handles document facts and writes.
@@ -186,8 +187,9 @@ that exact artifact or its matching immutable tag.
   paragraph context, conservative manual labels and a revision-inventory
   partition.
 - `inspect_document`: bounded outline, literal-search, browse and read views of
-  operative main-body text, with every returned paragraph bound to the exact
-  file bytes.
+  a mechanical accepted/current projection of main-body text, with every
+  returned paragraph bound to the exact file bytes. This reading mode does not
+  decide which wording has legal effect.
 - `verify_quote`: anchored `exact`, `normalized`, or `not_found` verification.
 - `preflight_edits`: the complete apply pipeline as an in-memory dry-run, with
   closed position/failure diagnostics and a successful drift-binding proof.
@@ -210,8 +212,10 @@ may be sent to the user's model provider under that provider's terms.
 Unless `VEQTOR_DISABLE_DECISION_RECORD=1`, tools append a private local journal
 at `<matter>/.veqtor/decision-records.jsonl`. Read-only calls, including
 `preflight_edits` and decision-record export, still normally write provenance
-there. The raw journal may contain verbatim matter text; do not commit or share
-it.
+there. The path- and search-phrase-omission guarantee applies only to the
+compact `export_decision_record` response. The raw journal retains the
+workspace and caller-supplied paths, and may retain search phrases and other
+verbatim matter text; do not commit or share it.
 
 Decision-record export requires the exact initialized workspace. In the v0.2
 contract a wrong parent is refused without creating a second

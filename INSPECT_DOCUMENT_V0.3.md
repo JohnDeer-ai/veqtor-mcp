@@ -1,13 +1,15 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# `inspect_document` v0.3 design specification
+# `inspect_document` v0.3 development specification
 
 ## Status and user job
 
-This is the closed, implementation-oriented contract for the first Stage 3
-product slice. The development source is `0.3.0.dev0` and advertises draft MCP
-contract `veqtor.mcp.v0.3`. This document does not claim that `0.3.0`, the
-development snapshot, or any corresponding artifact has been published.
+This is the implemented development contract for the first Stage 3 product
+slice. The development source is `0.3.0.dev0` and advertises draft MCP contract
+`veqtor.mcp.v0.3`. Automated acceptance belongs to the exact development
+snapshot under test; this document does not claim that `0.3.0`, the development
+snapshot, or any corresponding artifact has been published or has passed a
+Claude Desktop product gate.
 
 The user job is narrow:
 
@@ -124,6 +126,7 @@ delimiter is inserted between paragraphs. Paragraphs in cells retain
 The following subtrees are pruned from paragraph membership and reading:
 
 - drawings, objects, pict content, VML text boxes and `w:txbxContent`;
+- relationship-backed `w:altChunk` imported content;
 - `mc:AlternateContent`, choices and fallbacks;
 - a paragraph nested inside another paragraph; and
 - an unknown container carrying paragraphs, text atoms or revision markup.
@@ -135,6 +138,13 @@ property or structural-revision markup. A property subtree containing a
 paragraph, rendered text atom, move revision or differently nested text
 insertion/deletion becomes a fail-visible `unknown_container` exclusion. An
 excluded subtree never leaks text into its host paragraph.
+
+`w:altChunk` is fail-visible even though its imported content is not a child of
+the XML element. Each occurrence increments the `alt_chunk` container-exclusion
+count. A valid existing internal relationship target is added as a normalized,
+package-relative entry in `coverage.excluded_parts`; external target URLs are
+never disclosed. A missing, ambiguous or unsafe internal relationship target
+refuses inspection rather than reporting complete coverage.
 
 Headers, footers, footnotes, endnotes and comments remain excluded OPC parts.
 They are listed in `coverage.excluded_parts`; the tool does not claim to inspect
@@ -162,8 +172,11 @@ conclusion that wording is operative. In XML order it:
   typographic substitution or locale-specific transformation.
 
 The reading does not evaluate fields, render numbering into body text, resolve
-images, apply hidden-text formatting, calculate pagination or reproduce Word's
-visual line wrapping. Heading labels are separate navigation-only observations.
+images, interpret hidden-text formatting, calculate pagination or reproduce
+Word's visual line wrapping. In particular, `w:rPr/w:vanish` is not analyzed:
+text carrying that formatting is returned by this mechanical reading and may
+be verified by `verify_quote`. Heading labels are separate navigation-only
+observations.
 
 Every paragraph result discloses `has_tracked_text_revisions`; the top-level
 result discloses whether any indexed paragraph contains supported tracked text
@@ -493,7 +506,9 @@ The compact decision-record projection omits paths and paragraph/snippet text,
 digests the closed input, and retains source hash, mode, policy identifiers,
 coverage/limit counters, producer identity and a bounded digest/sample of
 observed paragraph or section references. It keeps the existing best-effort,
-local, non-tamper-evident assurance boundary.
+local, non-tamper-evident assurance boundary. This minimization applies only to
+compact export; the private raw JSONL journal retains the canonical workspace,
+request paths and literal-search phrases and must remain private.
 
 ## Controlled errors
 
@@ -512,7 +527,8 @@ includes `observed_source_sha256`. It never exposes raw exception text.
 
 ## Definition of done
 
-Implementation is incomplete until synthetic, redistributable fixtures prove:
+Automated implementation acceptance requires synthetic, redistributable
+fixtures proving:
 
 1. Plain and empty body paragraphs, outline headings, computed numbering and
    manual heading labels produce deterministic canonical positions and refs.
@@ -520,8 +536,10 @@ Implementation is incomplete until synthetic, redistributable fixtures prove:
    cases produce the exact `accepted_current_v1` text.
 3. SDTs around paragraphs/tables, SDTs inside cells, nested tables and multiple
    rows/cells pass through once in canonical XML order.
-4. Text boxes, drawings/objects, AlternateContent, nested paragraphs and
-   unknown text-bearing wrappers are pruned, counted and never leak text.
+4. Text boxes, drawings/objects, relationship-backed altChunk content,
+   AlternateContent, nested paragraphs and unknown text-bearing wrappers are
+   pruned, counted and never leak text. Internal altChunk target parts are
+   disclosed safely, while external URLs are not.
 5. Headers, footers, footnotes, endnotes and comments stay visibly outside the
    declared scope.
 6. Outline contains no paragraph text, preview, snippet or matched-text field;
@@ -548,9 +566,11 @@ Implementation is incomplete until synthetic, redistributable fixtures prove:
     narrow rather than a blanket rejection.
 14. Every deterministic cap succeeds at its boundary and refuses above it.
     Simulated transport cancellation never becomes partial successful output.
-15. Compact decision-record fixtures prove path/text omission, bounded observed
-    reference samples/digests, producer identity and append-only readability
-    beside historical v0.1/v0.2 records.
+15. Compact decision-record fixtures prove path/text omission from the compact
+    export only, bounded observed reference samples/digests, producer identity
+    and append-only readability beside historical v0.1/v0.2 records. The raw
+    local JSONL journal deliberately retains the workspace, request paths and
+    literal-search phrases and must remain private.
 16. An English synthetic contract lets Claude use `outline` or
     `literal_search`, then `read`, to cite unchanged Clause 9 and Clause 14.2
     from exact refs while explaining container/part exclusions. A Russian

@@ -65,9 +65,10 @@ public commitments. `ROADMAP.md` remains the source for public direction.
 
 ### Stage 3A — clause evidence (`inspect_document` v0.3)
 
-The specification-first slice is
-[`INSPECT_DOCUMENT_V0.3.md`](INSPECT_DOCUMENT_V0.3.md). It is a shadow-backlog
-design, not a public v0.3 commitment or implementation claim.
+The implemented development slice is specified in
+[`INSPECT_DOCUMENT_V0.3.md`](INSPECT_DOCUMENT_V0.3.md). It remains a
+shadow-backlog implementation on the `0.3.0.dev0` development line, not a
+published v0.3 commitment, release claim or Claude Desktop acceptance claim.
 
 - Add one read-only, closed `inspect_document` contract for finding and citing
   unchanged main-body text. Do not call a mechanical tracked-change projection
