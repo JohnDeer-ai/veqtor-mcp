@@ -11,8 +11,8 @@ const GUIDE_SOURCE_PATH = join(WEBSITE_DIR, 'src', 'data', 'guides-source.json')
 const ALLOWED_NEW_ROUTES = ['/setup', '/docs', '/limitations', '/veqtor-vs-claude-for-word']
 // Pinned from the approved guide inventory and reviewed editorial metadata.
 // Updating either hash is an explicit SEO decision, not routine content editing.
-const LEGACY_ROUTE_MANIFEST_SHA256 = '429c4992a46ff766c7ec0f73ee6acc685b711da60ed45561a3a716ada6cabcb4'
-const EDITORIAL_SEO_SHA256 = 'a38ee6eaa1a206a8dc55fe9b5ca57a2477d301238287f3c8437d06ccd38e80e0'
+const LEGACY_ROUTE_MANIFEST_SHA256 = '576d80131cb6b42902802646b727550ecf7080dd69f426a1060271ae8586dddc'
+const EDITORIAL_SEO_SHA256 = '346f34f6940ab54f2b7729cbbe94ffda2a86617b143e405c2e166ea837b6c01d'
 
 const STATIC_LEGACY_ROUTES = [
   '/',
@@ -499,9 +499,9 @@ function main() {
     ].map((entry) => [entry.path, entry]),
   )
 
-  if (legacyRoutes.length !== 145) fail(`legacy manifest drift: expected 145 routes, found ${legacyRoutes.length}`)
-  if (approvedGuides.length !== 115) fail(`approved guide count drift: expected 115, found ${approvedGuides.length}`)
-  if (topicRoutes.length !== 17) fail(`guide topic count drift: expected 17, found ${topicRoutes.length}`)
+  if (legacyRoutes.length !== 153) fail(`legacy manifest drift: expected 153 routes, found ${legacyRoutes.length}`)
+  if (approvedGuides.length !== 122) fail(`approved guide count drift: expected 122, found ${approvedGuides.length}`)
+  if (topicRoutes.length !== 18) fail(`guide topic count drift: expected 18, found ${topicRoutes.length}`)
   if (new Set(legacyRoutes).size !== legacyRoutes.length) fail('legacy route manifest contains duplicates')
   if (sha256Json(legacyRoutes) !== LEGACY_ROUTE_MANIFEST_SHA256) {
     fail('legacy URL identity manifest changed; preserve old routes or add an explicit redirect plan before updating the pinned hash')

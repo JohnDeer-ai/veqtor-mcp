@@ -458,6 +458,27 @@
         "third-party-rights-clauses",
         "english-law-boilerplate-cross-border"
       ]
+    },
+    {
+      "id": "ai-agent-contracting",
+      "label": "AI agents and automated contracting",
+      "metaDescription": "Guides on AI agents that accept, renew and vary contracts. Formation, attribution, mistake, mandates, evidence and drafting under English law.",
+      "pillarSlug": "ai-agent-contracting",
+      "spokeSlugs": [
+        "ai-agent-contract-formation",
+        "ai-agent-attribution",
+        "ai-contracting-mistakes",
+        "ai-agent-mandates-and-approval-limits",
+        "ai-contracting-evidence-and-unwind",
+        "drafting-automated-communications-clauses"
+      ],
+      "productBridge": {
+        "href": "/demo",
+        "label": "Word redline workflow",
+        "heading": "See how negotiated wording moves between drafts.",
+        "title": "Watch a multi-draft example",
+        "body": "When the deal is negotiated by people rather than agents, Claude can compare Word drafts with Veqtor and propose tracked changes. The demo walks the same workflow with a liability-cap example."
+      }
     }
   ],
   "guides": [
@@ -556,6 +577,9 @@
         "Keep redline review focused on clauses that change acceptance, variation, notice, authority, and formal-execution mechanics."
       ],
       "related": [
+        {
+          "slug": "ai-agent-contract-formation"
+        },
         {
           "slug": "whatsapp-binding-contract"
         },
@@ -1019,6 +1043,9 @@
         "Prefer a method that leaves a reliable trail as the value of the deal rises."
       ],
       "related": [
+        {
+          "slug": "ai-agent-contract-formation"
+        },
         {
           "slug": "contract-formation"
         },
@@ -1580,6 +1607,9 @@
         "Watch redlines to authority, signatory, and execution clauses - they change who can bind a party."
       ],
       "related": [
+        {
+          "slug": "ai-agent-attribution"
+        },
         {
           "slug": "parties-to-a-contract"
         },
@@ -7978,6 +8008,9 @@
       ],
       "related": [
         {
+          "slug": "ai-contracting-mistakes"
+        },
+        {
           "slug": "dispute-resolution-clauses"
         },
         {
@@ -14084,6 +14117,9 @@
       ],
       "related": [
         {
+          "slug": "drafting-automated-communications-clauses"
+        },
+        {
           "slug": "boilerplate-clauses"
         },
         {
@@ -14200,6 +14236,9 @@
         "Nominate an English service-of-process agent under CPR 6.11 wherever a party is outside England and the English courts have jurisdiction."
       ],
       "related": [
+        {
+          "slug": "ai-contracting-evidence-and-unwind"
+        },
         {
           "slug": "boilerplate-clauses"
         },
@@ -14734,6 +14773,1167 @@
       "related": [
         {
           "slug": "contract-formation"
+        }
+      ]
+    },
+    {
+      "slug": "ai-agent-contracting",
+      "cluster": "ai-agent-contracting",
+      "kind": "pillar",
+      "targetQuery": "can an ai agent bind a company to a contract",
+      "metaTitle": "AI Agent Contracting: Formation, Attribution and Mistake",
+      "metaDescription": "When an AI system accepts a renewal, price increase or waiver, is the company bound? English law on formation, attribution, mistake and contractual safeguards.",
+      "twitterTitle": "Can an AI Agent Bind Your Company?",
+      "breadcrumb": "AI agent contracting",
+      "eyebrow": "AI agent contracting",
+      "h1": "AI agent contracting under English law: when is the company bound?",
+      "lede": "A supplier sends a revised renewal order overnight. At 2:13 a.m. the company's procurement agent replies from the corporate account: \"Accepted.\" The renewal carries an 18% price increase, a new three-year term and the removal of service credits. Internal policy required legal sign-off for any price change. Nobody signed anything off. Is the company bound? Pointing at the software does not answer the question.",
+      "updated": "2026-07-20",
+      "publishedAt": "2026-07-20",
+      "sourceIssue": "issue-18",
+      "legalReviewStatus": "approved",
+      "reviewedAt": "2026-07-20",
+      "listing": {
+        "label": "AI agent contracting",
+        "title": "AI agent contracting under English law: when is the company bound?",
+        "body": "Start here: the 18% renewal scenario, the three questions that decide it, and the contractual architecture to agree before an AI system is allowed to accept anything."
+      },
+      "sections": [
+        {
+          "title": "Quick answer",
+          "body": [
+            {
+              "type": "quote",
+              "body": [
+                "**Quick answer.** Under English law, an automated acceptance cannot safely be assumed ineffective merely because software sent it or an internal limit was exceeded. Formation is judged objectively, on what was communicated rather than on what the sender privately intended. Attribution turns on how the company deployed and presented the system, not on settings the counterparty never saw. On the best current English authority, an alternative and obiter first-instance analysis, unilateral mistake at common law is likely to require a mistake as to a contractual term and the counterparty's actual knowledge of it. The dependable protection is architecture agreed in advance: communicated limits, defined message statuses, human confirmation for restricted actions, and an agreed error procedure."
+              ]
+            }
+          ]
+        },
+        {
+          "title": "What English law does \u2014 and does not \u2014 currently decide",
+          "body": [
+            "No reported English judgment appears yet to have decided this precise scenario: a generative AI agent committing its principal to a renewal or variation. What does exist is a set of established building blocks, and the route through them matters more than any single authority.",
+            {
+              "type": "list",
+              "items": [
+                "Formation is tested objectively on the parties' words and conduct: [*RTS Flexible Systems v M\u00fcller*](https://caselaw.nationalarchives.gov.uk/uksc/2010/14) [2010] UKSC 14.",
+                "Contracting through machines is nothing new. English courts analysed automated ticket machines in offer-and-acceptance terms as long ago as *Thornton v Shoe Lane Parking* [1971] 2 QB 163.",
+                "Unilateral mistake offers a narrow escape. In [*Longley v PPB Entertainment*](https://caselaw.nationalarchives.gov.uk/ewhc/qb/2022/977) [2022] EWHC 977 (QB), in an alternative and expressly obiter first-instance analysis, the court indicated that actual knowledge of the error is required; what a reasonable counterparty would have noticed goes to inference, not to the test itself.",
+                "The leading common-law appellate decision on algorithmic contracting is Singapore's [*Quoine Pte Ltd v B2C2 Ltd*](https://www.elitigation.sg/gd/s/2020_SGCAI_2/) [2020] SGCA(I) 02. It is comparative authority, not English law, and it was expressly framed for deterministic algorithms rather than generative systems.",
+                "The [UNCITRAL Model Law on Automated Contracting](https://uncitral.un.org/en/mlac) (2024) is a legislative template England has not enacted. Its practical value is that it lists the questions a contract should answer before a dispute arises."
+              ]
+            },
+            "Everything below follows from principle, not from a decided LLM case. That is precisely why the contract, rather than the case law, has to do the work."
+          ]
+        },
+        {
+          "title": "The three questions that decide it",
+          "body": [
+            "**1. Was a contract or variation objectively formed?** The test is what the communications and conduct would mean to a reasonable counterparty, and an unqualified \"Accepted\", sent through the agreed corporate channel, looks a lot like assent to the terms proposed. Machine involvement alone rarely prevents formation. The existing contract's formalities, such as signed-variation requirements, no-oral-modification clauses and exclusive acceptance channels, are usually the stronger battleground. Full analysis: [Can an AI agent form a binding contract?](/guides/ai-agent-contract-formation)",
+            "**2. Why is the message the company's communication at all?** The software is not a contracting party and has no legal personality; calling it an \"agent\" does not import the law of agency wholesale. Attribution depends on the company's own conduct: deploying the system, giving it credentials, presenting it to the counterparty as a channel for dealing. Apparent-authority reasoning offers an analogy, not a shortcut. Full analysis: [When is an AI-generated communication attributed to the company?](/guides/ai-agent-attribution)",
+            "**3. Can the deal be avoided for mistake?** Only in a narrow band of cases. An acceptance at one hundred times the market price may support an inference that the counterparty actually knew of the error. An 18% renewal uplift is commercially unattractive, but it does not look like a mistake, and the counterparty cannot know about an internal approval policy that was never communicated. Full analysis: [Can an AI-generated contract be avoided for mistake?](/guides/ai-contracting-mistakes)"
+          ]
+        },
+        {
+          "title": "The hidden-limit problem",
+          "body": [
+            "An approval limit stored in an admin panel is a control. It is not necessarily a defence.",
+            "Suppose the agent is technically capped at \u00a350,000 and an integration failure lets it accept a \u00a370,000 order. The internal setting is good evidence of what the company intended its system to do. It tells the supplier nothing about whether the acceptance was conditional. The distinction that matters is between an internal operating rule and an externally communicated condition of contracting; only the second shapes what the counterparty is entitled to understand. How to build that distinction into the deal: [AI agent mandates and approval limits](/guides/ai-agent-mandates-and-approval-limits)."
+          ]
+        },
+        {
+          "title": "What the contract should put in place",
+          "body": [
+            "\"Human oversight required\" is too vague to help anyone. The agreement and the system should implement the same authority model:",
+            {
+              "type": "list",
+              "items": [
+                "**Message status.** Distinguish a receipt acknowledgement, a provisional automated response and a binding confirmation, and make the message itself carry its status.",
+                "**Limits.** Per-transaction, aggregate-period and percentage-change limits, mirrored in the contract and the technical configuration, with a defined list of restricted actions (renewals, price changes, amendments, waivers, releases, notices).",
+                "**Mandate reference.** A binding acceptance carries a verifiable mandate reference, and the counterparty has a way to check it.",
+                "**Human confirmation.** A named role, an agreed channel, a defined authentication method and defined confirmation language.",
+                "**Evidence.** Agreed preservation, integrity and access rules for the records that reconstruct the transaction: see [logs, evidence and unwind procedures](/guides/ai-contracting-evidence-and-unwind).",
+                "**Error and unwind.** A short notice-and-review process for defined automated errors, with unwind mechanics, aligned with the technical kill switch."
+              ]
+            },
+            "The model wording lives in a dedicated guide: [How to draft an automated communications clause](/guides/drafting-automated-communications-clauses)."
+          ]
+        }
+      ],
+      "shellSections": [
+        {
+          "title": "The scenario",
+          "body": [
+            "An AI procurement agent accepts an 18% renewal increase overnight from the corporate account; internal policy required legal approval and none was given."
+          ]
+        },
+        {
+          "title": "Three questions",
+          "body": [
+            "Formation is judged objectively, attribution follows the company's deployment and presentation of the system, and unilateral mistake generally needs the counterparty's actual knowledge."
+          ]
+        },
+        {
+          "title": "The hidden-limit problem",
+          "body": [
+            "An approval limit stored in an admin panel is an internal control, not a communicated condition of contracting."
+          ]
+        },
+        {
+          "title": "The architecture",
+          "body": [
+            "Message statuses, communicated limits, mandate references, human confirmation, evidence rules and an error procedure, agreed before the system can accept."
+          ]
+        }
+      ],
+      "checklist": [
+        "Map every system able to send assent-like wording (\"Accepted\", \"Confirmed\") to an external counterparty.",
+        "Check existing contracts for variation formalities, exclusive channels and no-oral-modification clauses; they may be your best line, or your gap.",
+        "Decide which actions are restricted and route them to human confirmation before wording leaves the building.",
+        "Communicate the limits: a limit the counterparty can verify is far harder to ignore than one it never saw.",
+        "Agree the error procedure, including notice, review and unwind, before the first dispute rather than during it.",
+        "Test the vendor chain against the same scenarios: who bears a three-year renewal accepted outside mandate?"
+      ],
+      "sources": [
+        "[*RTS Flexible Systems Ltd v Molkerei Alois M\u00fcller GmbH*](https://caselaw.nationalarchives.gov.uk/uksc/2010/14) [2010] UKSC 14",
+        "[*Longley v PPB Entertainment Ltd*](https://caselaw.nationalarchives.gov.uk/ewhc/qb/2022/977) [2022] EWHC 977 (QB)",
+        "[*Quoine Pte Ltd v B2C2 Ltd*](https://www.elitigation.sg/gd/s/2020_SGCAI_2/) [2020] SGCA(I) 02",
+        "[*Rock Advertising Ltd v MWB Business Exchange Centres Ltd*](https://caselaw.nationalarchives.gov.uk/uksc/2018/24) [2018] UKSC 24",
+        "*Thornton v Shoe Lane Parking Ltd* [1971] 2 QB 163; *Smith v Hughes* (1871) LR 6 QB 597; *Hartog v Colin & Shields* [1939] 3 All ER 566; *Freeman & Lockyer v Buckhurst Park Properties (Mangal) Ltd* [1964] 2 QB 480; *Armagas Ltd v Mundogas SA (The Ocean Frost)* [1986] AC 717",
+        "[UNCITRAL Model Law on Automated Contracting](https://uncitral.un.org/en/mlac) (2024)",
+        "[AP2, the Agent Payments Protocol](https://cloud.google.com/blog/products/ai-machine-learning/announcing-agents-to-payments-ap2-protocol) (technical illustration, not a source of law)"
+      ],
+      "related": [
+        {
+          "slug": "ai-agent-contract-formation"
+        },
+        {
+          "slug": "ai-agent-attribution"
+        },
+        {
+          "slug": "ai-contracting-mistakes"
+        },
+        {
+          "slug": "ai-agent-mandates-and-approval-limits"
+        },
+        {
+          "slug": "ai-contracting-evidence-and-unwind"
+        },
+        {
+          "slug": "drafting-automated-communications-clauses"
+        },
+        {
+          "slug": "authority-to-sign-a-contract"
+        },
+        {
+          "slug": "contract-formation"
+        },
+        {
+          "slug": "no-oral-modification-clauses"
+        },
+        {
+          "slug": "electronic-signature"
+        },
+        {
+          "slug": "contractual-notice-clauses"
+        },
+        {
+          "href": "/demo",
+          "label": "Product demo",
+          "title": "Review the human side of the deal",
+          "body": "Watch Claude compare Word drafts with Veqtor and propose tracked changes before anyone clicks accept."
+        }
+      ]
+    },
+    {
+      "slug": "ai-agent-contract-formation",
+      "cluster": "ai-agent-contracting",
+      "kind": "spoke",
+      "targetQuery": "can an ai agent form a binding contract",
+      "metaTitle": "Can an AI Agent Form a Binding Contract? (English Law)",
+      "metaDescription": "An AI system sends \"Accepted\" \u2014 is there a contract? The objective test, machine-made contracts, NOM clauses and how to keep automated replies provisional.",
+      "twitterTitle": "Can an AI Agent Form a Contract?",
+      "breadcrumb": "AI contract formation",
+      "eyebrow": "AI contract formation",
+      "h1": "Can an AI agent form a binding contract?",
+      "lede": "When an automated message says \"Accepted\", the first question is not what the software was permitted to do. It is whether, viewed objectively, the parties' communications formed a contract or varied an existing one. This guide covers the objective test, why machine involvement rarely blocks formation, and which contractual devices keep automated replies provisional.",
+      "updated": "2026-07-20",
+      "publishedAt": "2026-07-20",
+      "sourceIssue": "issue-18",
+      "legalReviewStatus": "approved",
+      "reviewedAt": "2026-07-20",
+      "listing": {
+        "label": "AI contract formation",
+        "title": "Can an AI agent form a binding contract?",
+        "body": "The objective test from RTS Flexible Systems v M\u00fcller, why machine involvement rarely prevents formation, and the clauses that keep automated replies provisional."
+      },
+      "sections": [
+        {
+          "title": "Formation is tested objectively",
+          "body": [
+            "English law generally judges formation by what the parties communicated through words and conduct, assessed objectively. In [*RTS Flexible Systems v M\u00fcller*](https://caselaw.nationalarchives.gov.uk/uksc/2010/14) [2010] UKSC 14, the Supreme Court confirmed that the question is whether the communications, viewed as a whole, objectively show agreement on the essential terms and an intention to create legal relations. The principle runs back to *Smith v Hughes* (1871) LR 6 QB 597: a party who conducts itself so that a reasonable counterparty would understand it to be assenting is treated as assenting, whatever it privately intended.",
+            "Applied here: what the sender's engineers configured, what its policies required and what its management expected are all private facts. What the counterparty received was an unqualified \"Accepted\" from a corporate account. The objective principle starts from the message, not from the machinery behind it."
+          ]
+        },
+        {
+          "title": "English law has contracted through machines for decades",
+          "body": [
+            "The involvement of automation is not, by itself, a formation defence. In *Thornton v Shoe Lane Parking* [1971] 2 QB 163, the Court of Appeal analysed a car-park ticket machine in ordinary offer-and-acceptance terms: the operator made its offer through the machine it had put forward, and the customer accepted by putting money into it. Vending machines, electronic dealing systems and algorithmic trading platforms have been analysed in the same spirit. The deployer speaks through the system it chose to present.",
+            "The Singapore Court of Appeal reached the equivalent conclusion for algorithm-to-algorithm dealing in [*Quoine Pte Ltd v B2C2 Ltd*](https://www.elitigation.sg/gd/s/2020_SGCAI_2/) [2020] SGCA(I) 02: contracts formed entirely between deterministic trading algorithms were valid. It is comparative authority, not English law, but it illustrates how unlikely a court is to treat \"no human read it\" as fatal to formation where the exchange otherwise looks like assent.",
+            "A generative agent differs from a ticket machine in how its output is produced, not in how the output reads to the counterparty. Nothing in the objective approach suggests that difference alone prevents formation."
+          ]
+        },
+        {
+          "title": "Contract or variation?",
+          "body": [
+            "In most real scenarios the automated message does not create a contract from nothing. It purports to renew, extend or vary an existing one, and that shifts the battleground to the existing contract's own mechanics:",
+            {
+              "type": "list",
+              "items": [
+                "**Signed-variation requirements.** If the contract requires variations to be in writing and signed, there is a real argument that an automated message does not satisfy the formality. Whether system-generated text can constitute writing and signature is itself contestable; see the guide on [electronic signatures](/guides/electronic-signature).",
+                "**No-oral-modification clauses.** In [*Rock Advertising v MWB*](https://caselaw.nationalarchives.gov.uk/uksc/2018/24) [2018] UKSC 24, the Supreme Court held that NOM clauses are generally effective. The estoppel exception is narrow: it requires words or conduct unequivocally representing that the informal variation is valid notwithstanding the clause, and something more than the informal variation itself. A well-drafted NOM clause may therefore be the company's strongest existing protection against a stray automated variation. See [no-oral-modification clauses](/guides/no-oral-modification-clauses).",
+                "**Exclusive acceptance channels.** A term identifying the only channel through which acceptances or variations can be made cuts both ways: it can neutralise a stray automated message, or validate one sent through the agreed portal.",
+                "**Provisional-status terms.** A term stating that automated responses are provisional until confirmed changes what \"Accepted\" objectively means. This is the cleanest fix, and it must exist before the message is sent; see [how to draft an automated communications clause](/guides/drafting-automated-communications-clauses)."
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Reading \"Accepted\" in context",
+          "body": [
+            "The surrounding facts still matter. A court would look at the channel (was this the agreed portal or account for dealing?), the credentials used, the parties' previous dealings (have automated confirmations been sent and honoured before?), and the wording itself. An unqualified \"Accepted\" sits at the risky end of the spectrum. A message reading \"Order received \u2014 reference 4471\" sits at the safe end: a receipt acknowledgement is not an acceptance.",
+            "The practical trap is template language. Workflow systems often emit assent-like words such as \"Accepted\", \"Confirmed\" or \"Approved\" to describe internal states. Once those words travel to a counterparty over an authenticated channel, a course of dealing can harden them into exactly what they say."
+          ]
+        },
+        {
+          "title": "Conclusion",
+          "body": [
+            "Formation rarely fails just because software was involved. It fails when the communications, read objectively against the agreed contractual framework, were not an unqualified assent to essential terms. Whether that framework exists is the product of drafting done in advance, which is why the formation question, the [attribution question](/guides/ai-agent-attribution) and the [drafting response](/guides/drafting-automated-communications-clauses) belong together."
+          ]
+        }
+      ],
+      "shellSections": [
+        {
+          "title": "The objective test",
+          "body": [
+            "RTS v M\u00fcller: formation depends on what the communications would mean to a reasonable counterparty, not on private configuration or policy."
+          ]
+        },
+        {
+          "title": "Machines are nothing new",
+          "body": [
+            "Thornton v Shoe Lane Parking analysed a ticket machine in offer-and-acceptance terms; the deployer speaks through the system it presents."
+          ]
+        },
+        {
+          "title": "Contract or variation",
+          "body": [
+            "Signed-variation formalities, NOM clauses after Rock v MWB, exclusive channels and provisional-status terms are the real battleground."
+          ]
+        },
+        {
+          "title": "Reading the message in context",
+          "body": [
+            "Channel, credentials, course of dealing and template wording decide how an automated \"Accepted\" is understood."
+          ]
+        }
+      ],
+      "checklist": [
+        "Inventory every system that can send assent-like wording to an external party, and every template containing \"Accepted\", \"Confirmed\" or \"Approved\".",
+        "Check each key contract for variation formalities, NOM clauses and channel-exclusivity terms, so you know which deals are exposed.",
+        "State expressly, in the contract or portal terms, which automated messages are provisional and which can bind.",
+        "Align previous dealings with the paper: if provisional messages have been honoured as final, the pattern is evidence against you.",
+        "Route renewals, price changes and waivers to human confirmation before any assent wording leaves the system."
+      ],
+      "sources": [
+        "[*RTS Flexible Systems Ltd v Molkerei Alois M\u00fcller GmbH*](https://caselaw.nationalarchives.gov.uk/uksc/2010/14) [2010] UKSC 14",
+        "*Smith v Hughes* (1871) LR 6 QB 597",
+        "*Thornton v Shoe Lane Parking Ltd* [1971] 2 QB 163",
+        "[*Rock Advertising Ltd v MWB Business Exchange Centres Ltd*](https://caselaw.nationalarchives.gov.uk/uksc/2018/24) [2018] UKSC 24",
+        "[*Quoine Pte Ltd v B2C2 Ltd*](https://www.elitigation.sg/gd/s/2020_SGCAI_2/) [2020] SGCA(I) 02"
+      ],
+      "related": [
+        {
+          "slug": "ai-agent-contracting"
+        },
+        {
+          "slug": "ai-agent-attribution"
+        },
+        {
+          "slug": "drafting-automated-communications-clauses"
+        },
+        {
+          "slug": "contract-formation"
+        },
+        {
+          "slug": "subject-to-contract"
+        },
+        {
+          "slug": "email-signature"
+        },
+        {
+          "slug": "how-courts-interpret-contracts"
+        },
+        {
+          "href": "/demo",
+          "label": "Product demo",
+          "title": "Check acceptance wording across drafts",
+          "body": "Veqtor lets Claude read tracked changes to acceptance and variation language in Word negotiation drafts."
+        }
+      ]
+    },
+    {
+      "slug": "ai-agent-attribution",
+      "cluster": "ai-agent-contracting",
+      "kind": "spoke",
+      "targetQuery": "is a company bound by an ai generated message",
+      "metaTitle": "When Is an AI Message the Company's Message? (English Law)",
+      "metaDescription": "Why an AI system's output counts as the company's communication: deployment, credentials, apparent authority by analogy, and agreed attribution procedures.",
+      "twitterTitle": "Whose Message Is the AI's Message?",
+      "breadcrumb": "Attribution",
+      "eyebrow": "Attribution",
+      "h1": "When is an AI-generated communication attributed to the company?",
+      "lede": "[Formation](/guides/ai-agent-contract-formation) asks whether an exchange of messages looks, objectively, like a deal. Attribution asks a prior question that is easy to blur into it: why is text generated by software treated as *this company's* communication at all? The two questions have different answers and different remedies, and they should be analysed separately.",
+      "updated": "2026-07-20",
+      "publishedAt": "2026-07-20",
+      "sourceIssue": "issue-18",
+      "legalReviewStatus": "approved",
+      "reviewedAt": "2026-07-20",
+      "listing": {
+        "label": "Attribution",
+        "title": "When is an AI-generated communication attributed to the company?",
+        "body": "Why \"the software sent it\" is not an answer, the factors a court would examine, and how far apparent-authority reasoning maps onto deployed systems."
+      },
+      "sections": [
+        {
+          "title": "The system is not a party",
+          "body": [
+            "An AI system has no legal personality. It cannot hold rights, owe obligations or be sued. Whatever the product marketing says, calling it an \"agent\" does not import the law of agency, which presupposes an agent with legal personality: a person, human or corporate, who can consent to the role, owe duties and bear liability. An AI system is not such a person. If a contract exists, it exists between the company and the counterparty; the dispute is about whose words the message was.",
+            "That framing removes a tempting shortcut in both directions. The company cannot say \"the AI did it, not us\", because the AI is not a someone. And the counterparty cannot say \"your agent had authority\" as though agency doctrine applied of its own force. Each side has to explain attribution through the company's own conduct."
+          ]
+        },
+        {
+          "title": "What a court would examine",
+          "body": [
+            "There is no reported English decision attributing (or refusing to attribute) an LLM agent's acceptance. On principle, the likely questions are concrete and factual:",
+            {
+              "type": "list",
+              "items": [
+                "**Deployment.** Who chose, installed and configured the system, and for what functions?",
+                "**Credentials and identity.** Whose account did it use? Who issued the API keys or portal access it authenticated with?",
+                "**Presentation.** How was the system introduced to the counterparty: as an information channel, or as a way of doing deals?",
+                "**Permitted functions.** What was it allowed to do in practice, and did the counterparty know the boundary?",
+                "**Course of use.** Had its messages been sent and honoured between these parties before?",
+                "**Agreed procedure.** Does the governing contract contain an attribution procedure: a definition of which messages, from which accounts, with which markers, count as the company's binding communications?"
+              ]
+            },
+            "Where an agreed procedure exists, it will usually frame everything else, which is the central practical lesson of this whole topic."
+          ]
+        },
+        {
+          "title": "The apparent-authority analogy \u2014 and its limits",
+          "body": [
+            "The nearest doctrinal neighbour is apparent authority. In *Freeman & Lockyer v Buckhurst Park Properties (Mangal) Ltd* [1964] 2 QB 480, a company was bound by an agent it had allowed to act as managing director: the company's own representation, through conduct, that the agent had authority, plus the counterparty's reliance, did the work. In *Armagas Ltd v Mundogas SA (The Ocean Frost)* [1986] AC 717, the House of Lords confirmed the discipline that matters most here: the representation must come from the principal. An agent cannot clothe itself with authority by its own statements.",
+            "Transposed by analogy: the company's act of deploying a system on an authenticated corporate channel, presenting it as a dealing interface and letting its messages stand is representation-like conduct. The system's own output, including any claim it makes about what it may do, adds little or nothing by itself, just as the agent's self-certification carried no weight in *Armagas*.",
+            "The analogy should still be handled as an analogy. Agency doctrine was developed for agents who are themselves legal persons; courts may borrow its structure for software without adopting its rules wholesale. It is a way of organising the enquiry, not a rule that decides it."
+          ]
+        },
+        {
+          "title": "What the counterparty sees \u2014 and cannot see",
+          "body": [
+            "In the standard scenario the supplier sees a corporate account, authenticated access through the agreed workflow and an unqualified acceptance. It does not see the approval matrix, the admin-panel limit or the system prompt forbidding price changes. Attribution analysis runs on the visible layer. If the company wants the invisible layer to matter, it has to move it into the visible one, which is the subject of [AI agent mandates and approval limits](/guides/ai-agent-mandates-and-approval-limits)."
+          ]
+        },
+        {
+          "title": "The UNCITRAL structure",
+          "body": [
+            "The [UNCITRAL Model Law on Automated Contracting](https://uncitral.un.org/en/mlac) (2024), a template England has not enacted, is instructive on how legislatures are framing attribution:",
+            {
+              "type": "list",
+              "items": [
+                "a contract is not denied validity merely because no natural person reviewed the transaction;",
+                "the parties' agreed attribution procedure comes first;",
+                "absent one, an action is generally attributed to the person using the system for that purpose;",
+                "an unexpected result does not, by itself, defeat attribution; and",
+                "an optional rule limits reliance on an action the attributed party could not reasonably have expected, where the other party knew or ought to have known that."
+              ]
+            },
+            "Two cautions on reading it. First, the default rule identifies the person using the system for the relevant purpose in light of all the circumstances; deployment and control are weighty factors in that assessment, not an automatic answer. Second, attribution and liability are distinct questions: attributing a message to the company establishes whose communication it was, not what the company is liable for as a result."
+          ]
+        },
+        {
+          "title": "Conclusion",
+          "body": [
+            "Attribution is shaped by the company's own deployment choices and communications: which system it put forward, on which credentials, presented how, governed by what agreed procedure. Those are all design decisions. Make them deliberately in the contract before a dispute makes them for you."
+          ]
+        }
+      ],
+      "shellSections": [
+        {
+          "title": "Not a party",
+          "body": [
+            "An AI system has no legal personality; the \"agent\" label does not import agency law of its own force."
+          ]
+        },
+        {
+          "title": "The factors",
+          "body": [
+            "Deployment, credentials, presentation, permitted functions, course of use and any agreed attribution procedure."
+          ]
+        },
+        {
+          "title": "The analogy",
+          "body": [
+            "Freeman & Lockyer and Armagas by analogy: the representation must come from the company; a system cannot self-certify authority."
+          ]
+        },
+        {
+          "title": "The UNCITRAL structure",
+          "body": [
+            "Agreed procedures rank first; the fallback looks at who used the system for that purpose in all the circumstances; attribution is not liability."
+          ]
+        }
+      ],
+      "checklist": [
+        "Agree an express attribution procedure: which accounts, which message markers, which mandate references count as the company's binding communications.",
+        "Separate human and system accounts; never let an autonomous system transact from credentials the counterparty associates with authorised individuals.",
+        "Make automated messages self-identify, including their status (acknowledgement, provisional, binding).",
+        "Keep the system's presented role consistent with its mandate. Do not market a \"negotiation agent\" externally while relying internally on it having no authority.",
+        "Review the course of dealing: if the counterparty has been honouring the system's messages, assume attribution analysis will start from that pattern."
+      ],
+      "sources": [
+        "*Freeman & Lockyer v Buckhurst Park Properties (Mangal) Ltd* [1964] 2 QB 480",
+        "*Armagas Ltd v Mundogas SA (The Ocean Frost)* [1986] AC 717",
+        "[UNCITRAL Model Law on Automated Contracting](https://uncitral.un.org/en/mlac) (2024)",
+        "[*Quoine Pte Ltd v B2C2 Ltd*](https://www.elitigation.sg/gd/s/2020_SGCAI_2/) [2020] SGCA(I) 02 (comparative, on knowledge and algorithmic dealing)"
+      ],
+      "related": [
+        {
+          "slug": "ai-agent-contracting"
+        },
+        {
+          "slug": "ai-agent-contract-formation"
+        },
+        {
+          "slug": "ai-agent-mandates-and-approval-limits"
+        },
+        {
+          "slug": "authority-to-sign-a-contract"
+        },
+        {
+          "slug": "parties-to-a-contract"
+        },
+        {
+          "href": "/demo",
+          "label": "Product demo",
+          "title": "See who changed what between drafts",
+          "body": "Claude reviews tracked changes with Veqtor, so attribution questions start from a clear drafting record."
+        }
+      ]
+    },
+    {
+      "slug": "ai-contracting-mistakes",
+      "cluster": "ai-agent-contracting",
+      "kind": "spoke",
+      "targetQuery": "can an ai contract be avoided for mistake",
+      "metaTitle": "AI Contract Errors and Unilateral Mistake (English Law)",
+      "metaDescription": "Longley, Quoine and unilateral mistake: when an AI system's erroneous acceptance can be unwound, why actual knowledge matters and why 18% is the hard case.",
+      "twitterTitle": "Can You Unwind an AI Mistake?",
+      "breadcrumb": "Mistake",
+      "eyebrow": "Mistake",
+      "h1": "Can an AI-generated contract be avoided for mistake?",
+      "lede": "If [formation](/guides/ai-agent-contract-formation) and [attribution](/guides/ai-agent-attribution) both point towards a binding deal, one escape route remains: mistake. It is the doctrine business teams reach for first (\"the system obviously got it wrong\") and the one English law confines most tightly. This guide sets out the current position, the leading algorithmic-contracting case, and why the realistic AI scenarios are exactly the ones mistake does not cover.",
+      "updated": "2026-07-20",
+      "publishedAt": "2026-07-20",
+      "sourceIssue": "issue-18",
+      "legalReviewStatus": "approved",
+      "reviewedAt": "2026-07-20",
+      "listing": {
+        "label": "Mistake",
+        "title": "Can an AI-generated contract be avoided for mistake?",
+        "body": "Longley, Quoine and the narrow room unilateral mistake leaves once the counterparty had no reason to spot the error."
+      },
+      "sections": [
+        {
+          "title": "The doctrine: a mistake as to terms, actually known",
+          "body": [
+            "The starting point is unpromising. The objective principle from *Smith v Hughes* (1871) LR 6 QB 597 holds parties to the reasonable meaning of their communications precisely so that private errors do not unravel deals. Unilateral mistake operates as a narrow exception: broadly, where one party is mistaken about a term of the contract, not merely about background facts or the commercial wisdom of the deal, and the other party knows of that mistake, the known error prevents the usual objective analysis from binding the mistaken party. *Hartog v Colin & Shields* [1939] 3 All ER 566 is the classic illustration: an offer priced on an obviously wrong basis could not simply be snapped up.",
+            "Both elements matter for automated contracting. The mistake must attach to a term (the price, the duration, the thing being accepted), and the counterparty's state of mind must reach knowledge, not just grounds for suspicion."
+          ]
+        },
+        {
+          "title": "Longley: actual knowledge, not constructive",
+          "body": [
+            "The most recent extended English discussion is [*Longley v PPB Entertainment Ltd*](https://caselaw.nationalarchives.gov.uk/ewhc/qb/2022/977) [2022] EWHC 977 (QB). In an alternative and expressly obiter analysis, Ellenbogen J indicated that unilateral mistake requires the non-mistaken party's actual knowledge of the error; constructive knowledge, in the sense of what a reasonable person in its position would have realised, is not by itself enough. What a reasonable person would have recognised still matters evidentially: actual knowledge, including deliberate blindness, may be inferred from it.",
+            "Two status notes belong here rather than anywhere else in this series. First, the analysis is obiter, alternative and first-instance: a persuasive current statement of direction, not settled appellate law. Second, because the doctrine is knowledge-based, outcomes are heavily fact-driven. The same error can be recoverable against one counterparty and irrecoverable against another, depending on what each actually knew."
+          ]
+        },
+        {
+          "title": "Why 18% is the hard case",
+          "body": [
+            "Run the two standard scenarios against that test:",
+            {
+              "type": "list",
+              "items": [
+                "**The 100\u00d7 error.** An acceptance at one hundred times (or one hundredth of) the market price is strong evidence from which actual knowledge, or deliberate blindness, can realistically be inferred. This is the *Hartog* pattern. Magnitude remains evidence rather than a rule: in *Quoine* itself the deviation was roughly 250 times the market rate, and the mistake defences still failed on the knowledge analysis.",
+                "**The 18% renewal uplift.** Commercially unwelcome, entirely plausible. Nothing on the face of the message signals an error, and the supplier has no way of knowing that internal policy required legal approval, because that policy was never communicated. There is usually no mistake as to terms at all, since the system accepted exactly the terms proposed, and no knowledge to fix on the counterparty."
+              ]
+            },
+            "The realistic AI failure, a deal that is bad rather than absurd, is therefore the one mistake doctrine is least likely to unwind. That asymmetry is the strongest argument for the [contractual architecture](/guides/ai-agent-mandates-and-approval-limits) covered elsewhere in this series."
+          ]
+        },
+        {
+          "title": "Quoine v B2C2: the algorithmic benchmark",
+          "body": [
+            "The leading common-law appellate decision on mistake in algorithmic contracting is the Singapore Court of Appeal's [*Quoine Pte Ltd v B2C2 Ltd*](https://www.elitigation.sg/gd/s/2020_SGCAI_2/) [2020] SGCA(I) 02, comparative authority rather than English law. Deterministic trading algorithms executed thirteen cryptocurrency trades at roughly 250 times the prevailing rate after an operational oversight by the platform operator disrupted normal market conditions. The operator reversed the trades. The majority held that the contracts were valid and the mistake defences failed; the platform's own terms made executed trades irreversible, so reversing them was a breach.",
+            "Three features carry over to any automated-contracting analysis:",
+            {
+              "type": "list",
+              "ordered": true,
+              "items": [
+                "**Whose knowledge, assessed when.** For deterministic systems, the court examined the state of mind of those who programmed and operated the algorithms, over the period from programming (including later modifications) to contract formation, not at the instant of the trade.",
+                "**\"The computer did it\" erases nothing.** Abnormal outcomes generated by properly functioning automation did not, without the required knowledge, ground relief.",
+                "**The framing is deterministic.** The court expressly analysed algorithms whose outputs follow from their programming. A generative system can produce outputs no developer, deployer or business user specifically contemplated, and the model developer, application provider and deploying company may all be different actors. *Quoine* does not say whose state of mind, over what window, an English court should examine for an LLM agent. That question is open."
+              ]
+            }
+          ]
+        },
+        {
+          "title": "England, Singapore and the governing-law point",
+          "body": [
+            "The routes also differ between jurisdictions. The current English common-law direction (per *Longley*) requires actual knowledge. Singapore additionally recognises an equitable strand of unilateral mistake requiring constructive knowledge together with unconscionable conduct. On the *Quoine* majority's reading, the English authorities on balance point away from an equivalent equitable route, though the question has not been finally resolved. The same facts can therefore support relief under one governing law and fail under another. For cross-border automated dealing, the [governing-law clause](/guides/governing-law-clauses) quietly selects the error regime. That choice is worth making consciously, before the parties' own contractual unwind procedure is even reached.",
+            "The [UNCITRAL Model Law on Automated Contracting](https://uncitral.un.org/en/mlac) points the same way from the legislative side: its optional provision restricts reliance on an automated action the attributed party could not reasonably have expected, where the counterparty knew or ought to have known that. England has not enacted it; its value is as a map of the questions contracts should answer themselves."
+          ]
+        },
+        {
+          "title": "Conclusion",
+          "body": [
+            "Mistake is a last-resort argument, not a plan. It may rescue the absurd transaction against a counterparty who plainly knew; it will rarely rescue the merely bad one. If formation and attribution are satisfied, a message within the commercially plausible range is likely to bind, so the protection belongs in [the mandate architecture](/guides/ai-agent-mandates-and-approval-limits) and [the drafting](/guides/drafting-automated-communications-clauses), not in the doctrine."
+          ]
+        }
+      ],
+      "shellSections": [
+        {
+          "title": "The doctrine",
+          "body": [
+            "Unilateral mistake needs a mistake as to terms plus the counterparty's knowledge; Hartog is the classic snapping-up case."
+          ]
+        },
+        {
+          "title": "Longley",
+          "body": [
+            "The current English direction requires actual knowledge, in an alternative, obiter, first-instance analysis; constructive knowledge feeds inference only."
+          ]
+        },
+        {
+          "title": "Quoine",
+          "body": [
+            "Deterministic algorithms, knowledge assessed from programming to formation, comparative authority; its transfer to generative systems is an open question."
+          ]
+        },
+        {
+          "title": "The hard case",
+          "body": [
+            "An 18% uplift looks plausible rather than mistaken, so the realistic AI failure is the one the doctrine rarely unwinds; governing law selects the regime."
+          ]
+        }
+      ],
+      "checklist": [
+        "Capture the market context immediately: contemporaneous pricing, comparable transactions, the size of the deviation.",
+        "Preserve the counterparty's conduct: how fast it moved to rely on the message, and what its own communications show it understood.",
+        "Preserve the system record showing the error mechanism; see [logs, evidence and unwind](/guides/ai-contracting-evidence-and-unwind).",
+        "Give notice fast, through any contractual error procedure and the [notices machinery](/guides/contractual-notice-clauses). Delay weakens both the contractual route and the credibility of the error claim.",
+        "Check the governing law before choosing arguments: the available mistake analysis differs by jurisdiction."
+      ],
+      "sources": [
+        "*Smith v Hughes* (1871) LR 6 QB 597",
+        "*Hartog v Colin & Shields* [1939] 3 All ER 566",
+        "[*Longley v PPB Entertainment Ltd*](https://caselaw.nationalarchives.gov.uk/ewhc/qb/2022/977) [2022] EWHC 977 (QB)",
+        "[*Quoine Pte Ltd v B2C2 Ltd*](https://www.elitigation.sg/gd/s/2020_SGCAI_2/) [2020] SGCA(I) 02",
+        "[UNCITRAL Model Law on Automated Contracting](https://uncitral.un.org/en/mlac) (2024)"
+      ],
+      "related": [
+        {
+          "slug": "ai-agent-contracting"
+        },
+        {
+          "slug": "ai-agent-contract-formation"
+        },
+        {
+          "slug": "ai-contracting-evidence-and-unwind"
+        },
+        {
+          "slug": "governing-law-clauses"
+        },
+        {
+          "slug": "how-courts-interpret-contracts"
+        },
+        {
+          "href": "/demo",
+          "label": "Product demo",
+          "title": "Catch drafting errors before signature",
+          "body": "Watch Claude walk the tracked changes in Word drafts with Veqtor and flag wording that does not match the deal."
+        }
+      ]
+    },
+    {
+      "slug": "ai-agent-mandates-and-approval-limits",
+      "cluster": "ai-agent-contracting",
+      "kind": "spoke",
+      "targetQuery": "ai agent approval limits and mandates",
+      "metaTitle": "AI Agent Mandates and Approval Limits (English Law)",
+      "metaDescription": "An approval limit hidden in an admin panel is an internal control, not necessarily a defence. Communicating AI mandates and limits can materially strengthen the contractual position.",
+      "twitterTitle": "AI Mandates and Approval Limits",
+      "breadcrumb": "Mandates and limits",
+      "eyebrow": "Mandates and limits",
+      "h1": "AI agent mandates: internal limits, external conditions and human confirmation",
+      "lede": "An approval limit stored in an admin panel is a control. It is not necessarily a defence. Most organisations govern their AI systems the way they govern software: configuration caps, system prompts, workflow gates. All of that constrains what the system does. Almost none of it constrains what a counterparty is entitled to understand when a message arrives. This guide is about closing that gap: turning internal limits into an externally communicated mandate the counterparty can see, verify and take into account.",
+      "updated": "2026-07-20",
+      "publishedAt": "2026-07-20",
+      "sourceIssue": "issue-18",
+      "legalReviewStatus": "approved",
+      "reviewedAt": "2026-07-20",
+      "listing": {
+        "label": "Mandates and limits",
+        "title": "AI agent mandates: internal limits, external conditions and human confirmation",
+        "body": "Turning admin-panel controls into communicated conditions of contracting that shape what the counterparty is entitled to assume."
+      },
+      "sections": [
+        {
+          "title": "Two different things: operating rules and conditions of contracting",
+          "body": [
+            "Suppose the procurement agent is technically blocked from committing more than \u00a350,000, and a model error or integration failure lets it accept a \u00a370,000 order. The internal setting is useful evidence of what the company intended its system to do. It does not tell the supplier that the acceptance was conditional or unauthorised, because the supplier never saw it.",
+            "An internal operating rule constrains the system. A condition of contracting constrains the deal. Because [formation](/guides/ai-agent-contract-formation) is judged objectively and [attribution](/guides/ai-agent-attribution) runs on what the company presented outward, it is principally the second kind that reshapes the legal position. The design task is moving each limit that matters from the first category into the second."
+          ]
+        },
+        {
+          "title": "The three-layer test for every control",
+          "body": [
+            "For each control, ask three questions: does the system enforce it, has it been communicated as a term, and can you prove both as at the moment the message was sent?",
+            {
+              "type": "table",
+              "header": [
+                "Control",
+                "Internal control (system)",
+                "Contractual condition (communicated)",
+                "Evidence (provable)"
+              ],
+              "rows": [
+                [
+                  "Transaction value",
+                  "Configuration caps commitments at \u00a350,000",
+                  "Automated acceptances above \u00a350,000 are provisional until confirmed",
+                  "Mandate record showing the cap in force at the message timestamp"
+                ],
+                [
+                  "Price changes",
+                  "Model blocked from accepting price increases",
+                  "Price and volume changes are Restricted Actions requiring human confirmation",
+                  "Configuration version plus escalation log for the transaction"
+                ],
+                [
+                  "Waivers and releases",
+                  "System prompt forbids waiving claims or credits",
+                  "Waivers and releases are valid only from an Authorised Human via the Agreed Confirmation Channel",
+                  "Record of who confirmed, how authenticated, in what words"
+                ],
+                [
+                  "Human approval",
+                  "Workflow requires legal sign-off above thresholds",
+                  "Binding confirmation requires a named role, channel and authentication method",
+                  "Signed or authenticated confirmation record the counterparty can check"
+                ],
+                [
+                  "System identity",
+                  "Agent runs from a dedicated service account",
+                  "Only messages carrying a valid Mandate Reference are binding acceptances",
+                  "Account logs plus the mandate reference embedded in the message"
+                ]
+              ]
+            },
+            "A limit that exists only in the first column is an internal control and little more. A limit present in all three columns gives the company something a court can work with: a communicated condition, and the records to hold it up. Whether it prevails in a given dispute depends on the facts, but the difference in starting position is large."
+          ]
+        },
+        {
+          "title": "Designing the limits themselves",
+          "body": [
+            "A single transaction cap is rarely enough. The patterns that matter in practice:",
+            {
+              "type": "list",
+              "items": [
+                "**Per-transaction limits.** The obvious cap, and the easiest to evade through splitting.",
+                "**Aggregate-period limits.** Total exposure per counterparty per period, catching the drip of individually small commitments.",
+                "**Percentage-change limits.** The renewal scenario: an 18% uplift clears most value caps while being exactly what should have escalated.",
+                "**Restricted actions.** A category list, not a number: renewals and extensions; price or volume changes; amendments and waivers; releases of claims, service credits or remedies; termination and dispute notices; changes to liability, indemnity, IP or governing-law terms."
+              ]
+            },
+            "Mirror every limit in both the contract and the technical configuration. The dangerous state is drift: a contract promising limits the system no longer enforces, or a system enforcing limits the contract never mentions."
+          ]
+        },
+        {
+          "title": "Mandate reference and verification",
+          "body": [
+            "The mechanism that ties the layers together is the mandate reference: a verifiable identifier carried by any message put forward as a binding acceptance, tying it to a mandate with defined permitted actions and limits. Give the counterparty a way to check it: a portal lookup, a signed token, an agreed verification procedure. A contractual limit paired with a system that cannot evidence it is a weak combination. A limit the counterparty can verify is far harder for it to say it misunderstood.",
+            "[AP2, the Agent Payments Protocol](https://cloud.google.com/blog/products/ai-machine-learning/announcing-agents-to-payments-ap2-protocol), is a useful technical illustration: signed mandates encoding what the user authorised (price, timing, transaction), creating an auditable chain from authority to action. A protocol cannot decide legal attribution. It can make authority, and compliance with its limits, much easier to prove."
+          ]
+        },
+        {
+          "title": "The human in the loop, specifically",
+          "body": [
+            "\"Human oversight required\" fails as drafting because no one can verify it happened. Specify:",
+            {
+              "type": "list",
+              "items": [
+                "**the role** entitled to confirm a restricted action (a function, not a named individual);",
+                "**the channel** through which confirmation travels, the Agreed Confirmation Channel;",
+                "**the authentication** that makes the confirmation attributable; and",
+                "**the language** that constitutes confirmation, so a clarifying question is not mistaken for approval."
+              ]
+            },
+            "\"Subject to legal approval\" is only as useful as the counterparty's ability to tell whether approval occurred. One realism check: if every commercially routine action is restricted, the business will route around the mandate, and course of dealing will quietly widen it. Restrict what genuinely needs a human; automate the rest cleanly."
+          ]
+        },
+        {
+          "title": "Conclusion",
+          "body": [
+            "The goal is simple to state: the wrong message either cannot leave the system, or leaves it labelled so that a counterparty would find it hard to justify treating it as binding. Everything above serves that sentence. The wording that implements it lives in [how to draft an automated communications clause](/guides/drafting-automated-communications-clauses); the records that prove it live in [logs, evidence and unwind](/guides/ai-contracting-evidence-and-unwind)."
+          ]
+        }
+      ],
+      "shellSections": [
+        {
+          "title": "Controls versus conditions",
+          "body": [
+            "An internal operating rule constrains the system; only a communicated condition of contracting constrains what the counterparty may assume."
+          ]
+        },
+        {
+          "title": "The three layers",
+          "body": [
+            "For every control: is it enforced in the system, communicated as a term, and provable as at the message timestamp?"
+          ]
+        },
+        {
+          "title": "Designing the limits",
+          "body": [
+            "Per-transaction, aggregate-period and percentage-change limits plus a categorical list of Restricted Actions, mirrored in contract and configuration."
+          ]
+        },
+        {
+          "title": "Verification and the human",
+          "body": [
+            "A verifiable mandate reference, plus a defined role, channel, authentication and wording for human confirmation; AP2 as a technical illustration."
+          ]
+        }
+      ],
+      "checklist": [
+        "List every limit currently enforced only in configuration; decide which must become communicated conditions.",
+        "Add percentage-change and aggregate-period limits alongside per-transaction caps.",
+        "Define Restricted Actions as categories and route them to human confirmation.",
+        "Implement a mandate reference the counterparty can verify, and agree the verification procedure.",
+        "Specify role, channel, authentication and language for human confirmation.",
+        "Diarise a drift review: contract limits and system configuration reconciled on a schedule."
+      ],
+      "sources": [
+        "[AP2, the Agent Payments Protocol](https://cloud.google.com/blog/products/ai-machine-learning/announcing-agents-to-payments-ap2-protocol)",
+        "[UNCITRAL Model Law on Automated Contracting](https://uncitral.un.org/en/mlac) (2024), on agreed procedures as the first-ranking attribution instrument"
+      ],
+      "related": [
+        {
+          "slug": "ai-agent-contracting"
+        },
+        {
+          "slug": "ai-agent-attribution"
+        },
+        {
+          "slug": "drafting-automated-communications-clauses"
+        },
+        {
+          "slug": "ai-contracting-evidence-and-unwind"
+        },
+        {
+          "slug": "authority-to-sign-a-contract"
+        },
+        {
+          "slug": "no-waiver-clauses"
+        },
+        {
+          "href": "/demo",
+          "label": "Product demo",
+          "title": "Review limit wording in the contract",
+          "body": "Use Claude with Veqtor to check how mandate and approval-limit language moves between Word drafts."
+        }
+      ]
+    },
+    {
+      "slug": "ai-contracting-evidence-and-unwind",
+      "cluster": "ai-agent-contracting",
+      "kind": "spoke",
+      "targetQuery": "ai contract error evidence and unwind",
+      "metaTitle": "AI Contract Errors: Evidence, Logs and Unwind Procedures",
+      "metaDescription": "What to preserve when an AI system transacts, how to keep records intact and obtainable, and how a notice-and-unwind procedure handles the erroneous deal.",
+      "twitterTitle": "AI Contract Errors: Prove and Unwind",
+      "breadcrumb": "Evidence and unwind",
+      "eyebrow": "Evidence and unwind",
+      "h1": "Automated contract errors: logs, evidence and unwind procedures",
+      "lede": "When an automated deal goes wrong, two things determine the outcome: what you can prove, and what procedure exists for dealing with the transaction. Logs and system records are evidence whether or not the contract mentions them. What the contract determines is whether they still exist when needed, whether their integrity can be demonstrated, and whether the party that needs them can actually obtain them, especially when they sit with a vendor. That is where most organisations are exposed.",
+      "updated": "2026-07-20",
+      "publishedAt": "2026-07-20",
+      "sourceIssue": "issue-18",
+      "legalReviewStatus": "approved",
+      "reviewedAt": "2026-07-20",
+      "listing": {
+        "label": "Evidence and unwind",
+        "title": "Automated contract errors: logs, evidence and unwind procedures",
+        "body": "What to preserve, who can access it, and how a notice-and-unwind process deals with the transaction that should never have happened."
+      },
+      "sections": [
+        {
+          "title": "Reconstructing the transaction",
+          "body": [
+            "Whatever the legal theory ([formation](/guides/ai-agent-contract-formation), [attribution](/guides/ai-agent-attribution) or [mistake](/guides/ai-contracting-mistakes)), the tribunal's first need is a reconstruction of what happened. Preserve enough to answer every question in that reconstruction:",
+            {
+              "type": "list",
+              "items": [
+                "the exact incoming proposal, as received;",
+                "the exact outgoing message, as sent, because wording disputes are decided on what left the system, not what the template intended;",
+                "the system and account identity behind the message;",
+                "the mandate and commercial parameters in force at the message timestamp;",
+                "material inputs, and the actions sent to connected systems (orders raised, invoices approved, records updated);",
+                "approval and escalation records, including their absence;",
+                "the model and application versions involved; and",
+                "timestamps, overrides and subsequent changes."
+              ]
+            },
+            "The phrase doing the work is *in force at the message timestamp*. Configurations get fixed, prompts get patched, mandates get updated, often within hours of an incident. If the fix overwrites the state that produced the error, it destroys the best evidence of both the error and the company's underlying intent. Version and snapshot first, then fix."
+          ]
+        },
+        {
+          "title": "Preservation, integrity and access are contractual problems",
+          "body": [
+            "Admissibility is rarely the issue; the practical risks are that the record no longer exists, that its reliability is contested, or that it sits beyond the reach of the party that needs it. Address all three expressly:",
+            {
+              "type": "list",
+              "items": [
+                "**Preservation.** What is kept and for how long. Mandatory record-retention rules may prescribe minimum periods; limitation periods and reasonably anticipated claims inform a proportionate retention schedule rather than dictating one. Personal data remains subject to purpose-based storage limitation and data minimisation, with legal holds overriding routine deletion where litigation is contemplated. Put the duties on the vendor side as well as between the parties.",
+                "**Integrity.** Tamper-evidence proportionate to the stakes: hashing, write-once storage or third-party custody, so that the record's reliability does not become the first fight.",
+                "**Access.** Who can obtain what, on what notice, at whose cost, and under what confidentiality protections, both during the error procedure and in a later dispute."
+              ]
+            },
+            "Access is the term most often missing. In English proceedings, disclosure may require production of relevant documents within a party's control; the earlier and more dangerous gap is contractual and operational. A company whose best records sit with a vendor that owes it no delivery obligation, or a counterparty asked to assess an error claim it is shown nothing for, is stuck at exactly the moment speed matters. Decide custody deliberately, especially where the AI stack is vendor-operated."
+          ]
+        },
+        {
+          "title": "The error procedure",
+          "body": [
+            "Relying on doctrine to unwind an automated error is slow and, as the [mistake analysis](/guides/ai-contracting-mistakes) shows, usually unavailable in the realistic cases. A contractual error procedure replaces argument with process. It should answer:",
+            {
+              "type": "list",
+              "items": [
+                "**What counts.** Define an Automated Error by objective markers: a message outside the mandate or its limits, missing a valid mandate reference, or affected by a defined system failure, not \"any output we regret\".",
+                "**How fast.** Notice within a short, defined period, running from when the notifying party became or should have become aware, given through the [contractual notices machinery](/guides/contractual-notice-clauses).",
+                "**With what.** The grounds relied on and the records then available, so the counterparty can assess the claim rather than simply absorb the assertion.",
+                "**What pauses.** Suspension of performance of the affected transaction only, for a defined review period rather than indefinitely.",
+                "**Who decides.** Named roles and an escalation path with time limits, and a stated consequence if review ends without agreement, before any tribunal is involved."
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Unwind and restitution",
+          "body": [
+            "Declaring an out-of-mandate transaction \"void\" is a label, not an outcome. By the time an error surfaces, money may have moved, services may have been consumed and third parties may have relied. The unwind mechanics should state:",
+            {
+              "type": "list",
+              "items": [
+                "what happens to payments already made and benefits already received: repayment, credit or set-off;",
+                "how part performance is valued where services cannot be handed back;",
+                "who bears costs incurred in reliance before notice, including third-party commitments; and",
+                "which losses remain recoverable, and under which contract's liability regime."
+              ]
+            },
+            "*Quoine* is the cautionary tale, with its facts kept in view: the trades were held valid, the mistake defences failed, and the platform's own terms made executed trades irreversible, so the operator's unilateral reversal was a breach. The transferable lesson is narrower than \"reversal equals breach\", but it is real: absent an express contractual or legal right, unilateral reversal may itself breach the contract. A right to unwind can also arise from statute, a court order or the parties' subsequent agreement; what no party should assume is a self-help right that nothing actually provides."
+          ]
+        },
+        {
+          "title": "Suspension, kill switch and in-flight transactions",
+          "body": [
+            "Each party needs a clean way to stop automated contracting: for an incident, a suspected compromise or a commercial rethink. The clause should give a suspension right on notice, define the effect on messages already sent and transactions in flight, and align the contractual mechanism with the technical kill switch: who is notified, how fast suspension takes effect, and what status attaches to anything emitted in the gap between the switch and the notice."
+          ]
+        },
+        {
+          "title": "The vendor chain",
+          "body": [
+            "The company usually faces its counterparty under one agreement and its AI or workflow vendor under another. Test both against the same scenarios, side by side: warranties about system behaviour, indemnities, liability caps, security duties, obligations to escalate anomalies, and each party's preservation and delivery duties for records. A vendor promise of \"industry-standard AI\" does not answer the only question that matters after an incident: who bears the three-year renewal accepted outside mandate. Where the vendor operates the stack, back-to-back the error definitions, preservation duties and access rights, or the counterparty-facing procedure will promise records the company cannot produce."
+          ]
+        },
+        {
+          "title": "Conclusion",
+          "body": [
+            "Evidence and unwind are where the series' earlier pages become operational. The [mandate architecture](/guides/ai-agent-mandates-and-approval-limits) defines what should have happened; the records help prove what did happen; the procedure governs what happens next. All three need to exist before the incident. The drafting is collected in [how to draft an automated communications clause](/guides/drafting-automated-communications-clauses)."
+          ]
+        }
+      ],
+      "shellSections": [
+        {
+          "title": "Reconstruction",
+          "body": [
+            "Preserve the exact messages, the mandate and configuration in force at the timestamp, versions and overrides; snapshot before fixing."
+          ]
+        },
+        {
+          "title": "Preservation, integrity, access",
+          "body": [
+            "Records are evidence regardless of the contract; the contract determines whether they survive, stay reliable and can be obtained, especially from vendors."
+          ]
+        },
+        {
+          "title": "The error procedure",
+          "body": [
+            "An objectively defined Automated Error, a fast notice with grounds and records, and a review bounded in time."
+          ]
+        },
+        {
+          "title": "Unwind and the vendor chain",
+          "body": [
+            "Restitution mechanics for payments and part performance, suspension rights, and back-to-back duties with the AI vendor."
+          ]
+        }
+      ],
+      "checklist": [
+        "Confirm the reconstruction list above is actually captured, especially exact outgoing messages and mandate state at the timestamp.",
+        "Snapshot before fixing: preserve the failing configuration, prompt and version before remediation overwrites them.",
+        "Put preservation, integrity and access into the contract, on both the counterparty and vendor sides.",
+        "Define Automated Error objectively; agree the notice period, the required grounds and the review deadline.",
+        "Agree suspension and unwind mechanics, including part performance and reliance costs.",
+        "Map the vendor chain against the counterparty contract for the same scenarios, clause by clause."
+      ],
+      "sources": [
+        "[*Quoine Pte Ltd v B2C2 Ltd*](https://www.elitigation.sg/gd/s/2020_SGCAI_2/) [2020] SGCA(I) 02, on the consequences of unilateral reversal under terms making executed trades irreversible",
+        "[UNCITRAL Model Law on Automated Contracting](https://uncitral.un.org/en/mlac) (2024)",
+        "[AP2, the Agent Payments Protocol](https://cloud.google.com/blog/products/ai-machine-learning/announcing-agents-to-payments-ap2-protocol), as an auditable-mandate evidence chain",
+        "[ICO guidance on storage limitation](https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/data-protection-principles/a-guide-to-the-data-protection-principles/storage-limitation/) (UK GDPR)",
+        "[Practice Direction 57AD, disclosure in the Business and Property Courts](https://www.justice.gov.uk/courts/procedure-rules/civil/rules/part-57a-business-and-property-courts/practice-direction-57ad-disclosure-in-the-business-and-property-courts)"
+      ],
+      "related": [
+        {
+          "slug": "ai-agent-contracting"
+        },
+        {
+          "slug": "ai-contracting-mistakes"
+        },
+        {
+          "slug": "ai-agent-mandates-and-approval-limits"
+        },
+        {
+          "slug": "drafting-automated-communications-clauses"
+        },
+        {
+          "slug": "contractual-notice-clauses"
+        },
+        {
+          "slug": "indemnities-and-liability-caps"
+        },
+        {
+          "href": "/demo",
+          "label": "Product demo",
+          "title": "Keep a clean record of draft changes",
+          "body": "Veqtor gives Claude the tracked changes from each Word draft, with outputs kept in separate files."
+        }
+      ]
+    },
+    {
+      "slug": "drafting-automated-communications-clauses",
+      "cluster": "ai-agent-contracting",
+      "kind": "spoke",
+      "targetQuery": "automated communications clause drafting",
+      "metaTitle": "How to Draft an Automated Communications Clause",
+      "metaDescription": "A modular automated communications clause: definitions, restricted actions, limits, mandate references, human confirmation, error review, unwind and suspension.",
+      "twitterTitle": "Drafting the Automated Communications Clause",
+      "breadcrumb": "Drafting the clause",
+      "eyebrow": "Drafting the clause",
+      "h1": "How to draft an automated communications clause",
+      "lede": "By the time an AI system can send messages a counterparty might treat as binding, the agreement and the system should implement one and the same authority model. \"Human oversight required\" fails that standard: no one can tell from outside whether oversight happened. This guide turns the principles from the rest of the series into clause architecture: definitions, a front-end operative provision, and the supporting modules that make the front end work.",
+      "updated": "2026-07-20",
+      "publishedAt": "2026-07-20",
+      "sourceIssue": "issue-18",
+      "legalReviewStatus": "approved",
+      "reviewedAt": "2026-07-20",
+      "listing": {
+        "label": "Drafting the clause",
+        "title": "How to draft an automated communications clause",
+        "body": "A modular clause, from definitions and restricted actions to mandate references, human confirmation and error mechanics."
+      },
+      "sections": [
+        {
+          "title": "Start from the three message statuses",
+          "body": [
+            "The counterparty should never have to guess what it has received. Distinguish, in defined terms:",
+            {
+              "type": "list",
+              "ordered": true,
+              "items": [
+                "a **receipt acknowledgement**, which confirms arrival and commits to nothing;",
+                "a **provisional automated response**, substantive but non-binding until confirmed; and",
+                "a **binding confirmation**, the only category with contractual effect."
+              ]
+            },
+            "Two drafting consequences follow. The statuses must be defined by objective markers (account, wording, mandate reference), not by the sender's intention. And the message itself should carry its status, as a label and reference in the message body, because a status buried in the contract but contradicted on the face of an unqualified \"Accepted\" invites exactly the [formation](/guides/ai-agent-contract-formation) dispute the clause exists to prevent."
+          ]
+        },
+        {
+          "title": "The definitions do the work",
+          "body": [
+            "The operative provisions below are short because the defined terms carry the load. Each needs deliberate drafting:",
+            {
+              "type": "list",
+              "items": [
+                "**Automated Communication.** Any message generated without individual human review, scoped by channel and account so nothing falls between categories.",
+                "**Permitted Actions.** The affirmative list of what the system may do with binding effect. Draft narrowly; everything else defaults to provisional.",
+                "**Restricted Actions.** The escalation list by category: renewals and extensions; price or volume changes; amendments and waivers; releases of claims, service credits or remedies; termination and dispute notices; changes to liability, indemnity, IP or governing-law terms.",
+                "**Limits.** Per-transaction, aggregate-period and percentage-change limits, mirrored in the system configuration ([design guidance](/guides/ai-agent-mandates-and-approval-limits)).",
+                "**Mandate Reference.** The verifiable identifier tying a message to a mandate. Define how the counterparty verifies it, and fix the reference point: validity is assessed against the mandate version in force when the message is received.",
+                "**Authorised Human.** A role, not a named individual, with a defined authentication method.",
+                "**Agreed Confirmation Channel.** The specific authenticated channel for human confirmation; the term collapses if confirmation can arrive anywhere.",
+                "**Automated Error.** Objectively defined triggers: outside mandate or Limits, missing or invalid Mandate Reference, or a defined system failure."
+              ]
+            }
+          ]
+        },
+        {
+          "title": "The model wording",
+          "body": [
+            "The wording below is illustrative architecture, not a precedent to lift. Bracketed items are deliberate placeholders for negotiation.",
+            {
+              "type": "quote",
+              "body": [
+                "**Automated Communications.** An Automated Communication constitutes a binding acceptance only if it: (a) carries a valid and verifiable Mandate Reference; (b) falls within the Permitted Actions and applicable Limits; and (c) is not a Restricted Action. Any other Automated Communication is provisional and non-binding unless confirmed by an Authorised Human through the Agreed Confirmation Channel. Either party may notify a suspected Automated Error within [X] Business Days, in which case performance of the affected transaction will be suspended pending review under the agreed error procedure.",
+                "**Restricted Actions and notices.** An Automated Communication that effects or purports to effect a Restricted Action, including a variation, waiver, release, termination or dispute notice or the exercise of a contractual right, is of no effect for that purpose unless confirmed by an Authorised Human through the Agreed Confirmation Channel.",
+                "**Verification and confirmation.** Whether a Mandate Reference is valid, and whether an Automated Communication falls within the Permitted Actions and applicable Limits, is assessed against the version of the mandate in force at the time the Automated Communication is received. Confirmation by an Authorised Human takes effect only when received through the Agreed Confirmation Channel, in the defined form and subject to any applicable contractual or legal formality. In the case of an acceptance, the underlying offer must remain capable of acceptance, and the confirmed Automated Communication becomes a binding acceptance from receipt of the confirmation, not with retrospective effect. In the case of an offer or proposed variation, the Automated Communication takes effect prospectively as an offer or proposal from receipt of the confirmation, subject to its terms and any applicable time limit, and does not itself conclude the transaction or variation. In the case of a notice, waiver, release or exercise of a right, the Automated Communication takes effect for that purpose prospectively from receipt of the confirmation, provided any applicable time limit has not expired.",
+                "**Error notice and review.** A party may give a notice of a suspected Automated Error only where it considers in good faith, on reasonable grounds, that a material Automated Error has occurred. The notice must be given within [X] Business Days of the date the notifying party became, or ought reasonably to have become, aware of the suspected error; must identify the affected transaction and the grounds relied on; and must attach the supporting records then available. On receipt of the notice, performance of the affected transaction (only) is suspended. The parties must then conduct a joint review. The review is complete when the parties agree an outcome or at the end of [Y] Business Days from the notice, whichever is earlier, whether or not each party has engaged in it. If the review completes without agreement, either party may refer the question to [the agreed escalation or dispute resolution route] within [Z] Business Days of completion; if no referral is made in that period, the suspension lapses. A referred question must be determined within [W] Business Days of the referral; if it is not, the suspension lapses [unless the parties have expressly agreed a different interim arrangement]. The suspension ends when the parties agree an outcome, the referred question is determined, or it lapses under this provision, except to the extent that the agreed outcome or determination expressly provides otherwise. A lapse alone is without prejudice to whether the affected transaction was binding under this clause.",
+                "**Interim performance.** While a suspension under this clause is in effect, neither party is required to perform the affected transaction, each party must take reasonable steps to avoid increasing the losses associated with it, and performance of the remainder of this Agreement continues unaffected.",
+                "**Unwind.** If the parties agree, or it is determined, that an Automated Error occurred and that the affected transaction is to be unwound, no further performance of that transaction is required except as the agreed outcome or determination provides. In that case: (a) amounts paid under the affected transaction will be repaid or credited; (b) benefits that cannot be returned will be accounted for on [the agreed valuation basis]; (c) costs reasonably incurred in reliance on the affected transaction before notice will be borne as set out in [the costs provision]; and (d) accrued rights and obligations under the remainder of this Agreement are unaffected.",
+                "**Suspension of automated contracting.** Either party may suspend automated contracting under this Agreement by notice, with effect from receipt of the notice or any later time stated in it. Suspension operates prospectively only: it does not affect transactions already binding before the effective time, and Automated Communications received before the effective time retain their status. Automated Communications received on or after the effective time are provisional only."
+              ]
+            },
+            "The mechanics are deliberately anchored, with receipt as the single temporal reference point. Every stage of the error procedure carries a deadline: the notice, the review (which completes by its deadline even if a party refuses to engage), the referral and the determination. The suspension ends on an agreed outcome, on determination or by lapse; a stalled stage ends in lapse rather than an open-ended freeze, and a lapse alone leaves the underlying binding-status question exactly where the front end put it, rather than deeming the transaction effective."
+          ]
+        },
+        {
+          "title": "What still needs transaction-specific drafting",
+          "body": [
+            {
+              "type": "list",
+              "items": [
+                "**Evidence and preservation.** Duties to preserve, integrity standards and access rights, on both the counterparty and vendor sides; the substance is in [logs, evidence and unwind](/guides/ai-contracting-evidence-and-unwind).",
+                "**Costs and liability.** Which losses from an Automated Error are recoverable, under which cap, and how the clause interacts with the vendor contracts.",
+                "**The referral forum.** Who determines a disputed error (escalation panel, expert, expedited tribunal), on what standard, and whether a missed determination window should produce anything other than lapse of the suspension.",
+                "**Verification mechanics.** How the counterparty actually checks a Mandate Reference: portal lookup, signed token or agreed procedure."
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Human confirmation that can be verified",
+          "body": [
+            "For Restricted Actions, draft the confirmation step so the counterparty can rely on it: the role that confirms, the channel it uses, the authentication that attributes it, and the words that count. Avoid \"subject to legal approval\" standing alone. It makes the company's internal process a condition whose satisfaction the counterparty cannot see. If approval is a condition, give it an external footprint: a confirmation message in defined form on the Agreed Confirmation Channel."
+          ]
+        },
+        {
+          "title": "Fit with the rest of the contract",
+          "body": [
+            "An automated communications clause lands in an agreement that already regulates communications. Reconcile them, or the clauses will fight:",
+            {
+              "type": "list",
+              "items": [
+                "**[No-oral-modification clauses](/guides/no-oral-modification-clauses).** After *Rock Advertising v MWB* [2018] UKSC 24, NOM clauses are generally effective. Decide whether a binding Automated Communication satisfies the variation formality or sits outside it; silence leaves both arguments open.",
+                "**[Notice clauses](/guides/contractual-notice-clauses).** Route Automated Error notices through the existing notices machinery, and state whether automated messages can ever constitute contractual notices.",
+                "**[Entire agreement clauses](/guides/entire-agreement-clauses).** Fix the status of portal terms and system documentation the clause relies on.",
+                "**[No-waiver clauses](/guides/no-waiver-clauses).** An agent that repeatedly fails to enforce a right should not waive it; confirm the no-waiver language covers automated conduct.",
+                "**[Governing law](/guides/governing-law-clauses).** The background mistake regime differs between jurisdictions ([why it matters](/guides/ai-contracting-mistakes)); the weaker the doctrinal safety net, the more the contractual error procedure is worth."
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Deployment is part of the drafting",
+          "body": [
+            "A clause the system contradicts is worse than no clause: it documents that the company knew the difference between provisional and binding and let the templates blur it anyway. Before signature, walk the wording against the build with engineering: statuses carried in message bodies, mandate references generated and verifiable against the current mandate version, limits configured, kill switch aligned with the suspension provision. Then diarise a drift review, because the system will change faster than the contract."
+          ]
+        },
+        {
+          "title": "Conclusion",
+          "body": [
+            "The clause is the visible layer of the series: [mandates](/guides/ai-agent-mandates-and-approval-limits) decide what it says, [attribution](/guides/ai-agent-attribution) and [formation](/guides/ai-agent-contract-formation) explain why it must be communicated rather than merely configured, and the [evidence framework](/guides/ai-contracting-evidence-and-unwind) helps prove how it operated. Agree the architecture before the system is given external authority, not after the wrong renewal has already been accepted."
+          ]
+        }
+      ],
+      "shellSections": [
+        {
+          "title": "Three message statuses",
+          "body": [
+            "Distinguish a receipt acknowledgement, a provisional automated response and a binding confirmation, defined by objective markers and carried in the message itself."
+          ]
+        },
+        {
+          "title": "The definitions",
+          "body": [
+            "Permitted and Restricted Actions, Limits, Mandate Reference, Authorised Human, Agreed Confirmation Channel and Automated Error carry the operative load."
+          ]
+        },
+        {
+          "title": "The model wording",
+          "body": [
+            "A front-end provision plus verification, error review, interim performance, unwind and suspension modules, bounded in time and prospective in effect."
+          ]
+        },
+        {
+          "title": "Fit and deployment",
+          "body": [
+            "Reconcile with NOM, notices, entire agreement, no-waiver and governing-law clauses, then validate the wording against the actual system build."
+          ]
+        }
+      ],
+      "checklist": [
+        "Define the three message statuses by objective markers; make messages self-label.",
+        "Draft Permitted Actions narrowly; default everything else to provisional.",
+        "List Restricted Actions by category, and give them a dedicated no-effect provision covering notices, waivers and the exercise of rights.",
+        "Mirror Limits in the configuration; diarise reconciliation.",
+        "Fix the verification reference point: mandate version in force at receipt; agree the verification procedure.",
+        "Give human confirmation an external footprint (role, channel, authentication, words) and make it prospective only.",
+        "Gate the error procedure with good faith, reasonable grounds and materiality, and bound it end to end: notice period, a review that completes by its deadline even without cooperation, a referral window, a determination window, and lapse of the suspension at every stalled stage, always without prejudice to binding status.",
+        "Add an interim-performance rule for suspended transactions.",
+        "Attach the preservation, costs and liability modules; the operative provisions alone are not a regime.",
+        "Reconcile with NOM, notices, entire agreement, no-waiver and governing-law clauses.",
+        "Validate clause against build with engineering before signature."
+      ],
+      "sources": [
+        "[*Rock Advertising Ltd v MWB Business Exchange Centres Ltd*](https://caselaw.nationalarchives.gov.uk/uksc/2018/24) [2018] UKSC 24",
+        "[UNCITRAL Model Law on Automated Contracting](https://uncitral.un.org/en/mlac) (2024)",
+        "[AP2, the Agent Payments Protocol](https://cloud.google.com/blog/products/ai-machine-learning/announcing-agents-to-payments-ap2-protocol)"
+      ],
+      "related": [
+        {
+          "slug": "ai-agent-contracting"
+        },
+        {
+          "slug": "ai-agent-mandates-and-approval-limits"
+        },
+        {
+          "slug": "ai-contracting-evidence-and-unwind"
+        },
+        {
+          "slug": "boilerplate-clauses"
+        },
+        {
+          "slug": "no-oral-modification-clauses"
+        },
+        {
+          "href": "/demo",
+          "label": "Product demo",
+          "title": "Test the clause in a real redline",
+          "body": "Watch Claude propose tracked-change edits to clause wording in a separate Word document with Veqtor."
         }
       ]
     }

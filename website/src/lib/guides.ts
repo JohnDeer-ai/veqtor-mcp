@@ -3,9 +3,17 @@ import guideSourceJson from '../data/guides-source.json'
 export type GuideKind = 'pillar' | 'spoke'
 export type LegalReviewStatus = 'approved' | 'owner_review_required'
 
+// A body entry is a paragraph string (the historical format) or a typed block.
+// Inline markup inside any string is limited to [label](href), **bold**, *italic*.
+export type GuideBlock =
+  | string
+  | { type: 'list'; ordered?: boolean; items: string[] }
+  | { type: 'quote'; body: string[] }
+  | { type: 'table'; header: string[]; rows: string[][] }
+
 export interface GuideSection {
   title: string
-  body: string[]
+  body: GuideBlock[]
 }
 
 interface GuideListing {
@@ -47,6 +55,7 @@ interface SourceGuide {
   sections: GuideSection[]
   shellSections: GuideSection[]
   checklist: string[]
+  sources?: string[]
   related: RelatedGuideReference[]
   productBridge?: GuideProductBridge
 }
@@ -129,6 +138,7 @@ export interface Guide {
   listing: GuideListing
   sections: GuideSection[]
   checklist: string[]
+  sources: string[]
   relatedSlugs: string[]
   productBridge?: GuideProductBridge
   readingTime: number
@@ -174,7 +184,12 @@ export const GUIDE_STAGES: GuideStage[] = [
     id: 'formation',
     label: 'Formation and identity',
     description: 'Who is bound, how the contract forms, and what the words are allowed to mean.',
-    clusterIds: ['contract-formation', 'parties-to-a-contract', 'definitions-and-recitals'],
+    clusterIds: [
+      'contract-formation',
+      'parties-to-a-contract',
+      'definitions-and-recitals',
+      'ai-agent-contracting',
+    ],
   },
   {
     id: 'performance',
@@ -299,13 +314,28 @@ function wordCount(value: string): number {
   return value.trim().split(/\s+/).filter(Boolean).length
 }
 
+function blockText(block: GuideBlock): string {
+  if (typeof block === 'string') return block
+  if (block.type === 'list') return block.items.join(' ')
+  if (block.type === 'quote') return block.body.join(' ')
+  return [...block.header, ...block.rows.flat()].join(' ')
+}
+
+// Reduces inline markup to its visible text for counting and search indexing.
+function inlinePlainText(value: string): string {
+  return value.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '$1').replaceAll('*', '')
+}
+
+export { renderInline } from './render-inline.mjs'
+
 function readingTimeForGuide(guide: SourceGuide): number {
   const text = [
     guide.h1,
     guide.lede,
-    ...guide.sections.flatMap((section) => [section.title, ...section.body]),
+    ...guide.sections.flatMap((section) => [section.title, ...section.body.map(blockText)]),
     ...guide.checklist,
-  ].join(' ')
+    ...(guide.sources ?? []),
+  ].map(inlinePlainText).join(' ')
   return Math.max(4, Math.ceil(wordCount(text) / 220))
 }
 
@@ -317,9 +347,10 @@ function searchTextForGuide(guide: SourceGuide): string {
     guide.eyebrow,
     guide.targetQuery,
     guide.metaDescription,
-    ...guide.sections.flatMap((section) => [section.title, ...section.body]),
+    ...guide.sections.flatMap((section) => [section.title, ...section.body.map(blockText)]),
     ...guide.checklist,
-  ].join(' ').toLocaleLowerCase('en')
+    ...(guide.sources ?? []),
+  ].map(inlinePlainText).join(' ').toLocaleLowerCase('en')
 }
 
 export const GUIDES: Guide[] = approvedSourceGuides.map((guide) => ({
@@ -344,6 +375,7 @@ export const GUIDES: Guide[] = approvedSourceGuides.map((guide) => ({
   // Full editorial sections are the page body. shellSections are deliberately not imported.
   sections: guide.sections,
   checklist: guide.checklist,
+  sources: guide.sources ?? [],
   // Old href-based product CTAs are deliberately stripped. Only approved guide links survive.
   relatedSlugs: guide.related
     .flatMap((related) => related.slug ? [related.slug] : [])
