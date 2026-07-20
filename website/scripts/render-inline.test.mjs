@@ -28,8 +28,21 @@ test('blocks scriptable and protocol-relative link targets', () => {
   assert.equal(data, 'click')
   const protocolRelative = renderInline('[click](//evil.example)')
   assert.equal(protocolRelative, 'click')
+  const backslashRelative = renderInline('[click](/\\evil.example/path)')
+  assert.equal(backslashRelative, 'click')
   const mailto = renderInline('[click](mailto:a@b.c)')
   assert.equal(mailto, 'click')
+})
+
+test('asterisks inside link targets survive the emphasis passes', () => {
+  assert.equal(
+    renderInline('[x](https://example.test/a*b*c)'),
+    '<a href="https://example.test/a*b*c">x</a>',
+  )
+  assert.equal(
+    renderInline('see [x](https://example.test/a*b) and *this*'),
+    'see <a href="https://example.test/a*b">x</a> and <em>this</em>',
+  )
 })
 
 test('escapes quotes, ampersands and angle brackets everywhere', () => {
