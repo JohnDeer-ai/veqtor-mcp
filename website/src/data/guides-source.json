@@ -14820,7 +14820,7 @@
                 "Formation is tested objectively on the parties' words and conduct: [*RTS Flexible Systems v M\u00fcller*](https://caselaw.nationalarchives.gov.uk/uksc/2010/14) [2010] UKSC 14.",
                 "Contracting through machines is nothing new. English courts analysed automated ticket machines in offer-and-acceptance terms as long ago as *Thornton v Shoe Lane Parking* [1971] 2 QB 163.",
                 "Unilateral mistake offers a narrow escape. In [*Longley v PPB Entertainment*](https://caselaw.nationalarchives.gov.uk/ewhc/qb/2022/977) [2022] EWHC 977 (QB), in an alternative and expressly obiter first-instance analysis, the court indicated that actual knowledge of the error is required; what a reasonable counterparty would have noticed goes to inference, not to the test itself.",
-                "The leading common-law appellate decision on algorithmic contracting is Singapore's [*Quoine Pte Ltd v B2C2 Ltd*](https://www.elitigation.sg/gd/s/2020_SGCAI_2) [2020] SGCA(I) 02. It is comparative authority, not English law, and it was expressly framed for deterministic algorithms rather than generative systems.",
+                "The leading common-law appellate decision on algorithmic contracting is Singapore's [*Quoine Pte Ltd v B2C2 Ltd*](https://www.elitigation.sg/gd/s/2020_SGCAI_2/) [2020] SGCA(I) 02. It is comparative authority, not English law, and it was expressly framed for deterministic algorithms rather than generative systems.",
                 "The [UNCITRAL Model Law on Automated Contracting](https://uncitral.un.org/en/mlac) (2024) is a legislative template England has not enacted. Its practical value is that it lists the questions a contract should answer before a dispute arises."
               ]
             },
@@ -14898,7 +14898,7 @@
       "sources": [
         "[*RTS Flexible Systems Ltd v Molkerei Alois M\u00fcller GmbH*](https://caselaw.nationalarchives.gov.uk/uksc/2010/14) [2010] UKSC 14",
         "[*Longley v PPB Entertainment Ltd*](https://caselaw.nationalarchives.gov.uk/ewhc/qb/2022/977) [2022] EWHC 977 (QB)",
-        "[*Quoine Pte Ltd v B2C2 Ltd*](https://www.elitigation.sg/gd/s/2020_SGCAI_2) [2020] SGCA(I) 02",
+        "[*Quoine Pte Ltd v B2C2 Ltd*](https://www.elitigation.sg/gd/s/2020_SGCAI_2/) [2020] SGCA(I) 02",
         "[*Rock Advertising Ltd v MWB Business Exchange Centres Ltd*](https://caselaw.nationalarchives.gov.uk/uksc/2018/24) [2018] UKSC 24",
         "*Thornton v Shoe Lane Parking Ltd* [1971] 2 QB 163; *Smith v Hughes* (1871) LR 6 QB 597; *Hartog v Colin & Shields* [1939] 3 All ER 566; *Freeman & Lockyer v Buckhurst Park Properties (Mangal) Ltd* [1964] 2 QB 480; *Armagas Ltd v Mundogas SA (The Ocean Frost)* [1986] AC 717",
         "[UNCITRAL Model Law on Automated Contracting](https://uncitral.un.org/en/mlac) (2024)",
@@ -14980,7 +14980,7 @@
           "title": "English law has contracted through machines for decades",
           "body": [
             "The involvement of automation is not, by itself, a formation defence. In *Thornton v Shoe Lane Parking* [1971] 2 QB 163, the Court of Appeal analysed a car-park ticket machine in ordinary offer-and-acceptance terms: the operator made its offer through the machine it had put forward, and the customer accepted by putting money into it. Vending machines, electronic dealing systems and algorithmic trading platforms have been analysed in the same spirit. The deployer speaks through the system it chose to present.",
-            "The Singapore Court of Appeal reached the equivalent conclusion for algorithm-to-algorithm dealing in [*Quoine Pte Ltd v B2C2 Ltd*](https://www.elitigation.sg/gd/s/2020_SGCAI_2) [2020] SGCA(I) 02: contracts formed entirely between deterministic trading algorithms were valid. It is comparative authority, not English law, but it illustrates how unlikely a court is to treat \"no human read it\" as fatal to formation where the exchange otherwise looks like assent.",
+            "The Singapore Court of Appeal reached the equivalent conclusion for algorithm-to-algorithm dealing in [*Quoine Pte Ltd v B2C2 Ltd*](https://www.elitigation.sg/gd/s/2020_SGCAI_2/) [2020] SGCA(I) 02: contracts formed entirely between deterministic trading algorithms were valid. It is comparative authority, not English law, but it illustrates how unlikely a court is to treat \"no human read it\" as fatal to formation where the exchange otherwise looks like assent.",
             "A generative agent differs from a ticket machine in how its output is produced, not in how the output reads to the counterparty. Nothing in the objective approach suggests that difference alone prevents formation."
           ]
         },
@@ -15051,7 +15051,7 @@
         "*Smith v Hughes* (1871) LR 6 QB 597",
         "*Thornton v Shoe Lane Parking Ltd* [1971] 2 QB 163",
         "[*Rock Advertising Ltd v MWB Business Exchange Centres Ltd*](https://caselaw.nationalarchives.gov.uk/uksc/2018/24) [2018] UKSC 24",
-        "[*Quoine Pte Ltd v B2C2 Ltd*](https://www.elitigation.sg/gd/s/2020_SGCAI_2) [2020] SGCA(I) 02"
+        "[*Quoine Pte Ltd v B2C2 Ltd*](https://www.elitigation.sg/gd/s/2020_SGCAI_2/) [2020] SGCA(I) 02"
       ],
       "related": [
         {
@@ -15206,7 +15206,7 @@
         "*Freeman & Lockyer v Buckhurst Park Properties (Mangal) Ltd* [1964] 2 QB 480",
         "*Armagas Ltd v Mundogas SA (The Ocean Frost)* [1986] AC 717",
         "[UNCITRAL Model Law on Automated Contracting](https://uncitral.un.org/en/mlac) (2024)",
-        "[*Quoine Pte Ltd v B2C2 Ltd*](https://www.elitigation.sg/gd/s/2020_SGCAI_2) [2020] SGCA(I) 02 (comparative, on knowledge and algorithmic dealing)"
+        "[*Quoine Pte Ltd v B2C2 Ltd*](https://www.elitigation.sg/gd/s/2020_SGCAI_2/) [2020] SGCA(I) 02 (comparative, on knowledge and algorithmic dealing)"
       ],
       "related": [
         {
@@ -15286,7 +15286,7 @@
         {
           "title": "Quoine v B2C2: the algorithmic benchmark",
           "body": [
-            "The leading common-law appellate decision on mistake in algorithmic contracting is the Singapore Court of Appeal's [*Quoine Pte Ltd v B2C2 Ltd*](https://www.elitigation.sg/gd/s/2020_SGCAI_2) [2020] SGCA(I) 02, comparative authority rather than English law. Deterministic trading algorithms executed thirteen cryptocurrency trades at roughly 250 times the prevailing rate after an operational oversight by the platform operator disrupted normal market conditions. The operator reversed the trades. The majority held that the contracts were valid and the mistake defences failed; the platform's own terms made executed trades irreversible, so reversing them was a breach.",
+            "The leading common-law appellate decision on mistake in algorithmic contracting is the Singapore Court of Appeal's [*Quoine Pte Ltd v B2C2 Ltd*](https://www.elitigation.sg/gd/s/2020_SGCAI_2/) [2020] SGCA(I) 02, comparative authority rather than English law. Deterministic trading algorithms executed thirteen cryptocurrency trades at roughly 250 times the prevailing rate after an operational oversight by the platform operator disrupted normal market conditions. The operator reversed the trades. The majority held that the contracts were valid and the mistake defences failed; the platform's own terms made executed trades irreversible, so reversing them was a breach.",
             "Three features carry over to any automated-contracting analysis:",
             {
               "type": "list",
@@ -15350,7 +15350,7 @@
         "*Smith v Hughes* (1871) LR 6 QB 597",
         "*Hartog v Colin & Shields* [1939] 3 All ER 566",
         "[*Longley v PPB Entertainment Ltd*](https://caselaw.nationalarchives.gov.uk/ewhc/qb/2022/977) [2022] EWHC 977 (QB)",
-        "[*Quoine Pte Ltd v B2C2 Ltd*](https://www.elitigation.sg/gd/s/2020_SGCAI_2) [2020] SGCA(I) 02",
+        "[*Quoine Pte Ltd v B2C2 Ltd*](https://www.elitigation.sg/gd/s/2020_SGCAI_2/) [2020] SGCA(I) 02",
         "[UNCITRAL Model Law on Automated Contracting](https://uncitral.un.org/en/mlac) (2024)"
       ],
       "related": [
@@ -15710,7 +15710,7 @@
         "Map the vendor chain against the counterparty contract for the same scenarios, clause by clause."
       ],
       "sources": [
-        "[*Quoine Pte Ltd v B2C2 Ltd*](https://www.elitigation.sg/gd/s/2020_SGCAI_2) [2020] SGCA(I) 02, on the consequences of unilateral reversal under terms making executed trades irreversible",
+        "[*Quoine Pte Ltd v B2C2 Ltd*](https://www.elitigation.sg/gd/s/2020_SGCAI_2/) [2020] SGCA(I) 02, on the consequences of unilateral reversal under terms making executed trades irreversible",
         "[UNCITRAL Model Law on Automated Contracting](https://uncitral.un.org/en/mlac) (2024)",
         "[AP2, the Agent Payments Protocol](https://cloud.google.com/blog/products/ai-machine-learning/announcing-agents-to-payments-ap2-protocol), as an auditable-mandate evidence chain",
         "[ICO guidance on storage limitation](https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/data-protection-principles/a-guide-to-the-data-protection-principles/storage-limitation/) (UK GDPR)",

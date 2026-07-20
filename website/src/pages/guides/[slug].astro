@@ -103,14 +103,18 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
                 )
               }
               return (
-                <div class="table-wrap">
+                <div class="table-wrap" tabindex="0" role="region" aria-label={`Table: ${section.title}`}>
                   <table>
                     <thead>
-                      <tr>{block.header.map((cell) => <th set:html={renderInline(cell)} />)}</tr>
+                      <tr>{block.header.map((cell) => <th scope="col" set:html={renderInline(cell)} />)}</tr>
                     </thead>
                     <tbody>
                       {block.rows.map((row) => (
-                        <tr>{row.map((cell) => <td set:html={renderInline(cell)} />)}</tr>
+                        <tr>
+                          {row.map((cell, cellIndex) => cellIndex === 0
+                            ? <th scope="row" set:html={renderInline(cell)} />
+                            : <td set:html={renderInline(cell)} />)}
+                        </tr>
                       ))}
                     </tbody>
                   </table>
@@ -352,6 +356,12 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
     text-transform: uppercase;
   }
 
+  /* Grid items default to min-width auto, which lets a wide table stretch the
+     page instead of scrolling inside its own container. */
+  .article-body {
+    min-width: 0;
+  }
+
   .article-body > section:not(.product-bridge, .related, .checklist) {
     padding-bottom: 2.1rem;
     margin-bottom: 2.1rem;
@@ -489,15 +499,27 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
     border-bottom: 1px solid var(--line);
   }
 
-  .article-body :global(.table-wrap td) {
+  .article-body :global(.table-wrap td),
+  .article-body :global(.table-wrap tbody th) {
     padding: 0.8rem 0.9rem;
     color: #c9c6d2;
     vertical-align: top;
     border-bottom: 1px solid var(--line);
   }
 
-  .article-body :global(.table-wrap tbody tr:last-child td) {
+  .article-body :global(.table-wrap tbody th) {
+    font-weight: var(--weight-title);
+    text-align: left;
+  }
+
+  .article-body :global(.table-wrap tbody tr:last-child td),
+  .article-body :global(.table-wrap tbody tr:last-child th) {
     border-bottom: 0;
+  }
+
+  .article-body :global(.table-wrap:focus-visible) {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
 
   .sources :global(ul) {

@@ -326,22 +326,7 @@ function inlinePlainText(value: string): string {
   return value.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '$1').replaceAll('*', '')
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-}
-
-// Renders the limited inline markup allowed in guide strings. Everything is
-// HTML-escaped first, so source text can never inject markup of its own.
-export function renderInline(text: string): string {
-  return escapeHtml(text)
-    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_match, label, href) => `<a href="${href}">${label}</a>`)
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-}
+export { renderInline } from './render-inline.mjs'
 
 function readingTimeForGuide(guide: SourceGuide): number {
   const text = [
