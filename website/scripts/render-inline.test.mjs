@@ -2,6 +2,27 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { renderInline } from '../src/lib/render-inline.mjs'
 
+const NUL = String.fromCharCode(0)
+
+test('digits framed by spaces in plain text are never treated as placeholders', () => {
+  assert.equal(
+    renderInline('within 5 Business Days of the notice'),
+    'within 5 Business Days of the notice',
+  )
+  assert.equal(
+    renderInline('pay 10 000 within 5 Business Days, see [x](/guides/contract-formation)'),
+    'pay 10 000 within 5 Business Days, see <a href="/guides/contract-formation">x</a>',
+  )
+})
+
+test('NUL characters in source text cannot forge an anchor placeholder', () => {
+  assert.equal(
+    renderInline(`before ${NUL}0${NUL} after [x](/guides/contract-formation)`),
+    'before 0 after <a href="/guides/contract-formation">x</a>',
+  )
+  assert.equal(renderInline(`${NUL}5${NUL}`), '5')
+})
+
 test('renders safe links, bold and italics', () => {
   assert.equal(
     renderInline('See [the pillar](/guides/ai-agent-contracting) first.'),
