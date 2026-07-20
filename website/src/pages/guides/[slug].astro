@@ -9,6 +9,7 @@ import {
   guideStructuredData,
   productBridgeForGuide,
   relatedGuides,
+  renderInline,
   topicForGuide,
   type Guide,
 } from '../../lib/guides'
@@ -51,7 +52,7 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
       <div>
         <p class="kicker">{topic.stage.label} / {topic.label}</p>
         <h1>{guide.h1}</h1>
-        <p class="lede">{guide.lede}</p>
+        <p class="lede" set:html={renderInline(guide.lede)} />
         <div class="byline">
           <a href={AUTHOR.path}>Ilya Shilov, LL.M.</a>
           <span>Updated {formatGuideDate(guide.modifiedAt)}</span>
@@ -78,6 +79,9 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
             </a>
           ))}
           <a href="#practical-checklist"><span>{String(guide.sections.length + 1).padStart(2, '0')}</span>Practical checklist</a>
+          {guide.sources.length > 0 && (
+            <a href="#sources-heading"><span>{String(guide.sections.length + 2).padStart(2, '0')}</span>Sources</a>
+          )}
         </nav>
       </aside>
 
@@ -85,7 +89,34 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
         {guide.sections.map((section) => (
           <section aria-labelledby={guideAnchorId(section.title)}>
             <h2 id={guideAnchorId(section.title)}>{section.title}</h2>
-            {section.body.map((paragraph) => <p>{paragraph}</p>)}
+            {section.body.map((block) => {
+              if (typeof block === 'string') return <p set:html={renderInline(block)} />
+              if (block.type === 'list') {
+                const items = block.items.map((item) => <li set:html={renderInline(item)} />)
+                return block.ordered ? <ol class="body-list">{items}</ol> : <ul class="body-list">{items}</ul>
+              }
+              if (block.type === 'quote') {
+                return (
+                  <blockquote class="body-quote">
+                    {block.body.map((entry) => <p set:html={renderInline(entry)} />)}
+                  </blockquote>
+                )
+              }
+              return (
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>{block.header.map((cell) => <th set:html={renderInline(cell)} />)}</tr>
+                    </thead>
+                    <tbody>
+                      {block.rows.map((row) => (
+                        <tr>{row.map((cell) => <td set:html={renderInline(cell)} />)}</tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            })}
           </section>
         ))}
 
@@ -93,9 +124,19 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
           <p class="kicker">Use at the desk</p>
           <h2 id="practical-checklist">Practical checklist</h2>
           <ul>
-            {guide.checklist.map((item) => <li>{item}</li>)}
+            {guide.checklist.map((item) => <li set:html={renderInline(item)} />)}
           </ul>
         </section>
+
+        {guide.sources.length > 0 && (
+          <section class="sources" aria-labelledby="sources-heading">
+            <p class="kicker">Primary material</p>
+            <h2 id="sources-heading">Sources</h2>
+            <ul>
+              {guide.sources.map((item) => <li set:html={renderInline(item)} />)}
+            </ul>
+          </section>
+        )}
 
         <p class="disclaimer">
           This guide is informational only and is not legal advice. It does not replace advice
@@ -376,6 +417,101 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
     color: var(--muted);
     font-size: 0.78rem;
     line-height: 1.6;
+  }
+
+  .lede :global(a),
+  .article-body :global(:is(p, li, td) a:not(.button)) {
+    color: var(--accent-soft);
+    text-decoration: underline;
+    text-decoration-color: rgb(192 185 255 / 45%);
+    text-underline-offset: 0.16em;
+  }
+
+  .article-body :global(.body-list) {
+    display: grid;
+    gap: 0.55rem;
+    margin: 0 0 1.5rem;
+    padding-left: 1.25rem;
+    color: #c9c6d2;
+    font-size: clamp(1rem, 1.4vw, 1.08rem);
+    line-height: 1.72;
+  }
+
+  .article-body :global(.body-list li::marker) {
+    color: var(--accent-soft);
+  }
+
+  .article-body :global(.body-quote) {
+    margin: 0 0 1.5rem;
+    padding: clamp(1.1rem, 3vw, 1.7rem);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 0.7rem 0.7rem 0;
+  }
+
+  .article-body :global(.body-quote p) {
+    margin-bottom: 1rem;
+    color: #d2cfda;
+    font-size: 0.98rem;
+    line-height: 1.75;
+  }
+
+  .article-body :global(.body-quote p:last-child) {
+    margin-bottom: 0;
+  }
+
+  .article-body :global(.table-wrap) {
+    margin: 0 0 1.5rem;
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: 0.7rem;
+  }
+
+  .article-body :global(.table-wrap table) {
+    width: 100%;
+    min-width: 44rem;
+    border-collapse: collapse;
+    font-size: 0.92rem;
+    line-height: 1.55;
+  }
+
+  .article-body :global(.table-wrap th) {
+    padding: 0.75rem 0.9rem;
+    color: var(--accent-soft);
+    font-family: var(--mono, ui-monospace, monospace);
+    font-size: 0.68rem;
+    font-weight: var(--weight-label);
+    letter-spacing: 0.08em;
+    text-align: left;
+    text-transform: uppercase;
+    background: var(--panel-raised);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .article-body :global(.table-wrap td) {
+    padding: 0.8rem 0.9rem;
+    color: #c9c6d2;
+    vertical-align: top;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .article-body :global(.table-wrap tbody tr:last-child td) {
+    border-bottom: 0;
+  }
+
+  .sources :global(ul) {
+    display: grid;
+    gap: 0.6rem;
+    margin: 0;
+    padding-left: 1.25rem;
+    color: var(--muted);
+    font-size: 0.88rem;
+    line-height: 1.6;
+  }
+
+  .sources :global(li::marker) {
+    color: var(--accent-soft);
   }
 
   .product-bridge {

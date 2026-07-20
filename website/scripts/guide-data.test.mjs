@@ -10,9 +10,9 @@ const approved = source.guides.filter((guide) => guide.legalReviewStatus === 'ap
 const approvedSlugs = new Set(approved.map((guide) => guide.slug))
 
 test('the migrated editorial inventory stays complete and publication-filtered', () => {
-  assert.equal(source.guides.length, 116)
-  assert.equal(approved.length, 115)
-  assert.equal(source.clusters.length, 17)
+  assert.equal(source.guides.length, 123)
+  assert.equal(approved.length, 122)
+  assert.equal(source.clusters.length, 18)
   assert.equal(source.guides.filter((guide) => guide.legalReviewStatus !== 'approved').length, 1)
 })
 
