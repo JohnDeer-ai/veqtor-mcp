@@ -206,7 +206,10 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
   }
 
   .shell {
-    width: min(1220px, calc(100% - 2.5rem));
+    /* The global .shell caps width at var(--shell) = 1240px; article pages
+       deliberately run wider so the flexible centre column gets the space. */
+    width: min(1800px, calc(100% - 2.5rem));
+    max-width: none;
     margin-inline: auto;
   }
 
@@ -231,7 +234,7 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
 
   .article-hero {
     display: grid;
-    grid-template-columns: minmax(0, 1.5fr) minmax(16rem, 0.42fr);
+    grid-template-columns: minmax(0, 1fr) 20rem;
     gap: clamp(2rem, 7vw, 7rem);
     align-items: end;
     padding-block: clamp(4rem, 8vw, 7rem);
@@ -315,9 +318,11 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
     text-decoration: none;
   }
 
+  /* Fixed rails, flexible article column: on a wide screen the article gets
+     the space, while plain paragraphs below keep a readable measure. */
   .article-shell {
     display: grid;
-    grid-template-columns: minmax(10rem, 0.28fr) minmax(0, 0.82fr) minmax(12rem, 0.32fr);
+    grid-template-columns: 15rem minmax(0, 1fr) 19rem;
     gap: clamp(1.5rem, 4.5vw, 4.5rem);
     align-items: start;
     padding-bottom: clamp(5rem, 10vw, 9rem);
@@ -384,6 +389,12 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
     line-height: 1.82;
   }
 
+  /* Prose keeps a readable measure; tables, checklists, quotes and other
+     large blocks use the full article column. */
+  .article-body > section > p:not(.kicker) {
+    max-width: 74ch;
+  }
+
   .article-body > section > p:last-child {
     margin-bottom: 0;
   }
@@ -442,6 +453,7 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
     gap: 0.55rem;
     margin: 0 0 1.5rem;
     padding-left: 1.25rem;
+    max-width: 74ch;
     color: #c9c6d2;
     font-size: clamp(1rem, 1.4vw, 1.08rem);
     line-height: 1.72;
@@ -627,7 +639,19 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
     text-transform: uppercase;
   }
 
-  @media (max-width: 1080px) {
+  /* Thresholds sit where the extra rail would squeeze the article below the
+     704px table: the rail returns only once the centre column stays wide. */
+  @media (max-width: 1680px) {
+    .article-shell {
+      grid-template-columns: 15rem minmax(0, 1fr);
+    }
+
+    .topic-rail {
+      display: none;
+    }
+  }
+
+  @media (max-width: 1140px) {
     .article-hero,
     .article-shell {
       grid-template-columns: 1fr;
