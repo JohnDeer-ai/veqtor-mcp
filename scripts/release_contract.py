@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Closed v0.2 release inventory shared by build and artifact ratchets."""
+"""Frozen v0.2 release inventory plus the current development runtime ratchet."""
 
 from __future__ import annotations
 
@@ -51,6 +51,26 @@ RUNTIME_SOURCE_FILES = (
     "src/veqtor_docx/synthetic.py",
     "src/veqtor_docx/verify.py",
     "src/veqtor_mcp/__init__.py",
+    "src/veqtor_mcp/contracts.py",
+    "src/veqtor_mcp/records.py",
+    "src/veqtor_mcp/server.py",
+)
+
+# Current development packaging is ratcheted separately from the immutable
+# v0.2 release/MCPB inventory above.  A future frozen release contract must
+# promote this complete set deliberately rather than mutating v0.2 in place.
+DEVELOPMENT_RUNTIME_SOURCE_FILES = (
+    "src/veqtor_docx/__init__.py",
+    "src/veqtor_docx/_ooxml.py",
+    "src/veqtor_docx/apply.py",
+    "src/veqtor_docx/contracts.py",
+    "src/veqtor_docx/extract.py",
+    "src/veqtor_docx/inspect.py",
+    "src/veqtor_docx/rounds.py",
+    "src/veqtor_docx/synthetic.py",
+    "src/veqtor_docx/verify.py",
+    "src/veqtor_mcp/__init__.py",
+    "src/veqtor_mcp/_inspection_live.py",
     "src/veqtor_mcp/contracts.py",
     "src/veqtor_mcp/records.py",
     "src/veqtor_mcp/server.py",
@@ -133,9 +153,7 @@ WHEEL_MEMBERS = frozenset(
 
 SDIST_ROOT = f"{DIST_NAME}-{VERSION}"
 SDIST_GENERATED_MEMBERS = frozenset({f"{SDIST_ROOT}/PKG-INFO"})
-SDIST_SOURCE_MAP = {
-    f"{SDIST_ROOT}/{source}": source for source in SDIST_GIT_FILES
-}
+SDIST_SOURCE_MAP = {f"{SDIST_ROOT}/{source}": source for source in SDIST_GIT_FILES}
 SDIST_MEMBERS = frozenset((*SDIST_SOURCE_MAP, *SDIST_GENERATED_MEMBERS))
 
 EXPECTED_ENTRY_POINTS = """[console_scripts]

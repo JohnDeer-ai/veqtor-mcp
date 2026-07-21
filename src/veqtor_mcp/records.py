@@ -14,6 +14,7 @@ import re
 import secrets
 import stat
 import time
+from collections import deque
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -26,6 +27,11 @@ from veqtor_docx.contracts import (
     APPLY_OPERATIONS_V1,
     DOCUMENT_PART_V1,
     EXTRACT_REVISION_CATEGORIES_V1,
+    INSPECT_CONTAINER_POLICY_V1,
+    INSPECT_FIXED_EXCLUDED_PARTS_V1,
+    INSPECT_MODES_V1,
+    INSPECT_READING_MODE_V1,
+    INSPECT_SEARCH_SCOPE_V1,
     MATCH_SIDES_V1,
     PREFLIGHT_EDIT_STATUSES_V1,
     PREFLIGHT_FAILURE_PHASES_V1,
@@ -36,9 +42,14 @@ from veqtor_docx.contracts import (
     ROUND_TRIP_COMPARISONS_V1,
     ROUND_TRIP_STATUSES_V1,
     VERIFY_VERDICTS_V1,
+    inspection_excluded_parts_v1,
 )
-from veqtor_docx._ooxml import UserPathError, resolve_user_path
+from veqtor_docx._ooxml import (
+    UserPathError,
+    resolve_user_path,
+)
 from veqtor_mcp import __version__
+from veqtor_mcp._inspection_live import CheckedInspectionError, CheckedInspectionResult
 
 SCHEMA_VERSION = "decision_record.v1"
 DISABLE_ENV = "VEQTOR_DISABLE_DECISION_RECORD"
@@ -50,8 +61,11 @@ MAX_MAX_RECORDS = 500
 COMPACT_SAMPLE_LIMIT = 20
 MAX_COMPACT_ID_LENGTH = 32
 MAX_JOURNAL_LINE_BYTES = 1_048_576
+MAX_JOURNAL_BYTES = 64 * 1024 * 1024
 MAX_JOURNAL_DEPTH = 64
 MAX_JOURNAL_NODES = 100_000
+JOURNAL_LOCK_TIMEOUT_SECONDS = 1.0
+JOURNAL_LOCK_POLL_SECONDS = 0.01
 MAX_CANONICAL_JSON_NODES = 1_000_000
 MAX_JSON_INTEGER_DIGITS = 128
 SOURCE_SNAPSHOT_SCHEMA = "source_snapshot.v1"
@@ -81,7 +95,6 @@ EXPORT_ACCESS_COUNT_SCOPE = "all_prior_access_events_before_current_export"
 V1_EXPORT_RECORDS_SCOPES = frozenset({EXPORT_RECORDS_SCOPE})
 V1_EXPORT_TOTAL_COUNT_SCOPES = frozenset({EXPORT_TOTAL_COUNT_SCOPE})
 V1_EXPORT_ACCESS_COUNT_SCOPES = frozenset({EXPORT_ACCESS_COUNT_SCOPE})
-
 Clock = Callable[[], datetime]
 ExportResultFactory = Callable[[dict[str, Any]], dict[str, Any]]
 
@@ -102,6 +115,50 @@ class DecisionRecordError(ValueError):
     def __init__(self, code: str, detail: str) -> None:
         super().__init__(f"{code}: {_safe_error_text(detail)}")
         self.code = code
+
+
+_LOCK_CONTENTION_ERRNOS = frozenset({errno.EACCES, errno.EAGAIN, errno.EWOULDBLOCK})
+
+
+def _journal_lock_deadline() -> float:
+    return time.monotonic() + JOURNAL_LOCK_TIMEOUT_SECONDS
+
+
+def _acquire_journal_lock(
+    fd: int,
+    operation: int,
+    *,
+    deadline: float,
+    monotonic: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> None:
+    """Acquire one advisory lock within an absolute monotonic deadline."""
+    last_error: OSError | None = None
+    while True:
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            raise DecisionRecordError(
+                "journal_busy",
+                "decision-record journal is busy",
+            ) from last_error
+        try:
+            fcntl.flock(fd, operation | fcntl.LOCK_NB)
+            return
+        except OSError as exc:
+            if exc.errno != errno.EINTR and exc.errno not in _LOCK_CONTENTION_ERRNOS:
+                raise
+            last_error = exc
+            if exc.errno != errno.EINTR:
+                sleep(min(JOURNAL_LOCK_POLL_SECONDS, remaining))
+
+
+@contextmanager
+def _bounded_journal_lock(fd: int, operation: int, *, deadline: float):
+    _acquire_journal_lock(fd, operation, deadline=deadline)
+    try:
+        yield
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
 
 
 @dataclass(frozen=True)
@@ -188,6 +245,7 @@ V1_HISTORICAL_TOOL_SPECS: Mapping[str, _V1ToolSpec] = MappingProxyType(
     {
         "list_rounds": _V1ToolSpec("tool_observation.v1", "list_rounds"),
         "extract_redlines": _V1ToolSpec("tool_observation.v1", "extract_redlines"),
+        "inspect_document": _V1ToolSpec("inspection.v1", "inspect_document"),
         "verify_quote": _V1ToolSpec("verification.v1", "verify_quote"),
         "preflight_edits": _V1ToolSpec("verification.v1", "preflight_edits"),
         "apply_edits": _V1ToolSpec("decision.v1", "apply_edits"),
@@ -200,6 +258,7 @@ WRITABLE_TOOL_NAMES = frozenset(
     {
         "list_rounds",
         "extract_redlines",
+        "inspect_document",
         "verify_quote",
         "preflight_edits",
         "apply_edits",
@@ -506,6 +565,7 @@ def _sidecar_for_write(
     workspace: str | Path,
     *,
     expected_identity: tuple[int, int] | None = None,
+    lock_deadline: float | None = None,
 ):
     if expected_identity is None:
         root, expected_identity = _canonical_workspace(workspace)
@@ -513,9 +573,9 @@ def _sidecar_for_write(
         root = Path(workspace)
     root_fd = _open_workspace_fd(root, expected_identity)
     sidecar = root / SIDECAR_DIR
+    deadline = _journal_lock_deadline() if lock_deadline is None else lock_deadline
     try:
-        fcntl.flock(root_fd, fcntl.LOCK_EX)
-        try:
+        with _bounded_journal_lock(root_fd, fcntl.LOCK_EX, deadline=deadline):
             try:
                 os.mkdir(SIDECAR_DIR, mode=0o700, dir_fd=root_fd)
                 try:
@@ -536,8 +596,6 @@ def _sidecar_for_write(
                 yield sidecar, sidecar_fd
             finally:
                 os.close(sidecar_fd)
-        finally:
-            fcntl.flock(root_fd, fcntl.LOCK_UN)
     finally:
         os.close(root_fd)
 
@@ -780,6 +838,7 @@ def _sidecar_for_existing_write(
     workspace: str | Path,
     *,
     expected_identity: tuple[int, int] | None = None,
+    lock_deadline: float | None = None,
 ):
     """Open an initialized sidecar for export without ever recreating it."""
     if expected_identity is None:
@@ -788,9 +847,9 @@ def _sidecar_for_existing_write(
         root = Path(workspace)
     root_fd = _open_workspace_fd(root, expected_identity)
     sidecar = root / SIDECAR_DIR
+    deadline = _journal_lock_deadline() if lock_deadline is None else lock_deadline
     try:
-        fcntl.flock(root_fd, fcntl.LOCK_EX)
-        try:
+        with _bounded_journal_lock(root_fd, fcntl.LOCK_EX, deadline=deadline):
             sidecar_fd = _open_sidecar_fd(root_fd, sidecar, missing_ok=True)
             if sidecar_fd is None:
                 raise DecisionRecordError(
@@ -803,8 +862,6 @@ def _sidecar_for_existing_write(
                 yield sidecar, sidecar_fd
             finally:
                 os.close(sidecar_fd)
-        finally:
-            fcntl.flock(root_fd, fcntl.LOCK_UN)
     finally:
         os.close(root_fd)
 
@@ -1141,15 +1198,47 @@ def _decode_record_line(
         raise DecisionRecordError("journal_corrupt", f"{location}: {exc}") from exc
 
 
-def _load_records(handle, path: Path) -> list[dict[str, Any]]:
+@dataclass(frozen=True)
+class _JournalScan:
+    selected: tuple[dict[str, Any], ...]
+    visible_count: int
+    access_count: int
+    last_record_number: int
+    byte_count: int
+
+
+def _scan_records(
+    handle,
+    path: Path,
+    *,
+    limit: int | None,
+    before_record_number: int | None = None,
+    include_access_events: bool = True,
+) -> _JournalScan:
+    """Validate the whole bounded journal while retaining at most one page."""
+    declared_bytes = os.fstat(handle.fileno()).st_size
+    if declared_bytes > MAX_JOURNAL_BYTES:
+        raise DecisionRecordError(
+            "journal_oversize",
+            f"decision-record journal exceeds {MAX_JOURNAL_BYTES} bytes",
+        )
     handle.seek(0)
-    records: list[dict[str, Any]] = []
+    selected: deque[dict[str, Any]] = deque(maxlen=limit)
     last_id = 0
     line_no = 0
+    byte_count = 0
+    visible_count = 0
+    access_count = 0
     while True:
         raw_line = handle.readline(MAX_JOURNAL_LINE_BYTES + 2)
         if not raw_line:
             break
+        byte_count += len(raw_line)
+        if byte_count > MAX_JOURNAL_BYTES:
+            raise DecisionRecordError(
+                "journal_oversize",
+                f"decision-record journal exceeds {MAX_JOURNAL_BYTES} bytes",
+            )
         line_no += 1
         terminated = raw_line.endswith(b"\n")
         payload = raw_line[:-1] if terminated else raw_line
@@ -1171,19 +1260,22 @@ def _load_records(handle, path: Path) -> list[dict[str, Any]]:
                 f"{path}:{line_no}: record_id is not strictly increasing",
             )
         last_id = current_id
-        records.append(record)
-    return records
-
-
-def _next_record_id(records: list[dict[str, Any]]) -> str:
-    high = 0
-    for record in records:
-        raw = record.get("record_id")
-        try:
-            high = max(high, _record_number(raw))
-        except (TypeError, ValueError):
-            continue
-    return f"dr_{high + 1:03d}"
+        is_access_event = record.get("record_type") == ACCESS_RECORD_TYPE
+        if is_access_event:
+            access_count += 1
+        if (include_access_events or not is_access_event) and (
+            before_record_number is None or current_id < before_record_number
+        ):
+            visible_count += 1
+            if limit is not None:
+                selected.append(record)
+    return _JournalScan(
+        selected=tuple(selected),
+        visible_count=visible_count,
+        access_count=access_count,
+        last_record_number=last_id,
+        byte_count=byte_count,
+    )
 
 
 def _validate_journal_fd(fd: int, path: Path) -> None:
@@ -1311,27 +1403,39 @@ def _open_journal_for_read(sidecar_fd: int, path: Path):
         raise
 
 
-def _append_locked(sidecar_fd: int, path: Path, record: dict[str, Any]) -> str:
+def _append_locked(
+    sidecar_fd: int,
+    path: Path,
+    record: dict[str, Any],
+    *,
+    lock_deadline: float,
+) -> str:
     with _open_journal_for_append(sidecar_fd, path) as handle:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        try:
-            records = _load_records(handle, path)
-            return _append_to_loaded_journal(handle, records, record)
-        finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        with _bounded_journal_lock(
+            handle.fileno(),
+            fcntl.LOCK_EX,
+            deadline=lock_deadline,
+        ):
+            scan = _scan_records(handle, path, limit=None)
+            return _append_to_scanned_journal(handle, scan, record)
 
 
-def _append_to_loaded_journal(
+def _append_to_scanned_journal(
     handle: Any,
-    records: list[dict[str, Any]],
+    scan: _JournalScan,
     record: dict[str, Any],
 ) -> str:
-    record_id = _next_record_id(records)
+    record_id = f"dr_{scan.last_record_number + 1:03d}"
     stored_record = {**record, "record_id": record_id}
     try:
         line = _validated_record_bytes(stored_record)
     except (_JsonBoundaryError, _RecordSchemaError) as exc:
         raise DecisionRecordError("record_invalid", str(exc)) from exc
+    if scan.byte_count + len(line) + 1 > MAX_JOURNAL_BYTES:
+        raise DecisionRecordError(
+            "journal_oversize",
+            f"decision-record journal exceeds {MAX_JOURNAL_BYTES} bytes",
+        )
     handle.seek(0, os.SEEK_END)
     handle.write(line + b"\n")
     handle.flush()
@@ -1379,7 +1483,30 @@ def _preflight_record(record: dict[str, Any]) -> None:
     _validated_record_bytes({**record, "record_id": "dr_001"})
 
 
-def write_record(
+_CHECKED_INSPECTION_SUCCESS_SINK_TOKEN = object()
+_CHECKED_INSPECTION_ERROR_SINK_TOKEN = object()
+_INSPECTION_SUCCESS_RESERVED_FIELDS = frozenset({"status", "error_code", "error"})
+
+
+def _inspection_write_is_authorized(
+    result: object,
+    authority: object | None,
+) -> bool:
+    if not isinstance(result, dict):
+        return False
+    if authority is _CHECKED_INSPECTION_SUCCESS_SINK_TOKEN:
+        return result.get("status") == RESULT_STATUS_OK
+    if authority is _CHECKED_INSPECTION_ERROR_SINK_TOKEN:
+        return (
+            set(result) == {"status", "error_code", "error"}
+            and result.get("status") == RESULT_STATUS_ERROR
+            and isinstance(result.get("error_code"), str)
+            and isinstance(result.get("error"), str)
+        )
+    return False
+
+
+def _write_record(
     *,
     workspace: Path,
     tool_name: str,
@@ -1388,8 +1515,17 @@ def write_record(
     provenance: dict[str, Any],
     tool_result: dict[str, Any] | None = None,
     clock: Clock = utc_now,
+    _inspection_authority: object | None = None,
 ) -> dict[str, Any]:
-    """Write one journal record and return response metadata."""
+    """Write one already-authorized journal record."""
+    if tool_name == "inspect_document" and not _inspection_write_is_authorized(
+        result, _inspection_authority
+    ):
+        return {
+            "record_id": None,
+            "record_status": "write_failed",
+            "record_error": "record_invalid",
+        }
     if disabled():
         return {"record_id": None, "record_status": "disabled"}
     try:
@@ -1407,11 +1543,18 @@ def write_record(
             _preflight_record(record)
         except (_JsonBoundaryError, _RecordSchemaError) as exc:
             raise DecisionRecordError("record_invalid", str(exc)) from exc
+        lock_deadline = _journal_lock_deadline()
         with _sidecar_for_write(
             root,
             expected_identity=expected_identity,
+            lock_deadline=lock_deadline,
         ) as (sidecar, sidecar_fd):
-            record_id = _append_locked(sidecar_fd, sidecar / JOURNAL_NAME, record)
+            record_id = _append_locked(
+                sidecar_fd,
+                sidecar / JOURNAL_NAME,
+                record,
+                lock_deadline=lock_deadline,
+            )
     except Exception as exc:
         return {
             "record_id": None,
@@ -1419,6 +1562,134 @@ def write_record(
             "record_error": _record_error(exc),
         }
     return {"record_id": record_id, "record_status": "written"}
+
+
+def write_record(
+    *,
+    workspace: Path,
+    tool_name: str,
+    input_payload: dict[str, Any],
+    result: dict[str, Any],
+    provenance: dict[str, Any],
+    tool_result: dict[str, Any] | None = None,
+    clock: Clock = utc_now,
+) -> dict[str, Any]:
+    """Write a non-inspection record; live inspection records are dedicated."""
+    return _write_record(
+        workspace=workspace,
+        tool_name=tool_name,
+        input_payload=input_payload,
+        result=result,
+        provenance=provenance,
+        tool_result=tool_result,
+        clock=clock,
+    )
+
+
+def _live_inspection_refs(result: Mapping[str, Any]) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    for item in result.get("sections", []):
+        if isinstance(item, Mapping) and isinstance(item.get("section_ref"), Mapping):
+            refs.append({"section_ref": dict(item["section_ref"])})
+    for collection in ("matches", "paragraphs"):
+        for item in result.get(collection, []):
+            if isinstance(item, Mapping) and isinstance(
+                item.get("paragraph_ref"), Mapping
+            ):
+                refs.append({"paragraph_ref": dict(item["paragraph_ref"])})
+    return refs
+
+
+def _live_inspection_provenance(result: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "path": result["path"],
+        "file_sha256": result["file_sha256"],
+        "part_name": result["part_name"],
+        "mode": result["mode"],
+        "search_scope": result["search_scope"],
+        "reading_mode": result["reading_mode"],
+        "container_policy": result["container_policy"],
+        "has_tracked_text_revisions": result["has_tracked_text_revisions"],
+        "revision_inventory": result["revision_inventory"],
+        "coverage": result["coverage"],
+        "limits": result["limits"],
+        "inspection_refs": bounded_observed_inspection_refs(
+            _live_inspection_refs(result)
+        ),
+    }
+
+
+def _live_inspection_record_result(result: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "status": RESULT_STATUS_OK,
+        "path": result["path"],
+        "file_sha256": result["file_sha256"],
+        "part_name": result["part_name"],
+        "mode": result["mode"],
+        "search_scope": result["search_scope"],
+        "reading_mode": result["reading_mode"],
+        "container_policy": result["container_policy"],
+        "has_tracked_text_revisions": result["has_tracked_text_revisions"],
+        "revision_inventory": result["revision_inventory"],
+        "coverage": result["coverage"],
+        "limits": result["limits"],
+        "section_count": len(result.get("sections", [])),
+        "match_count": len(result.get("matches", [])),
+        "paragraph_count": len(result.get("paragraphs", [])),
+        "next_cursor_present": result["next_cursor"] is not None,
+    }
+
+
+def write_checked_inspection_record(
+    *,
+    workspace: Path,
+    input_payload: dict[str, Any],
+    result: CheckedInspectionResult,
+    clock: Clock = utc_now,
+) -> dict[str, Any]:
+    """Minimize and write one checked live inspection success."""
+    if not isinstance(result, CheckedInspectionResult):
+        raise TypeError("live inspection success requires a checked result")
+    full_result = result.to_dict()
+    if set(full_result) & _INSPECTION_SUCCESS_RESERVED_FIELDS:
+        return {
+            "record_id": None,
+            "record_status": "write_failed",
+            "record_error": "record_invalid",
+        }
+    return _write_record(
+        workspace=workspace,
+        tool_name="inspect_document",
+        input_payload=input_payload,
+        result=_live_inspection_record_result(full_result),
+        tool_result=full_result,
+        provenance=_live_inspection_provenance(full_result),
+        clock=clock,
+        _inspection_authority=_CHECKED_INSPECTION_SUCCESS_SINK_TOKEN,
+    )
+
+
+def write_checked_inspection_error_record(
+    *,
+    workspace: Path,
+    input_payload: dict[str, Any],
+    error: CheckedInspectionError,
+    clock: Clock = utc_now,
+) -> dict[str, Any]:
+    """Write one exact-shape live inspection error through its authority."""
+    if not isinstance(error, CheckedInspectionError):
+        raise TypeError("live inspection error requires a checked error")
+    result = error.result_dict()
+    return _write_record(
+        workspace=workspace,
+        tool_name="inspect_document",
+        input_payload=input_payload,
+        result=result,
+        tool_result=dict(result),
+        provenance=error.provenance_dict(),
+        clock=clock,
+        _inspection_authority=_CHECKED_INSPECTION_ERROR_SINK_TOKEN,
+    )
 
 
 def _parse_before_record_id(value: str | None) -> int | None:
@@ -1430,30 +1701,6 @@ def _parse_before_record_id(value: str | None) -> int | None:
         raise DecisionRecordError(
             "invalid_before_record_id", "before_record_id must look like dr_NNN"
         ) from exc
-
-
-def _window_records(
-    records: list[dict[str, Any]],
-    *,
-    limit: int,
-    before_record_number: int | None,
-    include_access_events: bool,
-) -> tuple[list[dict[str, Any]], int, bool, str | None]:
-    visible = [
-        record
-        for record in records
-        if include_access_events or record.get("record_type") != ACCESS_RECORD_TYPE
-    ]
-    if before_record_number is not None:
-        visible = [
-            record
-            for record in visible
-            if _record_number(record["record_id"]) < before_record_number
-        ]
-    selected = visible[-limit:]
-    truncated = len(visible) > len(selected)
-    next_before = selected[0]["record_id"] if truncated and selected else None
-    return selected, len(visible), truncated, next_before
 
 
 def _path_digest(value: Any) -> dict[str, Any]:
@@ -1607,7 +1854,10 @@ def _invalid_bounded_snapshot(value: Any) -> dict[str, Any]:
     }
 
 
-def _bounded_mapping(value: Any) -> dict[str, Any]:
+def _bounded_mapping(
+    value: Any,
+    allowed_keys: frozenset[str] = EXTRACT_REVISION_CATEGORIES_V1,
+) -> dict[str, Any]:
     if not isinstance(value, dict):
         return _invalid_bounded_snapshot(value)
     raw = value
@@ -1621,7 +1871,7 @@ def _bounded_mapping(value: Any) -> dict[str, Any]:
             return None
         key = item.get("key")
         count = _nonnegative_int(item.get("value"))
-        if key not in EXTRACT_REVISION_CATEGORIES_V1 or count is None:
+        if key not in allowed_keys or count is None:
             return None
         return {"key": key, "value": count}
 
@@ -1699,14 +1949,82 @@ def _revision_ids_summary(value: Any) -> dict[str, Any]:
 def _observed_anchor_summary(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         return None
+
+    if value.get("schema_version") == "paragraph_ref.v1":
+        required = {
+            "schema_version",
+            "ref_type",
+            "file_sha256",
+            "part_name",
+            "paragraph_index",
+            "paragraph_text_sha256",
+            "reading_mode",
+            "container_policy",
+        }
+        if (
+            not required.issubset(value)
+            or value.get("ref_type") != "paragraph"
+            or not _is_sha256(value.get("file_sha256"))
+            or _part_name(value.get("part_name")) != DOCUMENT_PART_V1
+            or _nonnegative_int(value.get("paragraph_index")) is None
+            or not _is_sha256(value.get("paragraph_text_sha256"))
+            or value.get("reading_mode") != INSPECT_READING_MODE_V1
+            or value.get("container_policy") != INSPECT_CONTAINER_POLICY_V1
+        ):
+            return None
+        summary: dict[str, Any] = {
+            "schema_version": "paragraph_ref.v1",
+            "ref_type": "paragraph",
+            "file_sha256": value["file_sha256"],
+            "part_name": DOCUMENT_PART_V1,
+            "paragraph_index": value["paragraph_index"],
+            "paragraph_text_sha256": value["paragraph_text_sha256"],
+            "reading_mode": INSPECT_READING_MODE_V1,
+            "container_policy": INSPECT_CONTAINER_POLICY_V1,
+        }
+        if "revision_ids" in value:
+            summary["revision_ids"] = _revision_ids_summary(value["revision_ids"])
+        if "side" in value:
+            if value["side"] != "paragraph_current":
+                return None
+            summary["side"] = "paragraph_current"
+        return summary
+
     change_unit_id = _change_unit_id(value.get("change_unit_id"))
     if change_unit_id is None:
         return None
     summary: dict[str, Any] = {"change_unit_id": change_unit_id}
+    schema_version = value.get("schema_version")
+    if schema_version is not None:
+        if schema_version != "change_unit_anchor.v2":
+            return None
+        summary["schema_version"] = schema_version
     if "file_sha256" in value:
         if not _is_sha256(value["file_sha256"]):
             return None
         summary["file_sha256"] = value["file_sha256"]
+    if "container_policy" in value:
+        if value["container_policy"] != INSPECT_CONTAINER_POLICY_V1:
+            return None
+        summary["container_policy"] = value["container_policy"]
+    if "unit_fingerprint_sha256" in value:
+        if not _is_sha256(value["unit_fingerprint_sha256"]):
+            return None
+        summary["unit_fingerprint_sha256"] = value["unit_fingerprint_sha256"]
+    v2_marker_fields = {
+        "schema_version",
+        "container_policy",
+        "unit_fingerprint_sha256",
+    }
+    v2_required_fields = {
+        *v2_marker_fields,
+        "change_unit_id",
+        "file_sha256",
+    }
+    if any(
+        key in value for key in v2_marker_fields
+    ) and not v2_required_fields.issubset(value):
+        return None
     if "part_name" in value:
         part_name = _part_name(value["part_name"])
         if part_name is None:
@@ -1735,6 +2053,92 @@ def _observed_anchor_summary(value: Any) -> dict[str, Any] | None:
 
 def bounded_observed_anchors(value: Any) -> dict[str, Any]:
     return _bounded_collection(value, _observed_anchor_summary)
+
+
+def _observed_inspection_ref_summary(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict) or set(value) not in (
+        {"paragraph_ref"},
+        {"section_ref"},
+    ):
+        return None
+    ref_kind = next(iter(value))
+    ref = value[ref_kind]
+    if not isinstance(ref, dict):
+        return None
+    if (
+        not _is_sha256(ref.get("file_sha256"))
+        or _part_name(ref.get("part_name")) is None
+        or ref.get("reading_mode") != INSPECT_READING_MODE_V1
+        or ref.get("container_policy") != INSPECT_CONTAINER_POLICY_V1
+    ):
+        return None
+    summary: dict[str, Any] = {
+        "file_sha256": ref["file_sha256"],
+        "part_name": ref["part_name"],
+        "reading_mode": ref["reading_mode"],
+        "container_policy": ref["container_policy"],
+    }
+    if ref_kind == "paragraph_ref":
+        if set(ref) != {
+            "schema_version",
+            "ref_type",
+            "file_sha256",
+            "part_name",
+            "paragraph_index",
+            "paragraph_text_sha256",
+            "reading_mode",
+            "container_policy",
+        }:
+            return None
+        if (
+            ref.get("schema_version") != "paragraph_ref.v1"
+            or ref.get("ref_type") != "paragraph"
+        ):
+            return None
+        index = _nonnegative_int(ref.get("paragraph_index"))
+        if index is None or not _is_sha256(ref.get("paragraph_text_sha256")):
+            return None
+        summary.update(
+            {
+                "schema_version": ref["schema_version"],
+                "ref_type": ref["ref_type"],
+                "paragraph_index": index,
+                "paragraph_text_sha256": ref["paragraph_text_sha256"],
+            }
+        )
+    else:
+        if set(ref) != {
+            "schema_version",
+            "ref_type",
+            "file_sha256",
+            "part_name",
+            "heading_paragraph_index",
+            "heading_text_sha256",
+            "reading_mode",
+            "container_policy",
+        }:
+            return None
+        if (
+            ref.get("schema_version") != "section_ref.v1"
+            or ref.get("ref_type") != "section"
+        ):
+            return None
+        index = _nonnegative_int(ref.get("heading_paragraph_index"))
+        if index is None or not _is_sha256(ref.get("heading_text_sha256")):
+            return None
+        summary.update(
+            {
+                "schema_version": ref["schema_version"],
+                "ref_type": ref["ref_type"],
+                "heading_paragraph_index": index,
+                "heading_text_sha256": ref["heading_text_sha256"],
+            }
+        )
+    return {ref_kind: summary}
+
+
+def bounded_observed_inspection_refs(value: Any) -> dict[str, Any]:
+    return _bounded_collection(value, _observed_inspection_ref_summary)
 
 
 def _observed_round_summary(value: Any) -> dict[str, Any] | None:
@@ -1803,9 +2207,155 @@ def _preflight_edit_summary(value: Any) -> dict[str, Any] | None:
     return summary
 
 
+def _container_coverage_summary(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    count_keys = (
+        "indexed_paragraph_count",
+        "body_paragraph_count",
+        "table_cell_paragraph_count",
+        "excluded_subtree_count",
+        "excluded_paragraph_count",
+    )
+    counts = {key: _nonnegative_int(value.get(key)) for key in count_keys}
+    excluded = value.get("excluded_by_kind")
+    excluded_paragraphs = value.get("excluded_paragraphs_by_kind")
+    allowed_exclusions = frozenset(
+        {
+            "alt_chunk",
+            "alternate_content",
+            "text_box",
+            "nested_paragraph",
+            "unknown_container",
+        }
+    )
+    if (
+        value.get("schema_version") != INSPECT_CONTAINER_POLICY_V1
+        or any(item is None for item in counts.values())
+        or not isinstance(excluded, dict)
+        or not isinstance(excluded_paragraphs, dict)
+        or any(key not in allowed_exclusions for key in excluded)
+        or any(key not in allowed_exclusions for key in excluded_paragraphs)
+    ):
+        return None
+    excluded_values = [_nonnegative_int(item) for item in excluded.values()]
+    excluded_paragraph_values = [
+        _nonnegative_int(item) for item in excluded_paragraphs.values()
+    ]
+    if (
+        any(item is None for item in excluded_values)
+        or any(item is None for item in excluded_paragraph_values)
+        or counts["indexed_paragraph_count"]
+        != counts["body_paragraph_count"] + counts["table_cell_paragraph_count"]
+        or counts["excluded_subtree_count"]
+        != sum(item for item in excluded_values if item is not None)
+        or counts["excluded_paragraph_count"]
+        != sum(item for item in excluded_paragraph_values if item is not None)
+        or value.get("coverage_complete") is not (counts["excluded_subtree_count"] == 0)
+        or value.get("legacy_two_field_anchor_safe")
+        is not (counts["excluded_subtree_count"] == 0)
+    ):
+        return None
+    return {
+        "schema_version": INSPECT_CONTAINER_POLICY_V1,
+        **counts,
+        "excluded_by_kind": _bounded_mapping(excluded, allowed_exclusions),
+        "excluded_paragraphs_by_kind": _bounded_mapping(
+            excluded_paragraphs, allowed_exclusions
+        ),
+        "coverage_complete": counts["excluded_subtree_count"] == 0,
+        "legacy_two_field_anchor_safe": counts["excluded_subtree_count"] == 0,
+    }
+
+
 def _revision_inventory_summary(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         return None
+    if value.get("schema_version") == "revision_inventory.v2":
+        scope = _part_name(value.get("scope"))
+        count_keys = (
+            "tracked_text_revision_elements",
+            "total_revision_elements",
+            "in_scope_revision_elements",
+            "decoded_revision_elements",
+            "unsupported_revision_occurrences",
+            "unsupported_revision_kind_count",
+            "excluded_container_occurrences",
+            "excluded_container_kind_count",
+        )
+        counts = {key: _nonnegative_int(value.get(key)) for key in count_keys}
+        unsupported = value.get("unsupported_by_kind")
+        excluded = value.get("excluded_by_container")
+        container_policy = value.get("container_policy")
+        container_summary = _container_coverage_summary(container_policy)
+        if (
+            scope != DOCUMENT_PART_V1
+            or any(item is None for item in counts.values())
+            or not isinstance(unsupported, dict)
+            or not isinstance(excluded, dict)
+            or container_summary is None
+        ):
+            return None
+        unsupported_values = [_nonnegative_int(item) for item in unsupported.values()]
+        excluded_values = [_nonnegative_int(item) for item in excluded.values()]
+        allowed_exclusions = {
+            "alt_chunk",
+            "alternate_content",
+            "text_box",
+            "nested_paragraph",
+            "unknown_container",
+        }
+        if (
+            any(item is None for item in unsupported_values)
+            or any(item is None for item in excluded_values)
+            or any(key not in EXTRACT_REVISION_CATEGORIES_V1 for key in unsupported)
+            or any(key not in allowed_exclusions for key in excluded)
+            or counts["total_revision_elements"]
+            != counts["in_scope_revision_elements"]
+            + counts["excluded_container_occurrences"]
+            or counts["in_scope_revision_elements"]
+            != counts["decoded_revision_elements"]
+            + counts["unsupported_revision_occurrences"]
+            or sum(item for item in unsupported_values if item is not None)
+            != counts["unsupported_revision_occurrences"]
+            or sum(item for item in excluded_values if item is not None)
+            != counts["excluded_container_occurrences"]
+            or len(unsupported) != counts["unsupported_revision_kind_count"]
+            or len(excluded) != counts["excluded_container_kind_count"]
+            or value.get("partition_valid") is not True
+            or value.get("all_in_scope_revision_elements_decoded")
+            is not (counts["unsupported_revision_occurrences"] == 0)
+            or value.get("all_revision_elements_decoded")
+            is not (
+                counts["unsupported_revision_occurrences"] == 0
+                and counts["excluded_container_occurrences"] == 0
+            )
+        ):
+            return None
+        summary = {
+            "schema_version": "revision_inventory.v2",
+            "scope": DOCUMENT_PART_V1,
+            **counts,
+            "container_policy": container_summary,
+            "unsupported_by_kind": _bounded_mapping(unsupported),
+            "excluded_by_container": _bounded_mapping(
+                excluded, frozenset(allowed_exclusions)
+            ),
+            "partition_valid": True,
+            "all_in_scope_revision_elements_decoded": (
+                counts["unsupported_revision_occurrences"] == 0
+            ),
+            "all_revision_elements_decoded": (
+                counts["unsupported_revision_occurrences"] == 0
+                and counts["excluded_container_occurrences"] == 0
+            ),
+        }
+        if "emitted_change_unit_count" in value:
+            emitted = _nonnegative_int(value.get("emitted_change_unit_count"))
+            if emitted is None:
+                return None
+            summary["emitted_change_unit_count"] = emitted
+        return summary
     if value.get("schema_version") != "revision_inventory.v1":
         return None
     scope = _part_name(value.get("scope"))
@@ -1863,16 +2413,34 @@ def _observed_match_summary(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         return None
     part_name = _part_name(value.get("part_name"))
-    side = _known_value(value.get("side"), MATCH_SIDES_V1)
+    side = _known_value(value.get("side"), MATCH_SIDES_V1 | {"paragraph_current"})
     if part_name is None or side is None or "revision_ids" not in value:
         return None
     clause = value.get("clause")
-    return {
+    summary = {
         "part_name": part_name,
         "revision_ids": _revision_ids_summary(value["revision_ids"]),
         "side": side,
         "clause_sha256": _stable_digest(clause) if clause is not None else None,
     }
+    if side == "paragraph_current":
+        paragraph_index = _nonnegative_int(value.get("paragraph_index"))
+        if (
+            part_name != DOCUMENT_PART_V1
+            or paragraph_index is None
+            or not _is_sha256(value.get("paragraph_text_sha256"))
+            or value.get("reading_mode") != INSPECT_READING_MODE_V1
+            or value.get("revision_ids") != []
+        ):
+            return None
+        summary.update(
+            {
+                "paragraph_index": paragraph_index,
+                "paragraph_text_sha256": value["paragraph_text_sha256"],
+                "reading_mode": INSPECT_READING_MODE_V1,
+            }
+        )
+    return summary
 
 
 def _round_trip_summary(value: Any) -> dict[str, Any]:
@@ -1913,6 +2481,122 @@ def _preflight_binding_summary(value: Any) -> dict[str, Any]:
         "preflight_candidate_sha256": candidate,
         "candidate_output_sha256_match": True,
     }
+
+
+def _inspection_coverage_summary(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict) or value.get("scan_complete") is not True:
+        return None
+    summary: dict[str, Any] = {"scan_complete": True}
+
+    current_counter_keys = (
+        "indexed_paragraph_count",
+        "nonempty_indexed_paragraph_count",
+    )
+    legacy_counter_keys = (
+        "body_paragraph_count",
+        "nonempty_body_paragraph_count",
+    )
+    has_current_counters = any(key in value for key in current_counter_keys)
+    has_legacy_counters = any(key in value for key in legacy_counter_keys)
+    if has_current_counters is has_legacy_counters:
+        # Accept exactly one complete counter generation. Mixed shapes retain
+        # the naming collision and cannot be projected as an unambiguous fact.
+        return None
+    source_counter_keys = (
+        current_counter_keys if has_current_counters else legacy_counter_keys
+    )
+    indexed_count = _nonnegative_int(value.get(source_counter_keys[0]))
+    nonempty_indexed_count = _nonnegative_int(value.get(source_counter_keys[1]))
+    if (
+        indexed_count is None
+        or nonempty_indexed_count is None
+        or nonempty_indexed_count > indexed_count
+    ):
+        return None
+    summary["indexed_paragraph_count"] = indexed_count
+    summary["nonempty_indexed_paragraph_count"] = nonempty_indexed_count
+
+    for key in (
+        "eligible_item_count",
+        "returned_item_count",
+        "cursor_offset",
+    ):
+        parsed = _nonnegative_int(value.get(key))
+        if parsed is None:
+            return None
+        summary[key] = parsed
+    truncated = _strict_bool(value.get("output_truncated"))
+    if truncated is None:
+        return None
+    summary["output_truncated"] = truncated
+    complete_matches = value.get("complete_literal_match_count")
+    if complete_matches is None:
+        summary["complete_literal_match_count"] = None
+    else:
+        parsed_matches = _nonnegative_int(complete_matches)
+        if parsed_matches is None:
+            return None
+        summary["complete_literal_match_count"] = parsed_matches
+    closed_lists = {
+        "included_parts": [DOCUMENT_PART_V1],
+        "included_containers": ["body", "table_cell"],
+    }
+    for key, expected in closed_lists.items():
+        if value.get(key) != expected:
+            return None
+        summary[key] = list(expected)
+    excluded_parts = inspection_excluded_parts_v1(value.get("excluded_parts"))
+    if excluded_parts is None:
+        return None
+    dynamic_parts = list(excluded_parts[len(INSPECT_FIXED_EXCLUDED_PARTS_V1) :])
+    # The live inspect result discloses safe package-relative altChunk targets so a
+    # caller can understand the exact coverage gap. Those names are controlled by
+    # the document, however, and may themselves contain private matter labels. The
+    # compact journal projection therefore retains only the fixed public scope and
+    # a bounded, re-checkable fingerprint of the complete dynamic tail.
+    summary["excluded_parts"] = list(INSPECT_FIXED_EXCLUDED_PARTS_V1)
+    summary["excluded_internal_parts"] = {
+        "count": len(dynamic_parts),
+        "sha256": _stable_digest(dynamic_parts),
+        "sample": [],
+        "truncated": bool(dynamic_parts),
+    }
+    container_coverage = _container_coverage_summary(value.get("container_coverage"))
+    if (
+        container_coverage is None
+        or indexed_count != container_coverage["indexed_paragraph_count"]
+    ):
+        return None
+    summary["container_coverage"] = container_coverage
+    return summary
+
+
+def _inspection_limits_summary(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    count_keys = (
+        "requested_max_items",
+        "max_items",
+        "max_phrases",
+        "max_phrase_chars",
+        "max_total_phrase_chars",
+        "max_paragraph_text_chars",
+        "max_returned_text_chars",
+        "max_indexed_paragraphs",
+        "max_aggregate_text_chars",
+        "max_literal_match_candidates",
+        "max_literal_occurrences_per_candidate",
+    )
+    summary: dict[str, Any] = {}
+    for key in count_keys:
+        parsed = _nonnegative_int(value.get(key))
+        if parsed is None or parsed == 0:
+            return None
+        summary[key] = parsed
+    if value.get("wall_clock_partial_results") is not False:
+        return None
+    summary["wall_clock_partial_results"] = False
+    return summary
 
 
 def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
@@ -1972,6 +2656,48 @@ def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
                 result.get("revision_count_basis"), REVISION_COUNT_BASES_V1
             )
         return summary
+    if projection_kind == "inspect_document":
+        mode = _known_value(result.get("mode"), INSPECT_MODES_V1)
+        coverage = _inspection_coverage_summary(result.get("coverage"))
+        limits = _inspection_limits_summary(result.get("limits"))
+        if mode is None or coverage is None or limits is None:
+            return {
+                "status": _known_value(result.get("status"), V1_OK_STATUSES),
+                "compact_projection_complete": False,
+                "compact_projection_error": "invalid_inspection_result",
+            }
+        return {
+            "status": _known_value(result.get("status"), V1_OK_STATUSES),
+            "path": _path_digest(result.get("path")),
+            "file_sha256": (
+                result.get("file_sha256")
+                if _is_sha256(result.get("file_sha256"))
+                else None
+            ),
+            "part_name": _part_name(result.get("part_name")),
+            "mode": mode,
+            "search_scope": _known_value(
+                result.get("search_scope"), {INSPECT_SEARCH_SCOPE_V1}
+            ),
+            "reading_mode": _known_value(
+                result.get("reading_mode"), {INSPECT_READING_MODE_V1}
+            ),
+            "container_policy": _known_value(
+                result.get("container_policy"), {INSPECT_CONTAINER_POLICY_V1}
+            ),
+            "has_tracked_text_revisions": _strict_bool(
+                result.get("has_tracked_text_revisions")
+            ),
+            "revision_inventory": _revision_inventory_summary(
+                result.get("revision_inventory")
+            ),
+            "coverage": coverage,
+            "limits": limits,
+            "section_count": _nonnegative_int(result.get("section_count")),
+            "match_count": _nonnegative_int(result.get("match_count")),
+            "paragraph_count": _nonnegative_int(result.get("paragraph_count")),
+            "next_cursor_present": _strict_bool(result.get("next_cursor_present")),
+        }
     if projection_kind == "apply_edits":
         summary = {
             "status": _known_value(result.get("status"), V1_OK_STATUSES),
@@ -2154,10 +2880,45 @@ def _summary_provenance(record: dict[str, Any]) -> dict[str, Any]:
             )
         if "skipped" in provenance:
             summary["skipped_count"] = _list_count(provenance["skipped"])
+    if projection_kind == "inspect_document":
+        mode = _known_value(provenance.get("mode"), INSPECT_MODES_V1)
+        if mode is not None:
+            summary["mode"] = mode
+        for key, expected in (
+            ("search_scope", INSPECT_SEARCH_SCOPE_V1),
+            ("reading_mode", INSPECT_READING_MODE_V1),
+            ("container_policy", INSPECT_CONTAINER_POLICY_V1),
+        ):
+            known = _known_value(provenance.get(key), {expected})
+            if known is not None:
+                summary[key] = known
+        tracked = _strict_bool(provenance.get("has_tracked_text_revisions"))
+        if tracked is not None:
+            summary["has_tracked_text_revisions"] = tracked
+        coverage = _inspection_coverage_summary(provenance.get("coverage"))
+        if coverage is not None:
+            summary["coverage"] = coverage
+        limits = _inspection_limits_summary(provenance.get("limits"))
+        if limits is not None:
+            summary["limits"] = limits
+        if "inspection_refs" in provenance:
+            refs = _validated_bounded_snapshot(
+                provenance["inspection_refs"],
+                _observed_inspection_ref_summary,
+            )
+            summary["inspection_refs"] = (
+                refs
+                if refs is not None
+                else _invalid_bounded_snapshot(provenance["inspection_refs"])
+            )
     if "revision_count_basis" in provenance:
         summary["revision_count_basis"] = _known_value(
             provenance.get("revision_count_basis"), REVISION_COUNT_BASES_V1
         )
+    if "revision_inventory" in provenance:
+        inventory = _revision_inventory_summary(provenance["revision_inventory"])
+        if inventory is not None:
+            summary["revision_inventory"] = inventory
     return summary
 
 
@@ -2241,38 +3002,30 @@ def _read_options(
         )
     if max_records is None:
         limit = DEFAULT_MAX_RECORDS
-    elif not isinstance(max_records, int) or max_records < 1:
+    elif type(max_records) is not int or not 1 <= max_records <= MAX_MAX_RECORDS:
         raise DecisionRecordError(
-            "invalid_max_records", "max_records must be a positive integer"
+            "invalid_max_records",
+            f"max_records must be an integer from 1 through {MAX_MAX_RECORDS}",
         )
     else:
-        limit = min(max_records, MAX_MAX_RECORDS)
+        limit = max_records
     return limit, _parse_before_record_id(before_record_id)
 
 
 def _records_snapshot(
     root: Path,
-    records: list[dict[str, Any]],
+    scan: _JournalScan,
     *,
-    limit: int,
-    before_record_number: int | None,
-    include_access_events: bool,
     include_payload: bool,
 ) -> dict[str, Any]:
-    selected, total, truncated, next_before = _window_records(
-        records,
-        limit=limit,
-        before_record_number=before_record_number,
-        include_access_events=include_access_events,
-    )
-    access_count = sum(
-        1 for record in records if record.get("record_type") == ACCESS_RECORD_TYPE
-    )
+    selected = list(scan.selected)
+    truncated = scan.visible_count > len(selected)
+    next_before = selected[0]["record_id"] if truncated and selected else None
     output_records = selected if include_payload else _compact_records(selected)
     return {
         "workspace": str(root) if include_payload else _path_digest(str(root)),
-        "total_count": total,
-        "access_count": access_count,
+        "total_count": scan.visible_count,
+        "access_count": scan.access_count,
         "truncated": truncated,
         "next_before_record_id": next_before,
         "records": output_records,
@@ -2321,18 +3074,23 @@ def _read_records(
                 "payloads": PAYLOAD_FULL if include_payload else PAYLOAD_COMPACT,
             }
         with handle:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_SH)
-            try:
-                records = _load_records(handle, path)
-            finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            lock_deadline = _journal_lock_deadline()
+            with _bounded_journal_lock(
+                handle.fileno(),
+                fcntl.LOCK_SH,
+                deadline=lock_deadline,
+            ):
+                scan = _scan_records(
+                    handle,
+                    path,
+                    limit=limit,
+                    before_record_number=before_record_number,
+                    include_access_events=include_access_events,
+                )
 
     return _records_snapshot(
         root,
-        records,
-        limit=limit,
-        before_record_number=before_record_number,
-        include_access_events=include_access_events,
+        scan,
         include_payload=include_payload,
     )
 
@@ -2408,22 +3166,31 @@ def export_records_with_access_event(
         )
 
     snapshot: dict[str, Any] | None = None
+    publication_ready = False
+    lock_deadline = _journal_lock_deadline()
     try:
         with _sidecar_for_existing_write(
             root,
             expected_identity=expected_identity,
+            lock_deadline=lock_deadline,
         ) as (sidecar, sidecar_fd):
             path = sidecar / JOURNAL_NAME
             with _open_existing_journal_for_append(sidecar_fd, path) as handle:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-                try:
-                    loaded = _load_records(handle, path)
-                    snapshot = _records_snapshot(
-                        root,
-                        loaded,
+                with _bounded_journal_lock(
+                    handle.fileno(),
+                    fcntl.LOCK_EX,
+                    deadline=lock_deadline,
+                ):
+                    scan = _scan_records(
+                        handle,
+                        path,
                         limit=limit,
                         before_record_number=before_record_number,
                         include_access_events=False,
+                    )
+                    snapshot = _records_snapshot(
+                        root,
+                        scan,
                         include_payload=False,
                     )
                     result = result_factory(snapshot)
@@ -2440,25 +3207,21 @@ def export_records_with_access_event(
                         _preflight_record(record)
                     except (_JsonBoundaryError, _RecordSchemaError) as exc:
                         raise DecisionRecordError("record_invalid", str(exc)) from exc
-                    record_id = _append_to_loaded_journal(handle, loaded, record)
-                finally:
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                    publication_ready = True
+                    record_id = _append_to_scanned_journal(handle, scan, record)
     except Exception as exc:
-        # Once a snapshot exists, an append or fsync failure has unknown commit
-        # status. Return that frozen snapshot and never re-read or retry the append.
-        if (
-            snapshot is None
-            and isinstance(exc, DecisionRecordError)
-            and exc.code == "workspace_changed"
-        ):
+        # Once the snapshot and access-event frame are valid, publication
+        # failures return that frozen snapshot. A write/fsync failure may have
+        # unknown commit status, so never re-read or retry the append.
+        if snapshot is None or not publication_ready:
+            if isinstance(exc, DecisionRecordError):
+                raise
+            if snapshot is None and isinstance(exc, OSError):
+                raise DecisionRecordError(
+                    "workspace_unreadable",
+                    "decision-record journal cannot be read",
+                ) from exc
             raise
-        if snapshot is None:
-            snapshot = _read_records_for_existing_identity(
-                root,
-                expected_identity,
-                max_records,
-                before_record_id,
-            )
         return snapshot, {
             "record_id": None,
             "record_status": "write_failed",

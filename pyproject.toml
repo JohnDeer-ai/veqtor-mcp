@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "veqtor-mcp"
-version = "0.2.0"
+version = "0.3.0.dev0"
 description = "Local MCP server for verifiable DOCX redline history and fail-closed tracked-change edits"
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
@@ -31,6 +31,7 @@ classifiers = [
   "Topic :: Text Processing",
 ]
 dependencies = [
+  "jsonschema>=4.20,<5",
   "lxml>=6.1,<7",
   "mcp>=1.23.0,<2",
 ]
@@ -61,10 +62,12 @@ include = [
   "/src/veqtor_docx/apply.py",
   "/src/veqtor_docx/contracts.py",
   "/src/veqtor_docx/extract.py",
+  "/src/veqtor_docx/inspect.py",
   "/src/veqtor_docx/rounds.py",
   "/src/veqtor_docx/synthetic.py",
   "/src/veqtor_docx/verify.py",
   "/src/veqtor_mcp/__init__.py",
+  "/src/veqtor_mcp/_inspection_live.py",
   "/src/veqtor_mcp/contracts.py",
   "/src/veqtor_mcp/records.py",
   "/src/veqtor_mcp/server.py",
@@ -75,11 +78,13 @@ include = [
   "/API.md",
   "/CHANGELOG.md",
   "/CONTRIBUTING.md",
+  "/INSPECT_DOCUMENT_V0.3.md",
   "/KNOWN_LIMITATIONS.md",
   "/LICENSE",
   "/NOTICE",
   "/README.md",
   "/RELEASING.md",
+  "/ROUND_MAP_V0.3.md",
   "/ROADMAP.md",
   "/SECURITY.md",
   "/TRADEMARKS.md",
@@ -89,10 +94,12 @@ include = [
   "/src/veqtor_docx/apply.py",
   "/src/veqtor_docx/contracts.py",
   "/src/veqtor_docx/extract.py",
+  "/src/veqtor_docx/inspect.py",
   "/src/veqtor_docx/rounds.py",
   "/src/veqtor_docx/synthetic.py",
   "/src/veqtor_docx/verify.py",
   "/src/veqtor_mcp/__init__.py",
+  "/src/veqtor_mcp/_inspection_live.py",
   "/src/veqtor_mcp/contracts.py",
   "/src/veqtor_mcp/records.py",
   "/src/veqtor_mcp/server.py",

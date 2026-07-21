@@ -747,9 +747,10 @@ wheels = [
 
 [[package]]
 name = "veqtor-mcp"
-version = "0.2.0"
+version = "0.3.0.dev0"
 source = { editable = "." }
 dependencies = [
+    { name = "jsonschema" },
     { name = "lxml" },
     { name = "mcp" },
 ]
@@ -762,6 +763,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "jsonschema", specifier = ">=4.20,<5" },
     { name = "lxml", specifier = ">=6.1,<7" },
     { name = "mcp", specifier = ">=1.23.0,<2" },
     { name = "pip-licenses", marker = "extra == 'dev'", specifier = ">=5.0" },

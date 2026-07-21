@@ -2,14 +2,15 @@
 
 # Known limitations
 
-This file describes Veqtor source version `0.2.0` and MCP contract
-`veqtor.mcp.v0.2`. It defines public release limits only when matching `0.2.0`
-artifacts exist on PyPI and the immutable GitHub Releases list; source version
-alone does not prove publication. Both supported surfaces remain intentionally
-narrow.
+This file describes development source `0.3.0.dev0` and draft MCP contract
+`veqtor.mcp.v0.3`. It does not establish that a `0.3` package, extension or
+release exists. Published installation status comes only from matching entries
+on PyPI and the immutable GitHub Releases list. The frozen v0.2 release contract
+and this development surface remain intentionally narrow.
 
-The MCPB v0.4 extension is macOS-only and is public only when the exact artifact
-is attached to the matching verified release after clean-Mac acceptance. Linux
+The frozen v0.2 MCPB v0.4 extension is macOS-only and is public only when the
+exact artifact is attached to the matching verified release after clean-Mac
+acceptance. Development source `0.3.0.dev0` has no corresponding MCPB. Linux
 keeps the CLI setup. There is no Windows extension, catalog listing, automatic
 update promise, silent installation or guaranteed in-app rollback. If
 published, `0.2.0` is the first public MCPB and has no older public extension to
@@ -55,15 +56,36 @@ current user's permissions.
   load DTDs or expand custom XML entities.
 - ZIP packages with duplicate member names are refused as ambiguous; no tool
   silently chooses one duplicate OPC part over another.
-- Extraction and writing cover `word/document.xml`. Comments, headers,
-  footers, footnotes and endnotes are not analyzed or edited.
+- Extraction and writing cover `word/document.xml`. `inspect_document` is
+  narrower still: it exposes only the canonical main-body paragraph flow.
+  Comments, headers, footers, footnotes and endnotes are not analyzed or edited.
+- `inspect_document` and `extract_redlines` require a `w:document` root with
+  exactly one direct `w:body`; preflight and apply inherit that refusal before
+  editing. `list_rounds` is a bounded scanner and does not make the same full
+  body-structure claim.
+- Relationship-backed `w:altChunk` content is excluded rather than imported.
+  Live inspection and the private raw journal disclose internal target parts as
+  package-relative exclusions; external target URLs are not returned. Compact
+  export replaces document-controlled target names with a count and full-list
+  digest, and always leaves their sample empty. Missing, ambiguous or unsafe
+  internal targets refuse inspection.
 - Formatting, move, paragraph-mark and structural revision categories are
   counted but not all are converted into editable change units.
-- The extractor reports `revision_inventory.v1` so callers can
-  check `total_revision_elements == decoded_revision_elements +
+- The extractor and inspector report `revision_inventory.v2` so callers can
+  check both partitions: `total_revision_elements ==
+  in_scope_revision_elements + excluded_container_occurrences`, and
+  `in_scope_revision_elements == decoded_revision_elements +
   unsupported_revision_occurrences`. `emitted_change_unit_count` is separate:
   one change unit may represent multiple decoded text-revision elements, so it
-  is not another side of that partition.
+  is not another side of either partition. V2 also discloses the canonical
+  container/body-flow coverage used for text-bearing revision classification.
+- `inspect_document` is bounded retrieval, not semantic contract analysis. Its
+  outline, literal-search, browse and read modes do not decide clause meaning,
+  infer omitted concepts or search outside the declared main-body scope.
+- `accepted_current_v1` does not analyze Word hidden-text formatting such as
+  `w:rPr/w:vanish`. Text carrying that formatting remains in the mechanical
+  reading and can pass anchored `verify_quote`; callers must not treat the
+  reading as a visual-rendering or legal-effect conclusion.
 - Complex adjacent or nested OOXML layouts may be refused with a stable error
   rather than rewritten approximately.
 - Tracked text revisions may be nested at most two levels. This supports the
@@ -74,7 +96,9 @@ current user's permissions.
 - Numbering is a navigation aid, not evidence. Numbering templates, computed
   labels and explicit manual labels are capped at 256 characters, and Roman
   labels are supported only for values 1-3999. Word numbering levels 0-8 are
-  supported; labels outside those bounds are omitted.
+  supported; labels outside those bounds are omitted. Word outline levels 0-8
+  create sections, level 9 means body text, and malformed out-of-range outline
+  values refuse inspection rather than becoming invalid navigation facts.
 - Revision ids are provenance, not unique document addresses. Edits are bound
   to hash-scoped paragraph/group positions and a full change-unit fingerprint;
   duplicate ids are handled structurally. New-id allocation supports ASCII
@@ -95,8 +119,9 @@ current user's permissions.
   DOCX exactly once and remains only an explicit positional manifest.
 - There is no semantic cross-round clause matcher or authorship forensics.
 - `clause_anchor` and `manual_label` are best-effort navigation aids. Durable
-  evidence remains file SHA plus change-unit id, structural paragraph/group
-  locator and verified old/new wording.
+  evidence remains an exact file SHA plus either a complete change-unit anchor
+  and verified old/new wording or a hash-bound paragraph reference and verified
+  accepted/current projected wording.
 - The calling model supplies legal analysis and drafting. Veqtor does not
   establish legal correctness.
 
@@ -109,13 +134,14 @@ current user's permissions.
   same source bytes, build, configured author and edits. Apply can still fail if
   the source changes, the output exists, or publication encounters permissions,
   storage or filesystem races.
-- Under MCP contract `veqtor.mcp.v0.2`, `apply_edits` requires the complete
-  `preflight_proof` returned by a successful preflight. The proof binds the
-  source SHA-256, canonical edits digest, configured author, producer build and
-  candidate SHA-256; it does not bind the destination path. It is an unkeyed
-  drift detector, not authentication, a digital signature, a trusted timestamp
-  or proof of who approved the edit. The lower-level Python API keeps its v0.1
-  optional-proof behavior for compatibility.
+- Under MCP contract `veqtor.mcp.v0.2` and draft `veqtor.mcp.v0.3`,
+  `apply_edits` requires the complete `preflight_proof` returned by a successful
+  preflight. The proof binds the source SHA-256, canonical edits digest,
+  configured author, producer build and candidate SHA-256; it does not bind the
+  destination path. It is an unkeyed drift detector, not authentication, a
+  digital signature, a trusted timestamp or proof of who approved the edit. The
+  lower-level Python API keeps its v0.1 optional-proof behavior for
+  compatibility.
 - Development preflight diagnostics use closed `position_status` values
   (`supported`, `unsupported`, `not_evaluated`) and an explicit
   `failure_phase`; other diagnostic facts can still be `null` when processing
@@ -144,17 +170,24 @@ current user's permissions.
   authenticated, signed or hash-chained audit records.
 - The threat model is a non-hostile single-user macOS/Linux workspace. A
   malicious process running as the same user is outside scope.
-- The raw journal may contain matter text and has no rotation or aggregate size
-  cap in v0.1.
-- Decision-record reads, appends and export use blocking POSIX file locks with
-  no acquisition timeout. Another Veqtor process holding the same workspace or
-  journal lock can therefore delay a tool response until that lock is released.
-  Process exit releases the lock, but the Alpha does not yet return a bounded
-  `journal_busy` refusal for a live lock holder.
-- Read-only list, extract, verify and preflight calls normally append local
-  provenance too. Decision-record export normally appends an access event after
-  taking its response snapshot, so observation is not side-effect free unless
-  decision records are disabled.
+- The raw journal retains the canonical workspace and caller-supplied paths,
+  may retain literal-search phrases and other matter text, and has no automatic
+  rotation. Only compact export provides the documented path/phrase
+  minimization. The aggregate journal cap is 64 MiB; a larger historical file
+  is refused with `journal_oversize` until it is moved aside for manual archive.
+- Decision-record workspace and journal locks share a fixed one-second
+  monotonic deadline and return `journal_busy` on contention. This bounds lock
+  waiting, not total tool runtime or filesystem syscalls. Ordinary document
+  operations keep a completed core result with `record_status: write_failed`;
+  read/export before a validated snapshot fail closed.
+- Reads retain only the requested bounded page but still validate the complete
+  journal. Append and export also scan the complete file, so they remain
+  O(journal bytes); there is no journal index, automatic repair or rotation.
+- Read-only `list_rounds`, `extract_redlines`, `inspect_document`,
+  `verify_quote` and `preflight_edits` calls normally append local provenance
+  too. Decision-record export normally appends an access event after taking its
+  response snapshot, so observation is not side-effect free unless decision
+  records are disabled.
 - Development-contract export never initializes a journal in an uninitialized
   supplied folder. If exactly one direct child contains a valid journal it
   refuses with `workspace_mismatch` and a safe relative suggestion; multiple

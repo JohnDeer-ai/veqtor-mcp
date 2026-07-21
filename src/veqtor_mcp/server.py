@@ -12,30 +12,46 @@ import os
 import platform
 import sys
 from functools import cache
-from typing import Any, Callable
+from typing import Annotated, Any, Callable, Literal
 
+import jsonschema
 from mcp.server.fastmcp import FastMCP
+from pydantic import Field, StrictInt
 
 import veqtor_docx
 from veqtor_docx._ooxml import tracked_change_author_validation_error
 from veqtor_docx.apply import DEFAULT_AUTHOR
+from veqtor_docx.contracts import INSPECT_FIXED_LIMITS_V1, InspectionContractV1
+from veqtor_docx.inspect import DEFAULT_MAX_ITEMS as DEFAULT_INSPECT_MAX_ITEMS
 from veqtor_mcp import __version__
 from veqtor_mcp import records
+from veqtor_mcp._inspection_live import (
+    CheckedInspectionError,
+    CheckedInspectionResult,
+    _checked_inspection_error_from_gate,
+    _checked_inspection_result_from_gate,
+)
 from veqtor_mcp.contracts import (
-    AnchorInput,
     ApplyEditsResult,
     EditInput,
     ExportDecisionRecordResult,
     ExtractRedlinesResult,
+    InspectDocumentResult,
+    InspectSelectionInput,
     ListRoundsResult,
     PreflightEditsResult,
     PreflightProofInput,
+    VerifyAnchorInput,
     VerifyQuoteResult,
     contract_meta,
+    is_record_error,
+    is_record_id,
     local_journaling_annotations,
 )
 
 TRACKED_CHANGE_AUTHOR_ENV = "VEQTOR_TRACKED_CHANGE_AUTHOR"
+
+
 def _tracked_change_author_from_environment() -> str:
     value = os.environ.get(TRACKED_CHANGE_AUTHOR_ENV, DEFAULT_AUTHOR)
     value = value.strip()
@@ -57,6 +73,17 @@ mcp = FastMCP("veqtor")
 mcp._mcp_server.version = __version__
 
 
+_RESULT_MODELS = {
+    "list_rounds": ListRoundsResult,
+    "extract_redlines": ExtractRedlinesResult,
+    "inspect_document": InspectDocumentResult,
+    "preflight_edits": PreflightEditsResult,
+    "apply_edits": ApplyEditsResult,
+    "verify_quote": VerifyQuoteResult,
+    "export_decision_record": ExportDecisionRecordResult,
+}
+
+
 def _producer() -> dict[str, str]:
     return {
         "name": "veqtor-mcp",
@@ -67,9 +94,7 @@ def _producer() -> dict[str, str]:
 
 def _ok_result(result: dict[str, Any]) -> dict[str, Any]:
     return (
-        result
-        if "status" in result
-        else {"status": records.RESULT_STATUS_OK, **result}
+        result if "status" in result else {"status": records.RESULT_STATUS_OK, **result}
     )
 
 
@@ -81,22 +106,156 @@ def _error_result(exc: veqtor_docx.DocxError) -> dict[str, Any]:
     }
 
 
+class _OutputContractError(veqtor_docx.DocxError):
+    """A sanitized failure raised before an invalid success can be journaled."""
+
+    code = "output_contract_error"
+
+    def __init__(self) -> None:
+        super().__init__(f"{self.code}: tool output failed contract validation")
+
+
+_SERVER_OWNED_RESULT_FIELDS = frozenset(
+    {"producer", "record_id", "record_status", "record_error"}
+)
+_INSPECTION_RESERVED_RESULT_FIELDS = frozenset({"status", "error_code", "error"})
+
+
+def _validated_record_metadata(meta: dict[str, Any]) -> dict[str, Any]:
+    """Accept only the three exact metadata tuples emitted by the journal."""
+    if not isinstance(meta, dict):
+        raise _OutputContractError
+    status = meta.get("record_status")
+    record_id = meta.get("record_id")
+    if status == "written":
+        valid = is_record_id(record_id) and set(meta) == {
+            "record_id",
+            "record_status",
+        }
+    elif status == "disabled":
+        valid = record_id is None and set(meta) == {"record_id", "record_status"}
+    elif status == "write_failed":
+        record_error = meta.get("record_error")
+        valid = (
+            record_id is None
+            and is_record_error(record_error)
+            and set(meta) == {"record_id", "record_status", "record_error"}
+        )
+    else:
+        valid = False
+    if not valid:
+        raise _OutputContractError
+    return dict(meta)
+
+
+def _validated_success_result(
+    tool_name: str,
+    result: dict[str, Any],
+    *,
+    record_id: str | None = None,
+    record_status: str = "disabled",
+    record_error: str | None = None,
+) -> dict[str, Any] | CheckedInspectionResult:
+    """Validate and normalize one live result exactly as the MCP boundary does.
+
+    The Pydantic result model is the same return model FastMCP uses.  Its
+    advertised JSON Schema is then applied to the normalized model dump, which
+    mirrors FastMCP's conversion followed by the low-level MCP output-schema
+    gate.  Temporary disabled record metadata makes validation possible before
+    a decision-record id exists.
+    """
+    model = _RESULT_MODELS.get(tool_name)
+    if model is None or not isinstance(result, dict):
+        raise _OutputContractError
+    if set(result) & _SERVER_OWNED_RESULT_FIELDS:
+        raise _OutputContractError
+    is_inspection = tool_name == "inspect_document"
+    if is_inspection and set(result) & _INSPECTION_RESERVED_RESULT_FIELDS:
+        raise _OutputContractError
+
+    candidate = {
+        **result,
+        "producer": _producer(),
+        "record_id": record_id,
+        "record_status": record_status,
+    }
+    if record_error is not None:
+        candidate["record_error"] = record_error
+    try:
+        normalized = model.model_validate(candidate).model_dump(
+            mode="json",
+            by_alias=True,
+        )
+        jsonschema.validate(instance=normalized, schema=model.contract_schema)
+        if is_inspection:
+            InspectionContractV1.validate_critical(normalized)
+    except Exception:
+        # Validation diagnostics may contain document text, private paths or an
+        # implementation sentinel.  Neither the journal nor the MCP client may
+        # receive those details.
+        raise _OutputContractError from None
+
+    normalized.pop("record_id", None)
+    normalized.pop("record_status", None)
+    normalized.pop("record_error", None)
+    if is_inspection:
+        return _checked_inspection_result_from_gate(normalized)
+    return normalized
+
+
 def _with_record(
     *,
     tool_name: str,
     workspace,
     input_payload: dict[str, Any],
     result: dict[str, Any],
-    provenance: dict[str, Any],
-    record_result: dict[str, Any] | None = None,
+    provenance: dict[str, Any] | Callable[[dict[str, Any]], dict[str, Any]],
+    record_result: (
+        dict[str, Any] | Callable[[dict[str, Any]], dict[str, Any]] | None
+    ) = None,
 ) -> dict[str, Any]:
-    meta = records.write_record(
-        workspace=workspace,
-        tool_name=tool_name,
-        input_payload=input_payload,
-        result=_ok_result(result) if record_result is None else record_result,
-        tool_result=_ok_result(result),
-        provenance=provenance,
+    try:
+        normalized = _validated_success_result(tool_name, result)
+        if not isinstance(normalized, dict):
+            raise _OutputContractError
+        result = normalized
+    except _OutputContractError as exc:
+        try:
+            _record_error(
+                tool_name=tool_name,
+                workspace=workspace,
+                input_payload=input_payload,
+                exc=exc,
+                # Never derive an error record from a result which just failed
+                # its public contract.  A malformed required field may already
+                # have flowed into the success provenance assembled by the
+                # caller before _with_record was entered.
+                provenance={"failure_phase": "output_validation"},
+            )
+        except Exception:
+            # Output validation must stay fail-closed even when the optional
+            # local journal cannot record the controlled error.
+            pass
+        raise
+
+    validated_provenance = provenance(result) if callable(provenance) else provenance
+    validated_record_result = (
+        record_result(result) if callable(record_result) else record_result
+    )
+
+    meta = _validated_record_metadata(
+        records.write_record(
+            workspace=workspace,
+            tool_name=tool_name,
+            input_payload=input_payload,
+            result=(
+                _ok_result(result)
+                if validated_record_result is None
+                else validated_record_result
+            ),
+            tool_result=_ok_result(result),
+            provenance=validated_provenance,
+        )
     )
     return {**result, **meta}
 
@@ -109,6 +268,18 @@ def _record_error(
     exc: veqtor_docx.DocxError,
     provenance: dict[str, Any] | None = None,
 ) -> None:
+    if tool_name == "inspect_document":
+        checked_error: CheckedInspectionError = _checked_inspection_error_from_gate(
+            error_code=getattr(exc, "code", "docx_error"),
+            error=str(exc),
+            provenance=provenance or {},
+        )
+        records.write_checked_inspection_error_record(
+            workspace=workspace,
+            input_payload=input_payload,
+            error=checked_error,
+        )
+        return
     records.write_record(
         workspace=workspace,
         tool_name=tool_name,
@@ -183,9 +354,7 @@ def _run_tool_boundary(
         # Journal-layer diagnostics may contain resolved workspace paths.
         # Preserve the stable machine code but never the local detail at the
         # MCP transport boundary.
-        raise _McpBoundaryError(
-            exc.code, "decision-record operation refused"
-        ) from None
+        raise _McpBoundaryError(exc.code, "decision-record operation refused") from None
     except Exception:
         if workspace is not None:
             try:
@@ -203,15 +372,31 @@ def _run_tool_boundary(
                 # Journaling is best effort and must never replace the safe
                 # public error boundary with another implementation detail.
                 pass
-        raise _McpBoundaryError(
-            "internal_error", "unexpected tool failure"
-        ) from None
+        raise _McpBoundaryError("internal_error", "unexpected tool failure") from None
 
 
 def _anchor_from_verify(anchor: dict) -> dict[str, Any]:
+    """Copy only the closed public change-unit anchor fields.
+
+    Legacy two-field anchors remain accepted for v0.2 clients.  New v0.3
+    anchors bind the same unit to the canonical container policy and to the
+    complete public unit fingerprint; journaling and edit forwarding must not
+    silently downgrade those stronger bindings.
+    """
     return {
         key: anchor[key]
-        for key in ("change_unit_id", "file_sha256")
+        for key in (
+            "schema_version",
+            "ref_type",
+            "change_unit_id",
+            "file_sha256",
+            "part_name",
+            "paragraph_index",
+            "paragraph_text_sha256",
+            "reading_mode",
+            "container_policy",
+            "unit_fingerprint_sha256",
+        )
         if key in anchor
     }
 
@@ -269,8 +454,7 @@ def _list_rounds_provenance(result: dict[str, Any]) -> dict[str, Any]:
 def _extract_provenance(result: dict[str, Any]) -> dict[str, Any]:
     anchors = [
         {
-            "change_unit_id": unit["change_unit_id"],
-            "file_sha256": unit["file_sha256"],
+            **unit["anchor"],
             "revision_ids": unit["reference"]["revision_ids"],
             "clause_anchor": unit["clause_anchor"],
         }
@@ -313,14 +497,49 @@ def _extract_error_provenance(
     return provenance
 
 
-def _verify_provenance(result: dict[str, Any], anchor: dict[str, Any]) -> dict[str, Any]:
+def _with_checked_inspection_record(
+    *,
+    workspace,
+    input_payload: dict[str, Any],
+    result: CheckedInspectionResult,
+) -> dict[str, Any]:
+    """Send one checked value to the dedicated journal sink and client."""
+    if not isinstance(result, CheckedInspectionResult):
+        raise TypeError("inspection success requires a checked result")
+    meta = _validated_record_metadata(
+        records.write_checked_inspection_record(
+            workspace=workspace,
+            input_payload=input_payload,
+            result=result,
+        )
+    )
+    return {**result.to_dict(), **meta}
+
+
+def _inspect_error_provenance(
+    path: str,
+    mode: object,
+    exc: veqtor_docx.DocxError,
+) -> dict[str, Any]:
+    provenance: dict[str, Any] = {"path": path, "mode": mode}
+    metadata = getattr(exc, "metadata", None)
+    if isinstance(metadata, dict):
+        for key in ("claimed_source_sha256", "observed_source_sha256"):
+            if key in metadata:
+                provenance[key] = metadata[key]
+    return provenance
+
+
+def _verify_provenance(
+    result: dict[str, Any], anchor: dict[str, Any]
+) -> dict[str, Any]:
     return {
         "file_sha256": result["checked_anchor"]["file_sha256"],
         "checked_anchor": result["checked_anchor"],
         "input_anchor": _anchor_from_verify(anchor),
         "anchors": [
             {
-                "change_unit_id": result["checked_anchor"]["change_unit_id"],
+                **result["checked_anchor"],
                 "revision_ids": match["revision_ids"],
                 "side": match["side"],
             }
@@ -337,9 +556,7 @@ def _verify_error_provenance(
 ) -> dict[str, Any]:
     provenance: dict[str, Any] = {
         "path": path,
-        "input_anchor": _anchor_from_verify(anchor)
-        if isinstance(anchor, dict)
-        else {},
+        "input_anchor": _anchor_from_verify(anchor) if isinstance(anchor, dict) else {},
     }
     metadata = getattr(exc, "metadata", None)
     if isinstance(metadata, dict):
@@ -370,9 +587,7 @@ def _apply_provenance(
         "round_trip_check": result["round_trip_check"],
         "preflight_binding_status": result["preflight_binding_status"],
         "preflight_candidate_sha256": result["preflight_candidate_sha256"],
-        "candidate_output_sha256_match": result[
-            "candidate_output_sha256_match"
-        ],
+        "candidate_output_sha256_match": result["candidate_output_sha256_match"],
     }
 
 
@@ -390,9 +605,7 @@ def _preflight_provenance(
     if result.get("blocking_edit_index") is not None:
         provenance["edit_index"] = result["blocking_edit_index"]
     if result.get("observed_candidate_sha256") is not None:
-        provenance["observed_candidate_sha256"] = result[
-            "observed_candidate_sha256"
-        ]
+        provenance["observed_candidate_sha256"] = result["observed_candidate_sha256"]
     if result.get("failure_phase") is not None:
         provenance["failure_phase"] = result["failure_phase"]
     if result.get("round_trip_check") is not None:
@@ -439,9 +652,7 @@ def _apply_error_provenance(
         provenance["claimed_source_sha256"] = claimed
     if isinstance(metadata, dict):
         if metadata.get("observed_source_sha256") is not None:
-            provenance["observed_source_sha256"] = metadata[
-                "observed_source_sha256"
-            ]
+            provenance["observed_source_sha256"] = metadata["observed_source_sha256"]
         if metadata.get("observed_candidate_sha256") is not None:
             provenance["observed_candidate_sha256"] = metadata[
                 "observed_candidate_sha256"
@@ -514,6 +725,7 @@ def list_rounds(
     complete scan. If a shared limit is exceeded, split the folder and retry;
     the call fails without returning a partial round list.
     """
+
     def operation(workspace, input_payload):
         try:
             result = veqtor_docx.list_rounds(
@@ -575,6 +787,7 @@ def extract_redlines(path: str) -> ExtractRedlinesResult:
     decode are counted in ``unsupported_revisions`` rather than silently
     dropped.
     """
+
     def operation(workspace, input_payload):
         try:
             result = veqtor_docx.extract_redlines(path)
@@ -606,6 +819,113 @@ def extract_redlines(path: str) -> ExtractRedlinesResult:
 
 
 @mcp.tool(
+    annotations=local_journaling_annotations(
+        "Inspect a mechanical accepted/current DOCX body reading"
+    ),
+    meta=contract_meta(),
+    structured_output=True,
+)
+def inspect_document(
+    path: str,
+    mode: Literal["outline", "literal_search", "browse", "read"],
+    phrases: list[str] | None = None,
+    match_basis: Literal[
+        "exact_literal",
+        "normalized_literal",
+        "normalized_casefold_literal",
+    ]
+    | None = None,
+    selection: InspectSelectionInput | None = None,
+    cursor: str | None = None,
+    max_items: Annotated[
+        StrictInt,
+        Field(ge=1, le=INSPECT_FIXED_LIMITS_V1["max_items"]),
+    ] = DEFAULT_INSPECT_MAX_ITEMS,
+) -> InspectDocumentResult:
+    """Inspect a mechanical accepted/current reading without a whole-document dump.
+
+    ``outline`` returns structural headings without clause-body text.
+    ``literal_search`` searches the supplied phrases independently inside each
+    supported body paragraph using the explicit ``match_basis``. ``browse``
+    pages supported non-empty paragraphs when outline/search discovery is not
+    sufficient. ``read`` resolves exactly one hash-bound ``paragraph_ref`` or
+    ``section_ref`` from an earlier result. Section reads are cursor-paginated;
+    paragraph reads return one full bounded paragraph and reject cursors.
+
+    A literal-search snippet is only a navigation aid, even when neither
+    truncation flag is set. Quote only complete text returned by ``read`` and
+    confirmed against the same hash-bound reference with ``verify_quote``.
+
+    All modes use the accepted/current reading of ``word/document.xml`` under
+    the disclosed canonical body-flow policy. Filename order, clause labels and
+    headings remain navigation only; the file and paragraph hashes are the
+    evidence anchors. Calls never mutate the DOCX but normally append local
+    provenance like every current Veqtor tool.
+    """
+
+    def input_payload() -> dict[str, Any]:
+        return {
+            "path": path,
+            "mode": mode,
+            **({"phrases": phrases} if phrases is not None else {}),
+            **({"match_basis": match_basis} if match_basis is not None else {}),
+            **({"selection": selection} if selection is not None else {}),
+            **({"cursor": cursor} if cursor is not None else {}),
+            "max_items": max_items,
+        }
+
+    def operation(workspace, payload):
+        try:
+            result = veqtor_docx.inspect_document(
+                path,
+                mode,
+                phrases=phrases,
+                match_basis=match_basis,
+                selection=selection,
+                cursor=cursor,
+                max_items=max_items,
+            )
+        except veqtor_docx.DocxError as exc:
+            _record_error(
+                tool_name="inspect_document",
+                workspace=workspace,
+                input_payload=payload,
+                exc=exc,
+                provenance=_inspect_error_provenance(path, mode, exc),
+            )
+            raise
+        try:
+            checked = _validated_success_result("inspect_document", result)
+            if not isinstance(checked, CheckedInspectionResult):
+                raise _OutputContractError
+        except _OutputContractError as exc:
+            try:
+                _record_error(
+                    tool_name="inspect_document",
+                    workspace=workspace,
+                    input_payload=payload,
+                    exc=exc,
+                    provenance={"failure_phase": "output_validation"},
+                )
+            except Exception:
+                pass
+            raise
+        return _with_checked_inspection_record(
+            workspace=workspace,
+            input_payload=payload,
+            result=checked,
+        )
+
+    return _run_tool_boundary(
+        tool_name="inspect_document",
+        workspace_resolver=lambda: records.workspace_for_file(path),
+        input_payload_factory=input_payload,
+        internal_provenance_factory=lambda: {"source_path": path, "mode": mode},
+        operation=operation,
+    )
+
+
+@mcp.tool(
     annotations=local_journaling_annotations("Preflight tracked edits"),
     meta=contract_meta(),
     structured_output=True,
@@ -631,9 +951,7 @@ def preflight_edits(
     def internal_provenance() -> dict[str, Any]:
         provenance = {
             "source_path": source_path,
-            "anchors": _anchors_from_edits(edits)
-            if isinstance(edits, list)
-            else [],
+            "anchors": _anchors_from_edits(edits) if isinstance(edits, list) else [],
         }
         if "tracked_change_author" in context:
             provenance["tracked_change_author"] = context["tracked_change_author"]
@@ -643,15 +961,12 @@ def preflight_edits(
         tracked_change_author = _tracked_change_author()
         context["tracked_change_author"] = tracked_change_author
         try:
-            result = {
-                **veqtor_docx.preflight_edits(
-                    source_path,
-                    edits,
-                    author=tracked_change_author,
-                    producer_build=records.SOURCE_SNAPSHOT_IDENTITY,
-                ),
-                "producer": _producer(),
-            }
+            result = veqtor_docx.preflight_edits(
+                source_path,
+                edits,
+                author=tracked_change_author,
+                producer_build=records.SOURCE_SNAPSHOT_IDENTITY,
+            )
         except veqtor_docx.DocxError as exc:
             _record_error(
                 tool_name="preflight_edits",
@@ -722,33 +1037,26 @@ def apply_edits(
         provenance = {
             "source_path": source_path,
             "output_path": output_path,
-            "anchors": _anchors_from_edits(edits)
-            if isinstance(edits, list)
-            else [],
+            "anchors": _anchors_from_edits(edits) if isinstance(edits, list) else [],
         }
         if "tracked_change_author" in context:
             provenance["tracked_change_author"] = context["tracked_change_author"]
         if isinstance(preflight_proof, dict):
-            provenance["preflight_proof_sha256"] = preflight_proof.get(
-                "proof_sha256"
-            )
+            provenance["preflight_proof_sha256"] = preflight_proof.get("proof_sha256")
         return provenance
 
     def operation(workspace, input_payload):
         tracked_change_author = _tracked_change_author()
         context["tracked_change_author"] = tracked_change_author
         try:
-            result = {
-                **veqtor_docx.apply_edits(
-                    source_path,
-                    output_path,
-                    edits,
-                    author=tracked_change_author,
-                    preflight_proof=preflight_proof,
-                    producer_build=records.SOURCE_SNAPSHOT_IDENTITY,
-                ),
-                "producer": _producer(),
-            }
+            result = veqtor_docx.apply_edits(
+                source_path,
+                output_path,
+                edits,
+                author=tracked_change_author,
+                preflight_proof=preflight_proof,
+                producer_build=records.SOURCE_SNAPSHOT_IDENTITY,
+            )
         except veqtor_docx.DocxError as exc:
             error_provenance = (
                 _apply_error_provenance(
@@ -804,26 +1112,28 @@ def apply_edits(
 )
 def verify_quote(
     path: str,
-    anchor: AnchorInput,
+    anchor: VerifyAnchorInput,
     quote: str,
 ) -> VerifyQuoteResult:
     """Check a quotation against the document before relying on it.
 
     Call this before using a quote in a memo, email, or negotiation summary.
-    ``anchor`` is {change_unit_id, file_sha256} from ``extract_redlines``.
-    The verdict is ``exact`` (verbatim in the anchored change unit's old or
-    new text), ``normalized`` (matches after collapsing whitespace and
-    typographic quotes/dashes — ``diff`` says so), or ``not_found``.
+    ``anchor`` is either a legacy/v2 change-unit anchor from
+    ``extract_redlines`` or a ``paragraph_ref.v1`` from ``inspect_document``.
+    The verdict is ``exact`` (verbatim in the anchored old/new change text or
+    accepted/current paragraph), ``normalized`` (matches after collapsing
+    whitespace and typographic quotes/dashes — ``diff`` says so), or
+    ``not_found``.
     Matching is case-sensitive and deterministic; a hash mismatch or unknown
     anchor is an error, never a guess. The verdict covers only the anchored
-    change unit, not the whole document or the legal accuracy of the quote.
+    unit or paragraph, not the whole document or the legal accuracy of the
+    quote.
     """
+
     def internal_provenance() -> dict[str, Any]:
         return {
             "source_path": path,
-            "anchor": _anchor_from_verify(anchor)
-            if isinstance(anchor, dict)
-            else None,
+            "anchor": _anchor_from_verify(anchor) if isinstance(anchor, dict) else None,
         }
 
     def operation(workspace, input_payload):
@@ -868,7 +1178,11 @@ def verify_quote(
 )
 def export_decision_record(
     workspace: str,
-    max_records: int | None = None,
+    max_records: Annotated[
+        StrictInt,
+        Field(ge=1, le=records.MAX_MAX_RECORDS),
+    ]
+    | None = None,
     before_record_id: str | None = None,
 ) -> ExportDecisionRecordResult:
     """Return compact local provenance entries for a matter workspace.
@@ -888,13 +1202,48 @@ def export_decision_record(
     next export, so gaps in record ids are normal. A raw journal record may hold
     a tool-specific result summary, while this response is a privacy-minimized
     compact projection rather than a copy of the raw journal or the complete
-    live tool response.
+    live tool response. ``max_records`` accepts only a strict integer from 1
+    through 500; values outside that bounded response window are refused before
+    reading or journaling.
     """
+
     def operation(root, input_payload):
         assurance = _decision_record_assurance()
         export_scope = _decision_record_export_scope()
 
+        def live_result(snapshot, meta):
+            current_export_event = {
+                "record_id": meta["record_id"],
+                "record_type": records.ACCESS_RECORD_TYPE,
+                "record_status": meta["record_status"],
+                "recorded_locally": meta["record_status"] == "written",
+                "included_in_records": False,
+                "included_in_total_count": False,
+                "included_in_access_count": False,
+            }
+            return {
+                **snapshot,
+                "returned_count": len(snapshot["records"]),
+                "assurance": assurance,
+                **export_scope,
+                "access_events_recorded_locally": current_export_event[
+                    "recorded_locally"
+                ],
+                "current_export_event": current_export_event,
+            }
+
         def export_summary(result):
+            # The snapshot-dependent live response is validated while the
+            # journal lock is held and before the access event is appended.
+            # Disabled placeholder metadata has the same public schema as the
+            # later written/write_failed metadata.
+            _validated_success_result(
+                "export_decision_record",
+                live_result(
+                    result,
+                    {"record_id": None, "record_status": "disabled"},
+                ),
+            )
             return {
                 "status": records.RESULT_STATUS_OK,
                 "workspace": result["workspace"],
@@ -915,24 +1264,16 @@ def export_decision_record(
             input_payload=input_payload,
             result_factory=export_summary,
         )
-        current_export_event = {
-            "record_id": meta["record_id"],
-            "record_type": records.ACCESS_RECORD_TYPE,
-            "record_status": meta["record_status"],
-            "recorded_locally": meta["record_status"] == "written",
-            "included_in_records": False,
-            "included_in_total_count": False,
-            "included_in_access_count": False,
-        }
+        meta = _validated_record_metadata(meta)
+        normalized = _validated_success_result(
+            "export_decision_record",
+            live_result(result, meta),
+            record_id=meta["record_id"],
+            record_status=meta["record_status"],
+            record_error=meta.get("record_error"),
+        )
         return {
-            **result,
-            "returned_count": len(result["records"]),
-            "assurance": assurance,
-            **export_scope,
-            "access_events_recorded_locally": current_export_event[
-                "recorded_locally"
-            ],
-            "current_export_event": current_export_event,
+            **normalized,
             **meta,
         }
 

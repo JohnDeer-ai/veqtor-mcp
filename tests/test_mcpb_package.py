@@ -8,6 +8,7 @@ import io
 import json
 from pathlib import Path
 import sys
+import tomllib
 import zipfile
 
 import pytest
@@ -25,6 +26,13 @@ from release_contract import (  # noqa: E402
     MCPB_MEMBERS,
     MCPB_REQUIRED_TOOLS,
     VERSION,
+)
+
+
+release_contract_source_only = pytest.mark.skipif(
+    tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+    != VERSION,
+    reason="closed v0.2 MCPB builds require the exact v0.2 source identity",
 )
 
 
@@ -66,6 +74,7 @@ def test_manifest_declares_uv_author_tools_and_macos_only() -> None:
     }
 
 
+@release_contract_source_only
 def test_build_is_byte_deterministic_and_verifies(tmp_path: Path) -> None:
     first = build_mcpb.build(ROOT, tmp_path / "first")
     second = build_mcpb.build(ROOT, tmp_path / "second")
@@ -79,6 +88,7 @@ def test_build_is_byte_deterministic_and_verifies(tmp_path: Path) -> None:
     assert set(result["demo_sha256"]) == set(MCPB_DEMO_FILENAMES)
 
 
+@release_contract_source_only
 def test_bundle_has_only_reviewed_sources_and_generated_demo(tmp_path: Path) -> None:
     artifact = build_mcpb.build(ROOT, tmp_path / "dist")
 
@@ -95,17 +105,16 @@ def test_bundle_has_only_reviewed_sources_and_generated_demo(tmp_path: Path) -> 
             for name in MCPB_DEMO_FILENAMES
         )
         assert all(
-            info.compress_type == zipfile.ZIP_STORED
-            for info in archive.infolist()
+            info.compress_type == zipfile.ZIP_STORED for info in archive.infolist()
         )
         for name in MCPB_DEMO_FILENAMES:
             with zipfile.ZipFile(io.BytesIO(archive.read(f"demo/{name}"))) as demo:
                 assert all(
-                    info.compress_type == zipfile.ZIP_STORED
-                    for info in demo.infolist()
+                    info.compress_type == zipfile.ZIP_STORED for info in demo.infolist()
                 )
 
 
+@release_contract_source_only
 def test_stage_is_complete_and_refuses_nonempty_destination(tmp_path: Path) -> None:
     stage = tmp_path / "stage"
     artifact = build_mcpb.build(ROOT, tmp_path / "dist", stage)
@@ -121,6 +130,7 @@ def test_stage_is_complete_and_refuses_nonempty_destination(tmp_path: Path) -> N
         build_mcpb.build(ROOT, tmp_path / "again", stage)
 
 
+@release_contract_source_only
 def test_changed_or_extra_member_fails_closed(tmp_path: Path) -> None:
     artifact = build_mcpb.build(ROOT, tmp_path / "dist")
     expected = checker.expected_member_payloads(ROOT, "WORKTREE")
@@ -153,6 +163,7 @@ def test_noncanonical_member_order_fails_closed(tmp_path: Path) -> None:
         checker.verify(artifact, ROOT, "WORKTREE")
 
 
+@release_contract_source_only
 def test_wrong_filename_and_trailing_bytes_fail_closed(tmp_path: Path) -> None:
     artifact = build_mcpb.build(ROOT, tmp_path / "dist")
     wrong_name = tmp_path / "dist" / "renamed.mcpb"

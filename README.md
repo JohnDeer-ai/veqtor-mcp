@@ -11,20 +11,24 @@
 > history and fail-closed tracked-change edits. Supported on macOS and Linux
 > with Python 3.12-3.14.
 
-Veqtor gives MCP-compatible AI clients deterministic tools to read contract
-redlines, verify quotations, dry-run complete counterproposal batches, create a
-new DOCX with real tracked changes, and keep re-checkable local provenance. The
-model remains the legal-reasoning layer; Veqtor handles document facts and
-writes.
+Veqtor gives MCP-compatible AI clients deterministic tools to inspect a
+mechanical accepted/current projection of contract wording, read redlines,
+verify quotations, dry-run complete
+counterproposal batches, create a new DOCX with real tracked changes, and keep
+re-checkable local provenance. The model remains the legal-reasoning layer;
+Veqtor handles document facts and writes.
 
 Veqtor is not legal advice, a generic Word editor, a hosted service, or a
 tamper-evident audit system. Review the
 [known limitations](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/KNOWN_LIMITATIONS.md)
 before using it on a real matter.
 
-This source tree has package version `0.2.0` and advertises MCP contract
-`veqtor.mcp.v0.2`; neither value proves that a package or release has been
-published. Before installing, check both the generic
+This source tree is the development-only package `0.3.0.dev0` and advertises
+draft MCP contract `veqtor.mcp.v0.3`. No `0.3` package, extension or release is
+offered by this statement, and the development version is intentionally absent
+from the installation choices below.
+
+Before installing, check both the generic
 [PyPI project](https://pypi.org/project/veqtor-mcp/) and the
 [GitHub Releases list](https://github.com/JohnDeer-ai/veqtor-mcp/releases), then
 select one exact version for every command below:
@@ -133,14 +137,16 @@ The expected trust sequence is:
 2. verify every quotation used as evidence;
 3. preflight the complete atomic batch;
 4. apply only when `batch_applicable` is true — version `0.1.2` reuses the exact
-   edit payload, while contract `veqtor.mcp.v0.2` also passes the complete
-   `preflight_proof` returned by that successful preflight;
+   edit payload, while contract `veqtor.mcp.v0.2` and the draft v0.3 contract
+   also pass the complete `preflight_proof` returned by that successful
+   preflight;
 5. re-extract the output and export the decision record.
 
-In MCP contract `veqtor.mcp.v0.2`, the proof binds the source bytes, canonical
-edit payload, configured author, producer build and predicted candidate hash so
-apply can detect drift. It is an unkeyed content binding, not authentication or
-a digital signature. Version `0.1.2` does not emit or accept this field.
+In MCP contracts `veqtor.mcp.v0.2` and draft `veqtor.mcp.v0.3`, the proof binds
+the source bytes, canonical edit payload, configured author, producer build and
+predicted candidate hash so apply can detect drift. It is an unkeyed content
+binding, not authentication or a digital signature. Version `0.1.2` does not
+emit or accept this field.
 
 Veqtor never overwrites the source or an existing output file. Use a disposable
 demo folder for write recordings; a successful write creates a new DOCX and a
@@ -171,21 +177,26 @@ or environment.
 
 ## Tool surface
 
-The descriptions below follow source version `0.2.0`. Publication status comes
-only from the two official sources above; for another installed version, use
-the API file under its matching immutable tag.
+The descriptions below follow development source `0.3.0.dev0`. They are not an
+installation promise. For an installed version, use the API file carried by
+that exact artifact or its matching immutable tag.
 
 - `list_rounds`: disclosed lexicographic filename order or a complete explicit
   `ordered_filenames` positional manifest; neither is lineage proof.
 - `extract_redlines`: tracked-change units with hashes, references, bounded
   paragraph context, conservative manual labels and a revision-inventory
   partition.
+- `inspect_document`: bounded outline, literal-search, browse and read views of
+  a mechanical accepted/current projection of main-body text, with every
+  returned paragraph bound to the exact file bytes. This reading mode does not
+  decide which wording has legal effect.
 - `verify_quote`: anchored `exact`, `normalized`, or `not_found` verification.
 - `preflight_edits`: the complete apply pipeline as an in-memory dry-run, with
   closed position/failure diagnostics and a successful drift-binding proof.
 - `apply_edits`: atomic tracked replace, delete, counter and reinstate writes;
-  MCP contract `veqtor.mcp.v0.2` requires the complete successful preflight
-  proof; version `0.1.2` reuses the exact edit payload without that new field.
+  MCP contracts `veqtor.mcp.v0.2` and draft `veqtor.mcp.v0.3` require the
+  complete successful preflight proof; version `0.1.2` reuses the exact edit
+  payload without that new field.
 - `export_decision_record`: compact privacy-aware local provenance.
 
 The complete request, response and error contract is in the versioned
@@ -201,8 +212,10 @@ may be sent to the user's model provider under that provider's terms.
 Unless `VEQTOR_DISABLE_DECISION_RECORD=1`, tools append a private local journal
 at `<matter>/.veqtor/decision-records.jsonl`. Read-only calls, including
 `preflight_edits` and decision-record export, still normally write provenance
-there. The raw journal may contain verbatim matter text; do not commit or share
-it.
+there. The path- and search-phrase-omission guarantee applies only to the
+compact `export_decision_record` response. The raw journal retains the
+workspace and caller-supplied paths, and may retain search phrases and other
+verbatim matter text; do not commit or share it.
 
 Decision-record export requires the exact initialized workspace. In the v0.2
 contract a wrong parent is refused without creating a second
@@ -244,6 +257,11 @@ No response-time, compatibility, uptime, or fix-time SLA is provided.
 
 ## Development and releases
 
+### Development checks
+
+Run these checks for ordinary development changes, including development-only
+versions such as `0.3.0.dev0`:
+
 ```bash
 uv lock --check
 uv sync --frozen --all-extras
@@ -255,9 +273,20 @@ uv export --frozen --no-dev --no-emit-project \
 uvx pip-audit==2.10.1 --requirement "$LOCKED_REQUIREMENTS" \
   --require-hashes --disable-pip --progress-spinner off
 uv build --clear
+uvx twine check dist/*.whl dist/*.tar.gz
+```
+
+### Frozen-release checks
+
+After the development checks, run the following only when `[project].version`
+exactly matches `scripts/release_contract.py::VERSION`. The frozen commands
+intentionally reject a development-only tree whose package and release
+identities differ. The full immutable publication workflow is documented in
+the [release guide](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/RELEASING.md).
+
+```bash
 uv run --frozen python scripts/build_mcpb.py \
   --source-root . --out-dir dist --stage-dir /tmp/veqtor-mcpb-stage
-uvx twine check dist/*.whl dist/*.tar.gz
 uv run --frozen python scripts/check_release_artifacts.py \
   --source-root . --commit HEAD dist/*.whl dist/*.tar.gz
 uv run --frozen python scripts/check_mcpb_artifact.py \

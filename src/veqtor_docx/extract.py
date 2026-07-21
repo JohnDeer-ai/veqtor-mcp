@@ -15,6 +15,7 @@ so any claim can be re-checked against the source document.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from dataclasses import dataclass
 
@@ -30,12 +31,17 @@ from ._ooxml import (
     UserPathError,
     ValidatedDocx,
     ZIP_READ_ERRORS,
+    CanonicalBodyFlow,
+    canonical_body_flow_v1,
+    canonical_paragraph_children,
+    canonical_run_text,
     current_text_atom,
+    iter_canonical_paragraph_nodes,
     load_validated_docx,
     parse_xml,
     read_docx_payload,
+    require_single_direct_document_body,
     resolve_user_path,
-    run_text,
     text_atom,
     validate_docx_payload_size,
     w,
@@ -53,13 +59,20 @@ MAX_NUMBERING_LEVEL = 8
 MAX_CHANGE_UNITS = 10_000
 MAX_TEXT_REVISION_NESTING_DEPTH = 2
 
-_MANUAL_NUMBER_RE = re.compile(r"^\s*(\d+(?:\.\d+)*[A-Za-z]?|\([a-z]\)|[A-Z]\.)[.\s]\s*")
-_DOTTED_MANUAL_NUMBER_RE = re.compile(
-    r"^\s*(\d+(?:\.\d+)+[A-Za-z]?)(?:[.\s])\s*"
+_MANUAL_NUMBER_RE = re.compile(
+    r"^\s*(\d+(?:\.\d+)*[A-Za-z]?|\([a-z]\)|[A-Z]\.)[.\s]\s*"
 )
+_DOTTED_MANUAL_NUMBER_RE = re.compile(r"^\s*(\d+(?:\.\d+)+[A-Za-z]?)(?:[.\s])\s*")
 PARAGRAPH_CONTEXT_RADIUS = 240
 
-__all__ = ["DocxError", "extract_redlines"]
+__all__ = [
+    "DocxError",
+    "classify_revision_inventory_v2",
+    "extract_redlines",
+    "change_unit_fingerprint_sha256",
+]
+
+CHANGE_UNIT_ANCHOR_SCHEMA_V2 = "change_unit_anchor.v2"
 
 
 @dataclass
@@ -68,6 +81,15 @@ class _Style:
     num_id: str | None = None
     ilvl: int | None = None
     based_on: str | None = None
+
+
+def _normalized_outline_level(value: int | None) -> int | None:
+    """Treat ECMA body-text level 9 as non-heading; reject other bad values."""
+    if value is None or value == 9:
+        return None
+    if 0 <= value <= 8:
+        return value
+    raise DocxError("w:outlineLvl must be an integer from 0 through 9")
 
 
 def _load_extraction_package(payload: bytes, path: str) -> ValidatedDocx:
@@ -101,6 +123,9 @@ def _parse_styles(data: bytes | None) -> dict[str, _Style]:
         if ppr is not None:
             outline = ppr.find(w("outlineLvl"))
             if outline is not None and (val := outline.get(w("val"))) is not None:
+                # Preserve the raw value while resolving style inheritance:
+                # explicit level 9 means body text and must override a basedOn
+                # heading style. Normalize only after the chain is resolved.
                 style.outline_lvl = int(val)
             numpr = ppr.find(w("numPr"))
             if numpr is not None:
@@ -138,11 +163,7 @@ def _resolve_styles(styles: dict[str, _Style]) -> dict[str, _Style]:
                     if style.outline_lvl is not None
                     else inherited.outline_lvl
                 ),
-                num_id=(
-                    style.num_id
-                    if style.num_id is not None
-                    else inherited.num_id
-                ),
+                num_id=(style.num_id if style.num_id is not None else inherited.num_id),
                 ilvl=(style.ilvl if style.num_id is not None else inherited.ilvl),
             )
             resolved[current] = effective
@@ -220,9 +241,19 @@ def _format_counter(value: int, fmt: str) -> str | None:
         if not 1 <= value <= MAX_ROMAN_COUNTER:
             return None
         numerals = [
-            (1000, "m"), (900, "cm"), (500, "d"), (400, "cd"), (100, "c"),
-            (90, "xc"), (50, "l"), (40, "xl"), (10, "x"), (9, "ix"),
-            (5, "v"), (4, "iv"), (1, "i"),
+            (1000, "m"),
+            (900, "cm"),
+            (500, "d"),
+            (400, "cd"),
+            (100, "c"),
+            (90, "xc"),
+            (50, "l"),
+            (40, "xl"),
+            (10, "x"),
+            (9, "ix"),
+            (5, "v"),
+            (4, "iv"),
+            (1, "i"),
         ]
         parts: list[str] = []
         remaining = value
@@ -327,7 +358,7 @@ def _current_paragraph_reading(para: etree._Element) -> _ParagraphReading:
     offsets_before: dict[int, int] = {}
     visible_spans_by_revision: dict[int, tuple[int, int]] = {}
     offset = 0
-    for node in para.iter():
+    for node in iter_canonical_paragraph_nodes(para):
         offsets_before[id(node)] = offset
         contribution = _current_node_text(node)
         if not contribution:
@@ -376,7 +407,7 @@ def _heading_from_text(text: str) -> tuple[str | None, str | None]:
     match = _MANUAL_NUMBER_RE.match(stripped)
     label = _manual_label_from_text(stripped)
     if match is not None:
-        stripped = stripped[match.end():].strip()
+        stripped = stripped[match.end() :].strip()
     first_sentence = stripped.split(". ", 1)[0].strip().rstrip(".")
     return label, first_sentence[:120] or None
 
@@ -392,14 +423,18 @@ class _Wrapper:
     nested_in: str | None = None  # containing w:ins id for cross-author counters
 
 
-def _validate_text_revision_nesting(document: etree._Element) -> None:
+def _validate_text_revision_nesting(flow: CanonicalBodyFlow) -> None:
     """Bound wrapper-text duplication before any revision text is materialized."""
-    depth = 0
-    for event, element in etree.iterwalk(document, events=("start", "end")):
-        if element.tag not in TEXT_REVISION_TAGS:
-            continue
-        if event == "start":
-            depth += 1
+    for paragraph in flow.paragraphs:
+        for element in iter_canonical_paragraph_nodes(paragraph.element):
+            if element.tag not in TEXT_REVISION_TAGS:
+                continue
+            depth = 1
+            for ancestor in element.iterancestors():
+                if ancestor is paragraph.element:
+                    break
+                if ancestor.tag in TEXT_REVISION_TAGS:
+                    depth += 1
             if depth > MAX_TEXT_REVISION_NESTING_DEPTH:
                 raise ResourceLimitError(
                     "text_revision_nesting_depth",
@@ -408,11 +443,11 @@ def _validate_text_revision_nesting(document: etree._Element) -> None:
                     observed_count=depth,
                     observed_at_least=True,
                 )
-        else:
-            depth -= 1
 
 
-def _nested_del_author_differs(node: etree._Element, wrapper: etree._Element) -> bool | None:
+def _nested_del_author_differs(
+    node: etree._Element, wrapper: etree._Element
+) -> bool | None:
     """For a text node under ``wrapper``: None if not inside a nested w:del,
     else True when that deletion's author differs from the wrapper's."""
     for ancestor in node.iterancestors():
@@ -434,7 +469,7 @@ def _wrapper_text(element: etree._Element, kind: str) -> str:
     as its own change unit. A deletion counts ``w:delText``.
     """
     parts: list[str] = []
-    for node in element.iter():
+    for node in iter_canonical_paragraph_nodes(element):
         tag = node.tag
         value = text_atom(node, include_deleted_text=True)
         if value is None:
@@ -457,7 +492,8 @@ def _foreign_nested_dels(ins_element: etree._Element) -> list[etree._Element]:
     ins_author = ins_element.get(w("author")) or ""
     return [
         el
-        for el in ins_element.iter(w("del"))
+        for el in iter_canonical_paragraph_nodes(ins_element)
+        if el.tag == w("del")
         if (el.get(w("author")) or "") != ins_author
     ]
 
@@ -471,7 +507,7 @@ def _paragraph_stream(para: etree._Element) -> list[tuple[str, object]]:
     items: list[tuple[str, object]] = []
 
     def walk(node: etree._Element) -> None:
-        for child in node:
+        for child in canonical_paragraph_children(node):
             tag = child.tag
             if tag == w("pPr"):
                 continue
@@ -515,7 +551,7 @@ def _paragraph_stream(para: etree._Element) -> list[tuple[str, object]]:
             elif tag in MOVE_REVISION_TAGS:
                 items.append(("move", child))
             elif tag == w("r"):
-                items.append(("text", run_text(child)))
+                items.append(("text", canonical_run_text(child)))
             else:
                 # hyperlink, smartTag, bookmark wrappers etc: recurse so the
                 # runs inside keep their document order.
@@ -691,6 +727,123 @@ def _extract_validated(
         raise error from exc
 
 
+def change_unit_fingerprint_sha256(unit: dict) -> str:
+    """Hash every public unit fact except path and the anchor derived from it."""
+    reference = dict(unit.get("reference") or {})
+    reference.pop("path", None)
+    payload = {
+        key: value for key, value in unit.items() if key not in {"anchor", "reference"}
+    }
+    payload["reference"] = reference
+    canonical = json.dumps(
+        {
+            "schema_version": "change_unit_fingerprint.v1",
+            "unit": payload,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def classify_revision_inventory_v2(
+    document: etree._Element,
+    body_flow: CanonicalBodyFlow,
+    *,
+    emitted_change_unit_count: int | None = None,
+) -> dict[str, object]:
+    """Classify one parsed snapshot into the closed v2 revision partition.
+
+    The helper is shared with document inspection so tracked-revision warnings
+    and extraction facts can be derived from the same immutable XML snapshot.
+    """
+    unsupported: dict[str, int] = {}
+    excluded_by_container: dict[str, int] = {}
+
+    def bump(key: str) -> None:
+        unsupported[key] = unsupported.get(key, 0) + 1
+
+    def bump_excluded(key: str) -> None:
+        excluded_by_container[key] = excluded_by_container.get(key, 0) + 1
+
+    tracked_text_revision_elements = 0
+    decoded_revision_elements = 0
+    for element in document.iter():
+        is_text_revision = element.tag in TEXT_REVISION_TAGS
+        is_other_revision = (
+            element.tag in MOVE_REVISION_TAGS
+            or element.tag in UNSUPPORTED_REVISION_TAGS
+        )
+        if is_text_revision:
+            tracked_text_revision_elements += 1
+        if not is_text_revision and not is_other_revision:
+            continue
+        if (exclusion_kind := body_flow.exclusion_kind_for(element)) is not None:
+            bump_excluded(exclusion_kind)
+            continue
+        if is_text_revision:
+            parent = element.getparent()
+            if parent is None:
+                decoded_revision_elements += 1
+                continue
+            parent_name = etree.QName(parent.tag).localname
+            suffix = TEXT_REVISION_SUFFIX_BY_NAME_V1[etree.QName(element.tag).localname]
+            grand = parent.getparent()
+            if parent_name == "rPr" and grand is not None and grand.tag == w("pPr"):
+                bump(f"paragraphMark{suffix}")
+            elif parent_name in STRUCTURAL_REVISION_PARENT_NAMES_V1:
+                bump(f"{parent_name}{suffix}")
+            else:
+                decoded_revision_elements += 1
+        else:
+            bump(etree.QName(element.tag).localname)
+
+    unsupported_revision_occurrences = sum(unsupported.values())
+    excluded_container_occurrences = sum(excluded_by_container.values())
+    in_scope_revision_elements = (
+        decoded_revision_elements + unsupported_revision_occurrences
+    )
+    total_revision_elements = (
+        in_scope_revision_elements + excluded_container_occurrences
+    )
+    inventory: dict[str, object] = {
+        "schema_version": "revision_inventory.v2",
+        "scope": DOCUMENT_PART,
+        "container_policy": body_flow.container_policy,
+        "tracked_text_revision_elements": tracked_text_revision_elements,
+        "total_revision_elements": total_revision_elements,
+        "in_scope_revision_elements": in_scope_revision_elements,
+        "decoded_revision_elements": decoded_revision_elements,
+        "unsupported_revision_occurrences": unsupported_revision_occurrences,
+        "unsupported_revision_kind_count": len(unsupported),
+        "excluded_container_occurrences": excluded_container_occurrences,
+        "excluded_container_kind_count": len(excluded_by_container),
+        "unsupported_by_kind": dict(unsupported),
+        "excluded_by_container": dict(excluded_by_container),
+        "partition_valid": (
+            total_revision_elements
+            == in_scope_revision_elements + excluded_container_occurrences
+            and in_scope_revision_elements
+            == decoded_revision_elements + unsupported_revision_occurrences
+        ),
+        "all_in_scope_revision_elements_decoded": (
+            unsupported_revision_occurrences == 0
+        ),
+        "all_revision_elements_decoded": (
+            unsupported_revision_occurrences == 0
+            and excluded_container_occurrences == 0
+        ),
+    }
+    if emitted_change_unit_count is not None:
+        inventory["emitted_change_unit_count"] = emitted_change_unit_count
+    return {
+        "revision_count": tracked_text_revision_elements,
+        "unsupported_revisions": unsupported,
+        "revision_inventory": inventory,
+    }
+
+
 def _extract_snapshot(
     package: ValidatedDocx,
     path: str,
@@ -701,24 +854,21 @@ def _extract_snapshot(
     if document_payload is None:
         raise DocxError(f"no {DOCUMENT_PART} in {path}")
     document = parse_xml(document_payload)
-    _validate_text_revision_nesting(document)
     styles = _resolve_styles(_parse_styles(package.parts.get("word/styles.xml")))
     numbering = _NumberingCounters(
         _parse_numbering(package.parts.get("word/numbering.xml"))
     )
 
-    body = document.find(w("body"))
-    if body is None:
-        raise DocxError(f"no w:body in {path}")
+    body = require_single_direct_document_body(document)
+    body_flow = canonical_body_flow_v1(body)
+    _validate_text_revision_nesting(body_flow)
 
     change_units: list[dict] = []
-    unsupported: dict[str, int] = {}
     anchor: dict | None = None
 
-    def bump(key: str) -> None:
-        unsupported[key] = unsupported.get(key, 0) + 1
-
-    for paragraph_index, para in enumerate(body.iter(w("p"))):
+    for canonical_paragraph in body_flow.paragraphs:
+        paragraph_index = canonical_paragraph.paragraph_index
+        para = canonical_paragraph.element
         ppr = para.find(w("pPr"))
         style_id = None
         para_numpr: tuple[str, int] | None = None
@@ -743,7 +893,9 @@ def _extract_snapshot(
                     )
 
         resolved = styles.get(style_id, _Style())
-        outline = para_outline if para_outline is not None else resolved.outline_lvl
+        outline = _normalized_outline_level(
+            para_outline if para_outline is not None else resolved.outline_lvl
+        )
         if para_numpr is not None:
             numpr = None if para_numpr[0] == "0" else para_numpr
         elif resolved.num_id:
@@ -758,9 +910,7 @@ def _extract_snapshot(
         items = _paragraph_stream(para)
         groups = _group_units(items)
         paragraph_reading = (
-            _current_paragraph_reading(para)
-            if outline is not None or groups
-            else None
+            _current_paragraph_reading(para) if outline is not None or groups else None
         )
         context_manual_label = (
             _manual_label_from_text(paragraph_reading.text, dotted_only=True)
@@ -773,9 +923,7 @@ def _extract_snapshot(
             manual_label, heading = _heading_from_text(paragraph_reading.text)
             label = computed_label or manual_label
             anchor = (
-                {"label": label, "heading": heading}
-                if (label or heading)
-                else None
+                {"label": label, "heading": heading} if (label or heading) else None
             )
 
         for group_index, group in enumerate(groups):
@@ -810,6 +958,7 @@ def _extract_snapshot(
                     "path": path,
                     "part_name": DOCUMENT_PART,
                     "paragraph_index": paragraph_index,
+                    "container_kind": canonical_paragraph.container_kind,
                     "group_index": group_index,
                     "revision_ids": fields["revision_ids"],
                 },
@@ -818,61 +967,28 @@ def _extract_snapshot(
                 # This unit's proposal has been struck (fully or in part) by
                 # another author; the strikes are separate "counter" units.
                 unit["countered_by"] = fields["countered_by"]
+            unit["anchor"] = {
+                "schema_version": CHANGE_UNIT_ANCHOR_SCHEMA_V2,
+                "change_unit_id": unit["change_unit_id"],
+                "file_sha256": file_sha256,
+                "container_policy": body_flow.container_policy["schema_version"],
+                "unit_fingerprint_sha256": change_unit_fingerprint_sha256(unit),
+            }
             change_units.append(unit)
 
-    # One non-overlapping classification pass over every revision element in
-    # word/document.xml. Run-level ins/del wrappers are decoded; paragraph
-    # marks, structural ins/del markers, moves and property revisions are
-    # unsupported occurrences. Change units are a separate grouping layer and
-    # intentionally do not form part of the element-count partition.
-    revision_count = 0
-    decoded_revision_elements = 0
-    for el in document.iter():
-        if el.tag in TEXT_REVISION_TAGS:
-            revision_count += 1
-            parent = el.getparent()
-            if parent is None:
-                decoded_revision_elements += 1
-                continue
-            parent_name = etree.QName(parent.tag).localname
-            suffix = TEXT_REVISION_SUFFIX_BY_NAME_V1[
-                etree.QName(el.tag).localname
-            ]
-            grand = parent.getparent()
-            if parent_name == "rPr" and grand is not None and grand.tag == w("pPr"):
-                bump(f"paragraphMark{suffix}")
-            elif parent_name in STRUCTURAL_REVISION_PARENT_NAMES_V1:
-                bump(f"{parent_name}{suffix}")
-            else:
-                decoded_revision_elements += 1
-        elif el.tag in MOVE_REVISION_TAGS or el.tag in UNSUPPORTED_REVISION_TAGS:
-            bump(etree.QName(el.tag).localname)
-
-    unsupported_revision_occurrences = sum(unsupported.values())
-    total_revision_elements = (
-        decoded_revision_elements + unsupported_revision_occurrences
+    classification = classify_revision_inventory_v2(
+        document,
+        body_flow,
+        emitted_change_unit_count=len(change_units),
     )
-    revision_inventory = {
-        "schema_version": "revision_inventory.v1",
-        "scope": DOCUMENT_PART,
-        "total_revision_elements": total_revision_elements,
-        "decoded_revision_elements": decoded_revision_elements,
-        "unsupported_revision_occurrences": unsupported_revision_occurrences,
-        "unsupported_revision_kind_count": len(unsupported),
-        "emitted_change_unit_count": len(change_units),
-        "unsupported_by_kind": dict(unsupported),
-        "partition_valid": total_revision_elements
-        == decoded_revision_elements + unsupported_revision_occurrences,
-        "all_revision_elements_decoded": unsupported_revision_occurrences == 0,
-    }
 
     return {
         "path": path,
         "file_sha256": file_sha256,
         "part_name": DOCUMENT_PART,
-        "revision_count": revision_count,
+        "revision_count": classification["revision_count"],
         "revision_count_basis": REVISION_COUNT_BASIS_V1,
         "change_units": change_units,
-        "unsupported_revisions": unsupported,
-        "revision_inventory": revision_inventory,
+        "unsupported_revisions": classification["unsupported_revisions"],
+        "revision_inventory": classification["revision_inventory"],
     }

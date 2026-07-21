@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import nullcontext
+from importlib.metadata import distribution
 import json
 import os
 import tempfile
@@ -14,6 +15,7 @@ from mcp.shared.memory import create_connected_server_and_client_session
 
 from veqtor_docx import generate_demo_rounds
 from veqtor_mcp import __version__
+from veqtor_mcp._inspection_live import CheckedInspectionResult
 from veqtor_mcp.records import SOURCE_SNAPSHOT_IDENTITY
 from veqtor_mcp.server import mcp
 
@@ -25,8 +27,21 @@ def _payload(result) -> dict:
     return json.loads(result.content[0].text)
 
 
+def _assert_producer(payload: dict) -> None:
+    assert payload["record_status"] == "written"
+    assert payload["record_id"].startswith("dr_")
+    assert payload["producer"] == {
+        "name": "veqtor-mcp",
+        "version": __version__,
+        "build": SOURCE_SNAPSHOT_IDENTITY,
+    }
+
+
 async def smoke() -> dict:
-    assert __version__ == "0.2.0"
+    installed = distribution("veqtor-mcp")
+    assert installed.metadata["Name"] == "veqtor-mcp"
+    assert installed.version == __version__
+    assert CheckedInspectionResult.__module__ == "veqtor_mcp._inspection_live"
     configured_matter = os.environ.get("VEQTOR_SMOKE_MATTER")
     workspace = (
         nullcontext(configured_matter)
@@ -48,6 +63,7 @@ async def smoke() -> dict:
             assert names == {
                 "list_rounds",
                 "extract_redlines",
+                "inspect_document",
                 "verify_quote",
                 "preflight_edits",
                 "apply_edits",
@@ -56,10 +72,25 @@ async def smoke() -> dict:
             listed = _payload(
                 await session.call_tool("list_rounds", {"folder": str(matter)})
             )
+            _assert_producer(listed)
             source = listed["rounds"][1]["path"]
+            inspected = _payload(
+                await session.call_tool(
+                    "inspect_document",
+                    {"path": source, "mode": "outline", "max_items": 1},
+                )
+            )
+            _assert_producer(inspected)
+            assert inspected["mode"] == "outline"
+            assert inspected["file_sha256"] == listed["rounds"][1]["sha256"]
+            assert inspected["search_scope"] == "word_document_xml_body_v1"
+            assert inspected["revision_inventory"]["schema_version"] == (
+                "revision_inventory.v2"
+            )
             extracted = _payload(
                 await session.call_tool("extract_redlines", {"path": source})
             )
+            _assert_producer(extracted)
             cap = next(
                 unit
                 for unit in extracted["change_units"]
@@ -79,6 +110,7 @@ async def smoke() -> dict:
                     },
                 )
             )
+            _assert_producer(verified)
             assert verified["verdict"] == "exact"
             edits = [
                 {
@@ -93,6 +125,7 @@ async def smoke() -> dict:
                     {"source_path": source, "edits": edits},
                 )
             )
+            _assert_producer(preflight)
             assert preflight["batch_applicable"] is True
             output = matter / "round-5-smoke.docx"
             applied = _payload(
@@ -106,11 +139,12 @@ async def smoke() -> dict:
                     },
                 )
             )
+            _assert_producer(applied)
             assert output.is_file()
             assert applied["preflight_binding_status"] == "verified"
-            assert applied["preflight_candidate_sha256"] == preflight[
-                "candidate_sha256"
-            ]
+            assert (
+                applied["preflight_candidate_sha256"] == preflight["candidate_sha256"]
+            )
             assert applied["candidate_output_sha256_match"] is True
             assert applied["output_sha256"] == preflight["candidate_sha256"]
             exported = _payload(
@@ -119,6 +153,7 @@ async def smoke() -> dict:
                     {"workspace": str(matter)},
                 )
             )
+            _assert_producer(exported)
             assert exported["returned_count"] == len(exported["records"])
             assert exported["assurance"]["tamper_evident"] is False
             assert exported["access_count"] == 0
@@ -127,8 +162,7 @@ async def smoke() -> dict:
             first_access_id = exported["current_export_event"]["record_id"]
             assert first_access_id == exported["record_id"]
             assert all(
-                record["record_id"] != first_access_id
-                for record in exported["records"]
+                record["record_id"] != first_access_id for record in exported["records"]
             )
 
             exported_again = _payload(
@@ -137,11 +171,10 @@ async def smoke() -> dict:
                     {"workspace": str(matter), "max_records": 3},
                 )
             )
+            _assert_producer(exported_again)
             assert exported_again["total_count"] == exported["total_count"]
             assert exported_again["access_count"] == 1
-            assert (
-                exported_again["access_count_includes_current_export"] is False
-            )
+            assert exported_again["access_count_includes_current_export"] is False
             assert exported_again["returned_count"] == 3
             assert all(
                 record["record_type"] != "access_event.v1"
@@ -158,6 +191,8 @@ async def smoke() -> dict:
                 "current_event_outside_own_snapshot": True,
                 "runtime_producer_build": SOURCE_SNAPSHOT_IDENTITY,
                 "runtime_version": __version__,
+                "installed_metadata_version": installed.version,
+                "tool_count": len(names),
                 "used_bundled_demo": configured_matter is not None,
             }
 

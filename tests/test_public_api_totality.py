@@ -26,6 +26,10 @@ def test_read_operations_reject_invalid_path_types_with_docx_errors(
     operations = (
         lambda: veqtor_docx.list_rounds(invalid_path),  # type: ignore[arg-type]
         lambda: veqtor_docx.extract_redlines(invalid_path),  # type: ignore[arg-type]
+        lambda: veqtor_docx.inspect_document(  # type: ignore[arg-type]
+            invalid_path,
+            "outline",
+        ),
         lambda: veqtor_docx.verify_quote(  # type: ignore[arg-type]
             invalid_path,
             {"change_unit_id": "cu_001", "file_sha256": "0" * 64},

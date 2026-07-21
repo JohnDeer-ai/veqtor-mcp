@@ -6,6 +6,59 @@ All notable changes to Veqtor MCP are documented here.
 Publication dates are authoritative in each version's immutable GitHub Release
 through its `published_at` timestamp.
 
+## Unreleased — 0.3.0.dev0
+
+Development-only Stage 3 work. This section and the package version do not
+establish publication and do not provide a public `0.3` installation target.
+
+### Added
+
+- A closed, non-implemented Stage 3B Round Map specification for a bounded
+  seed-centred evidence map, with explicit relationship bases, uncertainty,
+  snapshot/cursor binding, privacy, compatibility and acceptance cases.
+- Draft MCP contract `veqtor.mcp.v0.3` and the read-only `inspect_document`
+  tool for bounded outline, literal-search, browse and read views over canonical
+  main-body text, with hash-bound paragraph and section references.
+- `change_unit_anchor.v2` and `revision_inventory.v2` so evidence and revision
+  coverage disclose the canonical container/body-flow policy they depend on.
+
+### Changed
+
+- Decision-record workspace and journal locks now share a fixed bounded
+  monotonic deadline with stable `journal_busy` outcomes. Ordinary tools keep
+  completed results, while direct reads and pre-snapshot export fail closed.
+- Journal scans validate the complete stream while retaining only the bounded
+  response page. A fixed 64 MiB aggregate cap returns `journal_oversize`,
+  blocks mutation, and leaves recovery to non-destructive manual archive;
+  post-snapshot export publication failures return the frozen snapshot.
+- Successful live responses from all seven development tools now carry the
+  same bounded producer identity.
+- Inspection coverage now names its outer canonical-flow totals
+  `indexed_paragraph_count` and `nonempty_indexed_paragraph_count`; compact
+  export reads and normalizes the complete historical counter pair without
+  rewriting raw journals, while mixed or inconsistent generations fail safe.
+- Evidence documentation now states that full paragraph/section references,
+  not heading hashes alone, provide identity and that search snippets remain
+  navigation output even when untruncated.
+- Development package identity is `0.3.0.dev0`, separated from the frozen v0.2
+  release inventory and its six-tool MCPB.
+- Development CI builds and smokes wheel/sdist artifacts and the seven-tool
+  surface without presenting them as a sealed release set. Frozen MCPB,
+  checksum and independent release-reproduction gates remain v0.2-only.
+- Compact inspection-record projection remains readable when a historical
+  base-schema record lacks the closed v0.3 mode, coverage or limits fields, and
+  incomplete v2 anchors are omitted from observed samples as truncated.
+- Relationship-backed `w:altChunk` content is now a fail-visible canonical-flow
+  exclusion; safe internal target parts are disclosed without returning
+  external URLs.
+- Compact export replaces document-controlled internal `altChunk` part names
+  with a constant-size count/digest projection and an always-empty sample.
+- Inspection and extraction now share one fail-closed `w:document` / single
+  direct `w:body` structural gate; preflight and apply inherit it before edits.
+- Documentation now consistently describes `accepted_current_v1` as a
+  mechanical projection, discloses that `w:rPr/w:vanish` is not interpreted,
+  and distinguishes private raw-journal payloads from compact export.
+
 ## 0.2.0
 
 Veqtor v0.2.0 Alpha release contents. The immutable GitHub Release
