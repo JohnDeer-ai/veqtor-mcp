@@ -206,11 +206,16 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
   }
 
   .shell {
-    /* The global .shell caps width at var(--shell) = 1240px; article pages
-       deliberately run wider so the flexible centre column gets the space. */
+    width: min(1220px, calc(100% - 2.5rem));
+    margin-inline: auto;
+  }
+
+  /* Only the article grid runs wide (the global .shell caps width at
+     var(--shell) = 1240px, hence the lifted max-width). Breadcrumbs and the
+     hero stay in the narrow shell, aligned with the global header. */
+  .article-shell.shell {
     width: min(1800px, calc(100% - 2.5rem));
     max-width: none;
-    margin-inline: auto;
   }
 
   .crumbs {
@@ -234,7 +239,7 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
 
   .article-hero {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 20rem;
+    grid-template-columns: minmax(0, 1.5fr) minmax(16rem, 0.42fr);
     gap: clamp(2rem, 7vw, 7rem);
     align-items: end;
     padding-block: clamp(4rem, 8vw, 7rem);
@@ -675,7 +680,10 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
   }
 
   @media (max-width: 540px) {
-    .shell {
+    /* The wide article rule is more specific than .shell, so it needs its own
+       mobile override or narrow screens would keep the 2.5rem margin. */
+    .shell,
+    .article-shell.shell {
       width: min(100% - 1.25rem, 1220px);
     }
 
