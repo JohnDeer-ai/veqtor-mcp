@@ -22,7 +22,9 @@ synthetic documents and must not contain local paths, `.veqtor` journals,
 credentials or contract wording from a real matter. Suspected vulnerabilities
 must follow [SECURITY.md](SECURITY.md), not a public issue.
 
-Before submitting a change, run:
+Before submitting a development change, run:
+
+### Development checks
 
 ```bash
 uv lock --check
@@ -35,9 +37,21 @@ uv export --frozen --no-dev --no-emit-project \
 uvx pip-audit==2.10.1 --requirement "$LOCKED_REQUIREMENTS" \
   --require-hashes --disable-pip --progress-spinner off
 uv build --clear
+uvx twine check dist/*.whl dist/*.tar.gz
+```
+
+### Frozen-release checks
+
+After the development checks, run the commands below only from a frozen
+release candidate where `[project].version` exactly matches
+`scripts/release_contract.py::VERSION`. They intentionally reject a
+development-only tree such as `0.3.0.dev0` whose identity differs from the
+frozen release contract. See [RELEASING.md](RELEASING.md) for the complete
+release process.
+
+```bash
 uv run --frozen python scripts/build_mcpb.py \
   --source-root . --out-dir dist --stage-dir /tmp/veqtor-mcpb-stage
-uvx twine check dist/*.whl dist/*.tar.gz
 uv run --frozen python scripts/check_release_artifacts.py \
   --source-root . --commit HEAD dist/*.whl dist/*.tar.gz
 uv run --frozen python scripts/check_mcpb_artifact.py \

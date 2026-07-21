@@ -1,0 +1,80 @@
+{
+  "schema_version": "decision_record.v1",
+  "record_type": "decision.v1",
+  "record_id": "dr_002",
+  "created_at": "2026-07-10T00:00:02Z",
+  "tool_name": "apply_edits",
+  "workspace": "/synthetic/v0.1.2/matter",
+  "producer": {
+    "name": "veqtor-mcp",
+    "version": "0.1.2",
+    "build": "source-snapshot-v1-sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "input": {
+    "source_path": "/synthetic/v0.1.2/matter/source.docx",
+    "output_path": "/synthetic/v0.1.2/matter/output.docx",
+    "edits": [
+      {
+        "anchor": {
+          "change_unit_id": "cu_006",
+          "file_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "delete_text": " in respect of all claims in aggregate.",
+        "insert_text": " per claim."
+      }
+    ]
+  },
+  "result": {
+    "status": "ok",
+    "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "output_path": "/synthetic/v0.1.2/matter/output.docx",
+    "output_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "tracked_change_author": "Veqtor MCP",
+    "producer": {
+      "name": "veqtor-mcp",
+      "version": "0.1.2",
+      "build": "source-snapshot-v1-sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "applied": [
+      {
+        "change_unit_id": "cu_006",
+        "deleted_text": " in respect of all claims in aggregate.",
+        "inserted_text": " per claim.",
+        "operation": "replace",
+        "tracked_revision_ids": ["114", "115"]
+      }
+    ],
+    "round_trip_check": {
+      "status": "passed",
+      "collateral_changes": [],
+      "comparison": "ooxml_semantic_diff_outside_touched_anchors"
+    }
+  },
+  "result_sha256": "e61f75168beadc9fd6d2071ffeb334b8a5868b4363426697c9d5aed8a223060d",
+  "tool_result_sha256": "e61f75168beadc9fd6d2071ffeb334b8a5868b4363426697c9d5aed8a223060d",
+  "provenance": {
+    "source_path": "/synthetic/v0.1.2/matter/source.docx",
+    "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "output_path": "/synthetic/v0.1.2/matter/output.docx",
+    "output_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "tracked_change_author": "Veqtor MCP",
+    "anchors": [
+      {
+        "change_unit_id": "cu_006",
+        "file_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "applied": [
+      {
+        "change_unit_id": "cu_006",
+        "operation": "replace",
+        "tracked_revision_ids": ["114", "115"]
+      }
+    ],
+    "round_trip_check": {
+      "status": "passed",
+      "collateral_changes": [],
+      "comparison": "ooxml_semantic_diff_outside_touched_anchors"
+    }
+  }
+}

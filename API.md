@@ -5,14 +5,30 @@
 This file defines the public tool surface. Output examples are part of the API
 because models use them to decide how to call tools and how to cite results.
 
-Source version `0.2.0` advertises MCP contract `veqtor.mcp.v0.2`. Package,
-contract and publication status are separate identities: only matching entries
-on public PyPI and the immutable GitHub Releases list establish distribution.
-This file alone does not. Every
-tool exposes `veqtor.pro/contractSchemaVersion: veqtor.mcp.v0.2` in its MCP
+The development source is package `0.3.0.dev0` and advertises draft MCP
+contract `veqtor.mcp.v0.3`. Package version, contract and publication status
+are separate identities: only matching entries on public PyPI and the
+immutable GitHub Releases list establish distribution. This file alone does
+not. Every
+tool exposes `veqtor.pro/contractSchemaVersion: veqtor.mcp.v0.3` in its MCP
 metadata and the same value under `x-veqtor-contract-schema-version` in its
 output schema. Nested anchors, edits and preflight proofs are closed objects;
 top-level results remain additive where the advertised schema says so.
+
+Every successful live tool response includes the same bounded `producer`
+object with `name`, package `version`, and the process-start Python source
+snapshot `build`. This applies to all seven tools, including read-only results
+and decision-record export. Error envelopes are not successful tool results.
+`producer`, `record_id`, `record_status`, and `record_error` are server-owned;
+core tool results cannot supply them. `record_error` is present only with
+`record_status: "write_failed"`; written responses have an id and no error,
+while disabled responses have neither an id nor an error. Record ids use ASCII
+decimal digits in `dr_[0-9]+`. A `record_error` is a path-free stable ASCII
+code matching `[a-z][a-z0-9_]{0,63}`; raw diagnostics, document text and local
+paths are never valid record metadata.
+For `inspect_document`, successful producer output also cannot supply
+`status`, `error_code`, or `error`: those fields belong exclusively to the
+server's separate controlled-error path and are never success extensions.
 
 Stable error codes cover well-typed but invalid inputs (wrong hash, unknown
 anchor, blank quote, unresolvable layout). Type-level rejections — e.g. a
@@ -68,16 +84,26 @@ existing matter folder, unless disabled by
 `0600` files). Before every append the server validates or restores
 `.veqtor/.gitignore`; symlink, hardlink, non-regular, or unexpected ignore
 targets are refused before the journal is touched.
-Read-only calls — list, extract, verify, preflight and decision-record export —
-also normally attempt to append provenance, with the outcome reported in
+Read-only calls — list, extract, inspect, verify, preflight and decision-record
+export — also normally attempt to append provenance, with the outcome reported in
 `record_status`. In particular, export is a read of the document history but
 normally writes its own local `access_event.v1` after the response snapshot.
 Export requires an existing journal in the exact supplied workspace; it never
 initializes an empty sidecar merely because the caller supplied a parent or an
 uninitialized folder.
+Every workspace-directory and journal-file lock uses non-blocking POSIX
+`fcntl` attempts under one fixed one-second monotonic deadline. Nested
+root-then-journal acquisition shares that deadline rather than multiplying it.
+Contention returns the path-free stable code `journal_busy`.
 The v1 journal is a best-effort local provenance history, not a transactional
 audit log: mutation tools may complete with `record_status: "write_failed"`,
-so check `record_status` before treating a record as durable. `written` means
+so check `record_status` and optional `record_error` before treating a record
+as durable. Ordinary document operations fail open with their completed core
+result; this includes an already-published apply output. Direct journal reads
+and export before a validated snapshot fail closed. After export has frozen a
+validated snapshot and validated its access event, an append, size-cap or
+fsync failure returns that snapshot with `record_status: "write_failed"` and
+does not re-read or retry. `written` means
 the final record with its actual id passed the same bounded-JSON and record
 schema checks used on read, was appended as a complete LF-terminated frame, and
 the journal file fsync succeeded. Operations that create `.veqtor`, its
@@ -93,17 +119,19 @@ journal publication or response construction are journaled as a generic
 `internal_error` when a safe workspace exists, then replaced with a
 context-free MCP error. Their exception type, message, document content and
 local paths are never returned to the client. A corrupt journal
-(`journal_corrupt`) fails closed on export or further append. The journal is a
+(`journal_corrupt`) or aggregate-oversized journal (`journal_oversize`) fails
+closed on direct read and export and blocks further append. The journal is a
 sequence of non-empty JSON records, each terminated by one LF; blank frames and
 any non-empty unterminated EOF fragment are corrupt. An unterminated fragment
 is never completed or discarded automatically because its commit status is
-unknown. Each stored JSONL record is limited to 1 MiB of UTF-8 JSON, 64 levels
-of nesting, 100,000 JSON nodes, and 128 decimal digits per integer. Invalid
-UTF-8 or JSON, duplicate object keys, non-finite numbers, invalid Unicode scalar
-values, schema/digest failures, and bound violations are all classified as
-`journal_corrupt` without echoing the damaged value. The line-size cap applies
-to the stored journal record, not to the normalized full tool outcome
-covered only by `tool_result_sha256`. Before append, the final record with its
+unknown. The aggregate journal is limited to exactly 64 MiB, including every
+LF frame terminator. Each stored JSONL record is limited to 1 MiB of UTF-8 JSON,
+64 levels of nesting, 100,000 JSON nodes, and 128 decimal digits per integer.
+Invalid UTF-8 or JSON, duplicate object keys, non-finite numbers, invalid
+Unicode scalar values, schema/digest failures, and bound violations are all
+classified as `journal_corrupt` without echoing the damaged value. The
+line-size cap applies to the stored journal record, not to the normalized full
+tool outcome covered only by `tool_result_sha256`. Before append, the final record with its
 lock-assigned id is serialized to one immutable frame. Those exact bytes pass
 the same decoder, bounded-JSON checks, and schema validator used on read, and
 the same bytes are appended without reserialization. A new record that read
@@ -114,8 +142,9 @@ or changing the journal. Callers must not mutate payload structures during
 admits only the MCP names in its writable allowlist and derives each
 `record_type` from the permanent `decision_record.v1` historical tool spec. An
 unknown tool or mismatched pair is `record_invalid` on write and
-`journal_corrupt` on read. The six historical `(tool_name, record_type)` pairs
-documented by this release, together with their compact projection rules, are
+`journal_corrupt` on read. The seven historical `(tool_name, record_type)` pairs
+documented by this source contract, together with their compact
+projection rules, are
 append-only v1 format commitments: a retired tool may leave the writable and
 MCP surfaces but remains readable through raw local and compact reads. Existing
 pairs must never be removed or retyped, and v1 read limits must not be narrowed;
@@ -129,19 +158,25 @@ verbatim only when it matches this grammar and round-trips through the same v1
 formatter; other historical strings remain available through raw local reads,
 while compact mode emits `legacy-unvalidated` plus a digest.
 
-The permanent pairs introduced by this release are:
+The permanent pairs registered by this source contract are:
 
 - `list_rounds` → `tool_observation.v1`;
 - `extract_redlines` → `tool_observation.v1`;
+- `inspect_document` → `inspection.v1`;
 - `verify_quote` → `verification.v1`;
 - `preflight_edits` → `verification.v1`;
 - `apply_edits` → `decision.v1`;
 - `export_decision_record` → `access_event.v1`.
 
-The pair is forward-compatible for the 0.1 reader: it continues to accept all
-valid 0.0 records. Once a journal contains `preflight_edits`, downgrade to the
-0.0 reader is unsupported because that older tool does not know the new
-historical pair; it fails closed rather than skipping an unknown record.
+Each existing pair remains forward-compatible for readers that know it. Once a
+journal contains a tool unknown to an older reader, downgrade to that reader is
+unsupported; it fails closed rather than skipping the unknown historical pair.
+
+The 64 MiB envelope is an operational resource bound, not a change to the
+append-only `decision_record.v1` frame schema. A historical valid journal above
+the cap is preserved but refused; move it aside for private archive/inspection
+and let the next ordinary tool call create a new journal starting at `dr_001`.
+Veqtor never truncates, rotates, repairs or rewrites the old file automatically.
 
 Move the damaged JSONL file aside to preserve it for inspection and let the
 server start a new one. v1 records are re-verifiable through hashes and anchors
@@ -149,8 +184,8 @@ but are not tamper-evident. The v1 lock implementation uses POSIX `fcntl` and is
 supported for the local macOS/Linux target. Its threat model is a local,
 non-hostile single-user workspace: static unsafe targets and workspace
 rebinding during open are refused, but hostile same-user filesystem mutation
-is not a supported security boundary. Journal rotation and an aggregate
-journal-size cap are outside v1.
+is not a supported security boundary. Automatic journal rotation and indexing
+remain outside v1.
 
 ## `list_rounds`
 
@@ -223,6 +258,11 @@ the folder before retrying:
     }
   ],
   "skipped": [],
+  "producer": {
+    "name": "veqtor-mcp",
+    "version": "0.3.0.dev0",
+    "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
   "record_id": "dr_001",
   "record_status": "written"
 }
@@ -261,24 +301,41 @@ decision-record projector consume one append-only v1 revision-category
 contract, so every category the v1 producer can emit is accepted by compact
 projection.
 
-`revision_inventory.v1` gives those counters one explicit universe. Its scope
-is `word/document.xml`, and a valid result satisfies:
+`revision_inventory.v2` classifies the same immutable XML snapshot under
+`canonical_body_flow_v1`. Its scope is `word/document.xml`, and a valid result
+satisfies both closed partitions:
 
 ```text
 total_revision_elements
+  = in_scope_revision_elements + excluded_container_occurrences
+in_scope_revision_elements
   = decoded_revision_elements + unsupported_revision_occurrences
 unsupported_revision_occurrences
   = sum(unsupported_by_kind.values())
+excluded_container_occurrences
+  = sum(excluded_by_container.values())
 unsupported_revision_kind_count
   = len(unsupported_by_kind)
+excluded_container_kind_count
+  = len(excluded_by_container)
 ```
 
-`all_revision_elements_decoded` is true exactly when unsupported occurrences
-are zero. `emitted_change_unit_count` is deliberately outside the partition:
-one change unit can group multiple decoded `w:ins`/`w:del` elements, so it need
-not equal `decoded_revision_elements`. The legacy `unsupported_revisions`
-mapping remains and equals `revision_inventory.unsupported_by_kind` for the
-current producer.
+`all_in_scope_revision_elements_decoded` is true exactly when unsupported
+in-scope occurrences are zero. `all_revision_elements_decoded` additionally
+requires zero excluded-container occurrences. `emitted_change_unit_count` is
+deliberately outside both partitions: one change unit can group multiple
+decoded `w:ins`/`w:del` elements. The legacy `unsupported_revisions` mapping
+remains and equals `revision_inventory.unsupported_by_kind` for the current
+producer.
+
+Every emitted unit carries a closed `change_unit_anchor.v2`. It binds
+`change_unit_id` and `file_sha256` to `canonical_body_flow_v1` and to a SHA-256
+fingerprint of all public unit facts except its local path. The unit reference
+also discloses `container_kind: body | table_cell`. The old two-field anchor is
+accepted only when container analysis reports
+`legacy_two_field_anchor_safe: true`; otherwise anchor-consuming tools refuse
+it with `legacy_anchor_ambiguous` rather than reinterpret an ordinal under a
+different traversal policy.
 
 Every unit also includes bounded context from the paragraph's
 accepted/current reading: at most 240 characters before and after the unit,
@@ -298,6 +355,13 @@ guessed:
     {
       "change_unit_id": "cu_001",
       "file_sha256": "example",
+      "anchor": {
+        "schema_version": "change_unit_anchor.v2",
+        "change_unit_id": "cu_001",
+        "file_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "container_policy": "canonical_body_flow_v1",
+        "unit_fingerprint_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
       "change_type": "replace",
       "author": "J. Smith",
       "date": "2026-07-01T09:00:00Z",
@@ -318,6 +382,7 @@ guessed:
         "path": "/Users/example/Deals/AcmeDistribution/02-counterparty.docx",
         "part_name": "word/document.xml",
         "paragraph_index": 42,
+        "container_kind": "body",
         "group_index": 0,
         "revision_ids": ["17", "18"]
       }
@@ -325,16 +390,39 @@ guessed:
   ],
   "unsupported_revisions": {"rPrChange": 1},
   "revision_inventory": {
-    "schema_version": "revision_inventory.v1",
+    "schema_version": "revision_inventory.v2",
     "scope": "word/document.xml",
+    "container_policy": {
+      "schema_version": "canonical_body_flow_v1",
+      "indexed_paragraph_count": 73,
+      "body_paragraph_count": 65,
+      "table_cell_paragraph_count": 8,
+      "excluded_subtree_count": 0,
+      "excluded_paragraph_count": 0,
+      "excluded_by_kind": {},
+      "excluded_paragraphs_by_kind": {},
+      "coverage_complete": true,
+      "legacy_two_field_anchor_safe": true
+    },
+    "tracked_text_revision_elements": 2,
     "total_revision_elements": 3,
+    "in_scope_revision_elements": 3,
     "decoded_revision_elements": 2,
     "unsupported_revision_occurrences": 1,
     "unsupported_revision_kind_count": 1,
+    "excluded_container_occurrences": 0,
+    "excluded_container_kind_count": 0,
     "emitted_change_unit_count": 1,
     "unsupported_by_kind": {"rPrChange": 1},
+    "excluded_by_container": {},
     "partition_valid": true,
+    "all_in_scope_revision_elements_decoded": false,
     "all_revision_elements_decoded": false
+  },
+  "producer": {
+    "name": "veqtor-mcp",
+    "version": "0.3.0.dev0",
+    "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "record_id": "dr_002",
   "record_status": "written"
@@ -352,21 +440,265 @@ those positions and verifies its complete extracted fingerprint before text
 matching. `revision_ids` remain provenance only: OOXML producers may duplicate
 or move `w:id` values, so Veqtor never uses an id alone as the edit address.
 
+## `inspect_document`
+
+Call this to find and read unchanged wording in the main body of one DOCX
+without asking the model to ingest an unbounded whole-document dump. The tool
+does not decide what a clause means. It exposes deterministic navigation,
+literal discovery and hash-bound paragraph evidence under the contract defined
+in [`INSPECT_DOCUMENT_V0.3.md`](INSPECT_DOCUMENT_V0.3.md).
+
+Input:
+
+```json
+{
+  "path": "/Users/example/Deals/AcmeDistribution/02-counterparty.docx",
+  "mode": "literal_search",
+  "phrases": ["aggregate liability"],
+  "match_basis": "normalized_casefold_literal",
+  "max_items": 50
+}
+```
+
+The four known mode shapes are closed:
+
+- `outline` pages structural headings and section references without paragraph
+  body text;
+- `literal_search` searches 1-20 explicit phrases independently inside each
+  supported non-empty paragraph and returns a bounded snippet plus a paragraph
+  reference;
+- `browse` pages complete non-empty supported paragraphs in canonical order;
+- `read` re-resolves exactly one `paragraph_ref.v1` or `section_ref.v1` from an
+  earlier result. A paragraph read returns one complete paragraph and rejects a
+  cursor; a section read may paginate its non-empty member paragraphs.
+
+The successful output object is additive only at its top level
+(`additionalProperties: true`) for forward-compatible extensions. Its common
+required core is `mode`, `path`, `file_sha256`, `part_name`, `search_scope`,
+`reading_mode`, `container_policy`, `has_tracked_text_revisions`,
+`revision_inventory`, `coverage`, `limits`, `next_cursor`, `producer`,
+`record_id`, and `record_status`; `record_error` is conditionally required only
+for `write_failed`. The mode branches require `sections` for `outline`,
+`matches`/`match_basis`/`phrase_count` for `literal_search`, `paragraphs` for
+`browse`, and `paragraphs`/`selection_kind` plus `section_navigation` for a
+section `read`. Known fields owned by another mode are forbidden. Coverage,
+limits, revision/container inventories, producer, references, navigation,
+paragraph/section/match items and snippets are closed nested objects
+(`additionalProperties: false`); only the documented typed counter maps accept
+dynamic keys. Top-level extensibility does not grant producer authority over
+the reserved success/error or record-metadata fields.
+
+`literal_search.match_basis` is exactly `exact_literal`,
+`normalized_literal`, or `normalized_casefold_literal`. The first is verbatim
+and case-sensitive. The second only collapses whitespace and normalizes the
+documented typographic quotes/dashes. The third additionally applies
+locale-independent Unicode case folding. Search never becomes fuzzy, semantic,
+regular-expression or cross-paragraph search.
+
+All modes disclose:
+
+```text
+search_scope: word_document_xml_body_v1
+reading_mode: accepted_current_v1
+container_policy: canonical_body_flow_v1
+```
+
+The canonical body flow indexes supported body paragraphs, SDT content and
+table-cell paragraphs once in XML order. It prunes text boxes, drawings,
+relationship-backed `altChunk` imports, `AlternateContent`, nested paragraphs,
+unknown text-bearing containers and malformed text/revision payload inside
+otherwise non-text Word property subtrees. A valid existing internal altChunk
+target is disclosed as a normalized package-relative `excluded_parts` entry;
+external target URLs are never returned. Missing, ambiguous or unsafe internal
+targets refuse inspection.
+`inspect_document` and `extract_redlines` also require `word/document.xml` to
+have a `w:document` root with exactly one direct `w:body`; preflight and apply
+inherit that extraction refusal before editing begins. Recognized revision
+markup outside that direct body is refused rather than reported as decoded.
+`list_rounds` remains a bounded file/revision scanner, not full body-structure
+validation.
+Headers, footers, footnotes, endnotes and comments are separate excluded OPC
+parts. `accepted_current_v1` is a mechanical current-reading projection:
+inserted/move-to text is included and deleted/move-from text is excluded. It is
+not a legal conclusion that the result is operative wording.
+The projection does not interpret Word hidden-text formatting. In particular,
+text carrying `w:rPr/w:vanish` remains present and can pass anchored
+`verify_quote`; this is not a visual-rendering claim.
+
+Every returned paragraph carries a closed, path-free reference:
+
+```json
+{
+  "schema_version": "paragraph_ref.v1",
+  "ref_type": "paragraph",
+  "file_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "part_name": "word/document.xml",
+  "paragraph_index": 42,
+  "paragraph_text_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "reading_mode": "accepted_current_v1",
+  "container_policy": "canonical_body_flow_v1"
+}
+```
+
+The file hash, canonical position, exact UTF-8 paragraph-text hash and policy
+must all re-resolve. A `section_ref.v1` similarly binds the file and policy to
+one outline heading's paragraph position and text hash; it identifies a
+recomputed structural range, not semantic clause identity or cross-round
+lineage. The complete reference is the identity: its heading-text hash is not
+unique by itself because duplicate headings are valid.
+
+Word outline levels 0-8 create structural sections; level 9 is body text.
+Direct or style-derived values outside 0-9 refuse with `file_unextractable`
+before a successful inspection record can be written.
+
+Example literal-search output (record metadata, repeated reference fields and
+inventory abbreviated):
+
+```json
+{
+  "mode": "literal_search",
+  "path": "/Users/example/Deals/AcmeDistribution/02-counterparty.docx",
+  "file_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "part_name": "word/document.xml",
+  "search_scope": "word_document_xml_body_v1",
+  "reading_mode": "accepted_current_v1",
+  "container_policy": "canonical_body_flow_v1",
+  "has_tracked_text_revisions": true,
+  "revision_inventory": {"schema_version": "revision_inventory.v2"},
+  "match_basis": "normalized_casefold_literal",
+  "phrase_count": 1,
+  "matches": [
+    {
+      "phrase_index": 0,
+      "match_basis": "normalized_casefold_literal",
+      "occurrence_count": 1,
+      "paragraph_ref": {"schema_version": "paragraph_ref.v1"},
+      "container_kind": "body",
+      "has_tracked_text_revisions": true,
+      "section_navigation": {
+        "label": "14.2",
+        "heading": "Limitation of Liability",
+        "level": 1,
+        "basis": "word_outline_level_v1",
+        "label_basis": "word_numbering_v1"
+      },
+      "snippet": {
+        "text": "...aggregate liability...",
+        "match_start": 3,
+        "match_end": 22,
+        "truncated_before": true,
+        "truncated_after": true
+      }
+    }
+  ],
+  "coverage": {
+    "scan_complete": true,
+    "indexed_paragraph_count": 73,
+    "nonempty_indexed_paragraph_count": 70,
+    "eligible_item_count": 1,
+    "returned_item_count": 1,
+    "cursor_offset": 0,
+    "output_truncated": false,
+    "complete_literal_match_count": 1,
+    "included_parts": ["word/document.xml"],
+    "excluded_parts": [
+      "word/header*.xml",
+      "word/footer*.xml",
+      "word/footnotes.xml",
+      "word/endnotes.xml",
+      "word/comments*.xml"
+    ],
+    "included_containers": ["body", "table_cell"],
+    "container_coverage": {
+      "schema_version": "canonical_body_flow_v1",
+      "indexed_paragraph_count": 73,
+      "body_paragraph_count": 65,
+      "table_cell_paragraph_count": 8,
+      "excluded_subtree_count": 0,
+      "excluded_paragraph_count": 0,
+      "excluded_by_kind": {},
+      "excluded_paragraphs_by_kind": {},
+      "coverage_complete": true,
+      "legacy_two_field_anchor_safe": true
+    }
+  },
+  "limits": {
+    "requested_max_items": 50,
+    "max_items": 100,
+    "max_phrases": 20,
+    "max_phrase_chars": 2000,
+    "max_total_phrase_chars": 10000,
+    "max_paragraph_text_chars": 50000,
+    "max_returned_text_chars": 100000,
+    "max_indexed_paragraphs": 10000,
+    "max_aggregate_text_chars": 2000000,
+    "max_literal_match_candidates": 10000,
+    "max_literal_occurrences_per_candidate": 10000,
+    "wall_clock_partial_results": false
+  },
+  "next_cursor": null,
+  "producer": {
+    "name": "veqtor-mcp",
+    "version": "0.3.0.dev0",
+    "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  "record_id": "dr_003",
+  "record_status": "written"
+}
+```
+
+A literal-search snippet is navigation output even if neither truncation flag
+is set. Use its `paragraph_ref` with `read`, then use `verify_quote`, before
+treating wording as a complete quotation. The outer indexed coverage counters
+include both direct-body and table-cell paragraphs; nested
+`container_coverage` partitions that total by container.
+
+`scan_complete: true` means the complete declared main-body scope was
+classified before success. `output_truncated` only means another explicit
+cursor page exists; elapsed time never selects a successful partial result.
+The opaque cursor is bound to its cursor schema, the file SHA, search/reading/
+container policies, the applicable match and ordering policies, the complete
+request, and the SHA-256 of the complete ordered eligible result set.
+`max_items` is deliberately excluded so the caller may change the next page
+size without changing result identity. A stale or different request, policy,
+or result set is `cursor_mismatch`; malformed or out-of-range cursors are
+`invalid_cursor`. Deterministic paragraph, aggregate-text, phrase, candidate
+and response caps fail closed with `resource_limit_exceeded`.
+
+The call appends `(inspect_document, inspection.v1)` provenance when local
+journaling succeeds. Its dedicated live sink stores a minimized raw result and
+provenance summary plus `tool_result_sha256` for the exact metadata-free
+successful response payload, including `producer` but excluding record
+metadata. The digest preimage has no synthetic `status: "ok"` member. Paragraph
+and snippet text are not copied into the journal. Compact export further omits
+paths, retains the source hash, mode, policy and coverage facts, and returns a
+bounded digest/sample of observed paragraph or section references. This remains
+best-effort local provenance, not a tamper-evident audit log. The private raw
+`.veqtor/decision-records.jsonl` record still retains the canonical workspace,
+caller-supplied path and literal-search phrases; keep that sidecar private.
+
 ## `verify_quote`
 
 Call this before relying on a quotation in a memo, email, or negotiation summary.
-Use anchors returned by `extract_redlines`.
+Use a legacy/v2 change-unit anchor returned by `extract_redlines`, or a
+`paragraph_ref.v1` returned by `inspect_document`.
 `verdict` is one of `exact`, `normalized`, or `not_found`; `diff` explains any
-non-exact result. v1 verifies against the anchored change unit's `new_text`
-then `old_text` (`matches[].side` says which); matching is case-sensitive;
-`normalized` collapses whitespace runs and typographic quotes/dashes. A hash
-mismatch or unknown anchor is an error, never a verdict. Whole-document
-search without an anchor is not supported in v1.
-The input anchor is closed and contains exactly `change_unit_id` and
-`file_sha256`; additional fields refuse with `invalid_anchor` rather than being
-silently ignored. Structural part and revision-id facts remain in the
-extracted change unit and the verification result, not in the asserted input
-anchor.
+non-exact result. A change-unit anchor checks `new_text` then `old_text`
+(`matches[].side` is `new` or `old`). A paragraph reference checks the complete
+`accepted_current_v1` paragraph and reports `side: paragraph_current`, an empty
+`revision_ids` list, the paragraph index/text hash and reading mode. Matching
+is case-sensitive; `normalized` collapses whitespace runs and typographic
+quotes/dashes. A hash, policy, fingerprint or reference mismatch is an error,
+never a verdict. Whole-document search without an anchor remains unsupported.
+
+All accepted anchors are closed. A legacy change-unit anchor contains exactly
+`change_unit_id` and `file_sha256`. A `change_unit_anchor.v2` additionally
+requires its schema version, `container_policy` and
+`unit_fingerprint_sha256`. A `paragraph_ref.v1` requires the exact eight fields
+documented under `inspect_document`. Additional or partial fields refuse with
+`invalid_anchor` rather than being silently ignored. A legacy two-field anchor
+also refuses with `legacy_anchor_ambiguous` when canonical container analysis
+cannot prove that its ordinal is safe under the v0.3 traversal policy.
 Any refusal after the document snapshot is readable, including an OOXML
 extraction failure, carries `observed_source_sha256` for the bytes that rejected
 the claim. The caller's claimed hash remains asserted input and is digested in
@@ -405,8 +737,33 @@ Output:
     }
   ],
   "diff": [],
+  "producer": {
+    "name": "veqtor-mcp",
+    "version": "0.3.0.dev0",
+    "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
   "record_id": "dr_003",
   "record_status": "written"
+}
+```
+
+For unchanged wording, pass the paragraph reference without converting it to a
+label-based anchor:
+
+```json
+{
+  "path": "/Users/example/Deals/AcmeDistribution/02-counterparty.docx",
+  "anchor": {
+    "schema_version": "paragraph_ref.v1",
+    "ref_type": "paragraph",
+    "file_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "part_name": "word/document.xml",
+    "paragraph_index": 42,
+    "paragraph_text_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "reading_mode": "accepted_current_v1",
+    "container_policy": "canonical_body_flow_v1"
+  },
+  "quote": "Except as set out in Clause 14.3"
 }
 ```
 
@@ -448,7 +805,7 @@ Output:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.2.0",
+    "version": "0.3.0.dev0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "batch_applicable": true,
@@ -499,7 +856,7 @@ for example:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.2.0",
+    "version": "0.3.0.dev0",
     "build": "source-snapshot-v1-sha256:example"
   },
   "batch_applicable": false,
@@ -567,7 +924,7 @@ API.
 
 Call this only after the user asks to prepare or apply counter wording and only
 with an anchor produced by `extract_redlines`. Under MCP contract
-`veqtor.mcp.v0.2`, the complete `preflight_proof` returned by the successful
+`veqtor.mcp.v0.3`, the complete `preflight_proof` returned by the successful
 preflight is a required input. Missing or malformed proof objects are rejected
 by the advertised MCP schema or as `preflight_proof_invalid`; a well-formed
 proof that does not match the recomputed source, edits, author, build or
@@ -579,13 +936,20 @@ The proof SHA-256 is unkeyed and can be recomputed by anyone holding the fields.
 It detects drift between calls; it is not authentication, a digital signature
 or approval evidence. The destination path is deliberately outside the proof.
 The lower-level Python `veqtor_docx.apply_edits` function keeps an optional proof
-argument for v0.1 compatibility; that bypass is not part of the v0.2 MCP input
+argument for v0.1 compatibility; that bypass is not part of the v0.3 MCP input
 contract.
 
 The server applies explicit edits only. Each edit must state the text range to
 delete and the replacement text to insert. If the anchor is missing, ambiguous,
 bound to a different file hash, or resolved to text that does not exactly match
 `delete_text`, the tool returns an error and writes nothing.
+
+Edit anchors are a closed union of the legacy two-field change-unit anchor and
+`change_unit_anchor.v2`; paragraph and section references are read evidence and
+cannot authorize edits. New callers should pass the exact v2 anchor emitted on
+the change unit. A legacy anchor proceeds only when
+`legacy_two_field_anchor_safe: true`; otherwise preflight/apply refuse with
+`legacy_anchor_ambiguous` before surgery or publication.
 
 `edits` are atomic: if any edit fails validation or application, no final
 output DOCX is written. Planning, OOXML surgery, candidate serialization,
@@ -731,7 +1095,7 @@ Output:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.2.0",
+    "version": "0.3.0.dev0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "applied": [
@@ -817,6 +1181,13 @@ and unused extra anchor fields are not journaled. Repeated facts are bounded
 snapshots `{count, sha256, sample, truncated}`; samples contain at most 20
 validated items while the digest covers the complete source collection. Large
 extract results therefore stay bounded and re-verifiable.
+The live `inspect_document` coverage object discloses validated internal
+`altChunk` target names so the caller can identify the exact uninspected package
+parts. Because those names are controlled by the document and can contain
+matter-private labels, compact export retains only the fixed public
+`excluded_parts` scope plus an `excluded_internal_parts` snapshot containing
+the dynamic count and complete-list digest. Its sample is always empty and
+`truncated` is true whenever one or more dynamic names were omitted.
 For successful `preflight_edits` and `apply_edits`, the edit anchors originated
 as client-asserted input rather than a fresh observation. Their compact
 `provenance.anchors` therefore keeps the complete collection digest and count
@@ -860,12 +1231,17 @@ result or summary rather than a verbatim copy of that live response, and (3)
 the privacy-minimized compact projection in the exported `records` array. The
 raw journal is therefore not a guaranteed superset from which the exact live
 response can be reconstructed.
-Responses are capped to the newest `max_records` entries (default 50). If
-`truncated` is true, call again with
+Responses are capped to the newest `max_records` entries (default 50, minimum
+1, maximum 500); values outside that range are refused before reading or
+journaling. If `truncated` is true, call again with
 `before_record_id: next_before_record_id` to page earlier. `total_count` is the
 number of substantive records visible in the current cursor window, not a
 global all-time count; `access_count` reports all access events present before
 the current export append and is independent of the substantive cursor.
+The reader validates the complete journal stream, including records outside
+the requested cursor/page, while retaining at most the bounded response window
+in memory. Append still performs one complete validating scan to allocate the
+next monotonic id; the aggregate cap bounds that work, but there is no index.
 
 Every valid compact verification match contains `part_name`, `revision_ids`,
 `side` and `clause_sha256`. When a matched clause label/heading exists,
@@ -887,6 +1263,11 @@ Output:
 
 ```json
 {
+  "producer": {
+    "name": "veqtor-mcp",
+    "version": "0.3.0.dev0",
+    "build": "source-snapshot-v1-sha256:..."
+  },
   "workspace": {"sha256": "example-workspace-digest", "omitted": true},
   "total_count": 1,
   "access_count": 3,
@@ -922,7 +1303,7 @@ Output:
       "created_at": "2026-07-09T12:00:00Z",
       "tool_name": "verify_quote",
       "workspace": {"sha256": "example-workspace-digest", "omitted": true},
-      "producer": {"name": "veqtor-mcp", "version": "0.2.0", "build": "source-snapshot-v1-sha256:..."},
+      "producer": {"name": "veqtor-mcp", "version": "0.3.0.dev0", "build": "source-snapshot-v1-sha256:..."},
       "payloads": "compact",
       "input": {"sha256": "example-input-digest", "omitted": true},
       "result": {
@@ -988,8 +1369,25 @@ record metadata and any tool-specific result compaction. For an export access
 event, the stored export summary is itself the operation result passed to the
 journal writer, so both digests cover that summary; the newly assigned access
 event id and final live-response metadata do not yet exist at that point.
+For live `inspect_document` success, the normalized operation result is exactly
+the metadata-free checked response payload: it includes `producer`, excludes
+`record_id`/`record_status`/`record_error`, and does not gain a synthetic
+`status: "ok"` field before canonical hashing.
 These are content fingerprints for re-checking and debugging, not
 tamper-evidence or a way to reconstruct omitted content.
+If a base-schema-readable historical `inspection.v1` result lacks the closed
+mode, coverage or limits needed for a safe detailed projection, compact export
+keeps the journal readable and returns only its validated status plus
+`compact_projection_complete: false` and
+`compact_projection_error: invalid_inspection_result`. It never reproduces the
+malformed fields.
+Historical `inspection.v1` records that use the original outer
+`body_paragraph_count` and `nonempty_body_paragraph_count` pair remain readable:
+compact export validates the complete pair against `container_coverage` and
+normalizes it to `indexed_paragraph_count` and
+`nonempty_indexed_paragraph_count`. A mixed generation or inconsistent count
+fails safe as the same incomplete projection. Raw JSONL records are never
+rewritten.
 For `extract_redlines`, `result_sha256` and `tool_result_sha256` normally differ:
 the stored raw-journal result is a bounded summary, while the full operation
 result also contains the extracted change units. Equality of these two fields

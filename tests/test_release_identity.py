@@ -24,9 +24,11 @@ ROOT = Path(__file__).parents[1]
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 from release_contract import (  # noqa: E402
+    DEVELOPMENT_RUNTIME_SOURCE_FILES,
     RUNTIME_SOURCE_FILES,
     SDIST_GIT_FILES,
     SDIST_MEMBERS,
+    VERSION,
     WHEEL_MEMBERS,
 )
 from check_release_artifacts import (  # noqa: E402
@@ -147,7 +149,9 @@ def _rewrite_local_zip_version(wheel: Path, version: int) -> None:
     wheel.write_bytes(payload)
 
 
-def _rewrite_zip_metadata(wheel: Path, *, comment: bytes = b"", extra: bytes = b"") -> None:
+def _rewrite_zip_metadata(
+    wheel: Path, *, comment: bytes = b"", extra: bytes = b""
+) -> None:
     with zipfile.ZipFile(wheel) as archive:
         infos = archive.infolist()
         members = {info.filename: archive.read(info) for info in infos}
@@ -161,17 +165,45 @@ def _rewrite_zip_metadata(wheel: Path, *, comment: bytes = b"", extra: bytes = b
     replacement.replace(wheel)
 
 
-def test_hatch_source_selection_equals_release_contract() -> None:
+def test_hatch_source_selection_is_scoped_by_package_version() -> None:
     config = tomllib.loads((ROOT / "pyproject.toml").read_text())
     wheel = config["tool"]["hatch"]["build"]["targets"]["wheel"]
     sdist = config["tool"]["hatch"]["build"]["targets"]["sdist"]
+    wheel_includes = set(wheel["include"])
+    sdist_includes = set(sdist["include"])
+    frozen_runtime = {f"/{path}" for path in RUNTIME_SOURCE_FILES}
+    development_runtime = {f"/{path}" for path in DEVELOPMENT_RUNTIME_SOURCE_FILES}
+    discovered_runtime = {
+        f"/{path.relative_to(ROOT).as_posix()}"
+        for package in (ROOT / "src" / "veqtor_docx", ROOT / "src" / "veqtor_mcp")
+        for path in package.rglob("*.py")
+    }
 
-    assert set(wheel["include"]) == {f"/{path}" for path in RUNTIME_SOURCE_FILES}
     assert wheel["sources"] == ["src"]
-    assert {f"/{path}" for path in RUNTIME_SOURCE_FILES} <= set(sdist["include"])
     assert "/src" not in sdist["include"]
+    assert len(DEVELOPMENT_RUNTIME_SOURCE_FILES) == len(development_runtime)
+    assert development_runtime == discovered_runtime
+    assert frozen_runtime < development_runtime
+    if config["project"]["version"] == VERSION:
+        assert wheel_includes == frozen_runtime
+        assert frozen_runtime <= sdist_includes
+    else:
+        assert config["project"]["version"] == "0.3.0.dev0"
+        assert wheel_includes == development_runtime
+        assert development_runtime <= sdist_includes
+        assert "/src/veqtor_mcp/_inspection_live.py" in wheel_includes
+        assert "/src/veqtor_mcp/_inspection_live.py" in sdist_includes
+        assert "/INSPECT_DOCUMENT_V0.3.md" in sdist_includes
 
 
+release_contract_only = pytest.mark.skipif(
+    tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+    != VERSION,
+    reason="closed v0.2 artifact ratchets apply only to source version 0.2.0",
+)
+
+
+@release_contract_only
 def test_extra_package_files_cannot_enter_release_artifacts(tmp_path: Path) -> None:
     project = _project_copy(tmp_path)
     (project / "src/veqtor_mcp/client-matter.docx").write_bytes(b"private")
@@ -196,12 +228,19 @@ def test_extra_package_files_cannot_enter_release_artifacts(tmp_path: Path) -> N
     sdist = next(path for path in artifacts if path.name.endswith(".tar.gz"))
     with zipfile.ZipFile(wheel) as archive:
         assert set(archive.namelist()) == set(WHEEL_MEMBERS)
-        assert not any("client-matter" in name or "secret.py" in name for name in archive.namelist())
+        assert not any(
+            "client-matter" in name or "secret.py" in name
+            for name in archive.namelist()
+        )
     with tarfile.open(sdist) as archive:
         assert set(archive.getnames()) == set(SDIST_MEMBERS)
-        assert not any("client-matter" in name or "secret.py" in name for name in archive.getnames())
+        assert not any(
+            "client-matter" in name or "secret.py" in name
+            for name in archive.getnames()
+        )
 
 
+@release_contract_only
 def test_identity_verifier_rejects_extra_wheel_member(tmp_path: Path) -> None:
     project = _project_copy(tmp_path)
     output = tmp_path / "dist"
@@ -252,8 +291,7 @@ def _insert_metadata_header(payload: bytes, header: bytes) -> bytes:
     "mutation",
     [
         lambda payload: (
-            b"From L1VzZXJzL3ByaXZhdGUtdXNlci9DbGllbnRzL1NlY3JldA==\n"
-            + payload
+            b"From L1VzZXJzL3ByaXZhdGUtdXNlci9DbGllbnRzL1NlY3JldA==\n" + payload
         ),
         lambda payload: b" " + payload,
         lambda payload: b"Malformed header\n" + payload,
@@ -268,15 +306,18 @@ def test_raw_core_metadata_identity_rejects_parser_blind_spots(mutation) -> None
     # Start with bytes emitted by the pinned backend; this also ratchets the
     # serializer used by the release identity check.
     headers = _expected_metadata_headers(pyproject)
-    canonical = b"".join(
-        f"{key}: {value}\n".encode("utf-8") for key, value in headers
-    ) + b"\n" + readme
+    canonical = (
+        b"".join(f"{key}: {value}\n".encode("utf-8") for key, value in headers)
+        + b"\n"
+        + readme
+    )
     assert project["name"] == "veqtor-mcp"
 
     with pytest.raises(SystemExit, match="metadata raw bytes differ"):
         _metadata_contract(mutation(canonical), pyproject, readme, "test metadata")
 
 
+@release_contract_only
 @pytest.mark.parametrize(
     "mutation",
     [
@@ -287,7 +328,9 @@ def test_raw_core_metadata_identity_rejects_parser_blind_spots(mutation) -> None
             payload, b"Project-URL: Private, https://example.invalid"
         ),
         lambda payload: _insert_metadata_header(payload, b"X-Unapproved: value"),
-        lambda payload: payload.replace(b"Author: Ilya Shilov", b"Author: Someone Else"),
+        lambda payload: payload.replace(
+            b"Author: Ilya Shilov", b"Author: Someone Else"
+        ),
         lambda payload: payload.replace(
             b"Maintainer: Ilya Shilov", b"Maintainer: Someone Else"
         ),
@@ -312,6 +355,7 @@ def test_full_metadata_contract_rejects_unapproved_headers_even_with_valid_recor
     assert "metadata raw bytes differ from source" in checked.stderr
 
 
+@release_contract_only
 def test_full_metadata_contract_rejects_description_drift(tmp_path: Path) -> None:
     project = _project_copy(tmp_path)
     artifacts = _built_artifacts(project, tmp_path / "dist")
@@ -324,6 +368,7 @@ def test_full_metadata_contract_rejects_description_drift(tmp_path: Path) -> Non
     assert "metadata raw bytes differ from source" in checked.stderr
 
 
+@release_contract_only
 def test_wheel_generator_is_bound_to_pinned_backend(tmp_path: Path) -> None:
     project = _project_copy(tmp_path)
     artifacts = _built_artifacts(project, tmp_path / "dist")
@@ -340,6 +385,7 @@ def test_wheel_generator_is_bound_to_pinned_backend(tmp_path: Path) -> None:
     assert "wheel metadata differs from release contract" in checked.stderr
 
 
+@release_contract_only
 @pytest.mark.parametrize("surface", ["comment", "extra"])
 def test_full_identity_rejects_noncanonical_zip_metadata(
     tmp_path: Path, surface: str
@@ -362,6 +408,7 @@ def test_full_identity_rejects_noncanonical_zip_metadata(
     assert "noncanonical ZIP" in checked.stderr
 
 
+@release_contract_only
 def test_full_identity_rejects_noncanonical_tar_ownership(tmp_path: Path) -> None:
     project = _project_copy(tmp_path)
     artifacts = _built_artifacts(project, tmp_path / "dist")
@@ -374,6 +421,7 @@ def test_full_identity_rejects_noncanonical_tar_ownership(tmp_path: Path) -> Non
     assert "noncanonical TAR member metadata" in checked.stderr
 
 
+@release_contract_only
 @pytest.mark.parametrize("field", ["linkname", "type", "devmajor", "devminor"])
 def test_full_identity_rejects_every_noncanonical_tar_header_field(
     tmp_path: Path, field: str
@@ -389,6 +437,7 @@ def test_full_identity_rejects_every_noncanonical_tar_header_field(
     assert "noncanonical TAR member metadata" in checked.stderr
 
 
+@release_contract_only
 def test_full_identity_rejects_noncanonical_local_zip_version(tmp_path: Path) -> None:
     project = _project_copy(tmp_path)
     artifacts = _built_artifacts(project, tmp_path / "dist")
@@ -401,6 +450,7 @@ def test_full_identity_rejects_noncanonical_local_zip_version(tmp_path: Path) ->
     assert "ZIP local and central headers differ" in checked.stderr
 
 
+@release_contract_only
 def test_full_identity_rejects_noncanonical_gzip_header(tmp_path: Path) -> None:
     project = _project_copy(tmp_path)
     artifacts = _built_artifacts(project, tmp_path / "dist")

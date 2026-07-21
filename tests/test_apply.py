@@ -12,11 +12,13 @@ from lxml import etree
 from veqtor_docx import (
     ApplyError,
     DocxError,
+    VerifyError,
     apply_edits,
     extract_redlines,
     preflight_edits,
+    verify_quote,
 )
-from veqtor_docx._ooxml import parse_xml, w
+from veqtor_docx._ooxml import MC_NS, parse_xml, w
 from veqtor_docx.apply import DEFAULT_AUTHOR, _collateral_outside
 from veqtor_docx.contracts import ROUND_TRIP_COMPARISON_CURRENT
 
@@ -47,10 +49,15 @@ def _cap_anchor(path: Path) -> dict:
         for u in result["change_units"]
         if u["clause_anchor"] and u["clause_anchor"]["label"] == "14.2"
     )
-    return {"change_unit_id": unit["change_unit_id"], "file_sha256": result["file_sha256"]}
+    return {
+        "change_unit_id": unit["change_unit_id"],
+        "file_sha256": result["file_sha256"],
+    }
 
 
-def _edit(anchor: dict, delete_text: str = TAIL_OLD, insert_text: str = TAIL_NEW) -> dict:
+def _edit(
+    anchor: dict, delete_text: str = TAIL_OLD, insert_text: str = TAIL_NEW
+) -> dict:
     return {"anchor": anchor, "delete_text": delete_text, "insert_text": insert_text}
 
 
@@ -66,6 +73,74 @@ def _rewrite_document_xml(source: Path, output: Path, mutate) -> None:
                     + etree.tostring(document)
                 )
             target.writestr(info, payload)
+
+
+def _alternate_content_docx(source: Path, output: Path) -> None:
+    def mutate(document: etree._Element) -> None:
+        body = document.find(w("body"))
+        assert body is not None
+        outer = etree.Element(w("p"))
+        insertion = etree.SubElement(outer, w("ins"))
+        insertion.set(w("id"), "810")
+        insertion.set(w("author"), "Container Test")
+        run = etree.SubElement(insertion, w("r"))
+        visible = etree.SubElement(run, w("t"))
+        visible.text = "VISIBLE BODY TEXT"
+
+        drawing_run = etree.SubElement(outer, w("r"))
+        alternate = etree.SubElement(drawing_run, f"{{{MC_NS}}}AlternateContent")
+        for branch_name, revision_id in (("Choice", "811"), ("Fallback", "812")):
+            branch = etree.SubElement(alternate, f"{{{MC_NS}}}{branch_name}")
+            text_box = etree.SubElement(branch, w("txbxContent"))
+            nested = etree.SubElement(text_box, w("p"))
+            box_insertion = etree.SubElement(nested, w("ins"))
+            box_insertion.set(w("id"), revision_id)
+            box_insertion.set(w("author"), "Container Test")
+            box_run = etree.SubElement(box_insertion, w("r"))
+            box_text = etree.SubElement(box_run, w("t"))
+            box_text.text = "TEXT BOX ONLY"
+
+        section = body.find(w("sectPr"))
+        if section is None:
+            body.append(outer)
+        else:
+            section.addprevious(outer)
+
+    _rewrite_document_xml(source, output, mutate)
+
+
+def _unknown_property_revision_container_docx(source: Path, output: Path) -> None:
+    def mutate(document: etree._Element) -> None:
+        body = document.find(w("body"))
+        assert body is not None
+        paragraph = next(body.iter(w("p")))
+        unknown = etree.SubElement(
+            paragraph,
+            "{urn:veqtor:test:unknown}container",
+        )
+        property_revision = etree.SubElement(unknown, w("rPrChange"))
+        property_revision.set(w("id"), "819")
+
+    _rewrite_document_xml(source, output, mutate)
+
+
+def _known_property_text_revision_docx(source: Path, output: Path) -> None:
+    def mutate(document: etree._Element) -> None:
+        body = document.find(w("body"))
+        assert body is not None
+        paragraph = next(body.iter(w("p")))
+        properties = paragraph.find(w("pPr"))
+        if properties is None:
+            properties = etree.Element(w("pPr"))
+            paragraph.insert(0, properties)
+        insertion = etree.SubElement(properties, w("ins"))
+        insertion.set(w("id"), "818")
+        insertion.set(w("author"), "Malformed Property Test")
+        run = etree.SubElement(insertion, w("r"))
+        text = etree.SubElement(run, w("t"))
+        text.text = "PROPERTY TEXT MUST NOT BE EDITED"
+
+    _rewrite_document_xml(source, output, mutate)
 
 
 def _atom_run(parent: etree._Element, text_tag: str, atom_tag: str) -> None:
@@ -119,8 +194,7 @@ def _runless_atom_revision_docx(
         wrapper = next(
             element
             for element in document.iter(w("ins"))
-            if "USD 50,000"
-            in "".join(node.text or "" for node in element.iter(w("t")))
+            if "USD 50,000" in "".join(node.text or "" for node in element.iter(w("t")))
         )
         for child in list(wrapper):
             wrapper.remove(child)
@@ -210,6 +284,7 @@ def test_replace_at_anchor_with_round_trip(round2: Path, tmp_path: Path) -> None
 
     before = extract_redlines(str(round2))
     after = extract_redlines(str(out))
+
     def strip(unit: dict) -> tuple:
         return (
             unit["change_type"],
@@ -234,6 +309,177 @@ def test_replace_at_anchor_with_round_trip(round2: Path, tmp_path: Path) -> None
     assert [str(i) for i in result["applied"][0]["tracked_revision_ids"]] == list(
         mine[0]["reference"]["revision_ids"]
     )
+
+
+def test_policy_bound_anchor_prunes_text_box_and_legacy_anchor_fails_closed(
+    demo_dir: Path,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "alternate-content-source.docx"
+    _alternate_content_docx(
+        demo_dir / "round-1-outgoing-draft.docx",
+        source,
+    )
+    extracted = extract_redlines(str(source))
+    unit = next(
+        item
+        for item in extracted["change_units"]
+        if item["new_text"] == "VISIBLE BODY TEXT"
+    )
+    legacy_anchor = {
+        "change_unit_id": unit["change_unit_id"],
+        "file_sha256": extracted["file_sha256"],
+    }
+
+    legacy = preflight_edits(
+        str(source),
+        [_edit(legacy_anchor, "VISIBLE BODY TEXT", "UPDATED BODY TEXT")],
+    )
+    assert legacy["batch_applicable"] is False
+    assert legacy["candidate_sha256"] is None
+    assert legacy["refusal_code"] == "legacy_anchor_ambiguous"
+
+    wrong_file = preflight_edits(
+        str(source),
+        [
+            _edit(
+                {**legacy_anchor, "file_sha256": "0" * 64},
+                "VISIBLE BODY TEXT",
+                "UPDATED BODY TEXT",
+            )
+        ],
+    )
+    assert wrong_file["refusal_code"] == "file_sha256_mismatch"
+
+    tampered_anchor = {
+        **unit["anchor"],
+        "unit_fingerprint_sha256": "0" * 64,
+    }
+    tampered = preflight_edits(
+        str(source),
+        [_edit(tampered_anchor, "VISIBLE BODY TEXT", "UPDATED BODY TEXT")],
+    )
+    assert tampered["batch_applicable"] is False
+    assert tampered["candidate_sha256"] is None
+    assert tampered["refusal_code"] == "anchor_fingerprint_mismatch"
+
+    hidden = preflight_edits(
+        str(source),
+        [_edit(unit["anchor"], "TEXT BOX ONLY", "SHOULD NOT APPEAR")],
+    )
+    assert hidden["batch_applicable"] is False
+    assert hidden["candidate_sha256"] is None
+    assert hidden["refusal_code"] == "delete_text_not_found"
+    hidden_output = tmp_path / "hidden-output.docx"
+    with pytest.raises(ApplyError, match="delete_text_not_found"):
+        apply_edits(
+            str(source),
+            str(hidden_output),
+            [_edit(unit["anchor"], "TEXT BOX ONLY", "SHOULD NOT APPEAR")],
+        )
+    assert not hidden_output.exists()
+
+    supported = preflight_edits(
+        str(source),
+        [_edit(unit["anchor"], "VISIBLE BODY TEXT", "UPDATED BODY TEXT")],
+    )
+    assert supported["batch_applicable"] is True
+    output = tmp_path / "supported-output.docx"
+    applied = apply_edits(
+        str(source),
+        str(output),
+        [_edit(unit["anchor"], "VISIBLE BODY TEXT", "UPDATED BODY TEXT")],
+    )
+    assert output.exists()
+    assert applied["output_sha256"] == hashlib.sha256(output.read_bytes()).hexdigest()
+
+
+def test_unknown_revision_container_refuses_legacy_anchor_in_every_consumer(
+    round2: Path,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "unknown-revision-container.docx"
+    _unknown_property_revision_container_docx(round2, source)
+    extracted = extract_redlines(str(source))
+    unit = next(
+        item
+        for item in extracted["change_units"]
+        if item["clause_anchor"] and item["clause_anchor"]["label"] == "14.2"
+    )
+    legacy_anchor = {
+        "change_unit_id": unit["change_unit_id"],
+        "file_sha256": extracted["file_sha256"],
+    }
+    assert (
+        extracted["revision_inventory"]["container_policy"][
+            "legacy_two_field_anchor_safe"
+        ]
+        is False
+    )
+
+    with pytest.raises(VerifyError) as verify_error:
+        verify_quote(
+            str(source),
+            legacy_anchor,
+            unit["new_text"] or unit["old_text"],
+        )
+    assert verify_error.value.code == "legacy_anchor_ambiguous"
+
+    preflight = preflight_edits(str(source), [_edit(legacy_anchor)])
+    assert preflight["batch_applicable"] is False
+    assert preflight["candidate_sha256"] is None
+    assert preflight["refusal_code"] == "legacy_anchor_ambiguous"
+
+    output = tmp_path / "must-not-exist.docx"
+    with pytest.raises(ApplyError) as apply_error:
+        apply_edits(str(source), str(output), [_edit(legacy_anchor)])
+    assert apply_error.value.code == "legacy_anchor_ambiguous"
+    assert not output.exists()
+
+
+def test_known_property_text_revision_refuses_legacy_anchor_in_every_consumer(
+    round2: Path,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "property-text-revision.docx"
+    _known_property_text_revision_docx(round2, source)
+    extracted = extract_redlines(str(source))
+    unit = next(
+        item
+        for item in extracted["change_units"]
+        if item["clause_anchor"] and item["clause_anchor"]["label"] == "14.2"
+    )
+    legacy_anchor = {
+        "change_unit_id": unit["change_unit_id"],
+        "file_sha256": extracted["file_sha256"],
+    }
+    assert extracted["revision_inventory"]["excluded_by_container"] == {
+        "unknown_container": 1
+    }
+    assert (
+        extracted["revision_inventory"]["container_policy"][
+            "legacy_two_field_anchor_safe"
+        ]
+        is False
+    )
+
+    with pytest.raises(VerifyError) as verify_error:
+        verify_quote(
+            str(source),
+            legacy_anchor,
+            unit["new_text"] or unit["old_text"],
+        )
+    assert verify_error.value.code == "legacy_anchor_ambiguous"
+
+    preflight = preflight_edits(str(source), [_edit(legacy_anchor)])
+    assert preflight["batch_applicable"] is False
+    assert preflight["refusal_code"] == "legacy_anchor_ambiguous"
+
+    output = tmp_path / "property-text-must-not-exist.docx"
+    with pytest.raises(ApplyError) as apply_error:
+        apply_edits(str(source), str(output), [_edit(legacy_anchor)])
+    assert apply_error.value.code == "legacy_anchor_ambiguous"
+    assert not output.exists()
 
 
 def _duplicate_cap_id_in_earlier_clause(round2: Path, output: Path) -> None:
@@ -309,14 +555,12 @@ def test_duplicate_revision_id_still_edits_the_structural_anchor(
     apply_edits(str(source), str(output), [_edit(anchor)])
     after = extract_redlines(str(output))
     created = next(
-        unit
-        for unit in after["change_units"]
-        if unit["author"] == DEFAULT_AUTHOR
+        unit for unit in after["change_units"] if unit["author"] == DEFAULT_AUTHOR
     )
 
-    assert created["reference"]["paragraph_index"] == cap["reference"][
-        "paragraph_index"
-    ]
+    assert (
+        created["reference"]["paragraph_index"] == cap["reference"]["paragraph_index"]
+    )
     assert created["clause_anchor"]["label"] == "14.2"
 
 
@@ -401,9 +645,7 @@ def _with_highest_revision_id(
     _rewrite_document_xml(source, output, mutate)
 
 
-def test_last_revision_id_supports_one_id_edit(
-    round2: Path, tmp_path: Path
-) -> None:
+def test_last_revision_id_supports_one_id_edit(round2: Path, tmp_path: Path) -> None:
     source = tmp_path / "one-id-capacity.docx"
     output = tmp_path / "one-id-output.docx"
     _with_highest_revision_id(round2, source, 2_147_483_646)
@@ -423,16 +665,12 @@ def test_last_revision_id_supports_one_id_edit(
     assert created[0]["reference"]["revision_ids"] == ["2147483647"]
 
 
-def test_last_two_revision_ids_support_replace(
-    round2: Path, tmp_path: Path
-) -> None:
+def test_last_two_revision_ids_support_replace(round2: Path, tmp_path: Path) -> None:
     source = tmp_path / "two-id-capacity.docx"
     output = tmp_path / "two-id-output.docx"
     _with_highest_revision_id(round2, source, 2_147_483_645)
 
-    result = apply_edits(
-        str(source), str(output), [_edit(_cap_anchor(source))]
-    )
+    result = apply_edits(str(source), str(output), [_edit(_cap_anchor(source))])
 
     assert result["applied"][0]["tracked_revision_ids"] == [
         "2147483646",
@@ -550,7 +788,10 @@ def test_two_edits_in_distinct_paragraphs(round2: Path, tmp_path: Path) -> None:
         [
             _edit(cap),
             {
-                "anchor": {"change_unit_id": audit["change_unit_id"], "file_sha256": sha},
+                "anchor": {
+                    "change_unit_id": audit["change_unit_id"],
+                    "file_sha256": sha,
+                },
                 "delete_text": "ten (10) Business Days' notice",
                 "insert_text": "five (5) Business Days' notice",
             },
@@ -568,13 +809,25 @@ def test_two_edits_in_distinct_paragraphs(round2: Path, tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("mutate", "code"),
     [
-        (lambda e, sha: {**e, "anchor": {**e["anchor"], "file_sha256": "0" * 64}}, "file_sha256_mismatch"),
-        (lambda e, sha: {**e, "anchor": {**e["anchor"], "change_unit_id": "cu_999"}}, "anchor_not_found"),
-        (lambda e, sha: {**e, "delete_text": "text that does not exist anywhere"}, "delete_text_not_found"),
+        (
+            lambda e, sha: {**e, "anchor": {**e["anchor"], "file_sha256": "0" * 64}},
+            "file_sha256_mismatch",
+        ),
+        (
+            lambda e, sha: {**e, "anchor": {**e["anchor"], "change_unit_id": "cu_999"}},
+            "anchor_not_found",
+        ),
+        (
+            lambda e, sha: {**e, "delete_text": "text that does not exist anywhere"},
+            "delete_text_not_found",
+        ),
         (lambda e, sha: {**e, "delete_text": "aggregate"}, "delete_text_ambiguous"),
         # A span mixing plain text and their pending insertion is unsupported;
         # a span fully inside their insertion is a legitimate counter edit.
-        (lambda e, sha: {**e, "delete_text": "exceed USD 50,000"}, "overlaps_tracked_changes"),
+        (
+            lambda e, sha: {**e, "delete_text": "exceed USD 50,000"},
+            "overlaps_tracked_changes",
+        ),
         (lambda e, sha: {**e, "delete_text": ""}, "delete_text_missing"),
     ],
 )
@@ -606,7 +859,9 @@ def test_two_disjoint_edits_in_same_paragraph(round2: Path, tmp_path: Path) -> N
         str(out),
         [
             _edit(anchor),
-            _edit(anchor, delete_text="Except as set out", insert_text="Save as provided"),
+            _edit(
+                anchor, delete_text="Except as set out", insert_text="Save as provided"
+            ),
         ],
     )
     assert result["round_trip_check"]["status"] == "passed"
@@ -621,7 +876,9 @@ def test_two_disjoint_edits_in_same_paragraph(round2: Path, tmp_path: Path) -> N
     ]
 
 
-def test_overlapping_edits_same_paragraph_rejected(round2: Path, tmp_path: Path) -> None:
+def test_overlapping_edits_same_paragraph_rejected(
+    round2: Path, tmp_path: Path
+) -> None:
     anchor = _cap_anchor(round2)
     out = tmp_path / "never.docx"
     with pytest.raises(ApplyError) as err:
@@ -710,7 +967,10 @@ def test_counter_and_reinstate_in_one_call(demo_dir: Path, tmp_path: Path) -> No
     r4 = demo_dir / "round-4-counterparty-reply.docx"
     result = extract_redlines(str(r4))
     cap = next(u for u in result["change_units"] if u["change_type"] == "replace")
-    anchor = {"change_unit_id": cap["change_unit_id"], "file_sha256": result["file_sha256"]}
+    anchor = {
+        "change_unit_id": cap["change_unit_id"],
+        "file_sha256": result["file_sha256"],
+    }
 
     out = tmp_path / "round-5-our-counter.docx"
     outcome = apply_edits(
@@ -820,7 +1080,9 @@ def test_counter_with_adjacent_plain_edit_refused(round2: Path, tmp_path: Path) 
     assert not list(tmp_path.iterdir())
 
 
-def test_counter_plus_distant_edit_in_same_paragraph(round2: Path, tmp_path: Path) -> None:
+def test_counter_plus_distant_edit_in_same_paragraph(
+    round2: Path, tmp_path: Path
+) -> None:
     """With untouched text between the operations, a counter and a plain edit
     coexist in one paragraph and extract as two distinct units."""
     anchor = _cap_anchor(round2)
@@ -830,7 +1092,9 @@ def test_counter_plus_distant_edit_in_same_paragraph(round2: Path, tmp_path: Pat
         str(out),
         [
             _edit(anchor, delete_text="USD 50,000", insert_text="EUR 60,000"),
-            _edit(anchor, delete_text="Except as set out", insert_text="Save as provided"),
+            _edit(
+                anchor, delete_text="Except as set out", insert_text="Save as provided"
+            ),
         ],
     )
     assert result["round_trip_check"]["status"] == "passed"
@@ -898,7 +1162,9 @@ def test_followup_plain_edit_flush_against_our_replacement_refused(
     assert not (tmp_path / "never.docx").exists()
 
 
-def test_plain_edit_after_pure_strike_host_refused(round2: Path, tmp_path: Path) -> None:
+def test_plain_edit_after_pure_strike_host_refused(
+    round2: Path, tmp_path: Path
+) -> None:
     """A pure-strike counter leaves no replacement after the host, but the
     strike still surfaces at the host's right edge in extraction — a plain
     edit flush after that host must be refused cleanly, not fail late."""
@@ -1218,7 +1484,9 @@ def test_collateral_proof_catches_changes_in_other_table_rows(round2: Path) -> N
     assert issues, "a change in a sibling table row must be reported as collateral"
 
 
-def test_collateral_proof_accepts_changes_only_in_touched_paragraph(round2: Path) -> None:
+def test_collateral_proof_accepts_changes_only_in_touched_paragraph(
+    round2: Path,
+) -> None:
     original, mutated = _document_roots(round2)
     touched_index = _fee_cell_paragraph_index(mutated)
     paragraphs = list(mutated.iter(w("p")))
@@ -1240,17 +1508,116 @@ def test_collateral_proof_catches_structural_changes(round2: Path) -> None:
         (42, "invalid_edit"),
         (["not an object"], "invalid_edit"),
         ([{"anchor": "cu_001", "delete_text": "x"}], "anchor_missing"),
-        ([{"anchor": {"change_unit_id": 5, "file_sha256": "a" * 64}, "delete_text": "x"}], "anchor_missing"),
-        ([{"anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64}, "delete_text": 42}], "delete_text_missing"),
-        ([{"anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64}, "delete_text": "x", "insert_text": 42}], "invalid_edit"),
-        ([{"anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64}, "delete_text": "x", "insert_text": None}], "invalid_edit"),
-        ([{"anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64}, "delete_text": "x", "insert_text": "bad\x01text"}], "invalid_edit"),
-        ([{"anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64}, "delete_text": "x", "reinstate_text": "y"}], "invalid_edit"),
-        ([{"anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64}, "reinstate_text": "y", "insert_text": "z"}], "invalid_edit"),
-        ([{"anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64}, "reinstate_text": "y", "insert_text": False}], "invalid_edit"),
-        ([{"anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64}, "reinstate_text": ""}], "invalid_edit"),
-        ([{"anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64, "extra": "x"}, "delete_text": "x"}], "invalid_edit"),
-        ([{"anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64}, "delete_text": "x", "extra": "x"}], "invalid_edit"),
+        (
+            [
+                {
+                    "anchor": {"change_unit_id": 5, "file_sha256": "a" * 64},
+                    "delete_text": "x",
+                }
+            ],
+            "anchor_missing",
+        ),
+        (
+            [
+                {
+                    "anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64},
+                    "delete_text": 42,
+                }
+            ],
+            "delete_text_missing",
+        ),
+        (
+            [
+                {
+                    "anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64},
+                    "delete_text": "x",
+                    "insert_text": 42,
+                }
+            ],
+            "invalid_edit",
+        ),
+        (
+            [
+                {
+                    "anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64},
+                    "delete_text": "x",
+                    "insert_text": None,
+                }
+            ],
+            "invalid_edit",
+        ),
+        (
+            [
+                {
+                    "anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64},
+                    "delete_text": "x",
+                    "insert_text": "bad\x01text",
+                }
+            ],
+            "invalid_edit",
+        ),
+        (
+            [
+                {
+                    "anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64},
+                    "delete_text": "x",
+                    "reinstate_text": "y",
+                }
+            ],
+            "invalid_edit",
+        ),
+        (
+            [
+                {
+                    "anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64},
+                    "reinstate_text": "y",
+                    "insert_text": "z",
+                }
+            ],
+            "invalid_edit",
+        ),
+        (
+            [
+                {
+                    "anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64},
+                    "reinstate_text": "y",
+                    "insert_text": False,
+                }
+            ],
+            "invalid_edit",
+        ),
+        (
+            [
+                {
+                    "anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64},
+                    "reinstate_text": "",
+                }
+            ],
+            "invalid_edit",
+        ),
+        (
+            [
+                {
+                    "anchor": {
+                        "change_unit_id": "cu_001",
+                        "file_sha256": "a" * 64,
+                        "extra": "x",
+                    },
+                    "delete_text": "x",
+                }
+            ],
+            "invalid_edit",
+        ),
+        (
+            [
+                {
+                    "anchor": {"change_unit_id": "cu_001", "file_sha256": "a" * 64},
+                    "delete_text": "x",
+                    "extra": "x",
+                }
+            ],
+            "invalid_edit",
+        ),
     ],
 )
 def test_malformed_edits_fail_closed_with_error_codes(
@@ -1305,14 +1672,18 @@ def test_preexisting_tmp_sibling_is_not_clobbered(round2: Path, tmp_path: Path) 
     assert out.exists()
 
 
-def test_output_is_a_valid_source_for_further_rounds(round2: Path, tmp_path: Path) -> None:
+def test_output_is_a_valid_source_for_further_rounds(
+    round2: Path, tmp_path: Path
+) -> None:
     """The applied file must itself be a first-class read-path citizen."""
     out = tmp_path / "counter.docx"
     apply_edits(str(round2), str(out), [_edit(_cap_anchor(round2))])
     listing_sha = hashlib.sha256(out.read_bytes()).hexdigest()
     reread = extract_redlines(str(out))
     assert reread["file_sha256"] == listing_sha
-    assert reread["revision_count"] == extract_redlines(str(round2))["revision_count"] + 2
+    assert (
+        reread["revision_count"] == extract_redlines(str(round2))["revision_count"] + 2
+    )
 
 
 def test_preflight_candidate_hash_matches_published_output(
@@ -1508,8 +1879,7 @@ def test_fourteen_operation_counter_reinstate_batch_reaches_terminal_result(
     assert len(result["edits"]) == 14
     assert all(
         item["status"] in {"planned", "blocked", "not_evaluated"}
-        and item["position_status"]
-        in {"supported", "unsupported", "not_evaluated"}
+        and item["position_status"] in {"supported", "unsupported", "not_evaluated"}
         for item in result["edits"]
     )
 
@@ -1851,9 +2221,10 @@ def test_counter_matcher_recognizes_extracted_text_atoms_before_refusing_surgery
     assert result["edits"][0]["match_count"] == 1
     assert result["edits"][0]["target_author"] == unit["author"]
     assert len(result["edits"][0]["target_revision_ids"]) == 1
-    assert result["edits"][0]["target_revision_ids"][0] in unit["reference"][
-        "revision_ids"
-    ]
+    assert (
+        result["edits"][0]["target_revision_ids"][0]
+        in unit["reference"]["revision_ids"]
+    )
 
 
 @pytest.mark.parametrize(
@@ -1905,9 +2276,7 @@ def test_runless_plain_atoms_are_controlled_unsupported_shapes(
     source = tmp_path / f"runless-plain-{atom_tag}.docx"
     _runless_plain_atom_docx(round2, source, atom_tag=atom_tag)
     anchor = _cap_anchor(source)
-    rendered = {"t": "Text", "noBreakHyphen": "-", "tab": "\t", "br": "\n"}[
-        atom_tag
-    ]
+    rendered = {"t": "Text", "noBreakHyphen": "-", "tab": "\t", "br": "\n"}[atom_tag]
     result = preflight_edits(
         str(source),
         [
@@ -1945,7 +2314,9 @@ def test_runless_deletion_atoms_have_total_reinstate_results(
     _runless_deletion_atom_docx(round2, source, atom_tag=atom_tag)
     extracted = extract_redlines(str(source))
     text = f"Direct{rendered}Value"
-    unit = next(item for item in extracted["change_units"] if item.get("old_text") == text)
+    unit = next(
+        item for item in extracted["change_units"] if item.get("old_text") == text
+    )
     result = preflight_edits(
         str(source),
         [
@@ -2008,9 +2379,10 @@ def test_reinstate_matcher_recognizes_atoms_and_refuses_lossy_restoration(
     assert result["edits"][0]["match_count"] == 1
     assert result["edits"][0]["target_author"] == unit["author"]
     assert len(result["edits"][0]["target_revision_ids"]) == 1
-    assert result["edits"][0]["target_revision_ids"][0] in unit["reference"][
-        "revision_ids"
-    ]
+    assert (
+        result["edits"][0]["target_revision_ids"][0]
+        in unit["reference"]["revision_ids"]
+    )
 
 
 def test_atom_before_plain_target_does_not_shift_match_offsets(
@@ -2105,6 +2477,51 @@ def test_source_parse_failure_after_snapshot_carries_observed_sha(
         )
 
     assert getattr(err.value, "metadata") == {
+        "failure_phase": "source",
+        "observed_source_sha256": observed,
+    }
+    assert not output.exists()
+
+
+def test_apply_rejects_source_with_multiple_direct_bodies_before_surgery(
+    round2: Path,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "apply-two-bodies.docx"
+
+    def add_second_body(document: etree._Element) -> None:
+        assert document.tag == w("document")
+        second_body = etree.SubElement(document, w("body"))
+        paragraph = etree.SubElement(second_body, w("p"))
+        insertion = etree.SubElement(paragraph, w("ins"))
+        insertion.set(w("id"), "999")
+        insertion.set(w("author"), "Hidden revision")
+        run = etree.SubElement(insertion, w("r"))
+        text = etree.SubElement(run, w("t"))
+        text.text = "Revision outside the first body"
+
+    _rewrite_document_xml(round2, source, add_second_body)
+    observed = hashlib.sha256(source.read_bytes()).hexdigest()
+    output = tmp_path / "never.docx"
+
+    with pytest.raises(DocxError) as error:
+        apply_edits(
+            str(source),
+            str(output),
+            [
+                {
+                    "anchor": {
+                        "change_unit_id": "cu_001",
+                        "file_sha256": observed,
+                    },
+                    "delete_text": "anything",
+                    "insert_text": "replacement",
+                }
+            ],
+        )
+
+    assert "must contain exactly one direct w:body" in str(error.value)
+    assert error.value.metadata == {
         "failure_phase": "source",
         "observed_source_sha256": observed,
     }

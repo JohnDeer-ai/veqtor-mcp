@@ -13,7 +13,7 @@ ROOT = Path(__file__).parents[1]
 
 
 def test_package_versions_match() -> None:
-    assert docx_version == "0.2.0"
+    assert docx_version == "0.3.0.dev0"
     assert mcp_version == docx_version
 
 
@@ -21,8 +21,7 @@ def test_api_validation_code_table_matches_the_runtime_contract() -> None:
     api = (ROOT / "API.md").read_text()
 
     assert (
-        "| `delete_text` absent, `null`, empty, or non-string | "
-        "`delete_text_missing` |"
+        "| `delete_text` absent, `null`, empty, or non-string | `delete_text_missing` |"
     ) in api
     assert (
         "| `insert_text` present with a non-string value, including `null` | "
@@ -40,9 +39,7 @@ def test_docs_disambiguate_reinstate_and_compact_clause_digest() -> None:
 
     assert re.search(r"This is not Word Reject: Veqtor does\s+not accept", api)
     assert "It is never a digest of the clause body" in api
-    assert re.search(
-        r"does not perform Word Reject and does not\s+remove", limitations
-    )
+    assert re.search(r"does not perform Word Reject and does not\s+remove", limitations)
     assert "observation is not side-effect free" in limitations
 
 
@@ -59,7 +56,9 @@ def test_docs_describe_the_actual_bounded_zip_boundary() -> None:
     assert "500 MiB of aggregate actual expanded output" in api
     assert re.search(r"DEFLATED decoder output and STORED direct-span bytes", api)
     assert re.search(r"returns no partial round list", api)
-    assert re.search(r"container preflight before any\s+member-output processing", limitations)
+    assert re.search(
+        r"container preflight before any\s+member-output processing", limitations
+    )
     assert "Exceeding the shared scan budget" in limitations
     assert re.search(r"one cumulative 500 MiB actual expanded-output budget", security)
     assert re.search(r"STORED direct-span bytes remain charged", security)
@@ -105,19 +104,24 @@ def test_export_example_matches_compact_count_and_gap_contract() -> None:
     assert match["clause_sha256"] is None
 
 
-def test_current_release_changelog_is_status_neutral() -> None:
+def test_changelog_separates_development_from_frozen_release_copy() -> None:
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
     changelog = (ROOT / "CHANGELOG.md").read_text()
     releasing = (ROOT / "RELEASING.md").read_text()
     version = project["version"]
-    marker = f"## {version}\n"
+    development_marker = f"## Unreleased — {version}\n"
+    frozen_marker = "## 0.2.0\n"
 
-    assert changelog.count(marker) == 1
-    section = changelog.split(marker, 1)[1].split("\n## ", 1)[0]
-    assert f"Veqtor v{version} Alpha release contents." in section
-    assert "Unreleased" not in section
-    assert "Planned" not in section
-    assert re.search(r"\b20\d{2}-\d{2}-\d{2}\b", section) is None
+    assert changelog.count(development_marker) == 1
+    assert changelog.count(frozen_marker) == 1
+    development = changelog.split(development_marker, 1)[1].split("\n## ", 1)[0]
+    frozen = changelog.split(frozen_marker, 1)[1].split("\n## ", 1)[0]
+    assert "development-only" in development.casefold()
+    assert re.search(r"do not\s+establish publication", development)
+    assert "Veqtor v0.2.0 Alpha release contents." in frozen
+    assert "Unreleased" not in frozen
+    assert "Planned" not in frozen
+    assert re.search(r"\b20\d{2}-\d{2}-\d{2}\b", frozen) is None
     assert "Publication dates are authoritative" in changelog
     assert "`published_at` timestamp" in changelog
     assert "only timeless release contents" in releasing
@@ -137,8 +141,7 @@ def test_release_copy_is_promotion_safe_and_site_stays_on_published_version() ->
     )
     releasing = (ROOT / "RELEASING.md").read_text()
     assert (
-        "claude mcp add --transport stdio --scope user veqtor -- "
-        "uvx veqtor-mcp@X.Y.Z"
+        "claude mcp add --transport stdio --scope user veqtor -- uvx veqtor-mcp@X.Y.Z"
     ) in readme
     assert (
         "claude mcp add --transport stdio --scope user veqtor "

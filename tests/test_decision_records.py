@@ -13,12 +13,17 @@ import os
 import re
 import stat
 import subprocess
+import sys
 import zipfile
 import zlib
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
+from lxml import etree
 
 import veqtor_mcp
 import veqtor_docx
@@ -84,6 +89,66 @@ def _rewrite_docx_part(path: Path, part_name: str, transform) -> None:
     with zipfile.ZipFile(path, "w") as archive:
         for info in infos:
             archive.writestr(info, parts[info.filename])
+
+
+def _add_internal_alt_chunks(path: Path, part_names: list[str]) -> None:
+    """Add relationship-backed altChunks whose package names are fixture-controlled."""
+    package_relationships_ns = (
+        "http://schemas.openxmlformats.org/package/2006/relationships"
+    )
+    office_relationships_ns = (
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    )
+    alt_chunk_relationship_type = (
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/aFChunk"
+    )
+    with zipfile.ZipFile(path, "r") as archive:
+        infos = archive.infolist()
+        parts = {info.filename: archive.read(info.filename) for info in infos}
+
+    document = _ooxml.parse_xml(parts["word/document.xml"])
+    body = document.find(_ooxml.w("body"))
+    assert body is not None
+    section = body.find(_ooxml.w("sectPr"))
+    relationships = _ooxml.parse_xml(parts["word/_rels/document.xml.rels"])
+    for index, part_name in enumerate(part_names, start=1):
+        assert part_name.startswith("word/")
+        relationship_id = f"rIdPrivateAltChunk{index}"
+        alt_chunk = etree.Element(_ooxml.w("altChunk"))
+        alt_chunk.set(f"{{{office_relationships_ns}}}id", relationship_id)
+        if section is None:
+            body.append(alt_chunk)
+        else:
+            section.addprevious(alt_chunk)
+        relationship = etree.SubElement(
+            relationships,
+            f"{{{package_relationships_ns}}}Relationship",
+        )
+        relationship.set("Id", relationship_id)
+        relationship.set("Type", alt_chunk_relationship_type)
+        relationship.set(
+            "Target",
+            quote(part_name.removeprefix("word/"), safe="/"),
+        )
+        parts[part_name] = b"<html><body>Excluded fixture content.</body></html>"
+
+    parts["word/document.xml"] = etree.tostring(
+        document,
+        xml_declaration=True,
+        encoding="UTF-8",
+        standalone=True,
+    )
+    parts["word/_rels/document.xml.rels"] = etree.tostring(
+        relationships,
+        xml_declaration=True,
+        encoding="UTF-8",
+        standalone=True,
+    )
+    with zipfile.ZipFile(path, "w") as archive:
+        for info in infos:
+            archive.writestr(info, parts.pop(info.filename))
+        for part_name, payload in sorted(parts.items()):
+            archive.writestr(part_name, payload)
 
 
 def _mark_zip_member_encrypted(path: Path, member_name: str) -> None:
@@ -154,6 +219,40 @@ def _initialize_empty_decision_record_journal(workspace: Path) -> Path:
     return journal
 
 
+def _append_historical_record(
+    workspace: Path,
+    *,
+    tool_name: str,
+    input_payload: dict,
+    result: dict,
+    provenance: dict,
+    tool_result: dict | None = None,
+) -> str:
+    """Seed one historical frame without crossing the live-write boundary."""
+    journal = workspace / records.SIDECAR_DIR / records.JOURNAL_NAME
+    if not journal.exists():
+        journal = _initialize_empty_decision_record_journal(workspace)
+    lines = [line for line in journal.read_bytes().splitlines() if line]
+    last_number = (
+        int(json.loads(lines[-1])["record_id"].removeprefix("dr_")) if lines else 0
+    )
+    root, _identity = records._canonical_workspace(workspace)
+    record = records._base_record(
+        tool_name=tool_name,
+        workspace=root,
+        input_payload=input_payload,
+        result=result,
+        tool_result=tool_result,
+        provenance=provenance,
+        clock=records.utc_now,
+    )
+    record_id = f"dr_{last_number + 1:03d}"
+    frame = records._validated_record_bytes({**record, "record_id": record_id})
+    with journal.open("ab") as handle:
+        handle.write(frame + b"\n")
+    return record_id
+
+
 def _filesystem_snapshot(root: Path) -> dict[str, tuple[int, int, bytes | str | None]]:
     snapshot: dict[str, tuple[int, int, bytes | str | None]] = {}
     for path in sorted(root.rglob("*")):
@@ -183,6 +282,44 @@ def _export_core(workspace: Path) -> tuple[dict, dict]:
     )
 
 
+@contextmanager
+def _held_process_lock(path: Path, operation: str):
+    script = """
+import fcntl
+import os
+import sys
+
+fd = os.open(sys.argv[1], os.O_RDONLY)
+operation = fcntl.LOCK_EX if sys.argv[2] == "exclusive" else fcntl.LOCK_SH
+fcntl.flock(fd, operation)
+print("locked", flush=True)
+sys.stdin.read(1)
+os.close(fd)
+"""
+    process = subprocess.Popen(
+        [sys.executable, "-c", script, str(path), operation],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert process.stdout is not None
+        ready = process.stdout.readline().strip()
+        if ready != "locked":
+            stderr = process.stderr.read() if process.stderr is not None else ""
+            process.wait(timeout=5)
+            pytest.fail(f"lock holder failed before acquisition: {stderr}")
+        yield
+    finally:
+        if process.poll() is None and process.stdin is not None:
+            process.stdin.write("x")
+            process.stdin.flush()
+            process.stdin.close()
+        stderr = process.stderr.read() if process.stderr is not None else ""
+        assert process.wait(timeout=5) == 0, stderr
+
+
 def test_with_record_preserves_explicit_empty_record_result(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -199,7 +336,19 @@ def test_with_record_preserves_explicit_empty_record_result(
         tool_name="list_rounds",
         workspace=tmp_path,
         input_payload={},
-        result={"status": "ok", "value": 1},
+        result={
+            "folder": "demo",
+            "ordering_source": "filename_lexicographic_v1",
+            "order_basis": {
+                "kind": "filename",
+                "rule": "casefold_then_exact",
+                "lineage_verified": False,
+                "round_id_semantics": "position_only",
+            },
+            "revision_count_basis": docx_contracts.REVISION_COUNT_BASIS_V1,
+            "rounds": [],
+            "skipped": [],
+        },
         record_result={},
         provenance={},
     )
@@ -274,9 +423,10 @@ def test_successful_tool_calls_write_decision_records(tmp_path: Path) -> None:
     assert apply_record["provenance"]["applied"][0]["operation"] == "replace"
     assert apply_record["provenance"]["round_trip_check"]["status"] == "passed"
     assert apply_record["provenance"]["preflight_binding_status"] == "verified"
-    assert apply_record["provenance"]["preflight_candidate_sha256"] == applied[
-        "output_sha256"
-    ]
+    assert (
+        apply_record["provenance"]["preflight_candidate_sha256"]
+        == applied["output_sha256"]
+    )
     assert apply_record["provenance"]["candidate_output_sha256_match"] is True
 
 
@@ -289,9 +439,7 @@ def test_relative_tool_workspaces_are_canonical_and_match_export_digest(
     monkeypatch.chdir(tmp_path)
 
     listed = server.list_rounds("demo")
-    extracted = server.extract_redlines(
-        "demo/round-2-counterparty-redline.docx"
-    )
+    extracted = server.extract_redlines("demo/round-2-counterparty-redline.docx")
 
     assert listed["record_status"] == "written"
     assert extracted["record_status"] == "written"
@@ -300,8 +448,7 @@ def test_relative_tool_workspaces_are_canonical_and_match_export_digest(
     assert exported["record_status"] == "written"
     assert len(exported["records"]) == 2
     assert all(
-        record["workspace"] == exported["workspace"]
-        for record in exported["records"]
+        record["workspace"] == exported["workspace"] for record in exported["records"]
     )
 
     full = records.read_records(
@@ -312,9 +459,7 @@ def test_relative_tool_workspaces_are_canonical_and_match_export_digest(
     )
     expected_workspace = str(demo.resolve())
     assert full["workspace"] == expected_workspace
-    assert {record["workspace"] for record in full["records"]} == {
-        expected_workspace
-    }
+    assert {record["workspace"] for record in full["records"]} == {expected_workspace}
 
 
 def test_case_aliases_use_filesystem_spelling_for_workspace_identity(
@@ -333,9 +478,7 @@ def test_case_aliases_use_filesystem_spelling_for_workspace_identity(
 
     monkeypatch.chdir(tmp_path)
     listed = server.list_rounds("demomatter")
-    extracted = server.extract_redlines(
-        "DEMOMATTER/round-2-counterparty-redline.docx"
-    )
+    extracted = server.extract_redlines("DEMOMATTER/round-2-counterparty-redline.docx")
     exported = server.export_decision_record("dEmOmAtTeR", max_records=10)
 
     assert listed["record_status"] == "written"
@@ -343,8 +486,7 @@ def test_case_aliases_use_filesystem_spelling_for_workspace_identity(
     assert exported["record_status"] == "written"
     assert len(exported["records"]) == 2
     assert all(
-        record["workspace"] == exported["workspace"]
-        for record in exported["records"]
+        record["workspace"] == exported["workspace"] for record in exported["records"]
     )
     full = records.read_records(
         "DEMOMATTER",
@@ -384,11 +526,14 @@ def test_descriptor_path_spelling_is_used_when_available(
         lambda _path: pytest.fail("F_GETPATH should provide the descriptor path"),
     )
     try:
-        assert records._filesystem_spelled_workspace(
-            fd,
-            tmp_path / "caller-spelled-fallback",
-            (info.st_dev, info.st_ino),
-        ) == resolved
+        assert (
+            records._filesystem_spelled_workspace(
+                fd,
+                tmp_path / "caller-spelled-fallback",
+                (info.st_dev, info.st_ino),
+            )
+            == resolved
+        )
     finally:
         os.close(fd)
 
@@ -411,15 +556,19 @@ def test_case_sensitive_workspace_names_are_not_casefolded(tmp_path: Path) -> No
     assert upper_identity != lower_identity
 
     for workspace in (upper, lower):
-        assert records.write_record(
-            workspace=workspace,
-            tool_name="list_rounds",
-            input_payload={},
-            result={"status": "ok"},
-            provenance={},
-        )["record_status"] == "written"
-    assert records.read_records(str(upper), max_records=1)["workspace"] != (
-        records.read_records(str(lower), max_records=1)["workspace"]
+        assert (
+            records.write_record(
+                workspace=workspace,
+                tool_name="list_rounds",
+                input_payload={},
+                result={"status": "ok"},
+                provenance={},
+            )["record_status"]
+            == "written"
+        )
+    assert (
+        records.read_records(str(upper), max_records=1)["workspace"]
+        != (records.read_records(str(lower), max_records=1)["workspace"])
     )
 
 
@@ -469,10 +618,17 @@ def test_extract_record_is_compact_and_does_not_duplicate_change_text(
     )
     full_extract = veqtor_docx.extract_redlines(str(source))
     assert extract_record["tool_result_sha256"] == records._stable_digest(
-        {"status": "ok", **full_extract}
+        {"status": "ok", **full_extract, "producer": server._producer()}
     )
     assert extract_record["tool_result_sha256"] != extract_record["result_sha256"]
     assert extract_record["producer"]["build"]
+    observed_anchor = extract_record["provenance"]["anchors"]["sample"][0]
+    assert observed_anchor["schema_version"] == "change_unit_anchor.v2"
+    assert observed_anchor["container_policy"] == "canonical_body_flow_v1"
+    assert (
+        observed_anchor["unit_fingerprint_sha256"]
+        == extracted["change_units"][0]["anchor"]["unit_fingerprint_sha256"]
+    )
     serialized = json.dumps(extract_record, ensure_ascii=False)
     text = next(
         candidate
@@ -481,6 +637,457 @@ def test_extract_record_is_compact_and_does_not_duplicate_change_text(
         if candidate and len(candidate) > 20
     )
     assert text not in serialized
+
+
+def test_inspection_record_is_compact_text_free_and_keeps_hash_bound_refs(
+    tmp_path: Path,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-1-outgoing-draft.docx"
+    phrase = "Except as set out in Clause 14.3"
+
+    inspected = server.inspect_document(
+        str(source),
+        "literal_search",
+        phrases=[phrase],
+        match_basis="exact_literal",
+        max_items=1,
+    )
+    assert inspected["record_status"] == "written"
+    paragraph_ref = inspected["matches"][0]["paragraph_ref"]
+    verified = server.verify_quote(str(source), paragraph_ref, phrase)
+    assert verified["record_status"] == "written"
+
+    exported = server.export_decision_record(str(matter), max_records=10)
+    compact = next(
+        item for item in exported["records"] if item["tool_name"] == "inspect_document"
+    )
+    assert compact["record_type"] == "inspection.v1"
+    assert compact["result"]["mode"] == "literal_search"
+    assert compact["result"]["file_sha256"] == inspected["file_sha256"]
+    assert compact["result"]["coverage"]["complete_literal_match_count"] == 1
+    assert (
+        compact["result"]["coverage"]["indexed_paragraph_count"]
+        == (inspected["coverage"]["indexed_paragraph_count"])
+    )
+    assert (
+        compact["result"]["coverage"]["nonempty_indexed_paragraph_count"]
+        == (inspected["coverage"]["nonempty_indexed_paragraph_count"])
+    )
+    container_coverage = compact["result"]["coverage"]["container_coverage"]
+    assert container_coverage["schema_version"] == "canonical_body_flow_v1"
+    assert container_coverage["indexed_paragraph_count"] == (
+        container_coverage["body_paragraph_count"]
+        + container_coverage["table_cell_paragraph_count"]
+    )
+    assert container_coverage["coverage_complete"] is True
+    assert compact["result"]["limits"]["max_items"] == 100
+    assert compact["result"]["limits"]["wall_clock_partial_results"] is False
+    assert compact["result"]["match_count"] == 1
+    assert compact["provenance"]["inspection_refs"]["count"] == 1
+    assert compact["provenance"]["inspection_refs"]["sample"] == [
+        {"paragraph_ref": paragraph_ref}
+    ]
+    assert compact["provenance"]["inspection_refs"]["truncated"] is False
+    assert compact["provenance"]["limits"] == compact["result"]["limits"]
+    encoded = json.dumps(compact, ensure_ascii=False)
+    assert phrase not in encoded
+    assert str(matter.resolve()) not in encoded
+    assert str(source.resolve()) not in encoded
+    assert "snippet" not in encoded
+    assert "paragraphs" not in compact["result"]
+
+    compact_verify = next(
+        item for item in exported["records"] if item["tool_name"] == "verify_quote"
+    )
+    assert compact_verify["result"]["checked_anchor"] == paragraph_ref
+    match = compact_verify["result"]["matches"]["sample"][0]
+    assert match["side"] == "paragraph_current"
+    assert match["paragraph_index"] == paragraph_ref["paragraph_index"]
+    assert match["paragraph_text_sha256"] == paragraph_ref["paragraph_text_sha256"]
+    assert str(source.resolve()) not in json.dumps(compact_verify, ensure_ascii=False)
+
+    raw = records.read_records(
+        str(matter),
+        max_records=10,
+        include_payload=True,
+    )
+    record = next(
+        item for item in raw["records"] if item["tool_name"] == "inspect_document"
+    )
+    assert record["record_type"] == "inspection.v1"
+    assert record["result"]["match_count"] == 1
+    assert "matches" not in record["result"]
+    assert record["tool_result_sha256"] != record["result_sha256"]
+
+
+def test_legacy_inspection_counter_names_remain_compact_readable(
+    tmp_path: Path,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-1-outgoing-draft.docx"
+    inspected = server.inspect_document(str(source), "outline")
+    raw = records.read_records(
+        str(matter),
+        max_records=1,
+        include_payload=True,
+    )["records"][0]
+    legacy_result = copy.deepcopy(raw["result"])
+    legacy_provenance = copy.deepcopy(raw["provenance"])
+    for coverage in (legacy_result["coverage"], legacy_provenance["coverage"]):
+        coverage["body_paragraph_count"] = coverage.pop("indexed_paragraph_count")
+        coverage["nonempty_body_paragraph_count"] = coverage.pop(
+            "nonempty_indexed_paragraph_count"
+        )
+
+    record_id = _append_historical_record(
+        matter,
+        tool_name="inspect_document",
+        input_payload={"path": str(source), "mode": "outline"},
+        result=legacy_result,
+        provenance=legacy_provenance,
+    )
+
+    assert record_id == "dr_002"
+    compact = records.read_records(str(matter), max_records=1)["records"][0]
+    assert compact["record_type"] == "inspection.v1"
+    assert "compact_projection_complete" not in compact["result"]
+    assert "compact_projection_error" not in compact["result"]
+    for coverage in (
+        compact["result"]["coverage"],
+        compact["provenance"]["coverage"],
+    ):
+        assert (
+            coverage["indexed_paragraph_count"]
+            == (inspected["coverage"]["indexed_paragraph_count"])
+        )
+        assert (
+            coverage["nonempty_indexed_paragraph_count"]
+            == (inspected["coverage"]["nonempty_indexed_paragraph_count"])
+        )
+        assert "body_paragraph_count" not in coverage
+        assert "nonempty_body_paragraph_count" not in coverage
+
+    stored = records.read_records(
+        str(matter),
+        max_records=1,
+        include_payload=True,
+    )["records"][0]
+    assert "body_paragraph_count" in stored["result"]["coverage"]
+    assert "indexed_paragraph_count" not in stored["result"]["coverage"]
+
+
+def test_inspection_counter_projection_rejects_mixed_or_conflicting_shapes(
+    tmp_path: Path,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-1-outgoing-draft.docx"
+    coverage = server.inspect_document(str(source), "outline")["coverage"]
+
+    mixed = dict(coverage)
+    mixed["body_paragraph_count"] = mixed["indexed_paragraph_count"]
+    assert records._inspection_coverage_summary(mixed) is None
+
+    conflicting = dict(coverage)
+    conflicting["indexed_paragraph_count"] += 1
+    assert records._inspection_coverage_summary(conflicting) is None
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        {"status": "ok"},
+        {
+            "status": "ok",
+            "mode": "PRIVATE_INVALID_MODE",
+            "coverage": {"scan_complete": True},
+            "limits": {},
+        },
+        {
+            "status": "ok",
+            "mode": "outline",
+            "coverage": {"PRIVATE_COVERAGE": "PRIVATE_COVERAGE_VALUE"},
+            "limits": {"PRIVATE_LIMIT": "PRIVATE_LIMIT_VALUE"},
+        },
+    ],
+)
+def test_compact_export_keeps_schema_readable_invalid_inspection_total_and_safe(
+    tmp_path: Path,
+    result: dict[str, object],
+) -> None:
+    matter = _matter(tmp_path)
+    record_id = _append_historical_record(
+        matter,
+        tool_name="inspect_document",
+        input_payload={"phrases": ["PRIVATE_SEARCH_PHRASE"]},
+        result=result,
+        provenance={},
+    )
+
+    assert record_id == "dr_001"
+    exported = records.read_records(str(matter), max_records=1, include_payload=False)
+    compact_result = exported["records"][0]["result"]
+    assert compact_result == {
+        "status": "ok",
+        "compact_projection_complete": False,
+        "compact_projection_error": "invalid_inspection_result",
+    }
+    assert "PRIVATE" not in json.dumps(exported, ensure_ascii=False)
+
+    raw = records.read_records(str(matter), max_records=1, include_payload=True)
+    assert raw["records"][0]["result"] == result
+
+
+def test_inspection_coverage_compact_projection_accepts_safe_altchunk_parts(
+    tmp_path: Path,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-1-outgoing-draft.docx"
+    inspected = server.inspect_document(str(source), "outline")
+    coverage = dict(inspected["coverage"])
+    coverage["excluded_parts"] = [
+        *coverage["excluded_parts"],
+        "customXml/imported-clause.html",
+        "word/afchunk.html",
+        "word/imports/chunk-2.xhtml",
+    ]
+    container_coverage = dict(coverage["container_coverage"])
+    container_coverage.update(
+        {
+            "excluded_subtree_count": 1,
+            "excluded_by_kind": {"alt_chunk": 1},
+            "coverage_complete": False,
+            "legacy_two_field_anchor_safe": False,
+        }
+    )
+    coverage["container_coverage"] = container_coverage
+
+    projected = records._inspection_coverage_summary(coverage)
+
+    assert projected is not None
+    assert projected["excluded_parts"] == list(records.INSPECT_FIXED_EXCLUDED_PARTS_V1)
+    dynamic_parts = coverage["excluded_parts"][
+        len(records.INSPECT_FIXED_EXCLUDED_PARTS_V1) :
+    ]
+    assert projected["excluded_internal_parts"] == {
+        "count": 3,
+        "sha256": records._stable_digest(dynamic_parts),
+        "sample": [],
+        "truncated": True,
+    }
+    assert projected["container_coverage"]["excluded_by_kind"]["sample"] == [
+        {"key": "alt_chunk", "value": 1}
+    ]
+
+
+def test_compact_export_redacts_and_bounds_document_controlled_altchunk_names(
+    tmp_path: Path,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-1-outgoing-draft.docx"
+    private_part = "word/PRIVATE_CLIENT_ACQUISITION.html"
+    dynamic_parts = [
+        private_part,
+        *[f"word/private-chunk-{index:02d}.html" for index in range(24)],
+    ]
+    _add_internal_alt_chunks(source, dynamic_parts)
+
+    inspected = server.inspect_document(str(source), "outline")
+    observed_dynamic_parts = inspected["coverage"]["excluded_parts"][
+        len(records.INSPECT_FIXED_EXCLUDED_PARTS_V1) :
+    ]
+    assert observed_dynamic_parts == sorted(dynamic_parts)
+
+    exported = server.export_decision_record(str(matter), max_records=10)
+    compact_record = next(
+        record
+        for record in exported["records"]
+        if record["tool_name"] == "inspect_document"
+    )
+    compact_coverage = compact_record["result"]["coverage"]
+    assert compact_coverage["excluded_parts"] == list(
+        records.INSPECT_FIXED_EXCLUDED_PARTS_V1
+    )
+    assert compact_coverage["excluded_internal_parts"] == {
+        "count": 25,
+        "sha256": records._stable_digest(observed_dynamic_parts),
+        "sample": [],
+        "truncated": True,
+    }
+    compact_json = json.dumps(exported, ensure_ascii=False)
+    assert private_part not in compact_json
+    assert "private-chunk" not in compact_json
+
+    raw = records.read_records(
+        str(matter),
+        max_records=10,
+        include_payload=True,
+    )
+    raw_record = next(
+        record for record in raw["records"] if record["tool_name"] == "inspect_document"
+    )
+    assert private_part in raw_record["result"]["coverage"]["excluded_parts"]
+
+
+def test_compact_export_hashes_live_valid_long_altchunk_part_name(
+    tmp_path: Path,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-1-outgoing-draft.docx"
+    long_part = f"word/{'x' * 1_020}.html"
+    assert len(long_part) > 1_024
+    _add_internal_alt_chunks(source, [long_part])
+
+    inspected = server.inspect_document(str(source), "outline")
+    dynamic_parts = inspected["coverage"]["excluded_parts"][
+        len(records.INSPECT_FIXED_EXCLUDED_PARTS_V1) :
+    ]
+    assert dynamic_parts == [long_part]
+
+    exported = server.export_decision_record(str(matter), max_records=10)
+    compact_record = next(
+        record
+        for record in exported["records"]
+        if record["tool_name"] == "inspect_document"
+    )
+    assert "compact_projection_error" not in compact_record["result"]
+    assert compact_record["result"]["coverage"]["excluded_internal_parts"] == {
+        "count": 1,
+        "sha256": records._stable_digest(dynamic_parts),
+        "sample": [],
+        "truncated": True,
+    }
+    assert long_part not in json.dumps(exported, ensure_ascii=False)
+
+
+def test_compact_export_hashes_live_valid_percent_decoded_altchunk_part_names(
+    tmp_path: Path,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-1-outgoing-draft.docx"
+    decoded_parts = [
+        "word/private%matter.html",
+        "word/private:matter.html",
+        "word/private?matter.html",
+        "word/private#matter.html",
+    ]
+    _add_internal_alt_chunks(source, decoded_parts)
+
+    inspected = server.inspect_document(str(source), "outline")
+    dynamic_parts = inspected["coverage"]["excluded_parts"][
+        len(records.INSPECT_FIXED_EXCLUDED_PARTS_V1) :
+    ]
+    assert dynamic_parts == sorted(decoded_parts)
+
+    exported = server.export_decision_record(str(matter), max_records=10)
+    compact_record = next(
+        record
+        for record in exported["records"]
+        if record["tool_name"] == "inspect_document"
+    )
+    assert "compact_projection_error" not in compact_record["result"]
+    assert compact_record["result"]["coverage"]["excluded_internal_parts"] == {
+        "count": 4,
+        "sha256": records._stable_digest(dynamic_parts),
+        "sample": [],
+        "truncated": True,
+    }
+    compact_json = json.dumps(exported, ensure_ascii=False)
+    assert all(part_name not in compact_json for part_name in decoded_parts)
+
+
+def test_compact_export_hashes_altchunk_names_equal_to_fixed_scope_descriptors(
+    tmp_path: Path,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-1-outgoing-draft.docx"
+    colliding_parts = ["word/header*.xml", "word/comments*.xml"]
+    _add_internal_alt_chunks(source, colliding_parts)
+
+    inspected = server.inspect_document(str(source), "outline")
+    dynamic_parts = inspected["coverage"]["excluded_parts"][
+        len(records.INSPECT_FIXED_EXCLUDED_PARTS_V1) :
+    ]
+    assert dynamic_parts == sorted(colliding_parts)
+
+    exported = server.export_decision_record(str(matter), max_records=10)
+    compact_record = next(
+        record
+        for record in exported["records"]
+        if record["tool_name"] == "inspect_document"
+    )
+    compact_coverage = compact_record["result"]["coverage"]
+    assert compact_coverage["excluded_parts"] == list(
+        records.INSPECT_FIXED_EXCLUDED_PARTS_V1
+    )
+    assert compact_coverage["excluded_internal_parts"] == {
+        "count": 2,
+        "sha256": records._stable_digest(dynamic_parts),
+        "sample": [],
+        "truncated": True,
+    }
+    assert compact_coverage["excluded_parts"].count("word/header*.xml") == 1
+    assert compact_coverage["excluded_parts"].count("word/comments*.xml") == 1
+
+
+@pytest.mark.parametrize(
+    "part_name",
+    [
+        "https://example.test/chunk.html",
+        "/word/chunk.html",
+        "word/../chunk.html",
+        "word\\chunk.html",
+        "word//chunk.html",
+        "word/./chunk.html",
+        "word/chunk\n.html",
+        "word/chunk\ud800.html",
+    ],
+)
+def test_inspection_coverage_compact_projection_rejects_unsafe_altchunk_parts(
+    tmp_path: Path,
+    part_name: str,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-1-outgoing-draft.docx"
+    inspected = server.inspect_document(str(source), "outline")
+    coverage = dict(inspected["coverage"])
+    coverage["excluded_parts"] = [*coverage["excluded_parts"], part_name]
+
+    assert records._inspection_coverage_summary(coverage) is None
+
+
+def test_incomplete_change_unit_anchor_v2_is_omitted_from_compact_sample() -> None:
+    incomplete = {
+        "schema_version": "change_unit_anchor.v2",
+        "change_unit_id": "cu_001",
+        "container_policy": "canonical_body_flow_v1",
+        "unit_fingerprint_sha256": "b" * 64,
+    }
+
+    projected = records.bounded_observed_anchors([incomplete])
+
+    assert projected["count"] == 1
+    assert projected["sample"] == []
+    assert projected["truncated"] is True
+    assert projected["sha256"] == records._stable_digest([incomplete])
+
+    prebounded = {
+        "count": 1,
+        "sha256": records._stable_digest([incomplete]),
+        "sample": [incomplete],
+        "truncated": False,
+    }
+    reprojected = records._summary_provenance(
+        {
+            "tool_name": "extract_redlines",
+            "result": {"status": "ok"},
+            "provenance": {"anchors": prebounded},
+        }
+    )["anchors"]
+    assert reprojected["count"] == 1
+    assert reprojected["sample"] == []
+    assert reprojected["truncated"] is True
+    assert reprojected["sha256"] == prebounded["sha256"]
 
 
 def test_build_identity_ignores_asserted_environment_commit(
@@ -713,6 +1320,125 @@ def test_journal_write_failure_is_visible_without_failing_tool(tmp_path: Path) -
     assert result["record_id"] is None
     assert result["record_status"] == "write_failed"
     assert result["record_error"] == "journal_corrupt"
+
+
+def test_root_lock_contention_is_bounded_fail_open_and_recovers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matter = _matter(tmp_path)
+    monkeypatch.setattr(records, "JOURNAL_LOCK_TIMEOUT_SECONDS", 0.05)
+
+    with _held_process_lock(matter, "exclusive"):
+        result = server.list_rounds(str(matter))
+
+    assert len(result["rounds"]) == 4
+    assert result["record_id"] is None
+    assert result["record_status"] == "write_failed"
+    assert result["record_error"] == "journal_busy"
+    assert not (matter / records.SIDECAR_DIR).exists()
+
+    recovered = server.list_rounds(str(matter))
+    assert recovered["record_id"] == "dr_001"
+    assert recovered["record_status"] == "written"
+
+
+def test_journal_lock_contention_bounds_append_and_read_then_recovers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matter = _matter(tmp_path)
+    assert server.list_rounds(str(matter))["record_id"] == "dr_001"
+    journal = matter / records.SIDECAR_DIR / records.JOURNAL_NAME
+    before = journal.read_bytes()
+    monkeypatch.setattr(records, "JOURNAL_LOCK_TIMEOUT_SECONDS", 0.05)
+
+    with _held_process_lock(journal, "exclusive"):
+        appended = server.list_rounds(str(matter))
+        with pytest.raises(records.DecisionRecordError) as error:
+            records.read_records(str(matter), max_records=1)
+
+    assert appended["record_id"] is None
+    assert appended["record_status"] == "write_failed"
+    assert appended["record_error"] == "journal_busy"
+    assert error.value.code == "journal_busy"
+    assert journal.read_bytes() == before
+
+    recovered = server.list_rounds(str(matter))
+    assert recovered["record_id"] == "dr_002"
+    loaded = records.read_records(str(matter), max_records=10, include_payload=True)
+    assert [item["record_id"] for item in loaded["records"]] == [
+        "dr_001",
+        "dr_002",
+    ]
+
+
+def test_export_lock_contention_fails_closed_without_fallback_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matter = _matter(tmp_path)
+    assert server.list_rounds(str(matter))["record_id"] == "dr_001"
+    journal = matter / records.SIDECAR_DIR / records.JOURNAL_NAME
+    before = journal.read_bytes()
+    monkeypatch.setattr(records, "JOURNAL_LOCK_TIMEOUT_SECONDS", 0.05)
+
+    with _held_process_lock(matter, "exclusive"):
+        with pytest.raises(records.DecisionRecordError) as root_error:
+            _export_core(matter)
+    assert root_error.value.code == "journal_busy"
+    assert journal.read_bytes() == before
+
+    with _held_process_lock(journal, "shared"):
+        with pytest.raises(records.DecisionRecordError) as journal_error:
+            _export_core(matter)
+        with pytest.raises(server._McpBoundaryError) as boundary_error:
+            server.export_decision_record(str(matter))
+    assert journal_error.value.code == "journal_busy"
+    assert boundary_error.value.code == "journal_busy"
+    assert str(matter) not in str(boundary_error.value)
+    assert journal.read_bytes() == before
+
+    snapshot, meta = _export_core(matter)
+    assert snapshot["total_count"] == 1
+    assert meta == {"record_id": "dr_002", "record_status": "written"}
+
+
+def test_apply_output_survives_journal_contention(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matter = _matter(tmp_path)
+    source = matter / "round-2-counterparty-redline.docx"
+    _, anchor = _cap_from_tool(source)
+    journal = matter / records.SIDECAR_DIR / records.JOURNAL_NAME
+    before = journal.read_bytes()
+    output = matter / "round-3-local-counter.docx"
+    monkeypatch.setattr(records, "JOURNAL_LOCK_TIMEOUT_SECONDS", 0.05)
+
+    with _held_process_lock(journal, "exclusive"):
+        applied = _server_apply_edits(
+            str(source),
+            str(output),
+            [
+                {
+                    "anchor": anchor,
+                    "delete_text": "USD 50,000",
+                    "insert_text": "USD 250,000",
+                }
+            ],
+        )
+
+    assert applied["status"] == "ok"
+    assert applied["record_id"] is None
+    assert applied["record_status"] == "write_failed"
+    assert applied["record_error"] == "journal_busy"
+    assert output.is_file()
+    assert (
+        veqtor_docx.extract_redlines(str(output))["file_sha256"]
+        == (applied["output_sha256"])
+    )
+    assert journal.read_bytes() == before
 
 
 def test_sidecar_is_private_and_ignored_in_external_git(tmp_path: Path) -> None:
@@ -2519,7 +3245,7 @@ def test_export_refuses_when_workspace_identity_changes_after_discovery(
     ).read_bytes() == replacement_before
 
 
-def test_export_fallback_read_keeps_the_discovered_workspace_identity(
+def test_export_pre_snapshot_rebinding_failure_is_fail_closed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2547,7 +3273,7 @@ def test_export_fallback_read_keeps_the_discovered_workspace_identity(
     with pytest.raises(records.DecisionRecordError) as error:
         _export_core(selected)
 
-    assert error.value.code == "workspace_changed"
+    assert error.value.code == "workspace_unreadable"
     assert (
         held_original / records.SIDECAR_DIR / records.JOURNAL_NAME
     ).read_bytes() == original_before
@@ -2693,7 +3419,7 @@ def test_concurrent_exports_atomically_count_all_prior_access_events(
         assert event["result"]["next_before_record_id"] == item["next_before_record_id"]
 
 
-def test_export_write_failure_before_snapshot_falls_back_to_read(
+def test_export_write_failure_before_snapshot_is_fail_closed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2716,13 +3442,10 @@ def test_export_write_failure_before_snapshot_falls_back_to_read(
         raise OSError(errno.EROFS, "simulated read-only journal")
 
     monkeypatch.setattr(records, "_open_existing_journal_for_append", fail_open)
-    exported = server.export_decision_record(str(matter))
+    with pytest.raises(records.DecisionRecordError) as error:
+        _export_core(matter)
 
-    assert exported["record_status"] == "write_failed"
-    assert exported["record_error"] == "internal_error"
-    assert exported["total_count"] == 1
-    assert exported["access_count"] == 0
-    assert [record["record_id"] for record in exported["records"]] == ["dr_001"]
+    assert error.value.code == "workspace_unreadable"
     assert journal.read_bytes() == before
 
 
@@ -2894,6 +3617,52 @@ def test_read_records_rejects_non_boolean_payload_mode(
         records.read_records(str(matter), include_payload=invalid)  # type: ignore[arg-type]
 
     assert err.value.code == "invalid_include_payload"
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        True,
+        1.0,
+        "1",
+        records.MAX_MAX_RECORDS + 1,
+        10**records.MAX_JSON_INTEGER_DIGITS,
+    ],
+)
+def test_read_records_rejects_invalid_max_records(
+    tmp_path: Path,
+    invalid: object,
+) -> None:
+    matter = tmp_path / "matter"
+    matter.mkdir()
+
+    with pytest.raises(records.DecisionRecordError) as err:
+        records.read_records(str(matter), max_records=invalid)  # type: ignore[arg-type]
+
+    assert err.value.code == "invalid_max_records"
+
+
+@pytest.mark.parametrize("journaling_disabled", [False, True])
+def test_export_rejects_oversized_max_records_independent_of_journaling(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    journaling_disabled: bool,
+) -> None:
+    matter = _matter(tmp_path)
+    assert server.list_rounds(str(matter))["record_status"] == "written"
+    journal = matter / records.SIDECAR_DIR / records.JOURNAL_NAME
+    before = journal.read_bytes()
+    if journaling_disabled:
+        monkeypatch.setenv(records.DISABLE_ENV, "1")
+
+    with pytest.raises(veqtor_docx.DocxError) as error:
+        server.export_decision_record(
+            str(matter),
+            max_records=10**records.MAX_JSON_INTEGER_DIGITS,
+        )
+
+    assert error.value.code == "invalid_max_records"
+    assert journal.read_bytes() == before
 
 
 def test_read_records_defaults_to_compact_but_full_history_remains_available(
@@ -3286,9 +4055,7 @@ def test_docx_producer_domains_are_shared_with_v1_projection() -> None:
     assert records.MATCH_SIDES_V1 is docx_contracts.MATCH_SIDES_V1
     assert records.RESULT_STATUS_OK == docx_contracts.RESULT_STATUS_OK
     assert records.RESULT_STATUS_ERROR == docx_contracts.RESULT_STATUS_ERROR
-    assert records.REVISION_COUNT_BASES_V1 is (
-        docx_contracts.REVISION_COUNT_BASES_V1
-    )
+    assert records.REVISION_COUNT_BASES_V1 is (docx_contracts.REVISION_COUNT_BASES_V1)
     assert records.ROUND_TRIP_STATUSES_V1 is (docx_contracts.ROUND_TRIP_STATUSES_V1)
     assert records.ROUND_TRIP_COMPARISONS_V1 is (
         docx_contracts.ROUND_TRIP_COMPARISONS_V1
@@ -3350,9 +4117,7 @@ def test_revision_count_basis_survives_current_compact_projections() -> None:
             "provenance": {},
         }
         assert "revision_count_basis" not in records._summary_result(legacy_record)
-        assert "revision_count_basis" not in records._summary_provenance(
-            legacy_record
-        )
+        assert "revision_count_basis" not in records._summary_provenance(legacy_record)
 
 
 @pytest.mark.parametrize(
@@ -4607,9 +5372,10 @@ def test_invalid_record_schema_fails_before_sidecar_and_recovers(
     sorted(
         (tool_name, records.V1_HISTORICAL_TOOL_SPECS[tool_name].record_type)
         for tool_name in records.WRITABLE_TOOL_NAMES
+        if tool_name != "inspect_document"
     ),
 )
-def test_record_type_is_derived_for_every_registered_tool(
+def test_generic_writer_derives_record_type_for_each_authorized_success_tool(
     tmp_path: Path,
     tool_name: str,
     record_type: str,
@@ -4644,6 +5410,7 @@ def test_v1_historical_tool_specs_are_frozen_and_cover_writable_tools() -> None:
     expected = {
         "list_rounds": ("tool_observation.v1", "list_rounds"),
         "extract_redlines": ("tool_observation.v1", "extract_redlines"),
+        "inspect_document": ("inspection.v1", "inspect_document"),
         "verify_quote": ("verification.v1", "verify_quote"),
         "preflight_edits": ("verification.v1", "preflight_edits"),
         "apply_edits": ("decision.v1", "apply_edits"),
@@ -4663,16 +5430,16 @@ def test_v1_historical_tool_specs_are_frozen_and_cover_writable_tools() -> None:
 
 def test_api_historical_pair_list_matches_v1_registry() -> None:
     api = (Path(__file__).parents[1] / "API.md").read_text(encoding="utf-8")
-    section = api.split("The permanent pairs introduced by this release are:", 1)[
-        1
-    ].split("The pair is forward-compatible", 1)[0]
+    section = api.split(
+        "The permanent pairs registered by this source contract are:", 1
+    )[1].split("Each existing pair remains forward-compatible", 1)[0]
     documented = dict(re.findall(r"- `([^`]+)` → `([^`]+)`[.;]", section))
     expected = {
         tool_name: spec.record_type
         for tool_name, spec in records.V1_HISTORICAL_TOOL_SPECS.items()
     }
 
-    assert "The six historical `(tool_name, record_type)` pairs" in api
+    assert "The seven historical `(tool_name, record_type)` pairs" in api
     assert documented == expected
 
 
@@ -4688,6 +5455,347 @@ def test_v1_read_limits_are_not_narrowed() -> None:
     assert records.MAX_CANONICAL_JSON_NODES >= 1_000_000
     assert records.MAX_CANONICAL_JSON_NODES >= records.MAX_JOURNAL_NODES
     assert records.COMPACT_SAMPLE_LIMIT == 20
+
+
+def test_journal_operational_bounds_are_fixed() -> None:
+    assert records.MAX_JOURNAL_BYTES == 64 * 1024 * 1024
+    assert records.JOURNAL_LOCK_TIMEOUT_SECONDS == 1.0
+    assert 0 < records.JOURNAL_LOCK_POLL_SECONDS <= 0.01
+
+
+def test_lock_helper_uses_nonblocking_monotonic_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts: list[int] = []
+    sleeps: list[float] = []
+    moments = iter([0.0, 0.5, 1.0])
+
+    def contend(_fd: int, operation: int) -> None:
+        attempts.append(operation)
+        raise OSError(errno.EWOULDBLOCK, "busy")
+
+    monkeypatch.setattr(records.fcntl, "flock", contend)
+    with pytest.raises(records.DecisionRecordError) as error:
+        records._acquire_journal_lock(
+            7,
+            records.fcntl.LOCK_EX,
+            deadline=1.0,
+            monotonic=lambda: next(moments),
+            sleep=sleeps.append,
+        )
+
+    assert error.value.code == "journal_busy"
+    assert len(attempts) == 2
+    assert all(operation & records.fcntl.LOCK_NB for operation in attempts)
+    assert sleeps == [records.JOURNAL_LOCK_POLL_SECONDS] * 2
+
+
+def test_lock_helper_never_retries_flock_after_oversleeping_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts: list[int] = []
+    sleeps: list[float] = []
+    moments = iter([0.0, 5.0])
+
+    def released_after_first_contention(_fd: int, operation: int) -> None:
+        attempts.append(operation)
+        if len(attempts) == 1:
+            raise OSError(errno.EWOULDBLOCK, "busy")
+
+    monkeypatch.setattr(records.fcntl, "flock", released_after_first_contention)
+    with pytest.raises(records.DecisionRecordError) as error:
+        records._acquire_journal_lock(
+            7,
+            records.fcntl.LOCK_EX,
+            deadline=1.0,
+            monotonic=lambda: next(moments),
+            sleep=sleeps.append,
+        )
+
+    assert error.value.code == "journal_busy"
+    assert len(attempts) == 1
+    assert sleeps == [records.JOURNAL_LOCK_POLL_SECONDS]
+
+
+def test_lock_helper_retries_eintr_without_masking_other_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts = 0
+
+    def interrupt_once(_fd: int, _operation: int) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise OSError(errno.EINTR, "interrupted")
+
+    monkeypatch.setattr(records.fcntl, "flock", interrupt_once)
+    records._acquire_journal_lock(
+        7,
+        records.fcntl.LOCK_SH,
+        deadline=1.0,
+        monotonic=lambda: 0.0,
+    )
+    assert attempts == 2
+
+    def fail_io(_fd: int, _operation: int) -> None:
+        raise OSError(errno.EIO, "io failure")
+
+    monkeypatch.setattr(records.fcntl, "flock", fail_io)
+    with pytest.raises(OSError) as error:
+        records._acquire_journal_lock(
+            7,
+            records.fcntl.LOCK_SH,
+            deadline=1.0,
+            monotonic=lambda: 0.0,
+        )
+    assert error.value.errno == errno.EIO
+
+
+def test_write_reuses_one_deadline_for_root_and_journal_locks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matter = tmp_path / "matter"
+    matter.mkdir()
+    deadlines: list[float] = []
+
+    def capture(_fd: int, _operation: int, *, deadline: float) -> None:
+        deadlines.append(deadline)
+
+    monkeypatch.setattr(records, "_acquire_journal_lock", capture)
+    result = records.write_record(
+        workspace=matter,
+        tool_name="list_rounds",
+        input_payload={},
+        result={"status": "ok"},
+        provenance={},
+    )
+
+    assert result["record_status"] == "written"
+    assert len(deadlines) == 2
+    assert deadlines[0] == deadlines[1]
+
+
+def test_streaming_scan_retains_only_page_and_validates_older_records(
+    tmp_path: Path,
+) -> None:
+    matter = tmp_path / "matter"
+    matter.mkdir()
+    for index in range(5):
+        assert (
+            records.write_record(
+                workspace=matter,
+                tool_name="list_rounds",
+                input_payload={"index": index},
+                result={"status": "ok", "index": index},
+                provenance={"index": index},
+            )["record_status"]
+            == "written"
+        )
+    journal = matter / records.SIDECAR_DIR / records.JOURNAL_NAME
+
+    with journal.open("rb") as handle:
+        scan = records._scan_records(
+            handle,
+            journal,
+            limit=2,
+            include_access_events=False,
+        )
+
+    assert scan.visible_count == 5
+    assert scan.access_count == 0
+    assert scan.last_record_number == 5
+    assert [item["record_id"] for item in scan.selected] == ["dr_004", "dr_005"]
+    assert scan.byte_count == journal.stat().st_size
+
+    lines = journal.read_text(encoding="utf-8").splitlines()
+    oldest = json.loads(lines[0])
+    oldest["result"]["index"] = 999
+    lines[0] = json.dumps(oldest, separators=(",", ":"), sort_keys=True)
+    journal.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    with pytest.raises(records.DecisionRecordError) as error:
+        records.read_records(str(matter), max_records=1)
+    assert error.value.code == "journal_corrupt"
+
+
+def test_aggregate_oversize_blocks_all_paths_and_manual_archive_recovers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matter = tmp_path / "matter"
+    matter.mkdir()
+    for index in range(3):
+        assert (
+            records.write_record(
+                workspace=matter,
+                tool_name="list_rounds",
+                input_payload={"index": index},
+                result={"status": "ok", "index": index},
+                provenance={"index": index},
+            )["record_status"]
+            == "written"
+        )
+    journal = matter / records.SIDECAR_DIR / records.JOURNAL_NAME
+    before = journal.read_bytes()
+    monkeypatch.setattr(records, "MAX_JOURNAL_BYTES", len(before) - 1)
+
+    with pytest.raises(records.DecisionRecordError) as read_error:
+        records.read_records(str(matter), max_records=1)
+    failed_append = records.write_record(
+        workspace=matter,
+        tool_name="list_rounds",
+        input_payload={"index": 3},
+        result={"status": "ok", "index": 3},
+        provenance={"index": 3},
+    )
+    with pytest.raises(records.DecisionRecordError) as export_error:
+        _export_core(matter)
+
+    assert read_error.value.code == "journal_oversize"
+    assert failed_append["record_status"] == "write_failed"
+    assert failed_append["record_error"] == "journal_oversize"
+    assert export_error.value.code == "journal_oversize"
+    assert journal.read_bytes() == before
+
+    archived = journal.with_name("decision-records.archived.jsonl")
+    journal.rename(archived)
+    recovered = records.write_record(
+        workspace=matter,
+        tool_name="list_rounds",
+        input_payload={"index": "recovered"},
+        result={"status": "ok", "index": "recovered"},
+        provenance={"index": "recovered"},
+    )
+
+    assert archived.read_bytes() == before
+    assert recovered == {"record_id": "dr_001", "record_status": "written"}
+    assert records.read_records(str(matter), max_records=1)["total_count"] == 1
+
+
+def test_append_cap_counts_the_final_lf_byte(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matter = tmp_path / "matter"
+    matter.mkdir()
+    timestamp = datetime(2026, 7, 20, 12, 0, tzinfo=UTC)
+
+    def clock() -> datetime:
+        return timestamp
+
+    assert (
+        records.write_record(
+            workspace=matter,
+            tool_name="list_rounds",
+            input_payload={"index": 1},
+            result={"status": "ok", "index": 1},
+            provenance={"index": 1},
+            clock=clock,
+        )["record_status"]
+        == "written"
+    )
+    journal = matter / records.SIDECAR_DIR / records.JOURNAL_NAME
+    before = journal.read_bytes()
+    root, _ = records._canonical_workspace(matter)
+    next_record = records._base_record(
+        tool_name="list_rounds",
+        workspace=root,
+        input_payload={"index": 2},
+        result={"status": "ok", "index": 2},
+        tool_result=None,
+        provenance={"index": 2},
+        clock=clock,
+    )
+    frame = records._validated_record_bytes({**next_record, "record_id": "dr_002"})
+    cap_without_lf = len(before) + len(frame)
+    monkeypatch.setattr(records, "MAX_JOURNAL_BYTES", cap_without_lf)
+
+    refused = records.write_record(
+        workspace=matter,
+        tool_name="list_rounds",
+        input_payload={"index": 2},
+        result={"status": "ok", "index": 2},
+        provenance={"index": 2},
+        clock=clock,
+    )
+    assert refused["record_error"] == "journal_oversize"
+    assert journal.read_bytes() == before
+
+    monkeypatch.setattr(records, "MAX_JOURNAL_BYTES", cap_without_lf + 1)
+    accepted = records.write_record(
+        workspace=matter,
+        tool_name="list_rounds",
+        input_payload={"index": 2},
+        result={"status": "ok", "index": 2},
+        provenance={"index": 2},
+        clock=clock,
+    )
+    assert accepted == {"record_id": "dr_002", "record_status": "written"}
+    assert journal.stat().st_size == cap_without_lf + 1
+
+
+def test_export_append_over_cap_returns_frozen_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matter = tmp_path / "matter"
+    matter.mkdir()
+    assert (
+        records.write_record(
+            workspace=matter,
+            tool_name="list_rounds",
+            input_payload={},
+            result={"status": "ok"},
+            provenance={},
+        )["record_status"]
+        == "written"
+    )
+    journal = matter / records.SIDECAR_DIR / records.JOURNAL_NAME
+    before = journal.read_bytes()
+    monkeypatch.setattr(records, "MAX_JOURNAL_BYTES", len(before))
+
+    exported = server.export_decision_record(str(matter))
+
+    assert exported["total_count"] == 1
+    assert [item["record_id"] for item in exported["records"]] == ["dr_001"]
+    assert exported["record_id"] is None
+    assert exported["record_status"] == "write_failed"
+    assert exported["record_error"] == "journal_oversize"
+    assert journal.read_bytes() == before
+
+
+def test_export_result_factory_failure_after_scan_is_fail_closed(
+    tmp_path: Path,
+) -> None:
+    matter = tmp_path / "matter"
+    matter.mkdir()
+    assert (
+        records.write_record(
+            workspace=matter,
+            tool_name="list_rounds",
+            input_payload={},
+            result={"status": "ok"},
+            provenance={},
+        )["record_status"]
+        == "written"
+    )
+    journal = matter / records.SIDECAR_DIR / records.JOURNAL_NAME
+    before = journal.read_bytes()
+
+    def refuse_result(_snapshot: dict) -> dict:
+        raise RuntimeError("simulated result construction failure")
+
+    with pytest.raises(RuntimeError, match="result construction failure"):
+        records.export_records_with_access_event(
+            workspace=matter,
+            max_records=None,
+            before_record_id=None,
+            input_payload={"workspace": str(matter)},
+            result_factory=refuse_result,
+        )
+
+    assert journal.read_bytes() == before
 
 
 def test_canonical_json_v1_accepts_frozen_million_node_floor() -> None:
