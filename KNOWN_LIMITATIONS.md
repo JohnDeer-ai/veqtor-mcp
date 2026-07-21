@@ -117,7 +117,12 @@ current user's permissions.
   tie-break. It is not natural-number sorting, chronology or lineage proof. A
   caller may instead supply `ordered_filenames`, but it must name every candidate
   DOCX exactly once and remains only an explicit positional manifest.
-- There is no semantic cross-round clause matcher or authorship forensics.
+- Round Map performs complete exact paragraph comparison in the declared
+  main-body scope; it has no semantic, fuzzy, translated, morphological or
+  vector clause matcher and no authorship forensics. Its
+  `recorded_derivation` edges repeat validated local apply-record assertions
+  about document bytes only. They do not prove paragraph lineage, chronology,
+  approval, custody, deletion, restoration or first appearance.
 - `clause_anchor` and `manual_label` are best-effort navigation aids. Durable
   evidence remains an exact file SHA plus either a complete change-unit anchor
   and verified old/new wording or a hash-bound paragraph reference and verified

@@ -70,6 +70,8 @@ include = [
   "/src/veqtor_mcp/_inspection_live.py",
   "/src/veqtor_mcp/contracts.py",
   "/src/veqtor_mcp/records.py",
+  "/src/veqtor_mcp/round_map.py",
+  "/src/veqtor_mcp/round_map_contract.py",
   "/src/veqtor_mcp/server.py",
 ]
 
@@ -102,6 +104,8 @@ include = [
   "/src/veqtor_mcp/_inspection_live.py",
   "/src/veqtor_mcp/contracts.py",
   "/src/veqtor_mcp/records.py",
+  "/src/veqtor_mcp/round_map.py",
+  "/src/veqtor_mcp/round_map_contract.py",
   "/src/veqtor_mcp/server.py",
 ]
 

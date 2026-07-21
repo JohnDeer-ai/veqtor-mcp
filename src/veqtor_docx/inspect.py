@@ -430,18 +430,20 @@ def _alt_chunk_excluded_parts(
     return tuple(sorted(disclosed))
 
 
-def _load_snapshot(path: str) -> _Snapshot:
-    try:
-        resolved = resolve_user_path(path)
-    except UserPathError as exc:
-        raise InspectError(exc.code, exc.detail) from exc
-    try:
-        payload = read_docx_payload(resolved)
-    except ResourceLimitError:
-        raise
-    except OSError as exc:
-        raise InspectError("file_unreadable", "cannot read the DOCX") from exc
+def _load_snapshot_from_payload(
+    payload: bytes,
+    *,
+    path: str,
+    expanded_budget=None,
+    missing_document_part_code: str = "file_unextractable",
+) -> _Snapshot:
+    """Build the Stage 3A snapshot from caller-owned immutable DOCX bytes.
 
+    Round Map uses this internal entry point so every file hash, paragraph,
+    section and coverage fact comes from the same descriptor-captured byte
+    string.  The ordinary inspection entry point below remains responsible for
+    resolving and reading its own path.
+    """
     file_sha256 = hashlib.sha256(payload).hexdigest()
     try:
         package = load_validated_docx(
@@ -452,10 +454,11 @@ def _load_snapshot(path: str) -> _Snapshot:
                 "word/numbering.xml",
                 _DOCUMENT_RELS_PART,
             ),
+            expanded_budget=expanded_budget,
         )
         document_payload = package.parts.get(_PART_NAME)
         if document_payload is None:
-            raise InspectError("file_unextractable", f"no {_PART_NAME}")
+            raise InspectError(missing_document_part_code, f"no {_PART_NAME}")
         document = parse_xml(document_payload)
         try:
             body = require_single_direct_document_body(document)
@@ -526,7 +529,7 @@ def _load_snapshot(path: str) -> _Snapshot:
         ) from exc
 
     return _Snapshot(
-        path=resolved,
+        path=path,
         file_sha256=file_sha256,
         paragraphs=paragraphs,
         sections=sections,
@@ -535,6 +538,20 @@ def _load_snapshot(path: str) -> _Snapshot:
         revision_inventory=revision_inventory,
         excluded_parts=excluded_parts,
     )
+
+
+def _load_snapshot(path: str) -> _Snapshot:
+    try:
+        resolved = resolve_user_path(path)
+    except UserPathError as exc:
+        raise InspectError(exc.code, exc.detail) from exc
+    try:
+        payload = read_docx_payload(resolved)
+    except ResourceLimitError:
+        raise
+    except OSError as exc:
+        raise InspectError("file_unreadable", "cannot read the DOCX") from exc
+    return _load_snapshot_from_payload(payload, path=resolved)
 
 
 def _paragraph_ref(snapshot: _Snapshot, paragraph: _Paragraph) -> dict[str, Any]:

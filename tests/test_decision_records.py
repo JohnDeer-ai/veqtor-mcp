@@ -5372,7 +5372,7 @@ def test_invalid_record_schema_fails_before_sidecar_and_recovers(
     sorted(
         (tool_name, records.V1_HISTORICAL_TOOL_SPECS[tool_name].record_type)
         for tool_name in records.WRITABLE_TOOL_NAMES
-        if tool_name != "inspect_document"
+        if tool_name not in {"inspect_document", "map_rounds"}
     ),
 )
 def test_generic_writer_derives_record_type_for_each_authorized_success_tool(
@@ -5406,6 +5406,26 @@ def test_write_record_has_no_record_type_override() -> None:
     assert "record_type" not in inspect.signature(records.write_record).parameters
 
 
+def test_generic_round_map_writer_rejects_noncontract_projection(tmp_path: Path) -> None:
+    matter = tmp_path / "matter"
+    matter.mkdir()
+
+    meta = records.write_record(
+        workspace=matter,
+        tool_name="map_rounds",
+        input_payload={},
+        result={"status": "ok"},
+        provenance={},
+    )
+
+    assert meta == {
+        "record_id": None,
+        "record_status": "write_failed",
+        "record_error": "record_invalid",
+    }
+    assert not (matter / records.SIDECAR_DIR).exists()
+
+
 def test_v1_historical_tool_specs_are_frozen_and_cover_writable_tools() -> None:
     expected = {
         "list_rounds": ("tool_observation.v1", "list_rounds"),
@@ -5414,6 +5434,7 @@ def test_v1_historical_tool_specs_are_frozen_and_cover_writable_tools() -> None:
         "verify_quote": ("verification.v1", "verify_quote"),
         "preflight_edits": ("verification.v1", "preflight_edits"),
         "apply_edits": ("decision.v1", "apply_edits"),
+        "map_rounds": ("round_map.v1", "map_rounds"),
         "export_decision_record": (
             records.ACCESS_RECORD_TYPE,
             "export_decision_record",
@@ -5439,7 +5460,7 @@ def test_api_historical_pair_list_matches_v1_registry() -> None:
         for tool_name, spec in records.V1_HISTORICAL_TOOL_SPECS.items()
     }
 
-    assert "The seven historical `(tool_name, record_type)` pairs" in api
+    assert "The eight permanent `(tool_name, record_type)` pairs" in api
     assert documented == expected
 
 

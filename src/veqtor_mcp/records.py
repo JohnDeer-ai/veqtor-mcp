@@ -17,11 +17,14 @@ import time
 from collections import deque
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
+
+import jsonschema
 
 from veqtor_docx.contracts import (
     APPLY_OPERATIONS_V1,
@@ -62,6 +65,7 @@ COMPACT_SAMPLE_LIMIT = 20
 MAX_COMPACT_ID_LENGTH = 32
 MAX_JOURNAL_LINE_BYTES = 1_048_576
 MAX_JOURNAL_BYTES = 64 * 1024 * 1024
+ROUND_MAP_MAX_APPLY_RECORDS = 10_000
 MAX_JOURNAL_DEPTH = 64
 MAX_JOURNAL_NODES = 100_000
 JOURNAL_LOCK_TIMEOUT_SECONDS = 1.0
@@ -249,6 +253,7 @@ V1_HISTORICAL_TOOL_SPECS: Mapping[str, _V1ToolSpec] = MappingProxyType(
         "verify_quote": _V1ToolSpec("verification.v1", "verify_quote"),
         "preflight_edits": _V1ToolSpec("verification.v1", "preflight_edits"),
         "apply_edits": _V1ToolSpec("decision.v1", "apply_edits"),
+        "map_rounds": _V1ToolSpec("round_map.v1", "map_rounds"),
         "export_decision_record": _V1ToolSpec(
             ACCESS_RECORD_TYPE, "export_decision_record"
         ),
@@ -262,6 +267,7 @@ WRITABLE_TOOL_NAMES = frozenset(
         "verify_quote",
         "preflight_edits",
         "apply_edits",
+        "map_rounds",
         "export_decision_record",
     }
 )
@@ -1136,6 +1142,10 @@ def _check_record_schema(record: Any) -> int:
     for key in ("input", "result", "provenance", "producer"):
         if not isinstance(record.get(key), dict):
             fail(f"{key} missing")
+    if record["tool_name"] == "map_rounds" and not _round_map_write_is_valid(
+        record["result"], record["provenance"]
+    ):
+        fail("invalid round_map projection")
     producer = record["producer"]
     if not isinstance(producer.get("name"), str) or not producer["name"]:
         fail("producer.name missing")
@@ -1276,6 +1286,116 @@ def _scan_records(
         last_record_number=last_id,
         byte_count=byte_count,
     )
+
+
+def _scan_round_map_apply_records(
+    handle,
+    path: Path,
+) -> tuple[dict[str, Any], ...]:
+    """Validate the complete bounded journal and retain only apply records."""
+    declared_bytes = os.fstat(handle.fileno()).st_size
+    if declared_bytes > MAX_JOURNAL_BYTES:
+        raise DecisionRecordError(
+            "journal_oversize",
+            f"decision-record journal exceeds {MAX_JOURNAL_BYTES} bytes",
+        )
+    handle.seek(0)
+    selected: list[dict[str, Any]] = []
+    last_id = 0
+    line_no = 0
+    byte_count = 0
+    while True:
+        raw_line = handle.readline(MAX_JOURNAL_LINE_BYTES + 2)
+        if not raw_line:
+            break
+        byte_count += len(raw_line)
+        if byte_count > MAX_JOURNAL_BYTES:
+            raise DecisionRecordError(
+                "journal_oversize",
+                f"decision-record journal exceeds {MAX_JOURNAL_BYTES} bytes",
+            )
+        line_no += 1
+        terminated = raw_line.endswith(b"\n")
+        payload = raw_line[:-1] if terminated else raw_line
+        if len(payload) > MAX_JOURNAL_LINE_BYTES:
+            raise DecisionRecordError(
+                "journal_corrupt",
+                f"{path}:{line_no}: journal record exceeds "
+                f"{MAX_JOURNAL_LINE_BYTES} bytes",
+            )
+        if not terminated:
+            raise DecisionRecordError(
+                "journal_corrupt",
+                f"{path}:{line_no}: unterminated journal record",
+            )
+        record, current_id = _decode_record_line(payload, path, line_no)
+        if current_id <= last_id:
+            raise DecisionRecordError(
+                "journal_corrupt",
+                f"{path}:{line_no}: record_id is not strictly increasing",
+            )
+        last_id = current_id
+        if record.get("tool_name") != "apply_edits":
+            continue
+        if len(selected) >= ROUND_MAP_MAX_APPLY_RECORDS:
+            raise DecisionRecordError(
+                "resource_limit_exceeded",
+                "journal contains more than 10000 apply records",
+            )
+        selected.append(record)
+    return tuple(selected)
+
+
+def read_round_map_apply_records(
+    workspace: str | Path,
+) -> tuple[dict[str, Any], ...]:
+    """Take Round Map's fail-closed root-then-journal shared snapshot.
+
+    The root lock makes an absent sidecar/journal classification atomic with
+    cooperating writers.  If a journal exists, the root lock remains held
+    while the journal's shared lock protects the complete streaming scan.
+    """
+    try:
+        root, expected_identity = _canonical_workspace(workspace)
+        root_fd = _open_workspace_fd(root, expected_identity)
+        sidecar = root / SIDECAR_DIR
+        deadline = _journal_lock_deadline()
+        try:
+            with _bounded_journal_lock(
+                root_fd,
+                fcntl.LOCK_SH,
+                deadline=deadline,
+            ):
+                sidecar_fd = _open_sidecar_fd(root_fd, sidecar, missing_ok=True)
+                if sidecar_fd is None:
+                    return ()
+                try:
+                    handle = _open_journal_for_read(
+                        sidecar_fd,
+                        sidecar / JOURNAL_NAME,
+                    )
+                    if handle is None:
+                        return ()
+                    with handle:
+                        with _bounded_journal_lock(
+                            handle.fileno(),
+                            fcntl.LOCK_SH,
+                            deadline=deadline,
+                        ):
+                            return _scan_round_map_apply_records(
+                                handle,
+                                sidecar / JOURNAL_NAME,
+                            )
+                finally:
+                    os.close(sidecar_fd)
+        finally:
+            os.close(root_fd)
+    except DecisionRecordError:
+        raise
+    except OSError as exc:
+        raise DecisionRecordError(
+            "workspace_unreadable", "workspace cannot be read"
+        ) from exc
 
 
 def _validate_journal_fd(fd: int, path: Path) -> None:
@@ -1506,6 +1626,21 @@ def _inspection_write_is_authorized(
     return False
 
 
+def _round_map_write_is_valid(result: object, provenance: object) -> bool:
+    """Keep the privacy-minimized raw Round Map record shape fail-closed."""
+    from veqtor_mcp.round_map_contract import (
+        ROUND_MAP_RECORD_PROVENANCE_SCHEMA,
+        ROUND_MAP_RECORD_RESULT_SCHEMA,
+    )
+
+    try:
+        jsonschema.validate(result, ROUND_MAP_RECORD_RESULT_SCHEMA)
+        jsonschema.validate(provenance, ROUND_MAP_RECORD_PROVENANCE_SCHEMA)
+    except (jsonschema.SchemaError, jsonschema.ValidationError):
+        return False
+    return True
+
+
 def _write_record(
     *,
     workspace: Path,
@@ -1520,6 +1655,14 @@ def _write_record(
     """Write one already-authorized journal record."""
     if tool_name == "inspect_document" and not _inspection_write_is_authorized(
         result, _inspection_authority
+    ):
+        return {
+            "record_id": None,
+            "record_status": "write_failed",
+            "record_error": "record_invalid",
+        }
+    if tool_name == "map_rounds" and not _round_map_write_is_valid(
+        result, provenance
     ):
         return {
             "record_id": None,
@@ -2698,6 +2841,14 @@ def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
             "paragraph_count": _nonnegative_int(result.get("paragraph_count")),
             "next_cursor_present": _strict_bool(result.get("next_cursor_present")),
         }
+    if projection_kind == "map_rounds":
+        from veqtor_mcp.round_map_contract import ROUND_MAP_RECORD_RESULT_SCHEMA
+
+        try:
+            jsonschema.validate(result, ROUND_MAP_RECORD_RESULT_SCHEMA)
+        except Exception as exc:
+            raise _RecordSchemaError("invalid round_map result") from exc
+        return deepcopy(result)
     if projection_kind == "apply_edits":
         summary = {
             "status": _known_value(result.get("status"), V1_OK_STATUSES),
@@ -2801,6 +2952,14 @@ def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
 def _summary_provenance(record: dict[str, Any]) -> dict[str, Any]:
     provenance = record["provenance"]
     projection_kind = _historical_tool_spec(record["tool_name"]).projection_kind
+    if projection_kind == "map_rounds":
+        from veqtor_mcp.round_map_contract import ROUND_MAP_RECORD_PROVENANCE_SCHEMA
+
+        try:
+            jsonschema.validate(provenance, ROUND_MAP_RECORD_PROVENANCE_SCHEMA)
+        except Exception as exc:
+            raise _RecordSchemaError("invalid round_map provenance") from exc
+        return deepcopy(provenance)
     summary: dict[str, Any] = {}
     for key in (
         "file_sha256",

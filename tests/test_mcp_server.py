@@ -1077,6 +1077,18 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
             "limits",
             "next_cursor",
         },
+        "map_rounds": {
+            "schema_version",
+            "status",
+            "seed",
+            "ordering_source",
+            "order_basis",
+            "snapshot",
+            "items",
+            "coverage",
+            "limits",
+            "next_cursor",
+        },
         "preflight_edits": {
             "source_sha256",
             "batch_applicable",
