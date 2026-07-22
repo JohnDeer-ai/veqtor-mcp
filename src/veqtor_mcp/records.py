@@ -1578,6 +1578,579 @@ def _append_to_scanned_journal(
     return record_id
 
 
+@dataclass(frozen=True)
+class _PublicationEntrySnapshot:
+    present: bool
+    identity: tuple[int, int] | None
+    mode: int | None
+
+
+@dataclass(frozen=True)
+class _PathBoundPublicationSnapshot:
+    sidecar: _PublicationEntrySnapshot
+    gitignore: _PublicationEntrySnapshot
+    journal: _PublicationEntrySnapshot
+    journal_eof: int
+
+
+_ABSENT_PUBLICATION_ENTRY = _PublicationEntrySnapshot(
+    present=False,
+    identity=None,
+    mode=None,
+)
+
+
+def _publication_entry_snapshot(info: os.stat_result) -> _PublicationEntrySnapshot:
+    return _PublicationEntrySnapshot(
+        present=True,
+        identity=(info.st_dev, info.st_ino),
+        mode=stat.S_IMODE(info.st_mode),
+    )
+
+
+def _snapshot_publication_gitignore(
+    sidecar_fd: int,
+    path: Path,
+) -> tuple[_PublicationEntrySnapshot, int | None]:
+    try:
+        fd = os.open(
+            GITIGNORE_NAME,
+            os.O_RDONLY | O_NOFOLLOW | O_NONBLOCK,
+            dir_fd=sidecar_fd,
+        )
+    except FileNotFoundError:
+        return _ABSENT_PUBLICATION_ENTRY, None
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise DecisionRecordError(
+                "gitignore_symlink", f"{path} must not be a symlink"
+            ) from exc
+        raise
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise DecisionRecordError("gitignore_not_file", f"{path} must be a file")
+        if info.st_nlink != 1:
+            raise DecisionRecordError(
+                "gitignore_hardlink", f"{path} must not have multiple hard links"
+            )
+        if os.read(fd, 3) != b"*\n":
+            raise DecisionRecordError(
+                "gitignore_invalid", f"{path} must contain exactly '*\\n'"
+            )
+        return _publication_entry_snapshot(info), fd
+    except Exception:
+        os.close(fd)
+        raise
+
+
+def _snapshot_publication_journal(
+    sidecar_fd: int,
+    path: Path,
+) -> tuple[_PublicationEntrySnapshot, int, Any | None]:
+    try:
+        fd = os.open(
+            JOURNAL_NAME,
+            os.O_RDWR | os.O_APPEND | O_NOFOLLOW | O_NONBLOCK,
+            dir_fd=sidecar_fd,
+        )
+    except FileNotFoundError:
+        return _ABSENT_PUBLICATION_ENTRY, 0, None
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise DecisionRecordError(
+                "journal_symlink", f"{path} must not be a symlink"
+            ) from exc
+        raise
+    try:
+        _validate_journal_fd(fd, path)
+        info = os.fstat(fd)
+        return (
+            _publication_entry_snapshot(info),
+            info.st_size,
+            os.fdopen(fd, "a+b", buffering=0),
+        )
+    except Exception:
+        os.close(fd)
+        raise
+
+
+def _snapshot_path_bound_publication(
+    root_fd: int,
+    root: Path,
+) -> tuple[
+    _PathBoundPublicationSnapshot,
+    int | None,
+    int | None,
+    Any | None,
+]:
+    sidecar = root / SIDECAR_DIR
+    sidecar_fd = _open_sidecar_fd(root_fd, sidecar, missing_ok=True)
+    if sidecar_fd is None:
+        return (
+            _PathBoundPublicationSnapshot(
+                sidecar=_ABSENT_PUBLICATION_ENTRY,
+                gitignore=_ABSENT_PUBLICATION_ENTRY,
+                journal=_ABSENT_PUBLICATION_ENTRY,
+                journal_eof=0,
+            ),
+            None,
+            None,
+            None,
+        )
+    gitignore_fd: int | None = None
+    journal_handle: Any | None = None
+    try:
+        sidecar_snapshot = _publication_entry_snapshot(os.fstat(sidecar_fd))
+        gitignore_snapshot, gitignore_fd = _snapshot_publication_gitignore(
+            sidecar_fd,
+            sidecar / GITIGNORE_NAME,
+        )
+        journal_snapshot, journal_eof, journal_handle = _snapshot_publication_journal(
+            sidecar_fd,
+            sidecar / JOURNAL_NAME,
+        )
+        return (
+            _PathBoundPublicationSnapshot(
+                sidecar=sidecar_snapshot,
+                gitignore=gitignore_snapshot,
+                journal=journal_snapshot,
+                journal_eof=journal_eof,
+            ),
+            sidecar_fd,
+            gitignore_fd,
+            journal_handle,
+        )
+    except Exception:
+        if journal_handle is not None:
+            journal_handle.close()
+        if gitignore_fd is not None:
+            os.close(gitignore_fd)
+        os.close(sidecar_fd)
+        raise
+
+
+def _create_publication_sidecar(
+    root_fd: int,
+    sidecar: Path,
+) -> tuple[int, _PublicationEntrySnapshot]:
+    try:
+        os.mkdir(SIDECAR_DIR, mode=0o700, dir_fd=root_fd)
+    except FileExistsError as exc:
+        raise DecisionRecordError(
+            "workspace_changed", "sidecar appeared during map publication"
+        ) from exc
+    sidecar_fd: int | None = None
+    created_state: _PublicationEntrySnapshot | None = None
+    try:
+        created_info = os.stat(SIDECAR_DIR, dir_fd=root_fd, follow_symlinks=False)
+        if not stat.S_ISDIR(created_info.st_mode):
+            raise DecisionRecordError(
+                "workspace_changed", "new map sidecar identity changed"
+            )
+        created_state = _publication_entry_snapshot(created_info)
+        os.fsync(root_fd)
+        sidecar_fd = _open_sidecar_fd(root_fd, sidecar, missing_ok=False)
+        assert sidecar_fd is not None
+        if _publication_entry_snapshot(os.fstat(sidecar_fd)).identity != (
+            created_state.identity
+        ):
+            raise DecisionRecordError(
+                "workspace_changed", "new map sidecar identity changed"
+            )
+        return sidecar_fd, created_state
+    except Exception:
+        if sidecar_fd is not None:
+            os.close(sidecar_fd)
+        try:
+            if created_state is None:
+                raise DecisionRecordError(
+                    "internal_error", "new map sidecar identity is unavailable"
+                )
+            _require_publication_entry_identity(
+                root_fd,
+                SIDECAR_DIR,
+                created_state,
+                kind="sidecar",
+            )
+            os.rmdir(SIDECAR_DIR, dir_fd=root_fd)
+            os.fsync(root_fd)
+        except Exception as rollback_exc:
+            raise DecisionRecordError(
+                "internal_error", "new map sidecar could not be rolled back"
+            ) from rollback_exc
+        raise
+
+
+def _create_publication_gitignore(
+    sidecar_fd: int,
+    path: Path,
+) -> tuple[int, _PublicationEntrySnapshot]:
+    try:
+        fd = os.open(
+            GITIGNORE_NAME,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | O_NOFOLLOW,
+            0o600,
+            dir_fd=sidecar_fd,
+        )
+    except FileExistsError as exc:
+        raise DecisionRecordError(
+            "workspace_changed", "gitignore appeared during map publication"
+        ) from exc
+    created_state: _PublicationEntrySnapshot | None = None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise DecisionRecordError(
+                "gitignore_not_file", f"{path} must be a private regular file"
+            )
+        created_state = _publication_entry_snapshot(info)
+        _write_all(fd, b"*\n")
+        os.fsync(fd)
+        os.fsync(sidecar_fd)
+        return fd, created_state
+    except Exception:
+        os.close(fd)
+        try:
+            if created_state is None:
+                raise DecisionRecordError(
+                    "internal_error", "new map gitignore identity is unavailable"
+                )
+            _unlink_created_publication_entry(
+                sidecar_fd,
+                GITIGNORE_NAME,
+                created_state,
+                kind="gitignore",
+            )
+        except Exception as rollback_exc:
+            raise DecisionRecordError(
+                "internal_error", "new map gitignore could not be rolled back"
+            ) from rollback_exc
+        raise
+
+
+def _create_publication_journal(
+    sidecar_fd: int,
+    path: Path,
+) -> tuple[Any, _PublicationEntrySnapshot]:
+    try:
+        fd = os.open(
+            JOURNAL_NAME,
+            os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_APPEND | O_NOFOLLOW,
+            0o600,
+            dir_fd=sidecar_fd,
+        )
+    except FileExistsError as exc:
+        raise DecisionRecordError(
+            "workspace_changed", "journal appeared during map publication"
+        ) from exc
+    created_state: _PublicationEntrySnapshot | None = None
+    try:
+        _validate_journal_fd(fd, path)
+        created_state = _publication_entry_snapshot(os.fstat(fd))
+        os.fsync(sidecar_fd)
+        return os.fdopen(fd, "a+b", buffering=0), created_state
+    except Exception:
+        os.close(fd)
+        try:
+            if created_state is None:
+                raise DecisionRecordError(
+                    "internal_error", "new map journal identity is unavailable"
+                )
+            _unlink_created_publication_entry(
+                sidecar_fd,
+                JOURNAL_NAME,
+                created_state,
+                kind="journal",
+            )
+        except Exception as rollback_exc:
+            raise DecisionRecordError(
+                "internal_error", "new map journal could not be rolled back"
+            ) from rollback_exc
+        raise
+
+
+def _require_publication_entry_identity(
+    parent_fd: int,
+    name: str,
+    expected: _PublicationEntrySnapshot,
+    *,
+    kind: str,
+) -> None:
+    assert expected.present and expected.identity is not None
+    try:
+        info = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    except OSError as exc:
+        raise DecisionRecordError(
+            "workspace_changed", f"{kind} changed during map publication"
+        ) from exc
+    unsafe_type = kind == "sidecar" and not stat.S_ISDIR(info.st_mode)
+    unsafe_type = unsafe_type or (
+        kind in {"gitignore", "journal"}
+        and (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1)
+    )
+    if unsafe_type or (info.st_dev, info.st_ino) != expected.identity:
+        raise DecisionRecordError(
+            "workspace_changed", f"{kind} changed during map publication"
+        )
+
+
+def _revalidate_path_bound_publication(
+    root: Path,
+    expected_workspace_identity: tuple[int, int],
+    root_fd: int,
+    sidecar_fd: int,
+    sidecar_state: _PublicationEntrySnapshot,
+    gitignore_state: _PublicationEntrySnapshot,
+    journal_state: _PublicationEntrySnapshot,
+) -> None:
+    try:
+        check_fd = _open_workspace_fd(root, expected_workspace_identity)
+    except Exception as exc:
+        raise DecisionRecordError(
+            "workspace_changed", "workspace path changed during map publication"
+        ) from exc
+    else:
+        os.close(check_fd)
+    _require_publication_entry_identity(
+        root_fd,
+        SIDECAR_DIR,
+        sidecar_state,
+        kind="sidecar",
+    )
+    _require_publication_entry_identity(
+        sidecar_fd,
+        GITIGNORE_NAME,
+        gitignore_state,
+        kind="gitignore",
+    )
+    _require_publication_entry_identity(
+        sidecar_fd,
+        JOURNAL_NAME,
+        journal_state,
+        kind="journal",
+    )
+
+
+def _restore_publication_mode(
+    fd: int,
+    snapshot: _PublicationEntrySnapshot,
+) -> None:
+    assert snapshot.present and snapshot.mode is not None
+    if stat.S_IMODE(os.fstat(fd).st_mode) != snapshot.mode:
+        os.fchmod(fd, snapshot.mode)
+        os.fsync(fd)
+
+
+def _unlink_created_publication_entry(
+    parent_fd: int,
+    name: str,
+    state: _PublicationEntrySnapshot,
+    *,
+    kind: str,
+) -> None:
+    _require_publication_entry_identity(parent_fd, name, state, kind=kind)
+    os.unlink(name, dir_fd=parent_fd)
+    os.fsync(parent_fd)
+
+
+def _rollback_path_bound_publication(
+    *,
+    root_fd: int,
+    sidecar_fd: int | None,
+    gitignore_fd: int | None,
+    journal_handle: Any | None,
+    snapshot: _PathBoundPublicationSnapshot,
+    sidecar_state: _PublicationEntrySnapshot | None,
+    gitignore_state: _PublicationEntrySnapshot | None,
+    journal_state: _PublicationEntrySnapshot | None,
+) -> None:
+    rollback_errors: list[Exception] = []
+
+    try:
+        if journal_handle is not None:
+            if snapshot.journal.present:
+                journal_handle.flush()
+                current_size = os.fstat(journal_handle.fileno()).st_size
+                if current_size != snapshot.journal_eof:
+                    os.ftruncate(journal_handle.fileno(), snapshot.journal_eof)
+                    os.fsync(journal_handle.fileno())
+                _restore_publication_mode(journal_handle.fileno(), snapshot.journal)
+            elif journal_state is not None and sidecar_fd is not None:
+                _unlink_created_publication_entry(
+                    sidecar_fd,
+                    JOURNAL_NAME,
+                    journal_state,
+                    kind="journal",
+                )
+    except Exception as exc:
+        rollback_errors.append(exc)
+    try:
+        if gitignore_fd is not None:
+            if snapshot.gitignore.present:
+                _restore_publication_mode(gitignore_fd, snapshot.gitignore)
+            elif gitignore_state is not None and sidecar_fd is not None:
+                _unlink_created_publication_entry(
+                    sidecar_fd,
+                    GITIGNORE_NAME,
+                    gitignore_state,
+                    kind="gitignore",
+                )
+    except Exception as exc:
+        rollback_errors.append(exc)
+    try:
+        if sidecar_fd is not None:
+            if snapshot.sidecar.present:
+                _restore_publication_mode(sidecar_fd, snapshot.sidecar)
+            elif sidecar_state is not None:
+                _require_publication_entry_identity(
+                    root_fd,
+                    SIDECAR_DIR,
+                    sidecar_state,
+                    kind="sidecar",
+                )
+                os.rmdir(SIDECAR_DIR, dir_fd=root_fd)
+                os.fsync(root_fd)
+    except Exception as exc:
+        rollback_errors.append(exc)
+    if rollback_errors:
+        raise DecisionRecordError(
+            "internal_error", "path-bound map publication rollback failed"
+        ) from rollback_errors[0]
+
+
+def _append_path_bound_record(
+    root: Path,
+    expected_workspace_identity: tuple[int, int],
+    record: dict[str, Any],
+    *,
+    lock_deadline: float,
+) -> str:
+    root_fd = _open_workspace_fd(root, expected_workspace_identity)
+    sidecar = root / SIDECAR_DIR
+    sidecar_fd: int | None = None
+    gitignore_fd: int | None = None
+    journal_handle: Any | None = None
+    snapshot: _PathBoundPublicationSnapshot | None = None
+    sidecar_state: _PublicationEntrySnapshot | None = None
+    gitignore_state: _PublicationEntrySnapshot | None = None
+    journal_state: _PublicationEntrySnapshot | None = None
+    rolled_back = False
+    try:
+        with _bounded_journal_lock(root_fd, fcntl.LOCK_EX, deadline=lock_deadline):
+            (
+                snapshot,
+                sidecar_fd,
+                gitignore_fd,
+                journal_handle,
+            ) = _snapshot_path_bound_publication(root_fd, root)
+            try:
+                if sidecar_fd is None:
+                    sidecar_fd, sidecar_state = _create_publication_sidecar(
+                        root_fd,
+                        sidecar,
+                    )
+                else:
+                    sidecar_state = snapshot.sidecar
+                if journal_handle is None:
+                    journal_handle, journal_state = _create_publication_journal(
+                        sidecar_fd,
+                        sidecar / JOURNAL_NAME,
+                    )
+                else:
+                    journal_state = snapshot.journal
+                with _bounded_journal_lock(
+                    journal_handle.fileno(),
+                    fcntl.LOCK_EX,
+                    deadline=lock_deadline,
+                ):
+                    try:
+                        if (
+                            snapshot.journal.present
+                            and os.fstat(journal_handle.fileno()).st_size
+                            != snapshot.journal_eof
+                        ):
+                            raise DecisionRecordError(
+                                "workspace_changed",
+                                "journal changed before map publication",
+                            )
+                        scan = _scan_records(
+                            journal_handle,
+                            sidecar / JOURNAL_NAME,
+                            limit=None,
+                        )
+                        if scan.byte_count != snapshot.journal_eof:
+                            raise DecisionRecordError(
+                                "workspace_changed",
+                                "journal changed before map publication",
+                            )
+                        if gitignore_fd is None:
+                            gitignore_fd, gitignore_state = (
+                                _create_publication_gitignore(
+                                    sidecar_fd,
+                                    sidecar / GITIGNORE_NAME,
+                                )
+                            )
+                        else:
+                            gitignore_state = snapshot.gitignore
+                        os.fchmod(sidecar_fd, 0o700)
+                        os.fsync(sidecar_fd)
+                        os.fchmod(gitignore_fd, 0o600)
+                        os.fsync(gitignore_fd)
+                        os.fchmod(journal_handle.fileno(), 0o600)
+                        os.fsync(journal_handle.fileno())
+                        record_id = _append_to_scanned_journal(
+                            journal_handle,
+                            scan,
+                            record,
+                        )
+                        _revalidate_path_bound_publication(
+                            root,
+                            expected_workspace_identity,
+                            root_fd,
+                            sidecar_fd,
+                            sidecar_state,
+                            gitignore_state,
+                            journal_state,
+                        )
+                        return record_id
+                    except BaseException:
+                        rolled_back = True
+                        _rollback_path_bound_publication(
+                            root_fd=root_fd,
+                            sidecar_fd=sidecar_fd,
+                            gitignore_fd=gitignore_fd,
+                            journal_handle=journal_handle,
+                            snapshot=snapshot,
+                            sidecar_state=sidecar_state,
+                            gitignore_state=gitignore_state,
+                            journal_state=journal_state,
+                        )
+                        raise
+            except BaseException:
+                if not rolled_back:
+                    rolled_back = True
+                    _rollback_path_bound_publication(
+                        root_fd=root_fd,
+                        sidecar_fd=sidecar_fd,
+                        gitignore_fd=gitignore_fd,
+                        journal_handle=journal_handle,
+                        snapshot=snapshot,
+                        sidecar_state=sidecar_state,
+                        gitignore_state=gitignore_state,
+                        journal_state=journal_state,
+                    )
+                raise
+    finally:
+        if journal_handle is not None:
+            journal_handle.close()
+        if gitignore_fd is not None:
+            os.close(gitignore_fd)
+        if sidecar_fd is not None:
+            os.close(sidecar_fd)
+        os.close(root_fd)
+
+
 def _record_error(exc: BaseException) -> str:
     if isinstance(exc, DecisionRecordError):
         return exc.code
@@ -1736,17 +2309,25 @@ def _write_record(
         except (_JsonBoundaryError, _RecordSchemaError) as exc:
             raise DecisionRecordError("record_invalid", str(exc)) from exc
         lock_deadline = _journal_lock_deadline()
-        with _sidecar_for_write(
-            root,
-            expected_identity=expected_identity,
-            lock_deadline=lock_deadline,
-        ) as (sidecar, sidecar_fd):
-            record_id = _append_locked(
-                sidecar_fd,
-                sidecar / JOURNAL_NAME,
+        if expected_workspace_identity is not None:
+            record_id = _append_path_bound_record(
+                root,
+                expected_identity,
                 record,
                 lock_deadline=lock_deadline,
             )
+        else:
+            with _sidecar_for_write(
+                root,
+                expected_identity=expected_identity,
+                lock_deadline=lock_deadline,
+            ) as (sidecar, sidecar_fd):
+                record_id = _append_locked(
+                    sidecar_fd,
+                    sidecar / JOURNAL_NAME,
+                    record,
+                    lock_deadline=lock_deadline,
+                )
     except Exception as exc:
         return {
             "record_id": None,

@@ -1073,6 +1073,151 @@ def test_total_item_limit_accepts_boundary_and_refuses_one_over() -> None:
     assert error.value.code == "resource_limit_exceeded"
 
 
+def _authority_at_item_class_count(
+    limit_key: str,
+    observed: int,
+) -> round_map_module._SourceEvidence:
+    def sha(index: int) -> str:
+        return f"{index + 1:064x}"
+
+    def document_id(index: int) -> str:
+        return f"rm_doc_v1:{sha(index)}"
+
+    observations: list[round_map_module._ObservationEvidence] = []
+    recorded: list[round_map_module._RecordedEvidence] = []
+    paragraphs: list[round_map_module._ParagraphEvidence] = []
+    sections: list[round_map_module._SectionEvidence] = []
+    conflicts: list[round_map_module._ConflictEvidence] = []
+
+    if limit_key in {"document_nodes", "resolution_items"}:
+        observation_count = 500 + max(0, observed - 10_500)
+        observations.extend(
+            round_map_module._ObservationEvidence(
+                observation_id=f"rm_obs_v1:{sha(index + 20_000)}",
+                document_id=document_id(index),
+                canonical_path=f"/synthetic/round-{index:03d}.docx",
+                filename=f"round-{index:03d}.docx",
+                position=index,
+                byte_length=1,
+                file_sha256=sha(index),
+                inspection_coverage_json=b"{}",
+            )
+            for index in range(observation_count)
+        )
+        recorded.extend(
+            round_map_module._RecordedEvidence(
+                relationship_id=f"rm_rel_v1:{sha(index + 30_000)}",
+                source_id=document_id(0),
+                output_id=document_id(index + observation_count),
+                supporting_records=(
+                    (
+                        f"dr_{index + 1:03d}",
+                        sha(index + 40_000),
+                        "current_v0.3",
+                    ),
+                ),
+            )
+            for index in range(10_000)
+        )
+    elif limit_key == "document_observations":
+        observations.extend(
+            round_map_module._ObservationEvidence(
+                observation_id=f"rm_obs_v1:{sha(index + 20_000)}",
+                document_id=document_id(0),
+                canonical_path=f"/synthetic/round-{index:03d}.docx",
+                filename=f"round-{index:03d}.docx",
+                position=index,
+                byte_length=1,
+                file_sha256=sha(0),
+                inspection_coverage_json=b"{}",
+            )
+            for index in range(observed)
+        )
+    elif limit_key in {"paragraph_nodes", "exact_equality_relationships"}:
+        paragraph_count = observed if limit_key == "paragraph_nodes" else observed + 1
+        paragraphs.extend(
+            round_map_module._ParagraphEvidence(
+                paragraph_id=f"rm_par_v1:{sha(index + 20_000)}",
+                document_id=document_id(0),
+                paragraph_ref_json=b"{}",
+                container_kind="body",
+                paragraph_text_sha256=sha(50_000),
+                role="exact_candidate" if index > 0 else "seed",
+            )
+            for index in range(paragraph_count)
+        )
+        expected_exact = (
+            observed
+            if limit_key == "exact_equality_relationships"
+            else max(0, observed - 1)
+        )
+        assert (
+            sum(item.role == "exact_candidate" for item in paragraphs) == expected_exact
+        )
+    elif limit_key in {"section_nodes", "navigation_relationships"}:
+        section_count = observed if limit_key == "section_nodes" else observed + 1
+        sections.extend(
+            round_map_module._SectionEvidence(
+                section_id=f"rm_sec_v1:{sha(index + 20_000)}",
+                document_id=document_id(0),
+                section_ref_json=b"{}",
+                label="1",
+                heading=None,
+                level=0,
+                label_basis="explicit_heading_text_v1",
+                role="candidate_navigation" if index > 0 else "seed_navigation",
+            )
+            for index in range(section_count)
+        )
+        expected_navigation = (
+            observed
+            if limit_key == "navigation_relationships"
+            else max(0, observed - 1)
+        )
+        assert (
+            sum(item.role == "candidate_navigation" for item in sections)
+            == expected_navigation
+        )
+    elif limit_key == "recorded_derivation_relationships":
+        recorded.extend(
+            round_map_module._RecordedEvidence(
+                relationship_id=f"rm_rel_v1:{sha(index + 20_000)}",
+                source_id=document_id(0),
+                output_id=document_id(index + 1),
+                supporting_records=(
+                    (f"dr_{index + 1:03d}", sha(index + 40_000), "current_v0.3"),
+                ),
+            )
+            for index in range(observed)
+        )
+    elif limit_key == "conflict_items":
+        conflicts.extend(
+            round_map_module._ConflictEvidence(
+                conflict_id=f"rm_conflict_v1:{sha(index + 20_000)}",
+                reason="result_output_sha256_mismatch",
+                affected_document_ids=(document_id(0),),
+                record_sha256=sha(index + 40_000),
+            )
+            for index in range(observed)
+        )
+    else:  # pragma: no cover - closed test vocabulary
+        raise AssertionError(f"unsupported authority limit: {limit_key}")
+
+    return round_map_module._SourceEvidence(
+        workspace_path="/synthetic",
+        workspace_identity=(1, 1),
+        seed_path="/synthetic/seed.docx",
+        ordering_source="filename_lexicographic_v1",
+        cursor_offset=0,
+        page_size=100,
+        observations=tuple(observations),
+        recorded_relationships=tuple(recorded),
+        paragraphs=tuple(paragraphs),
+        sections=tuple(sections),
+        conflicts=tuple(conflicts),
+    )
+
+
 @pytest.mark.parametrize(
     ("label", "limit_key"),
     [
@@ -1088,13 +1233,43 @@ def test_total_item_limit_accepts_boundary_and_refuses_one_over() -> None:
     ],
 )
 def test_every_frozen_item_class_cap_is_inclusive_and_refuses_one_over(
-    label: str, limit_key: str
+    label: str,
+    limit_key: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     limit = ROUND_MAP_LIMITS[limit_key]
-    round_map_module._enforce_resource_boundary(limit, limit_key, label)
+    boundary = _authority_at_item_class_count(limit_key, limit)
+    round_map_module._validate_authority_limits(boundary)
+    del boundary
+
+    calls: list[tuple[str, int]] = []
+    original_enforcement = round_map_module._enforce_resource_boundary
+
+    def enforce_target(observed: int, key: str, detail: str) -> None:
+        calls.append((key, observed))
+        if key == limit_key:
+            original_enforcement(observed, key, detail)
+
+    projected = False
+
+    def unexpected_projection(_authority):
+        nonlocal projected
+        projected = True
+        raise AssertionError(f"{label} over-limit authority reached projection")
+
+    monkeypatch.setattr(
+        round_map_module,
+        "_enforce_resource_boundary",
+        enforce_target,
+    )
+    monkeypatch.setattr(round_map_module, "_projection_facts", unexpected_projection)
+    one_over = _authority_at_item_class_count(limit_key, limit + 1)
     with pytest.raises(RoundMapError) as error:
-        round_map_module._enforce_resource_boundary(limit + 1, limit_key, label)
+        round_map_module._validate_authority_limits(one_over)
+        round_map_module._projection_facts(one_over)
     assert error.value.code == "resource_limit_exceeded"
+    assert (limit_key, limit + 1) in calls
+    assert projected is False
 
 
 @pytest.mark.parametrize(
@@ -1778,6 +1953,111 @@ def test_round_map_publication_is_bound_to_captured_workspace_identity(
     )
     assert not (original / records.SIDECAR_DIR).exists()
     assert not (matter / records.SIDECAR_DIR).exists()
+
+
+@pytest.mark.parametrize(
+    "initialization_state",
+    ["absent", "sidecar_only", "gitignore_only", "journal_only", "initialized"],
+)
+@pytest.mark.parametrize("path_race", ["missing", "replacement", "final_symlink"])
+def test_round_map_publication_rolls_back_post_open_path_races(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    initialization_state: str,
+    path_race: str,
+) -> None:
+    matter = _matter(tmp_path)
+    seed = _seed(_round(matter, 1))
+    sidecar = matter / records.SIDECAR_DIR
+    gitignore = sidecar / records.GITIGNORE_NAME
+    journal = sidecar / records.JOURNAL_NAME
+    before: dict[str, tuple[tuple[int, int], int, bytes | None]] = {}
+
+    if initialization_state == "initialized":
+        assert (
+            server.map_rounds(str(matter), seed, max_items=100)["record_status"]
+            == "written"
+        )
+    elif initialization_state != "absent":
+        sidecar.mkdir()
+        if initialization_state == "gitignore_only":
+            gitignore.write_bytes(b"*\n")
+        elif initialization_state == "journal_only":
+            journal.touch()
+
+    if sidecar.exists():
+        sidecar.chmod(0o751)
+        if gitignore.exists():
+            gitignore.chmod(0o640)
+        if journal.exists():
+            journal.chmod(0o640)
+        for name, path in {
+            "sidecar": sidecar,
+            "gitignore": gitignore,
+            "journal": journal,
+        }.items():
+            if not path.exists():
+                continue
+            info = path.lstat()
+            before[name] = (
+                (info.st_dev, info.st_ino),
+                info.st_mode & 0o7777,
+                None if path.is_dir() else path.read_bytes(),
+            )
+
+    moved = tmp_path / "captured-workspace"
+    pristine_append = records._append_to_scanned_journal
+    raced = False
+
+    def race_then_append(handle, scan, record):
+        nonlocal raced
+        assert raced is False
+        matter.rename(moved)
+        if path_race == "replacement":
+            matter.mkdir()
+        elif path_race == "final_symlink":
+            matter.symlink_to(moved, target_is_directory=True)
+        raced = True
+        return pristine_append(handle, scan, record)
+
+    monkeypatch.setattr(records, "_append_to_scanned_journal", race_then_append)
+    result = server.map_rounds(str(matter), seed, max_items=100)
+
+    assert raced is True
+    assert (result["record_id"], result["record_status"], result["record_error"]) == (
+        None,
+        "write_failed",
+        "workspace_changed",
+    )
+    moved_sidecar = moved / records.SIDECAR_DIR
+    if initialization_state != "absent":
+        for name, path in {
+            "sidecar": moved_sidecar,
+            "gitignore": moved_sidecar / records.GITIGNORE_NAME,
+            "journal": moved_sidecar / records.JOURNAL_NAME,
+        }.items():
+            if name not in before:
+                assert not path.exists()
+                assert not path.is_symlink()
+                continue
+            info = path.lstat()
+            identity, mode, payload = before[name]
+            assert (info.st_dev, info.st_ino) == identity
+            assert info.st_mode & 0o7777 == mode
+            if payload is not None:
+                assert path.read_bytes() == payload
+    else:
+        assert not moved_sidecar.exists()
+
+    if path_race == "missing":
+        assert not matter.exists()
+        assert not matter.is_symlink()
+    elif path_race == "replacement":
+        assert matter.is_dir()
+        assert list(matter.iterdir()) == []
+    else:
+        assert matter.is_symlink()
+        assert matter.readlink() == moved
 
 
 @pytest.mark.parametrize(
@@ -2860,7 +3140,7 @@ def test_candidate_id_sample_uses_complete_digest_and_bounded_prefix(
     assert summary["truncated"] is True
 
 
-def _coherent_70k_computation(workspace: Path) -> round_map_module.RoundMapComputation:
+def _coherent_70k_authority(workspace: Path) -> round_map_module._SourceEvidence:
     workspace.mkdir()
 
     def sha(index: int) -> str:
@@ -3027,6 +3307,11 @@ def _coherent_70k_computation(workspace: Path) -> round_map_module.RoundMapCompu
         conflicts=(),
     )
     round_map_module._validate_authority_limits(authority)
+    return authority
+
+
+def _coherent_70k_computation(workspace: Path) -> round_map_module.RoundMapComputation:
+    authority = _coherent_70k_authority(workspace)
     facts = round_map_module._projection_facts(authority)
     assert facts.eligible_item_count == 70_000
     proof = round_map_module._RoundMapProof(
@@ -3072,8 +3357,18 @@ def test_coherent_70000_complete_map_validates_and_publishes_once(
 
 
 def test_70001_refuses_before_item_fingerprinting(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    authority = _coherent_70k_authority(tmp_path / "coherent-70001")
+    extra_section = replace(
+        authority.sections[0],
+        section_id="rm_sec_v1:" + "d" * 64,
+    )
+    one_over = replace(
+        authority,
+        sections=(*authority.sections, extra_section),
+    )
     called = False
 
     def unexpected(_item):
@@ -3083,9 +3378,8 @@ def test_70001_refuses_before_item_fingerprinting(
 
     monkeypatch.setattr(round_map_module, "_item_fingerprint", unexpected)
     with pytest.raises(RoundMapError) as error:
-        round_map_module._freeze_item_fingerprints(
-            [{}] * (ROUND_MAP_LIMITS["total_map_items"] + 1)
-        )
+        round_map_module._validate_authority_limits(one_over)
+        round_map_module._projection_facts(one_over)
     assert error.value.code == "resource_limit_exceeded"
     assert called is False
 
