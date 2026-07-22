@@ -968,6 +968,7 @@ def map_rounds(
         normalized = _validated_success_result("map_rounds", computation.result)
         if not isinstance(normalized, dict):
             raise _OutputContractError
+        round_map.validate_computation_result(computation, normalized)
         meta = _validated_record_metadata(
             records.write_record(
                 workspace=computation.workspace,
@@ -982,9 +983,7 @@ def map_rounds(
     except (veqtor_docx.DocxError, _OutputContractError):
         raise
     except records.DecisionRecordError as exc:
-        raise _McpBoundaryError(
-            exc.code, "decision-record operation refused"
-        ) from None
+        raise _McpBoundaryError(exc.code, "decision-record operation refused") from None
     except Exception:
         raise _McpBoundaryError("internal_error", "unexpected tool failure") from None
 

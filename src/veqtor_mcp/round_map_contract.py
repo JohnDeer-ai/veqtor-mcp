@@ -597,25 +597,31 @@ ROUND_MAP_RESULT_PROPERTIES: dict[str, Any] = {
 
 ROUND_MAP_RESULT_REQUIRED = list(ROUND_MAP_RESULT_PROPERTIES)
 
-_ITEM_SUMMARY_ENTRY = _closed(
-    {
-        "item_type": {
-            "enum": list(
-                (
-                    "document_node",
-                    "document_observation",
-                    "paragraph_node",
-                    "section_node",
-                    "relationship",
-                    "resolution",
-                    "conflict",
-                )
-            )
-        },
-        "id": _NONEMPTY,
-        "item_sha256": _SHA,
-    }
-)
+_SUMMARY_ID_PREFIXES = {
+    "document_node": "rm_doc_v1",
+    "document_observation": "rm_obs_v1",
+    "paragraph_node": "rm_par_v1",
+    "section_node": "rm_sec_v1",
+    "relationship": "rm_rel_v1",
+    "resolution": "rm_resolution_v1",
+    "conflict": "rm_conflict_v1",
+}
+
+_ITEM_SUMMARY_ENTRY = {
+    "oneOf": [
+        _closed(
+            {
+                "item_type": {"const": item_type},
+                "id": {
+                    "type": "string",
+                    "pattern": rf"^{prefix}:[0-9a-f]{{64}}$",
+                },
+                "item_sha256": _SHA,
+            }
+        )
+        for item_type, prefix in _SUMMARY_ID_PREFIXES.items()
+    ]
+}
 
 ROUND_MAP_RECORD_RESULT_SCHEMA: dict[str, Any] = _closed(
     {

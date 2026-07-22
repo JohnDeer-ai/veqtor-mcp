@@ -111,15 +111,18 @@ the journal file fsync succeeded. Operations that create `.veqtor`, its
 `.gitignore`, or the journal also require the relevant directory fsync. This is
 not an absolute hardware power-loss guarantee. After low-level storage
 failures, `write_failed` means the commit is unknown even if a partial frame
-later appears on disk. Controlled fail-closed
-`DocxError` refusals attempt to record and are then re-raised; FastMCP error
-responses cannot echo their `record_id` in v1. Transport/type validation
-errors never reach the tool wrapper and are not recorded. Unexpected failures
-anywhere in workspace resolution, the core call, provenance projection,
-journal publication or response construction are journaled as a generic
-`internal_error` when a safe workspace exists, then replaced with a
-context-free MCP error. Their exception type, message, document content and
-local paths are never returned to the client. A corrupt journal
+later appears on disk. Controlled fail-closed `DocxError` refusals from the
+seven tools other than `map_rounds` attempt to record and are then re-raised;
+FastMCP error responses cannot echo their `record_id` in v1. Round Map has a
+frozen success-only `round_map.v1` record: a pre-result refusal, including
+sanitized `internal_error`, neither appends a Map failure record nor initializes
+`.veqtor`. Only a fully validated successful map attempts that record; a
+post-result publication failure returns the valid map with
+`record_status: "write_failed"`. Transport/type validation errors never reach
+the tool wrapper and are not recorded. Unexpected failures from the other
+seven tools are journaled as a generic `internal_error` when a safe workspace
+exists, then replaced with a context-free MCP error. Exception types, messages,
+document content and local paths are never returned to the client. A corrupt journal
 (`journal_corrupt`) or aggregate-oversized journal (`journal_oversize`) fails
 closed on direct read and export and blocks further append. The journal is a
 sequence of non-empty JSON records, each terminated by one LF; blank frames and
@@ -318,7 +321,10 @@ relevant apply-record snapshot, policies, limits and full result set. A changed
 page size is allowed; drift returns `cursor_mismatch`. Candidate and journal
 limits fail the whole call rather than returning a selected subset. The exact
 closed schemas, fixed limits and failure precedence are frozen in
-`ROUND_MAP_V0.3.md`.
+`ROUND_MAP_V0.3.md`. That file is the preimplementation acceptance contract and
+therefore preserves its historical seven-tool/future-implementation wording;
+the current development source implements the resulting permanent eighth tool
+without rewriting the frozen specification.
 
 ## `extract_redlines`
 

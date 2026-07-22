@@ -204,3 +204,18 @@ def test_round_map_spec_closes_conflict_endpoints_and_digests() -> None:
     assert expected["candidate_id_count"] == 0
     assert expected["journal_snapshot_includes_record"] is True
     assert expected["full_result_set_includes_conflict_and_resolution"] is True
+
+
+def test_current_docs_distinguish_frozen_acceptance_from_eight_tool_runtime() -> None:
+    api = (ROOT / "API.md").read_text(encoding="utf-8")
+    limitations = (ROOT / "KNOWN_LIMITATIONS.md").read_text(encoding="utf-8")
+    backlog = (ROOT / "POST-V0.1-BACKLOG.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "preimplementation acceptance contract" in api
+    assert "permanent eighth tool" in api
+    assert "seven tools other than `map_rounds`" in api
+    assert "success-only `round_map.v1` record" in api
+    assert "Pre-result Map refusals do not append" in limitations
+    assert "eighth tool and\npermanent success-only record pair" in backlog
+    assert "`map_rounds`: a bounded seed-centred map" in readme

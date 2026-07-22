@@ -123,6 +123,11 @@ current user's permissions.
   `recorded_derivation` edges repeat validated local apply-record assertions
   about document bytes only. They do not prove paragraph lineage, chronology,
   approval, custody, deletion, restoration or first appearance.
+- Round Map's permanent `round_map.v1` journal projection is success-only.
+  Pre-result Map refusals do not append a failure record or initialize
+  `.veqtor`; after a valid map exists, an append failure is reported as
+  `record_status: "write_failed"` without discarding the map. The other seven
+  tools retain their documented controlled-failure journaling behavior.
 - `clause_anchor` and `manual_label` are best-effort navigation aids. Durable
   evidence remains an exact file SHA plus either a complete change-unit anchor
   and verified old/new wording or a hash-bound paragraph reference and verified

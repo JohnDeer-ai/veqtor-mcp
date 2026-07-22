@@ -1142,7 +1142,7 @@ def _check_record_schema(record: Any) -> int:
     for key in ("input", "result", "provenance", "producer"):
         if not isinstance(record.get(key), dict):
             fail(f"{key} missing")
-    if record["tool_name"] == "map_rounds" and not _round_map_write_is_valid(
+    if record["tool_name"] == "map_rounds" and not _round_map_record_shape_is_valid(
         record["result"], record["provenance"]
     ):
         fail("invalid round_map projection")
@@ -1348,6 +1348,8 @@ def _scan_round_map_apply_records(
 
 def read_round_map_apply_records(
     workspace: str | Path,
+    *,
+    expected_workspace_identity: tuple[int, int] | None = None,
 ) -> tuple[dict[str, Any], ...]:
     """Take Round Map's fail-closed root-then-journal shared snapshot.
 
@@ -1356,7 +1358,20 @@ def read_round_map_apply_records(
     while the journal's shared lock protects the complete streaming scan.
     """
     try:
-        root, expected_identity = _canonical_workspace(workspace)
+        root, resolved_identity = _canonical_workspace(workspace)
+        if (
+            expected_workspace_identity is not None
+            and resolved_identity != expected_workspace_identity
+        ):
+            raise DecisionRecordError(
+                "workspace_changed",
+                "workspace identity changed between filesystem and journal snapshots",
+            )
+        expected_identity = (
+            resolved_identity
+            if expected_workspace_identity is None
+            else expected_workspace_identity
+        )
         root_fd = _open_workspace_fd(root, expected_identity)
         sidecar = root / SIDECAR_DIR
         deadline = _journal_lock_deadline()
@@ -1626,7 +1641,7 @@ def _inspection_write_is_authorized(
     return False
 
 
-def _round_map_write_is_valid(result: object, provenance: object) -> bool:
+def _round_map_record_shape_is_valid(result: object, provenance: object) -> bool:
     """Keep the privacy-minimized raw Round Map record shape fail-closed."""
     from veqtor_mcp.round_map_contract import (
         ROUND_MAP_RECORD_PROVENANCE_SCHEMA,
@@ -1639,6 +1654,19 @@ def _round_map_write_is_valid(result: object, provenance: object) -> bool:
     except (jsonschema.SchemaError, jsonschema.ValidationError):
         return False
     return True
+
+
+def _round_map_write_is_valid(
+    result: object, provenance: object, tool_result: object
+) -> bool:
+    if not _round_map_record_shape_is_valid(result, provenance):
+        return False
+    try:
+        from veqtor_mcp.round_map import validate_record_projection
+
+        return validate_record_projection(tool_result, result, provenance)
+    except Exception:
+        return False
 
 
 def _write_record(
@@ -1662,7 +1690,7 @@ def _write_record(
             "record_error": "record_invalid",
         }
     if tool_name == "map_rounds" and not _round_map_write_is_valid(
-        result, provenance
+        result, provenance, tool_result
     ):
         return {
             "record_id": None,

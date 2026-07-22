@@ -436,6 +436,7 @@ def _load_snapshot_from_payload(
     path: str,
     expanded_budget=None,
     missing_document_part_code: str = "file_unextractable",
+    invalid_document_structure_code: str = "file_unextractable",
 ) -> _Snapshot:
     """Build the Stage 3A snapshot from caller-owned immutable DOCX bytes.
 
@@ -463,7 +464,7 @@ def _load_snapshot_from_payload(
         try:
             body = require_single_direct_document_body(document)
         except DocxError as exc:
-            raise InspectError("file_unextractable", str(exc)) from exc
+            raise InspectError(invalid_document_structure_code, str(exc)) from exc
         flow = canonical_body_flow_v1(body)
         if len(flow.paragraphs) > MAX_INDEXED_PARAGRAPHS:
             raise ResourceLimitError(
