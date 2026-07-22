@@ -127,7 +127,10 @@ current user's permissions.
   Pre-result Map refusals do not append a failure record or initialize
   `.veqtor`; after a valid map exists, an append failure is reported as
   `record_status: "write_failed"` without discarding the map. The other seven
-  tools retain their documented controlled-failure journaling behavior.
+  tools retain their documented controlled-failure journaling behavior. A
+  missing or replaced workspace path at publication is reported as
+  `record_error: "workspace_changed"`; publication writes neither the captured
+  directory under its new name nor the replacement at the old name.
 - `clause_anchor` and `manual_label` are best-effort navigation aids. Durable
   evidence remains an exact file SHA plus either a complete change-unit anchor
   and verified old/new wording or a hash-bound paragraph reference and verified

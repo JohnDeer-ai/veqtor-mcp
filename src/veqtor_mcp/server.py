@@ -974,9 +974,10 @@ def map_rounds(
                 workspace=computation.workspace,
                 tool_name="map_rounds",
                 input_payload=input_payload,
-                result=round_map.record_summary(normalized),
+                result=round_map.record_summary(computation),
                 tool_result=normalized,
-                provenance=round_map.record_provenance(normalized),
+                provenance=round_map.record_provenance(computation),
+                expected_workspace_identity=computation.workspace_identity,
             )
         )
         return {**normalized, **meta}

@@ -7,6 +7,24 @@ from typing import Any
 
 from .round_map import ROUND_MAP_LIMITS
 
+
+def _stage3b_pattern(body: str) -> str:
+    """Anchor every Stage 3B identity at the absolute end of the string."""
+    return rf"^(?:{body})(?![\s\S])"
+
+
+_DOC_ID_PATTERN = _stage3b_pattern(r"rm_doc_v1:[0-9a-f]{64}")
+_OBSERVATION_ID_PATTERN = _stage3b_pattern(r"rm_obs_v1:[0-9a-f]{64}")
+_PARAGRAPH_ID_PATTERN = _stage3b_pattern(r"rm_par_v1:[0-9a-f]{64}")
+_SECTION_ID_PATTERN = _stage3b_pattern(r"rm_sec_v1:[0-9a-f]{64}")
+_RELATIONSHIP_ID_PATTERN = _stage3b_pattern(r"rm_rel_v1:[0-9a-f]{64}")
+_RESOLUTION_ID_PATTERN = _stage3b_pattern(r"rm_resolution_v1:[0-9a-f]{64}")
+_CONFLICT_ID_PATTERN = _stage3b_pattern(r"rm_conflict_v1:[0-9a-f]{64}")
+_ROUND_ID_PATTERN = _stage3b_pattern(r"round-[0-9]{3,}")
+_RECORD_ID_PATTERN = _stage3b_pattern(r"dr_[0-9]+")
+_CANDIDATE_ID_PATTERN = _stage3b_pattern(r"rm_(?:par|sec)_v1:[0-9a-f]{64}")
+_CURSOR_PATTERN = _stage3b_pattern(r"rm1:[1-9][0-9]*:[0-9a-f]{64}")
+
 _SHA = {
     "type": "string",
     "minLength": 64,
@@ -131,7 +149,7 @@ _DOCUMENT_NODE = _closed(
     {
         "schema_version": {"const": "round_map_item.v1"},
         "item_type": {"const": "document_node"},
-        "id": {"type": "string", "pattern": r"^rm_doc_v1:[0-9a-f]{64}$"},
+        "id": {"type": "string", "pattern": _DOC_ID_PATTERN},
         "file_sha256": _SHA,
         "observation_state": {
             "enum": ["current", "record_only", "current_and_recorded"]
@@ -148,15 +166,15 @@ _OBSERVATION = _closed(
     {
         "schema_version": {"const": "round_map_item.v1"},
         "item_type": {"const": "document_observation"},
-        "id": {"type": "string", "pattern": r"^rm_obs_v1:[0-9a-f]{64}$"},
+        "id": {"type": "string", "pattern": _OBSERVATION_ID_PATTERN},
         "document_id": {
             "type": "string",
-            "pattern": r"^rm_doc_v1:[0-9a-f]{64}$",
+            "pattern": _DOC_ID_PATTERN,
         },
         "path": _NONEMPTY,
         "filename": _NONEMPTY,
         "position": _NONNEG,
-        "round_id": {"type": "string", "pattern": r"^round-[0-9]{3,}$"},
+        "round_id": {"type": "string", "pattern": _ROUND_ID_PATTERN},
         "position_basis": {
             "enum": [
                 "filename_lexicographic_v1",
@@ -170,10 +188,10 @@ _PARAGRAPH_NODE = _closed(
     {
         "schema_version": {"const": "round_map_item.v1"},
         "item_type": {"const": "paragraph_node"},
-        "id": {"type": "string", "pattern": r"^rm_par_v1:[0-9a-f]{64}$"},
+        "id": {"type": "string", "pattern": _PARAGRAPH_ID_PATTERN},
         "document_id": {
             "type": "string",
-            "pattern": r"^rm_doc_v1:[0-9a-f]{64}$",
+            "pattern": _DOC_ID_PATTERN,
         },
         "paragraph_ref": PARAGRAPH_REF_SCHEMA,
         "container_kind": {"enum": ["body", "table_cell"]},
@@ -207,10 +225,10 @@ _SECTION_NODE = _closed(
     {
         "schema_version": {"const": "round_map_item.v1"},
         "item_type": {"const": "section_node"},
-        "id": {"type": "string", "pattern": r"^rm_sec_v1:[0-9a-f]{64}$"},
+        "id": {"type": "string", "pattern": _SECTION_ID_PATTERN},
         "document_id": {
             "type": "string",
-            "pattern": r"^rm_doc_v1:[0-9a-f]{64}$",
+            "pattern": _DOC_ID_PATTERN,
         },
         "section_ref": SECTION_REF_SCHEMA,
         "label": _NULL_STRING,
@@ -239,7 +257,7 @@ _SECTION_NODE = _closed(
 
 _SUPPORT_SAMPLE = _closed(
     {
-        "record_id": {"type": "string", "pattern": r"^dr_[0-9]+$"},
+        "record_id": {"type": "string", "pattern": _RECORD_ID_PATTERN},
         "record_sha256": _SHA,
         "profile": {
             "enum": [
@@ -328,26 +346,26 @@ def _relationship_variant(
         {
             "schema_version": {"const": "round_map_item.v1"},
             "item_type": {"const": "relationship"},
-            "id": {"type": "string", "pattern": r"^rm_rel_v1:[0-9a-f]{64}$"},
+            "id": {"type": "string", "pattern": _RELATIONSHIP_ID_PATTERN},
             "relationship_type": {"const": relationship_type},
             "from_id": {
                 "type": "string",
                 "pattern": (
-                    r"^rm_doc_v1:[0-9a-f]{64}$"
+                    _DOC_ID_PATTERN
                     if relationship_type == "recorded_derivation"
-                    else r"^rm_par_v1:[0-9a-f]{64}$"
+                    else _PARAGRAPH_ID_PATTERN
                     if relationship_type == "exact_content_equality"
-                    else r"^rm_sec_v1:[0-9a-f]{64}$"
+                    else _SECTION_ID_PATTERN
                 ),
             },
             "to_id": {
                 "type": "string",
                 "pattern": (
-                    r"^rm_doc_v1:[0-9a-f]{64}$"
+                    _DOC_ID_PATTERN
                     if relationship_type == "recorded_derivation"
-                    else r"^rm_par_v1:[0-9a-f]{64}$"
+                    else _PARAGRAPH_ID_PATTERN
                     if relationship_type == "exact_content_equality"
-                    else r"^rm_sec_v1:[0-9a-f]{64}$"
+                    else _SECTION_ID_PATTERN
                 ),
             },
             "direction": {"const": direction},
@@ -379,7 +397,7 @@ _CANDIDATE_IDS = _closed(
             "type": "array",
             "items": {
                 "type": "string",
-                "pattern": r"^rm_(?:par|sec)_v1:[0-9a-f]{64}$",
+                "pattern": _CANDIDATE_ID_PATTERN,
             },
             "maxItems": 20,
         },
@@ -393,15 +411,15 @@ _RESOLUTION = _closed(
         "item_type": {"const": "resolution"},
         "id": {
             "type": "string",
-            "pattern": r"^rm_resolution_v1:[0-9a-f]{64}$",
+            "pattern": _RESOLUTION_ID_PATTERN,
         },
         "seed_paragraph_id": {
             "type": "string",
-            "pattern": r"^rm_par_v1:[0-9a-f]{64}$",
+            "pattern": _PARAGRAPH_ID_PATTERN,
         },
         "document_id": {
             "type": "string",
-            "pattern": r"^rm_doc_v1:[0-9a-f]{64}$",
+            "pattern": _DOC_ID_PATTERN,
         },
         "state": {"enum": ["exact_unique", "ambiguous", "unresolved"]},
         "reason": {
@@ -428,7 +446,7 @@ _CONFLICT = _closed(
         "item_type": {"const": "conflict"},
         "id": {
             "type": "string",
-            "pattern": r"^rm_conflict_v1:[0-9a-f]{64}$",
+            "pattern": _CONFLICT_ID_PATTERN,
         },
         "conflict_type": {"const": "inconsistent_apply_record"},
         "reason": {
@@ -455,7 +473,7 @@ _CONFLICT = _closed(
             "type": "array",
             "items": {
                 "type": "string",
-                "pattern": r"^rm_doc_v1:[0-9a-f]{64}$",
+                "pattern": _DOC_ID_PATTERN,
             },
             "minItems": 1,
             "uniqueItems": True,
@@ -481,11 +499,11 @@ _SEED_RESULT = _closed(
     {
         "document_id": {
             "type": "string",
-            "pattern": r"^rm_doc_v1:[0-9a-f]{64}$",
+            "pattern": _DOC_ID_PATTERN,
         },
         "paragraph_id": {
             "type": "string",
-            "pattern": r"^rm_par_v1:[0-9a-f]{64}$",
+            "pattern": _PARAGRAPH_ID_PATTERN,
         },
         "paragraph_ref": PARAGRAPH_REF_SCHEMA,
     }
@@ -588,7 +606,7 @@ ROUND_MAP_RESULT_PROPERTIES: dict[str, Any] = {
         "anyOf": [
             {
                 "type": "string",
-                "pattern": r"^rm1:[1-9][0-9]*:[0-9a-f]{64}$",
+                "pattern": _CURSOR_PATTERN,
             },
             {"type": "null"},
         ]

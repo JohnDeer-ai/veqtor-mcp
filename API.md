@@ -118,7 +118,11 @@ frozen success-only `round_map.v1` record: a pre-result refusal, including
 sanitized `internal_error`, neither appends a Map failure record nor initializes
 `.veqtor`. Only a fully validated successful map attempts that record; a
 post-result publication failure returns the valid map with
-`record_status: "write_failed"`. Transport/type validation errors never reach
+`record_status: "write_failed"`. Publication is bound to the captured workspace
+device/inode: if that path is missing or names a replacement after validation,
+the returned map has `record_id: null`, `record_status: "write_failed"`, and
+`record_error: "workspace_changed"`, and neither workspace is written.
+Transport/type validation errors never reach
 the tool wrapper and are not recorded. Unexpected failures from the other
 seven tools are journaled as a generic `internal_error` when a safe workspace
 exists, then replaced with a context-free MCP error. Exception types, messages,

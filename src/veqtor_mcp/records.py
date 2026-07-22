@@ -1679,6 +1679,7 @@ def _write_record(
     tool_result: dict[str, Any] | None = None,
     clock: Clock = utc_now,
     _inspection_authority: object | None = None,
+    expected_workspace_identity: tuple[int, int] | None = None,
 ) -> dict[str, Any]:
     """Write one already-authorized journal record."""
     if tool_name == "inspect_document" and not _inspection_write_is_authorized(
@@ -1700,7 +1701,27 @@ def _write_record(
     if disabled():
         return {"record_id": None, "record_status": "disabled"}
     try:
-        root, expected_identity = _canonical_workspace(workspace)
+        try:
+            root, resolved_identity = _canonical_workspace(workspace)
+        except DecisionRecordError as exc:
+            if expected_workspace_identity is not None:
+                raise DecisionRecordError(
+                    "workspace_changed",
+                    "workspace identity changed before publication",
+                ) from exc
+            raise
+        if (
+            expected_workspace_identity is not None
+            and resolved_identity != expected_workspace_identity
+        ):
+            raise DecisionRecordError(
+                "workspace_changed", "workspace identity changed before publication"
+            )
+        expected_identity = (
+            resolved_identity
+            if expected_workspace_identity is None
+            else expected_workspace_identity
+        )
         try:
             record = _base_record(
                 tool_name=tool_name,
@@ -1744,6 +1765,7 @@ def write_record(
     provenance: dict[str, Any],
     tool_result: dict[str, Any] | None = None,
     clock: Clock = utc_now,
+    expected_workspace_identity: tuple[int, int] | None = None,
 ) -> dict[str, Any]:
     """Write a non-inspection record; live inspection records are dedicated."""
     return _write_record(
@@ -1754,6 +1776,7 @@ def write_record(
         provenance=provenance,
         tool_result=tool_result,
         clock=clock,
+        expected_workspace_identity=expected_workspace_identity,
     )
 
 

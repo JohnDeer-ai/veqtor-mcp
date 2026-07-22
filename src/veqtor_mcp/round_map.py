@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import errno
 import hashlib
+import heapq
 import json
 import os
 import re
@@ -12,10 +13,12 @@ import stat
 from collections import defaultdict, deque
 from copy import deepcopy
 from dataclasses import dataclass
+from itertools import islice
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable, Iterator
 
 from veqtor_docx._ooxml import (
+    ArchiveValidationError,
     DocxError,
     ExpandedOutputBudget,
     ResourceLimitError,
@@ -67,9 +70,10 @@ MAX_ITEMS = 100
 _DOCUMENT_PART = "word/document.xml"
 _MAX_CURSOR_OFFSET_DIGITS = 128
 _CURSOR_RE = re.compile(
-    rf"^rm1:([1-9][0-9]{{0,{_MAX_CURSOR_OFFSET_DIGITS - 1}}}):([0-9a-f]{{64}})$"
+    rf"^rm1:([1-9][0-9]{{0,{_MAX_CURSOR_OFFSET_DIGITS - 1}}}):"
+    rf"([0-9a-f]{{64}})(?![\s\S])"
 )
-_SHA_RE = re.compile(r"^[0-9a-f]{64}$")
+_SHA_RE = re.compile(r"^[0-9a-f]{64}(?![\s\S])")
 _PARAGRAPH_REF_KEYS = frozenset(
     {
         "schema_version",
@@ -132,32 +136,78 @@ class RoundMapError(DocxError):
 @dataclass(frozen=True)
 class RoundMapComputation:
     result: dict[str, Any]
-    workspace: Path
     proof: _RoundMapProof
+
+    @property
+    def workspace(self) -> Path:
+        return Path(self.proof.authority.workspace_path)
+
+    @property
+    def workspace_identity(self) -> tuple[int, int]:
+        return self.proof.authority.workspace_identity
 
 
 @dataclass(frozen=True)
 class _RoundMapProof:
+    authority: _SourceEvidence
     item_fingerprints: tuple[_ItemFingerprint, ...]
-    evidence: _ComputationEvidence
     full_result_set_sha256: str
     item_type_counts: tuple[tuple[str, int], ...]
     relationship_counts: tuple[tuple[str, int], ...]
     resolution_counts: tuple[tuple[str, int], ...]
     record_only_document_count: int
-    filenames: tuple[str, ...]
-    folder: str
-    seed_path: str
-    seed_ref: dict[str, Any]
-    seed_document_id: str
-    seed_paragraph_id: str
-    ordering_source: str
-    filename_manifest_sha256: str
-    filesystem_snapshot_sha256: str
-    journal_snapshot_sha256: str
-    relevant_apply_record_count: int
-    eligible_derivation_record_count: int
-    rejected_semantic_record_count: int
+
+    @property
+    def filenames(self) -> tuple[str, ...]:
+        return _authority_filenames(self.authority)
+
+    @property
+    def folder(self) -> str:
+        return self.authority.workspace_path
+
+    @property
+    def seed_path(self) -> str:
+        return self.authority.seed_path
+
+    @property
+    def seed_ref(self) -> dict[str, Any]:
+        return _authority_seed_ref(self.authority)
+
+    @property
+    def seed_document_id(self) -> str:
+        return _authority_seed_paragraph(self.authority).document_id
+
+    @property
+    def seed_paragraph_id(self) -> str:
+        return _authority_seed_paragraph(self.authority).paragraph_id
+
+    @property
+    def ordering_source(self) -> str:
+        return self.authority.ordering_source
+
+    @property
+    def filename_manifest_sha256(self) -> str:
+        return _authority_filename_manifest_sha256(self.authority)
+
+    @property
+    def filesystem_snapshot_sha256(self) -> str:
+        return _authority_filesystem_snapshot_sha256(self.authority)
+
+    @property
+    def journal_snapshot_sha256(self) -> str:
+        return _authority_journal_snapshot_sha256(self.authority)
+
+    @property
+    def relevant_apply_record_count(self) -> int:
+        return _authority_relevant_apply_record_count(self.authority)
+
+    @property
+    def eligible_derivation_record_count(self) -> int:
+        return _authority_eligible_derivation_record_count(self.authority)
+
+    @property
+    def rejected_semantic_record_count(self) -> int:
+        return len(self.authority.conflicts)
 
 
 @dataclass(frozen=True)
@@ -179,6 +229,8 @@ class _RecordedEvidence:
 class _ParagraphEvidence:
     paragraph_id: str
     document_id: str
+    paragraph_ref_json: bytes
+    container_kind: str
     paragraph_text_sha256: str
     role: str
 
@@ -187,16 +239,59 @@ class _ParagraphEvidence:
 class _SectionEvidence:
     section_id: str
     document_id: str
+    section_ref_json: bytes
     label: str | None
     heading: str | None
+    level: int
+    label_basis: str | None
     role: str
 
 
 @dataclass(frozen=True)
-class _ComputationEvidence:
+class _ObservationEvidence:
+    observation_id: str
+    document_id: str
+    canonical_path: str
+    filename: str
+    position: int
+    byte_length: int
+    file_sha256: str
+    inspection_coverage_json: bytes
+
+
+@dataclass(frozen=True)
+class _ConflictEvidence:
+    conflict_id: str
+    reason: str
+    affected_document_ids: tuple[str, ...]
+    record_sha256: str
+
+
+@dataclass(frozen=True)
+class _SourceEvidence:
+    workspace_path: str
+    workspace_identity: tuple[int, int]
+    seed_path: str
+    ordering_source: str
+    cursor_offset: int
+    page_size: int
+    observations: tuple[_ObservationEvidence, ...]
     recorded_relationships: tuple[_RecordedEvidence, ...]
     paragraphs: tuple[_ParagraphEvidence, ...]
     sections: tuple[_SectionEvidence, ...]
+    conflicts: tuple[_ConflictEvidence, ...]
+
+
+@dataclass(frozen=True)
+class _ProjectionFacts:
+    item_fingerprints: tuple[_ItemFingerprint, ...]
+    full_result_set_sha256: str
+    page_items: tuple[dict[str, Any], ...]
+    item_type_counts: tuple[tuple[str, int], ...]
+    relationship_counts: tuple[tuple[str, int], ...]
+    resolution_counts: tuple[tuple[str, int], ...]
+    record_only_document_count: int
+    eligible_item_count: int
 
 
 @dataclass(frozen=True)
@@ -247,29 +342,55 @@ def _digest(value: Any) -> str:
 
 
 _ROUND_MAP_ITEM_CANONICAL_NODES = 4_192
-_ROUND_MAP_ITEM_SET_CANONICAL_NODES = (
-    ROUND_MAP_LIMITS["total_map_items"] * _ROUND_MAP_ITEM_CANONICAL_NODES + 16
-)
 
 
-def _streaming_item_set_digest(items: list[dict[str, Any]]) -> str:
-    """Hash the largest legal map without relaxing the journal JSON ceiling."""
-    payload = {"schema_version": "round_map_item_set.v1", "items": items}
-    records._validate_json_value(
-        payload,
-        max_nodes=_ROUND_MAP_ITEM_SET_CANONICAL_NODES,
-    )
-    digest = hashlib.sha256()
-    encoder = json.JSONEncoder(
-        allow_nan=False,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
+def _freeze_json(value: Any) -> bytes:
+    """Keep one deeply immutable canonical copy of a bounded source fact."""
     try:
-        for chunk in encoder.iterencode(payload):
-            digest.update(chunk.encode("utf-8"))
-    except (RecursionError, TypeError, ValueError, UnicodeError) as exc:
+        return records._canonical_json_bytes(value)
+    except Exception as exc:
+        raise RoundMapError(
+            "evidence_consistency_error", "source fact is not canonical JSON"
+        ) from exc
+
+
+def _thaw_json_object(value: bytes) -> dict[str, Any]:
+    try:
+        decoded = json.loads(value)
+    except (TypeError, ValueError, UnicodeError) as exc:
+        raise RoundMapError(
+            "output_contract_error", "immutable source fact cannot be decoded"
+        ) from exc
+    if not isinstance(decoded, dict):
+        raise RoundMapError(
+            "output_contract_error", "immutable source fact is not an object"
+        )
+    return decoded
+
+
+def _streaming_item_set_digest(items: Iterable[dict[str, Any]]) -> str:
+    """Hash a legal map incrementally without relaxing the journal JSON ceiling."""
+    digest = hashlib.sha256()
+    digest.update(b'{"items":[')
+    count = 0
+    try:
+        for item in items:
+            if count >= ROUND_MAP_LIMITS["total_map_items"]:
+                raise RoundMapError(
+                    "resource_limit_exceeded", "complete map exceeds total item limit"
+                )
+            if count:
+                digest.update(b",")
+            records._validate_json_value(
+                item,
+                max_nodes=_ROUND_MAP_ITEM_CANONICAL_NODES,
+            )
+            digest.update(records._canonical_json_bytes(item))
+            count += 1
+        digest.update(b'],"schema_version":"round_map_item_set.v1"}')
+    except RoundMapError:
+        raise
+    except Exception as exc:
         raise RoundMapError(
             "output_contract_error", "complete item set is not canonical JSON"
         ) from exc
@@ -419,6 +540,12 @@ def _candidate_name(name: str) -> bool:
     return not name.startswith("~$") and name.casefold().endswith(".docx")
 
 
+def _enforce_resource_boundary(observed: int, limit_key: str, detail: str) -> None:
+    """Apply one inclusive frozen limit without constructing an over-limit value."""
+    if observed > ROUND_MAP_LIMITS[limit_key]:
+        raise RoundMapError("resource_limit_exceeded", detail)
+
+
 def _enumerate_candidates(root_fd: int) -> dict[str, _EnumeratedCandidate]:
     candidates: dict[str, _EnumeratedCandidate] = {}
     try:
@@ -426,11 +553,11 @@ def _enumerate_candidates(root_fd: int) -> dict[str, _EnumeratedCandidate]:
             for entry in entries:
                 if not _candidate_name(entry.name):
                     continue
-                if len(candidates) >= ROUND_MAP_LIMITS["candidate_docx_files"]:
-                    raise RoundMapError(
-                        "resource_limit_exceeded",
-                        "workspace contains more than 500 candidate DOCX files",
-                    )
+                _enforce_resource_boundary(
+                    len(candidates) + 1,
+                    "candidate_docx_files",
+                    "workspace contains more than 500 candidate DOCX files",
+                )
                 try:
                     info = entry.stat(follow_symlinks=False)
                 except OSError as exc:
@@ -548,10 +675,11 @@ def _read_candidate(
             chunks.append(chunk)
             remaining -= len(chunk)
         payload = b"".join(chunks)
-        if len(payload) > limit:
-            raise RoundMapError(
-                "resource_limit_exceeded", "candidate exceeds 50 MiB compressed limit"
-            )
+        _enforce_resource_boundary(
+            len(payload),
+            "compressed_bytes_per_docx",
+            "candidate exceeds 50 MiB compressed limit",
+        )
         after = os.fstat(fd)
         before_tuple = (
             before.st_dev,
@@ -668,11 +796,11 @@ def _capture_workspace(
         for position, filename in enumerate(filenames):
             payload = _read_candidate(root_fd, candidates[filename])
             total_bytes += len(payload)
-            if total_bytes > ROUND_MAP_LIMITS["candidate_compressed_input_bytes"]:
-                raise RoundMapError(
-                    "resource_limit_exceeded",
-                    "candidate DOCX files exceed aggregate compressed-byte limit",
-                )
+            _enforce_resource_boundary(
+                total_bytes,
+                "candidate_compressed_input_bytes",
+                "candidate DOCX files exceed aggregate compressed-byte limit",
+            )
             captured.append(
                 _CapturedCandidate(
                     filename=filename,
@@ -765,25 +893,31 @@ def _parse_candidates(
             raise RoundMapError(
                 "resource_limit_exceeded", "candidate exceeds a processing limit"
             ) from exc
+        except ArchiveValidationError as exc:
+            raise RoundMapError(
+                exc.code, "candidate archive cannot be inspected"
+            ) from exc
         except InspectError as exc:
-            code = exc.code
-            if code not in {
-                "missing_document_part",
-                "file_unextractable",
-                "unsupported_compression",
-                "encrypted_docx",
-            }:
-                code = "invalid_docx"
+            code = (
+                "missing_document_part"
+                if exc.code == "missing_document_part"
+                else "invalid_docx"
+            )
             raise RoundMapError(code, "candidate DOCX cannot be inspected") from exc
         except DocxError as exc:
-            code = getattr(exc, "code", "invalid_docx")
-            if code not in {
-                "file_unextractable",
-                "unsupported_compression",
-                "encrypted_docx",
-            }:
-                code = "invalid_docx"
-            raise RoundMapError(code, "candidate DOCX cannot be inspected") from exc
+            raise RoundMapError(
+                "invalid_docx", "candidate DOCX cannot be inspected"
+            ) from exc
+        _enforce_resource_boundary(
+            len(snapshot.paragraphs),
+            "indexed_paragraphs_per_docx",
+            "candidate exceeds the indexed paragraph limit",
+        )
+        _enforce_resource_boundary(
+            sum(len(paragraph.text) for paragraph in snapshot.paragraphs),
+            "accepted_current_chars_per_docx",
+            "candidate exceeds the accepted-current text limit",
+        )
         previous_payload = payload_by_digest.setdefault(
             snapshot.file_sha256, candidate.payload
         )
@@ -935,8 +1069,6 @@ def _journal_facts(
     set[str],
     list[_ApplyClassification],
     list[tuple[_ApplyClassification, tuple[str, ...]]],
-    str,
-    str,
 ]:
     try:
         raw_records = records.read_round_map_apply_records(
@@ -978,18 +1110,7 @@ def _journal_facts(
         affected = tuple(sorted(set(item.conflict_endpoint_ids) & included))
         if affected:
             relevant_conflicts.append((item, affected))
-    relevant = [*relevant_valid, *(item for item, _affected in relevant_conflicts)]
-    record_sha256s = sorted(item.record_sha256 for item in relevant)
-    journal_sha256 = _digest(
-        {
-            "schema_version": "round_map_relevant_journal_snapshot.v1",
-            "record_sha256s": record_sha256s,
-        }
-    )
-    journal_state = (
-        "relevant_apply_records_present" if relevant else "no_relevant_apply_records"
-    )
-    return included, relevant_valid, relevant_conflicts, journal_sha256, journal_state
+    return included, relevant_valid, relevant_conflicts
 
 
 def _paragraph_identity(
@@ -1027,83 +1148,6 @@ def _support_records(
         }
         for item in ordered
     ]
-
-
-def _recorded_relationship(
-    source_id: str,
-    output_id: str,
-    support: list[_ApplyClassification],
-) -> dict[str, Any]:
-    ordered = sorted(support, key=_support_sort_key)
-    records_list = _support_records(support)
-    profile_counts = {
-        "current_count": sum(item.profile == "current_v0.3" for item in ordered),
-        "published_v0_1_2_count": sum(
-            item.profile == "published_v0.1.2_preflightless" for item in ordered
-        ),
-        "frozen_legacy_count": sum(
-            item.profile == "frozen_legacy_v1" for item in ordered
-        ),
-    }
-    nonzero = sum(bool(value) for value in profile_counts.values())
-    if nonzero > 1:
-        support_profile = "mixed"
-    elif profile_counts["current_count"]:
-        support_profile = "current_only"
-    elif profile_counts["published_v0_1_2_count"]:
-        support_profile = "published_v0_1_2_only"
-    else:
-        support_profile = "frozen_legacy_only"
-    basis = {
-        "schema_version": "recorded_derivation_basis.v1",
-        "record_schema_version": "decision_record.v1",
-        "tool_name": "apply_edits",
-        "record_type": "decision.v1",
-        "assurance": "best_effort_local_non_tamper_evident",
-        "derivation_scope": "document_bytes_only",
-        "support_profile": support_profile,
-        "supporting_records": {
-            "count": len(records_list),
-            **profile_counts,
-            "sha256": _digest(
-                {
-                    "schema_version": "recorded_derivation_support.v1",
-                    "records": records_list,
-                }
-            ),
-            "sample": records_list[: ROUND_MAP_LIMITS["sample_items"]],
-            "truncated": len(records_list) > ROUND_MAP_LIMITS["sample_items"],
-        },
-    }
-    _validate_sample(
-        basis["supporting_records"],
-        records_list,
-        digest_payload={
-            "schema_version": "recorded_derivation_support.v1",
-            "records": records_list,
-        },
-    )
-    identity = {
-        "schema_version": "relationship_identity.v1",
-        "relationship_type": "recorded_derivation",
-        "from_id": source_id,
-        "to_id": output_id,
-        "direction": "directed",
-        "basis_identity": _RECORDED_BASIS_IDENTITY,
-    }
-    return {
-        "schema_version": "round_map_item.v1",
-        "item_type": "relationship",
-        "id": _derived_id("rm_rel_v1", identity),
-        "relationship_type": "recorded_derivation",
-        "from_id": source_id,
-        "to_id": output_id,
-        "direction": "directed",
-        "basis": basis,
-        "derivation_recorded": True,
-        "lineage_verified": False,
-        "chronology_verified": False,
-    }
 
 
 def _equality_relationship(
@@ -1225,46 +1269,6 @@ def _cycle_members(
     return cycle_members
 
 
-def _enforce_item_cap(
-    items: list[dict[str, Any]], item_type: str, limit_key: str
-) -> None:
-    if len(items) > ROUND_MAP_LIMITS[limit_key]:
-        raise RoundMapError(
-            "resource_limit_exceeded", f"{item_type} count exceeds its fixed limit"
-        )
-
-
-def _append_bounded(
-    items: list[dict[str, Any]],
-    item: dict[str, Any],
-    *,
-    item_type: str,
-    limit_key: str,
-) -> None:
-    if len(items) >= ROUND_MAP_LIMITS[limit_key]:
-        raise RoundMapError(
-            "resource_limit_exceeded", f"{item_type} count exceeds its fixed limit"
-        )
-    items.append(item)
-
-
-def _setdefault_bounded(
-    items: dict[str, dict[str, Any]],
-    item_id: str,
-    item: dict[str, Any],
-    *,
-    item_type: str,
-    limit_key: str,
-) -> None:
-    if item_id in items:
-        return
-    if len(items) >= ROUND_MAP_LIMITS[limit_key]:
-        raise RoundMapError(
-            "resource_limit_exceeded", f"{item_type} count exceeds its fixed limit"
-        )
-    items[item_id] = item
-
-
 def _resolve_seed_evidence(
     current: list[_CurrentDocument],
     seed_path: str,
@@ -1308,51 +1312,62 @@ def _resolve_seed_evidence(
     )
 
 
-def _assemble_item_set(
-    groups: tuple[list[dict[str, Any]], ...],
-) -> list[dict[str, Any]]:
-    all_items: list[dict[str, Any]] = []
-    for group in groups:
-        for item in group:
-            if len(all_items) >= ROUND_MAP_LIMITS["total_map_items"]:
-                raise RoundMapError(
-                    "resource_limit_exceeded", "complete map exceeds total item limit"
-                )
-            all_items.append(item)
-    all_items.sort(key=lambda item: (_TYPE_RANK[item["item_type"]], item["id"]))
-    return all_items
+def _relationship_id(
+    relationship_type: str,
+    from_id: str,
+    to_id: str,
+    direction: str,
+    basis_identity: dict[str, Any],
+) -> str:
+    return _derived_id(
+        "rm_rel_v1",
+        {
+            "schema_version": "relationship_identity.v1",
+            "relationship_type": relationship_type,
+            "from_id": from_id,
+            "to_id": to_id,
+            "direction": direction,
+            "basis_identity": basis_identity,
+        },
+    )
 
 
-def _build_items(
+def _derive_source_evidence(
+    *,
+    workspace: Path,
+    workspace_identity: tuple[int, int],
+    seed_path: str,
+    ordering_source: str,
+    cursor_offset: int,
+    page_size: int,
     current: list[_CurrentDocument],
     resolved_seed: _ResolvedSeed,
     included_document_ids: set[str],
     derivation_records: list[_ApplyClassification],
     relevant_conflicts: list[tuple[_ApplyClassification, tuple[str, ...]]],
-) -> tuple[
-    list[dict[str, Any]],
-    dict[str, Any],
-    str,
-    str,
-    dict[str, int],
-    _ComputationEvidence,
-]:
-    seed_current = resolved_seed.document
-    seed_paragraph = resolved_seed.paragraph
-    seed_paragraph_id = resolved_seed.paragraph_id
-    resolved_seed_ref = resolved_seed.paragraph_ref
-
-    observations_by_document: dict[str, list[_CurrentDocument]] = defaultdict(list)
-    for item in current:
-        observations_by_document[item.document_id].append(item)
-    document_ids = set(included_document_ids)
+) -> _SourceEvidence:
+    """Freeze the sole bounded authority before any live item is assembled."""
+    observations = tuple(
+        _ObservationEvidence(
+            observation_id=document.observation_id,
+            document_id=document.document_id,
+            canonical_path=document.captured.path,
+            filename=document.captured.filename,
+            position=document.captured.position,
+            byte_length=len(document.captured.payload),
+            file_sha256=document.snapshot.file_sha256,
+            inspection_coverage_json=_freeze_json(document.inspection_coverage),
+        )
+        for document in sorted(current, key=lambda item: item.captured.position)
+    )
 
     support_by_edge: dict[tuple[str, str], list[_ApplyClassification]] = defaultdict(
         list
     )
-    for item in derivation_records:
-        assert item.source_id is not None and item.output_id is not None
-        edge = (item.source_id, item.output_id)
+    for classification in derivation_records:
+        assert classification.source_id is not None
+        assert classification.output_id is not None
+        edge = (classification.source_id, classification.output_id)
         if (
             edge not in support_by_edge
             and len(support_by_edge)
@@ -1362,23 +1377,21 @@ def _build_items(
                 "resource_limit_exceeded",
                 "recorded derivation relationship count exceeds its fixed limit",
             )
-        support_by_edge[edge].append(item)
-    derivation_relationships: list[dict[str, Any]] = []
-    recorded_evidence: list[_RecordedEvidence] = []
-    for (source, output), support in support_by_edge.items():
-        relationship = _recorded_relationship(source, output, support)
-        _append_bounded(
-            derivation_relationships,
-            relationship,
-            item_type="recorded derivation relationship",
-            limit_key="recorded_derivation_relationships",
-        )
+        support_by_edge[edge].append(classification)
+    recorded: list[_RecordedEvidence] = []
+    for (source_id, output_id), support in support_by_edge.items():
         support_facts = _support_records(support)
-        recorded_evidence.append(
+        recorded.append(
             _RecordedEvidence(
-                relationship_id=relationship["id"],
-                source_id=source,
-                output_id=output,
+                relationship_id=_relationship_id(
+                    "recorded_derivation",
+                    source_id,
+                    output_id,
+                    "directed",
+                    _RECORDED_BASIS_IDENTITY,
+                ),
+                source_id=source_id,
+                output_id=output_id,
                 supporting_records=tuple(
                     (
                         fact["record_id"],
@@ -1389,205 +1402,115 @@ def _build_items(
                 ),
             )
         )
-    edge_pairs = set(support_by_edge)
-    cycle_members = _cycle_members(document_ids, edge_pairs)
 
-    paragraph_nodes_by_id: dict[str, dict[str, Any]] = {
-        seed_paragraph_id: {
-            "schema_version": "round_map_item.v1",
-            "item_type": "paragraph_node",
-            "id": seed_paragraph_id,
-            "document_id": seed_current.document_id,
-            "paragraph_ref": resolved_seed_ref,
-            "container_kind": seed_paragraph.container_kind,
-            "roles": ["seed"],
-        }
-    }
-    paragraph_evidence_by_id: dict[str, _ParagraphEvidence] = {
-        seed_paragraph_id: _ParagraphEvidence(
-            paragraph_id=seed_paragraph_id,
-            document_id=seed_current.document_id,
-            paragraph_text_sha256=resolved_seed_ref["paragraph_text_sha256"],
-            role="seed",
-        )
-    }
-    exact_candidate_ids: dict[str, set[str]] = defaultdict(set)
-    equality_relationships_by_id: dict[str, dict[str, Any]] = {}
+    seed_document = resolved_seed.document
+    seed_paragraph = resolved_seed.paragraph
+    seed_fact = _ParagraphEvidence(
+        paragraph_id=resolved_seed.paragraph_id,
+        document_id=seed_document.document_id,
+        paragraph_ref_json=_freeze_json(resolved_seed.paragraph_ref),
+        container_kind=seed_paragraph.container_kind,
+        paragraph_text_sha256=resolved_seed.paragraph_ref["paragraph_text_sha256"],
+        role="seed",
+    )
+    paragraphs: dict[str, _ParagraphEvidence] = {seed_fact.paragraph_id: seed_fact}
     for document in current:
         for paragraph in document.snapshot.paragraphs:
             if paragraph.text_sha256 != seed_paragraph.text_sha256:
                 continue
+            if paragraph.text != seed_paragraph.text:
+                raise RoundMapError(
+                    "evidence_consistency_error",
+                    "equal paragraph hashes have unequal complete text",
+                )
             paragraph_id, reference = _paragraph_identity(document.snapshot, paragraph)
-            if paragraph_id == seed_paragraph_id:
+            if paragraph_id == seed_fact.paragraph_id:
                 continue
-            _setdefault_bounded(
-                paragraph_nodes_by_id,
-                paragraph_id,
-                {
-                    "schema_version": "round_map_item.v1",
-                    "item_type": "paragraph_node",
-                    "id": paragraph_id,
-                    "document_id": document.document_id,
-                    "paragraph_ref": reference,
-                    "container_kind": paragraph.container_kind,
-                    "roles": ["exact_candidate"],
-                },
-                item_type="paragraph node",
-                limit_key="paragraph_nodes",
+            candidate = _ParagraphEvidence(
+                paragraph_id=paragraph_id,
+                document_id=document.document_id,
+                paragraph_ref_json=_freeze_json(reference),
+                container_kind=paragraph.container_kind,
+                paragraph_text_sha256=reference["paragraph_text_sha256"],
+                role="exact_candidate",
             )
-            paragraph_evidence_by_id.setdefault(
-                paragraph_id,
-                _ParagraphEvidence(
-                    paragraph_id=paragraph_id,
-                    document_id=document.document_id,
-                    paragraph_text_sha256=reference["paragraph_text_sha256"],
-                    role="exact_candidate",
-                ),
-            )
-            exact_candidate_ids[document.document_id].add(paragraph_id)
-            relationship = _equality_relationship(
-                seed_paragraph_id,
-                paragraph_id,
-                seed_paragraph.text_sha256,
-            )
-            _setdefault_bounded(
-                equality_relationships_by_id,
-                relationship["id"],
-                relationship,
-                item_type="exact equality relationship",
-                limit_key="exact_equality_relationships",
-            )
-    paragraph_nodes = list(paragraph_nodes_by_id.values())
-    equality_relationships = list(equality_relationships_by_id.values())
-    _enforce_item_cap(paragraph_nodes, "paragraph node", "paragraph_nodes")
-    _enforce_item_cap(
-        equality_relationships,
-        "exact equality relationship",
-        "exact_equality_relationships",
-    )
+            previous = paragraphs.get(paragraph_id)
+            if previous is not None and previous != candidate:
+                raise RoundMapError(
+                    "evidence_consistency_error",
+                    "paragraph identity maps to inconsistent source facts",
+                )
+            if (
+                previous is None
+                and len(paragraphs) >= ROUND_MAP_LIMITS["paragraph_nodes"]
+            ):
+                raise RoundMapError(
+                    "resource_limit_exceeded",
+                    "paragraph node count exceeds its fixed limit",
+                )
+            paragraphs.setdefault(paragraph_id, candidate)
 
-    section_nodes_by_id: dict[str, dict[str, Any]] = {}
-    section_evidence_by_id: dict[str, _SectionEvidence] = {}
-    navigation_candidate_ids: dict[str, set[str]] = defaultdict(set)
-    navigation_relationships_by_id: dict[str, dict[str, Any]] = {}
-    seed_section = seed_current.snapshot.section_by_paragraph.get(
+    sections: dict[str, _SectionEvidence] = {}
+    seed_section = seed_document.snapshot.section_by_paragraph.get(
         seed_paragraph.paragraph_index
     )
     if seed_section is not None:
-        seed_section_id, section_ref = _section_identity(
-            seed_current.snapshot, seed_section
+        seed_section_id, seed_section_ref = _section_identity(
+            seed_document.snapshot, seed_section
         )
-        _setdefault_bounded(
-            section_nodes_by_id,
-            seed_section_id,
-            {
-                "schema_version": "round_map_item.v1",
-                "item_type": "section_node",
-                "id": seed_section_id,
-                "document_id": seed_current.document_id,
-                "section_ref": section_ref,
-                "label": seed_section.label,
-                "heading": seed_section.title,
-                "level": seed_section.level,
-                "basis": "word_outline_level_v1",
-                "label_basis": seed_section.label_basis,
-                "roles": ["seed_navigation"],
-            },
-            item_type="section node",
-            limit_key="section_nodes",
-        )
-        section_evidence_by_id[seed_section_id] = _SectionEvidence(
+        sections[seed_section_id] = _SectionEvidence(
             section_id=seed_section_id,
-            document_id=seed_current.document_id,
+            document_id=seed_document.document_id,
+            section_ref_json=_freeze_json(seed_section_ref),
             label=seed_section.label,
             heading=seed_section.title,
+            level=seed_section.level,
+            label_basis=seed_section.label_basis,
             role="seed_navigation",
         )
         for document in current:
             for section in document.snapshot.sections:
-                candidate_section_id, candidate_ref = _section_identity(
-                    document.snapshot, section
-                )
-                if candidate_section_id == seed_section_id:
+                section_id, section_ref = _section_identity(document.snapshot, section)
+                if section_id == seed_section_id:
                     continue
-                signals: list[dict[str, str]] = []
-                if (
-                    seed_section.label is not None
-                    and section.label == seed_section.label
+                if not (
+                    (
+                        seed_section.label is not None
+                        and section.label == seed_section.label
+                    )
+                    or (
+                        seed_section.title is not None
+                        and section.title == seed_section.title
+                    )
                 ):
-                    signals.append(
-                        {
-                            "kind": "label_exact_v1",
-                            "value_sha256": hashlib.sha256(
-                                seed_section.label.encode("utf-8")
-                            ).hexdigest(),
-                        }
+                    continue
+                candidate = _SectionEvidence(
+                    section_id=section_id,
+                    document_id=document.document_id,
+                    section_ref_json=_freeze_json(section_ref),
+                    label=section.label,
+                    heading=section.title,
+                    level=section.level,
+                    label_basis=section.label_basis,
+                    role="candidate_navigation",
+                )
+                previous = sections.get(section_id)
+                if previous is not None and previous != candidate:
+                    raise RoundMapError(
+                        "evidence_consistency_error",
+                        "section identity maps to inconsistent source facts",
                     )
                 if (
-                    seed_section.title is not None
-                    and section.title == seed_section.title
+                    previous is None
+                    and len(sections) >= ROUND_MAP_LIMITS["section_nodes"]
                 ):
-                    signals.append(
-                        {
-                            "kind": "heading_exact_v1",
-                            "value_sha256": hashlib.sha256(
-                                seed_section.title.encode("utf-8")
-                            ).hexdigest(),
-                        }
+                    raise RoundMapError(
+                        "resource_limit_exceeded",
+                        "section node count exceeds its fixed limit",
                     )
-                if not signals:
-                    continue
-                _setdefault_bounded(
-                    section_nodes_by_id,
-                    candidate_section_id,
-                    {
-                        "schema_version": "round_map_item.v1",
-                        "item_type": "section_node",
-                        "id": candidate_section_id,
-                        "document_id": document.document_id,
-                        "section_ref": candidate_ref,
-                        "label": section.label,
-                        "heading": section.title,
-                        "level": section.level,
-                        "basis": "word_outline_level_v1",
-                        "label_basis": section.label_basis,
-                        "roles": ["candidate_navigation"],
-                    },
-                    item_type="section node",
-                    limit_key="section_nodes",
-                )
-                section_evidence_by_id.setdefault(
-                    candidate_section_id,
-                    _SectionEvidence(
-                        section_id=candidate_section_id,
-                        document_id=document.document_id,
-                        label=section.label,
-                        heading=section.title,
-                        role="candidate_navigation",
-                    ),
-                )
-                navigation_candidate_ids[document.document_id].add(candidate_section_id)
-                relationship = _navigation_relationship(
-                    seed_section_id, candidate_section_id, signals
-                )
-                _setdefault_bounded(
-                    navigation_relationships_by_id,
-                    relationship["id"],
-                    relationship,
-                    item_type="navigation relationship",
-                    limit_key="navigation_relationships",
-                )
-    section_nodes = list(section_nodes_by_id.values())
-    navigation_relationships = list(navigation_relationships_by_id.values())
-    _enforce_item_cap(section_nodes, "section node", "section_nodes")
-    _enforce_item_cap(
-        navigation_relationships,
-        "navigation relationship",
-        "navigation_relationships",
-    )
+                sections.setdefault(section_id, candidate)
 
-    conflict_items: list[dict[str, Any]] = []
-    conflicts_by_document: dict[str, int] = defaultdict(int)
+    conflicts: list[_ConflictEvidence] = []
     for classification, affected in relevant_conflicts:
         assert classification.reason is not None
         identity = {
@@ -1596,239 +1519,561 @@ def _build_items(
             "affected_document_ids": list(affected),
             "record_sha256": classification.record_sha256,
         }
-        _append_bounded(
-            conflict_items,
-            {
-                "schema_version": "round_map_item.v1",
-                "item_type": "conflict",
-                "id": _derived_id("rm_conflict_v1", identity),
-                "conflict_type": "inconsistent_apply_record",
-                "reason": classification.reason,
-                "affected_document_ids": list(affected),
-                "record_sha256": classification.record_sha256,
-                "edge_emitted": False,
-            },
-            item_type="conflict item",
-            limit_key="conflict_items",
-        )
-        for document_id in affected:
-            conflicts_by_document[document_id] += 1
-    _enforce_item_cap(conflict_items, "conflict item", "conflict_items")
-
-    incoming: dict[str, set[str]] = defaultdict(set)
-    outgoing: dict[str, set[str]] = defaultdict(set)
-    for source, output in edge_pairs:
-        incoming[output].add(source)
-        outgoing[source].add(output)
-    document_nodes: list[dict[str, Any]] = []
-    observation_items: list[dict[str, Any]] = []
-    for document in current:
-        _append_bounded(
-            observation_items,
-            {
-                "schema_version": "round_map_item.v1",
-                "item_type": "document_observation",
-                "id": document.observation_id,
-                "document_id": document.document_id,
-                "path": document.captured.path,
-                "filename": document.captured.filename,
-                "position": document.captured.position,
-                "round_id": f"round-{document.captured.position + 1:03d}",
-                "position_basis": None,
-            },
-            item_type="document observation",
-            limit_key="document_observations",
-        )
-    for document_id in sorted(document_ids):
-        observations = observations_by_document.get(document_id, [])
-        is_endpoint = bool(incoming[document_id] or outgoing[document_id])
-        if not observations:
-            state = "record_only"
-            inspection_coverage = None
-            file_sha256 = document_id.removeprefix("rm_doc_v1:")
-        else:
-            state = "current_and_recorded" if is_endpoint else "current"
-            inspection_coverage = deepcopy(observations[0].inspection_coverage)
-            file_sha256 = observations[0].snapshot.file_sha256
-        _append_bounded(
-            document_nodes,
-            {
-                "schema_version": "round_map_item.v1",
-                "item_type": "document_node",
-                "id": document_id,
-                "file_sha256": file_sha256,
-                "observation_state": state,
-                "observation_count": len(observations),
-                "inspection_coverage": inspection_coverage,
-                "incoming_recorded_derivation_count": len(incoming[document_id]),
-                "outgoing_recorded_derivation_count": len(outgoing[document_id]),
-                "topology_flags": {
-                    "multiple_parents": len(incoming[document_id]) > 1,
-                    "cycle_member": document_id in cycle_members,
-                    "self_loop": (document_id, document_id) in edge_pairs,
-                },
-            },
-            item_type="document node",
-            limit_key="document_nodes",
-        )
-    _enforce_item_cap(document_nodes, "document node", "document_nodes")
-    _enforce_item_cap(
-        observation_items, "document observation", "document_observations"
-    )
-
-    resolution_items: list[dict[str, Any]] = []
-    for document_id in sorted(document_ids):
-        exact_ids = exact_candidate_ids.get(document_id, set())
-        navigation_ids = navigation_candidate_ids.get(document_id, set())
-        conflict_count = conflicts_by_document[document_id]
-        observations = observations_by_document.get(document_id, [])
-        pruned = any(
-            not observation.inspection_coverage["container_coverage"].get(
-                "coverage_complete", False
+        if len(conflicts) >= ROUND_MAP_LIMITS["conflict_items"]:
+            raise RoundMapError(
+                "resource_limit_exceeded", "conflict item count exceeds its fixed limit"
             )
-            or observation.inspection_coverage["container_coverage"].get(
-                "excluded_subtree_count", 0
+        conflicts.append(
+            _ConflictEvidence(
+                conflict_id=_derived_id("rm_conflict_v1", identity),
+                reason=classification.reason,
+                affected_document_ids=affected,
+                record_sha256=classification.record_sha256,
             )
-            > 0
-            for observation in observations
         )
-        if conflict_count:
-            state, reason = "ambiguous", "recorded_fact_conflict"
-        elif len(exact_ids) > 1:
-            state, reason = "ambiguous", "multiple_exact_candidates"
-        elif len(exact_ids) == 1:
-            state, reason = "exact_unique", "one_exact_candidate"
-        elif not observations:
-            state, reason = "unresolved", "record_only_document"
-        elif pruned:
-            state, reason = "unresolved", "declared_scope_incomplete"
-        elif navigation_ids:
-            state, reason = "unresolved", "navigation_only"
-        else:
-            state, reason = "unresolved", "no_match_in_declared_scope"
-        candidate_ids = sorted(exact_ids | navigation_ids)
-        identity = {
-            "schema_version": "resolution_identity.v1",
-            "seed_paragraph_id": seed_paragraph_id,
-            "document_id": document_id,
-        }
-        _append_bounded(
-            resolution_items,
-            {
-                "schema_version": "round_map_item.v1",
-                "item_type": "resolution",
-                "id": _derived_id("rm_resolution_v1", identity),
-                "seed_paragraph_id": seed_paragraph_id,
-                "document_id": document_id,
-                "state": state,
-                "reason": reason,
-                "exact_candidate_count": len(exact_ids),
-                "navigation_candidate_count": len(navigation_ids),
-                "conflict_count": conflict_count,
-                "candidate_ids": {
-                    "count": len(candidate_ids),
-                    "sha256": _digest(candidate_ids),
-                    "sample": candidate_ids[: ROUND_MAP_LIMITS["sample_items"]],
-                    "truncated": len(candidate_ids) > ROUND_MAP_LIMITS["sample_items"],
-                },
-            },
-            item_type="resolution item",
-            limit_key="resolution_items",
-        )
-    _enforce_item_cap(resolution_items, "resolution item", "resolution_items")
 
-    all_items = _assemble_item_set(
-        (
-            document_nodes,
-            observation_items,
-            paragraph_nodes,
-            section_nodes,
-            derivation_relationships,
-            equality_relationships,
-            navigation_relationships,
-            resolution_items,
-            conflict_items,
-        )
-    )
-    type_counts = {
-        name: sum(item["item_type"] == name for item in all_items)
-        for name in _TYPE_RANK
-    }
-    relationship_counts = {
-        name: sum(
-            item["item_type"] == "relationship" and item["relationship_type"] == name
-            for item in all_items
-        )
-        for name in (
-            "recorded_derivation",
-            "exact_content_equality",
-            "navigation_candidate",
-        )
-    }
-    resolution_counts = {
-        name: sum(
-            item["item_type"] == "resolution" and item["state"] == name
-            for item in all_items
-        )
-        for name in ("exact_unique", "ambiguous", "unresolved")
-    }
-    counts = {
-        "record_only_document_count": sum(
-            item["item_type"] == "document_node"
-            and item["observation_state"] == "record_only"
-            for item in all_items
+    authority = _SourceEvidence(
+        workspace_path=str(workspace),
+        workspace_identity=workspace_identity,
+        seed_path=seed_path,
+        ordering_source=ordering_source,
+        cursor_offset=cursor_offset,
+        page_size=page_size,
+        observations=observations,
+        recorded_relationships=tuple(
+            sorted(recorded, key=lambda fact: fact.relationship_id)
         ),
-        **{f"relationship_{key}": value for key, value in relationship_counts.items()},
-        **{f"resolution_{key}": value for key, value in resolution_counts.items()},
-    }
-    return (
-        all_items,
+        paragraphs=tuple(paragraphs[item_id] for item_id in sorted(paragraphs)),
+        sections=tuple(sections[item_id] for item_id in sorted(sections)),
+        conflicts=tuple(sorted(conflicts, key=lambda fact: fact.conflict_id)),
+    )
+    if _authority_document_ids(authority) != set(included_document_ids):
+        raise RoundMapError(
+            "evidence_consistency_error",
+            "journal component differs from immutable evidence authority",
+        )
+    _validate_authority_limits(authority)
+    return authority
+
+
+def _authority_seed_paragraph(authority: _SourceEvidence) -> _ParagraphEvidence:
+    seeds = [fact for fact in authority.paragraphs if fact.role == "seed"]
+    if len(seeds) != 1:
+        _output_contract_error("immutable authority has invalid seed cardinality")
+    return seeds[0]
+
+
+def _authority_seed_ref(authority: _SourceEvidence) -> dict[str, Any]:
+    return _thaw_json_object(_authority_seed_paragraph(authority).paragraph_ref_json)
+
+
+def _authority_filenames(authority: _SourceEvidence) -> tuple[str, ...]:
+    ordered = sorted(authority.observations, key=lambda fact: fact.position)
+    return tuple(fact.filename for fact in ordered)
+
+
+def _authority_document_ids(authority: _SourceEvidence) -> set[str]:
+    document_ids = {fact.document_id for fact in authority.observations}
+    for fact in authority.recorded_relationships:
+        document_ids.add(fact.source_id)
+        document_ids.add(fact.output_id)
+    return document_ids
+
+
+def _authority_filename_manifest_sha256(authority: _SourceEvidence) -> str:
+    return _digest(
         {
-            "relationship_counts": relationship_counts,
-            "resolution_counts": resolution_counts,
-            "item_type_counts": type_counts,
-        },
-        seed_current.document_id,
-        seed_paragraph_id,
-        counts,
-        _ComputationEvidence(
-            recorded_relationships=tuple(
-                sorted(recorded_evidence, key=lambda fact: fact.relationship_id)
-            ),
-            paragraphs=tuple(
-                paragraph_evidence_by_id[item_id]
-                for item_id in sorted(paragraph_evidence_by_id)
-            ),
-            sections=tuple(
-                section_evidence_by_id[item_id]
-                for item_id in sorted(section_evidence_by_id)
-            ),
-        ),
+            "schema_version": "round_map_filename_manifest.v1",
+            "ordering_source": authority.ordering_source,
+            "filenames": list(_authority_filenames(authority)),
+        }
     )
 
 
-def _filesystem_snapshot(
-    current: list[_CurrentDocument],
-    filename_manifest_sha256: str,
-) -> str:
+def _authority_filesystem_snapshot_sha256(authority: _SourceEvidence) -> str:
     observations = [
         {
-            "observation_id": item.observation_id,
-            "canonical_path": item.captured.path,
-            "filename": item.captured.filename,
-            "position": item.captured.position,
-            "byte_length": len(item.captured.payload),
-            "file_sha256": item.snapshot.file_sha256,
-            "inspection_coverage_sha256": _digest(item.inspection_coverage),
+            "observation_id": fact.observation_id,
+            "canonical_path": fact.canonical_path,
+            "filename": fact.filename,
+            "position": fact.position,
+            "byte_length": fact.byte_length,
+            "file_sha256": fact.file_sha256,
+            "inspection_coverage_sha256": _digest(
+                _thaw_json_object(fact.inspection_coverage_json)
+            ),
         }
-        for item in current
+        for fact in sorted(authority.observations, key=lambda item: item.position)
     ]
     return _digest(
         {
             "schema_version": "round_map_filesystem_snapshot.v1",
-            "filename_manifest_sha256": filename_manifest_sha256,
+            "filename_manifest_sha256": _authority_filename_manifest_sha256(authority),
             "observations": observations,
         }
+    )
+
+
+def _authority_relevant_record_sha256s(authority: _SourceEvidence) -> list[str]:
+    record_sha256s = [
+        record_sha256
+        for fact in authority.recorded_relationships
+        for _record_id, record_sha256, _profile in fact.supporting_records
+    ]
+    record_sha256s.extend(fact.record_sha256 for fact in authority.conflicts)
+    return sorted(record_sha256s)
+
+
+def _authority_journal_snapshot_sha256(authority: _SourceEvidence) -> str:
+    return _digest(
+        {
+            "schema_version": "round_map_relevant_journal_snapshot.v1",
+            "record_sha256s": _authority_relevant_record_sha256s(authority),
+        }
+    )
+
+
+def _authority_eligible_derivation_record_count(authority: _SourceEvidence) -> int:
+    return sum(
+        len(fact.supporting_records) for fact in authority.recorded_relationships
+    )
+
+
+def _authority_relevant_apply_record_count(authority: _SourceEvidence) -> int:
+    return _authority_eligible_derivation_record_count(authority) + len(
+        authority.conflicts
+    )
+
+
+def _validate_authority_limits(authority: _SourceEvidence) -> None:
+    document_count = len(_authority_document_ids(authority))
+    exact_count = sum(fact.role == "exact_candidate" for fact in authority.paragraphs)
+    navigation_count = sum(
+        fact.role == "candidate_navigation" for fact in authority.sections
+    )
+    counts = {
+        "candidate_docx_files": len(authority.observations),
+        "document_nodes": document_count,
+        "document_observations": len(authority.observations),
+        "paragraph_nodes": len(authority.paragraphs),
+        "section_nodes": len(authority.sections),
+        "recorded_derivation_relationships": len(authority.recorded_relationships),
+        "exact_equality_relationships": exact_count,
+        "navigation_relationships": navigation_count,
+        "resolution_items": document_count,
+        "conflict_items": len(authority.conflicts),
+        "journal_apply_records": _authority_relevant_apply_record_count(authority),
+    }
+    for limit_key, observed in counts.items():
+        _enforce_resource_boundary(
+            observed, limit_key, f"{limit_key} exceeds its fixed limit"
+        )
+    total = (
+        document_count
+        + len(authority.observations)
+        + len(authority.paragraphs)
+        + len(authority.sections)
+        + len(authority.recorded_relationships)
+        + exact_count
+        + navigation_count
+        + document_count
+        + len(authority.conflicts)
+    )
+    _enforce_resource_boundary(
+        total, "total_map_items", "complete map exceeds total item limit"
+    )
+
+
+def _recorded_relationship_from_evidence(fact: _RecordedEvidence) -> dict[str, Any]:
+    records_list = [
+        {
+            "record_id": record_id,
+            "record_sha256": record_sha256,
+            "profile": profile,
+        }
+        for record_id, record_sha256, profile in fact.supporting_records
+    ]
+    profile_counts = {
+        "current_count": sum(
+            item["profile"] == "current_v0.3" for item in records_list
+        ),
+        "published_v0_1_2_count": sum(
+            item["profile"] == "published_v0.1.2_preflightless" for item in records_list
+        ),
+        "frozen_legacy_count": sum(
+            item["profile"] == "frozen_legacy_v1" for item in records_list
+        ),
+    }
+    nonzero = sum(bool(value) for value in profile_counts.values())
+    support_profile = (
+        "mixed"
+        if nonzero > 1
+        else "current_only"
+        if profile_counts["current_count"]
+        else "published_v0_1_2_only"
+        if profile_counts["published_v0_1_2_count"]
+        else "frozen_legacy_only"
+    )
+    basis = {
+        "schema_version": "recorded_derivation_basis.v1",
+        "record_schema_version": "decision_record.v1",
+        "tool_name": "apply_edits",
+        "record_type": "decision.v1",
+        "assurance": "best_effort_local_non_tamper_evident",
+        "derivation_scope": "document_bytes_only",
+        "support_profile": support_profile,
+        "supporting_records": {
+            "count": len(records_list),
+            **profile_counts,
+            "sha256": _digest(
+                {
+                    "schema_version": "recorded_derivation_support.v1",
+                    "records": records_list,
+                }
+            ),
+            "sample": records_list[: ROUND_MAP_LIMITS["sample_items"]],
+            "truncated": len(records_list) > ROUND_MAP_LIMITS["sample_items"],
+        },
+    }
+    return {
+        "schema_version": "round_map_item.v1",
+        "item_type": "relationship",
+        "id": fact.relationship_id,
+        "relationship_type": "recorded_derivation",
+        "from_id": fact.source_id,
+        "to_id": fact.output_id,
+        "direction": "directed",
+        "basis": basis,
+        "derivation_recorded": True,
+        "lineage_verified": False,
+        "chronology_verified": False,
+    }
+
+
+def _authority_indexes(authority: _SourceEvidence) -> dict[str, Any]:
+    document_ids = _authority_document_ids(authority)
+    observations_by_document: dict[str, list[_ObservationEvidence]] = defaultdict(list)
+    for fact in authority.observations:
+        observations_by_document[fact.document_id].append(fact)
+    edge_pairs = {
+        (fact.source_id, fact.output_id) for fact in authority.recorded_relationships
+    }
+    incoming: dict[str, set[str]] = defaultdict(set)
+    outgoing: dict[str, set[str]] = defaultdict(set)
+    for source_id, output_id in edge_pairs:
+        incoming[output_id].add(source_id)
+        outgoing[source_id].add(output_id)
+    exact_by_document: dict[str, set[str]] = defaultdict(set)
+    for fact in authority.paragraphs:
+        if fact.role == "exact_candidate":
+            exact_by_document[fact.document_id].add(fact.paragraph_id)
+    navigation_by_document: dict[str, set[str]] = defaultdict(set)
+    for fact in authority.sections:
+        if fact.role == "candidate_navigation":
+            navigation_by_document[fact.document_id].add(fact.section_id)
+    conflicts_by_document: dict[str, int] = defaultdict(int)
+    for fact in authority.conflicts:
+        for document_id in fact.affected_document_ids:
+            conflicts_by_document[document_id] += 1
+    return {
+        "document_ids": document_ids,
+        "observations_by_document": observations_by_document,
+        "edge_pairs": edge_pairs,
+        "incoming": incoming,
+        "outgoing": outgoing,
+        "exact_by_document": exact_by_document,
+        "navigation_by_document": navigation_by_document,
+        "conflicts_by_document": conflicts_by_document,
+        "cycle_members": _cycle_members(document_ids, edge_pairs),
+    }
+
+
+def _project_resolution(
+    authority: _SourceEvidence,
+    document_id: str,
+    indexes: dict[str, Any],
+) -> dict[str, Any]:
+    observations = indexes["observations_by_document"].get(document_id, [])
+    exact_ids = indexes["exact_by_document"].get(document_id, set())
+    navigation_ids = indexes["navigation_by_document"].get(document_id, set())
+    conflict_count = indexes["conflicts_by_document"][document_id]
+    pruned = any(
+        not _thaw_json_object(fact.inspection_coverage_json)["container_coverage"].get(
+            "coverage_complete", False
+        )
+        or _thaw_json_object(fact.inspection_coverage_json)["container_coverage"].get(
+            "excluded_subtree_count", 0
+        )
+        > 0
+        for fact in observations
+    )
+    if conflict_count:
+        state, reason = "ambiguous", "recorded_fact_conflict"
+    elif len(exact_ids) > 1:
+        state, reason = "ambiguous", "multiple_exact_candidates"
+    elif len(exact_ids) == 1:
+        state, reason = "exact_unique", "one_exact_candidate"
+    elif not observations:
+        state, reason = "unresolved", "record_only_document"
+    elif pruned:
+        state, reason = "unresolved", "declared_scope_incomplete"
+    elif navigation_ids:
+        state, reason = "unresolved", "navigation_only"
+    else:
+        state, reason = "unresolved", "no_match_in_declared_scope"
+    seed_paragraph_id = _authority_seed_paragraph(authority).paragraph_id
+    candidate_ids = sorted(exact_ids | navigation_ids)
+    return {
+        "schema_version": "round_map_item.v1",
+        "item_type": "resolution",
+        "id": _derived_id(
+            "rm_resolution_v1",
+            {
+                "schema_version": "resolution_identity.v1",
+                "seed_paragraph_id": seed_paragraph_id,
+                "document_id": document_id,
+            },
+        ),
+        "seed_paragraph_id": seed_paragraph_id,
+        "document_id": document_id,
+        "state": state,
+        "reason": reason,
+        "exact_candidate_count": len(exact_ids),
+        "navigation_candidate_count": len(navigation_ids),
+        "conflict_count": conflict_count,
+        "candidate_ids": {
+            "count": len(candidate_ids),
+            "sha256": _digest(candidate_ids),
+            "sample": candidate_ids[: ROUND_MAP_LIMITS["sample_items"]],
+            "truncated": len(candidate_ids) > ROUND_MAP_LIMITS["sample_items"],
+        },
+    }
+
+
+def _iter_projected_items(authority: _SourceEvidence) -> Iterator[dict[str, Any]]:
+    """Project source evidence in frozen type-rank/ASCII-id order."""
+    indexes = _authority_indexes(authority)
+    incoming = indexes["incoming"]
+    outgoing = indexes["outgoing"]
+    edge_pairs = indexes["edge_pairs"]
+    cycle_members = indexes["cycle_members"]
+    observations_by_document = indexes["observations_by_document"]
+
+    for document_id in sorted(indexes["document_ids"]):
+        observations = sorted(
+            observations_by_document.get(document_id, []),
+            key=lambda fact: fact.position,
+        )
+        is_endpoint = bool(incoming[document_id] or outgoing[document_id])
+        state = (
+            "record_only"
+            if not observations
+            else "current_and_recorded"
+            if is_endpoint
+            else "current"
+        )
+        yield {
+            "schema_version": "round_map_item.v1",
+            "item_type": "document_node",
+            "id": document_id,
+            "file_sha256": (
+                observations[0].file_sha256
+                if observations
+                else document_id.removeprefix("rm_doc_v1:")
+            ),
+            "observation_state": state,
+            "observation_count": len(observations),
+            "inspection_coverage": (
+                _thaw_json_object(observations[0].inspection_coverage_json)
+                if observations
+                else None
+            ),
+            "incoming_recorded_derivation_count": len(incoming[document_id]),
+            "outgoing_recorded_derivation_count": len(outgoing[document_id]),
+            "topology_flags": {
+                "multiple_parents": len(incoming[document_id]) > 1,
+                "cycle_member": document_id in cycle_members,
+                "self_loop": (document_id, document_id) in edge_pairs,
+            },
+        }
+
+    for fact in sorted(authority.observations, key=lambda item: item.observation_id):
+        yield {
+            "schema_version": "round_map_item.v1",
+            "item_type": "document_observation",
+            "id": fact.observation_id,
+            "document_id": fact.document_id,
+            "path": fact.canonical_path,
+            "filename": fact.filename,
+            "position": fact.position,
+            "round_id": f"round-{fact.position + 1:03d}",
+            "position_basis": authority.ordering_source,
+        }
+
+    for fact in authority.paragraphs:
+        yield {
+            "schema_version": "round_map_item.v1",
+            "item_type": "paragraph_node",
+            "id": fact.paragraph_id,
+            "document_id": fact.document_id,
+            "paragraph_ref": _thaw_json_object(fact.paragraph_ref_json),
+            "container_kind": fact.container_kind,
+            "roles": [fact.role],
+        }
+
+    for fact in authority.sections:
+        yield {
+            "schema_version": "round_map_item.v1",
+            "item_type": "section_node",
+            "id": fact.section_id,
+            "document_id": fact.document_id,
+            "section_ref": _thaw_json_object(fact.section_ref_json),
+            "label": fact.label,
+            "heading": fact.heading,
+            "level": fact.level,
+            "basis": "word_outline_level_v1",
+            "label_basis": fact.label_basis,
+            "roles": [fact.role],
+        }
+
+    seed_paragraph = _authority_seed_paragraph(authority)
+    equality_items = [
+        _equality_relationship(
+            seed_paragraph.paragraph_id,
+            fact.paragraph_id,
+            seed_paragraph.paragraph_text_sha256,
+        )
+        for fact in authority.paragraphs
+        if fact.role == "exact_candidate"
+    ]
+    seed_sections = [
+        fact for fact in authority.sections if fact.role == "seed_navigation"
+    ]
+    navigation_items: list[dict[str, Any]] = []
+    if seed_sections:
+        seed_section = seed_sections[0]
+        for fact in authority.sections:
+            if fact.role != "candidate_navigation":
+                continue
+            signals: list[dict[str, str]] = []
+            if seed_section.label is not None and fact.label == seed_section.label:
+                signals.append(
+                    {
+                        "kind": "label_exact_v1",
+                        "value_sha256": hashlib.sha256(
+                            seed_section.label.encode("utf-8")
+                        ).hexdigest(),
+                    }
+                )
+            if (
+                seed_section.heading is not None
+                and fact.heading == seed_section.heading
+            ):
+                signals.append(
+                    {
+                        "kind": "heading_exact_v1",
+                        "value_sha256": hashlib.sha256(
+                            seed_section.heading.encode("utf-8")
+                        ).hexdigest(),
+                    }
+                )
+            navigation_items.append(
+                _navigation_relationship(
+                    seed_section.section_id, fact.section_id, signals
+                )
+            )
+    relationship_groups = (
+        sorted(
+            (
+                _recorded_relationship_from_evidence(fact)
+                for fact in authority.recorded_relationships
+            ),
+            key=_item_id,
+        ),
+        sorted(equality_items, key=_item_id),
+        sorted(navigation_items, key=_item_id),
+    )
+    yield from heapq.merge(*relationship_groups, key=_item_id)
+
+    resolutions = [
+        _project_resolution(authority, document_id, indexes)
+        for document_id in indexes["document_ids"]
+    ]
+    yield from sorted(resolutions, key=_item_id)
+
+    for fact in authority.conflicts:
+        yield {
+            "schema_version": "round_map_item.v1",
+            "item_type": "conflict",
+            "id": fact.conflict_id,
+            "conflict_type": "inconsistent_apply_record",
+            "reason": fact.reason,
+            "affected_document_ids": list(fact.affected_document_ids),
+            "record_sha256": fact.record_sha256,
+            "edge_emitted": False,
+        }
+
+
+def _projection_facts(authority: _SourceEvidence) -> _ProjectionFacts:
+    from jsonschema import Draft202012Validator
+
+    from .round_map_contract import ROUND_MAP_ITEM_SCHEMA
+
+    validator = Draft202012Validator(ROUND_MAP_ITEM_SCHEMA)
+    digest = hashlib.sha256()
+    digest.update(b'{"items":[')
+    fingerprints: list[_ItemFingerprint] = []
+    page: list[dict[str, Any]] = []
+    item_type_counts = {name: 0 for name in _TYPE_RANK}
+    relationship_counts = {
+        "recorded_derivation": 0,
+        "exact_content_equality": 0,
+        "navigation_candidate": 0,
+    }
+    resolution_counts = {"exact_unique": 0, "ambiguous": 0, "unresolved": 0}
+    record_only_count = 0
+    previous_key: tuple[int, str] | None = None
+    for index, item in enumerate(_iter_projected_items(authority)):
+        if index >= ROUND_MAP_LIMITS["total_map_items"]:
+            raise RoundMapError(
+                "resource_limit_exceeded", "complete map exceeds total item limit"
+            )
+        if next(validator.iter_errors(item), None) is not None:
+            _output_contract_error("source projection violates item schema")
+        order_key = (_TYPE_RANK[item["item_type"]], item["id"])
+        if previous_key is not None and order_key <= previous_key:
+            _output_contract_error("source projection order is invalid")
+        previous_key = order_key
+        if index:
+            digest.update(b",")
+        digest.update(records._canonical_json_bytes(item))
+        fingerprints.append(_item_fingerprint(item))
+        item_type_counts[item["item_type"]] += 1
+        if item["item_type"] == "relationship":
+            relationship_counts[item["relationship_type"]] += 1
+        elif item["item_type"] == "resolution":
+            resolution_counts[item["state"]] += 1
+        elif (
+            item["item_type"] == "document_node"
+            and item["observation_state"] == "record_only"
+        ):
+            record_only_count += 1
+        if (
+            authority.cursor_offset
+            <= index
+            < (authority.cursor_offset + authority.page_size)
+        ):
+            page.append(item)
+    digest.update(b'],"schema_version":"round_map_item_set.v1"}')
+    return _ProjectionFacts(
+        item_fingerprints=tuple(fingerprints),
+        full_result_set_sha256=digest.hexdigest(),
+        page_items=tuple(page),
+        item_type_counts=tuple(sorted(item_type_counts.items())),
+        relationship_counts=tuple(sorted(relationship_counts.items())),
+        resolution_counts=tuple(sorted(resolution_counts.items())),
+        record_only_document_count=record_only_count,
+        eligible_item_count=len(fingerprints),
     )
 
 
@@ -1877,619 +2122,140 @@ def _output_contract_error(detail: str) -> None:
     raise RoundMapError("output_contract_error", detail)
 
 
-def _validate_sample(
-    summary: dict[str, Any],
-    complete: list[Any],
-    *,
-    digest_payload: Any,
-) -> None:
-    sample_limit = ROUND_MAP_LIMITS["sample_items"]
-    if summary["count"] != len(complete):
-        _output_contract_error("bounded sample count mismatch")
-    if not _canonical_equal(summary["sample"], complete[:sample_limit]):
-        _output_contract_error("bounded sample prefix mismatch")
-    if summary["truncated"] is not (len(complete) > sample_limit):
-        _output_contract_error("bounded sample truncation mismatch")
-    if summary["sha256"] != _digest(digest_payload):
-        _output_contract_error("bounded sample digest mismatch")
-
-
 def _validate_complete_items(
     items: list[dict[str, Any]], proof: _RoundMapProof
 ) -> dict[str, Any]:
-    from jsonschema import Draft202012Validator
-
-    from .round_map_contract import ROUND_MAP_ITEM_SCHEMA
-
-    validator = Draft202012Validator(ROUND_MAP_ITEM_SCHEMA)
-    seen_ids: set[str] = set()
-    type_counts = {name: 0 for name in _TYPE_RANK}
-    relationship_counts = {
-        "recorded_derivation": 0,
-        "exact_content_equality": 0,
-        "navigation_candidate": 0,
-    }
-    resolution_counts = {"exact_unique": 0, "ambiguous": 0, "unresolved": 0}
-    if len(items) != len(proof.item_fingerprints):
-        _output_contract_error("complete item fingerprint count mismatch")
-    previous_key: tuple[int, str] | None = None
-    for index, item in enumerate(items):
-        if not isinstance(item, dict):
-            _output_contract_error("complete item is not an object")
-        item_type = item.get("item_type")
-        item_id = item.get("id")
-        if item_type not in _TYPE_RANK or not isinstance(item_id, str):
-            _output_contract_error("complete item discriminator is invalid")
-        order_key = (_TYPE_RANK[item_type], item_id)
-        if previous_key is not None and order_key <= previous_key:
-            _output_contract_error("complete item order mismatch")
-        previous_key = order_key
-        if next(validator.iter_errors(item), None) is not None:
-            _output_contract_error("complete item schema mismatch")
-        if _item_fingerprint(item) != proof.item_fingerprints[index]:
-            _output_contract_error("complete item immutable fingerprint mismatch")
-        if item_id in seen_ids:
-            _output_contract_error("duplicate complete item identity")
-        seen_ids.add(item_id)
-        type_counts[item_type] += 1
-        if item_type == "relationship":
-            relationship_counts[item["relationship_type"]] += 1
-        if item_type == "resolution":
-            resolution_counts[item["state"]] += 1
-
-    class_limits = {
-        "document_node": "document_nodes",
-        "document_observation": "document_observations",
-        "paragraph_node": "paragraph_nodes",
-        "section_node": "section_nodes",
-        "resolution": "resolution_items",
-        "conflict": "conflict_items",
-    }
-    for item_type, limit_key in class_limits.items():
-        if type_counts[item_type] > ROUND_MAP_LIMITS[limit_key]:
-            _output_contract_error("complete item class exceeds fixed limit")
-    relationship_limit_keys = {
-        "recorded_derivation": "recorded_derivation_relationships",
-        "exact_content_equality": "exact_equality_relationships",
-        "navigation_candidate": "navigation_relationships",
-    }
-    for relationship_type, limit_key in relationship_limit_keys.items():
-        if relationship_counts[relationship_type] > ROUND_MAP_LIMITS[limit_key]:
-            _output_contract_error("relationship class exceeds fixed limit")
-    if len(items) > ROUND_MAP_LIMITS["total_map_items"]:
-        _output_contract_error("complete item set exceeds fixed limit")
-
-    by_type = {
-        item_type: [item for item in items if item["item_type"] == item_type]
-        for item_type in _TYPE_RANK
-    }
-    documents = {item["id"]: item for item in by_type["document_node"]}
-    observations = by_type["document_observation"]
-    paragraphs = {item["id"]: item for item in by_type["paragraph_node"]}
-    sections = {item["id"]: item for item in by_type["section_node"]}
-    relationships = by_type["relationship"]
-    resolutions = by_type["resolution"]
-    conflicts = by_type["conflict"]
-    recorded_evidence = {
-        fact.relationship_id: fact for fact in proof.evidence.recorded_relationships
-    }
-    paragraph_evidence = {fact.paragraph_id: fact for fact in proof.evidence.paragraphs}
-    section_evidence = {fact.section_id: fact for fact in proof.evidence.sections}
+    """Validate a candidate graph against the one immutable source authority."""
+    facts = _projection_facts(proof.authority)
     if (
-        len(recorded_evidence) != len(proof.evidence.recorded_relationships)
-        or len(paragraph_evidence) != len(proof.evidence.paragraphs)
-        or len(section_evidence) != len(proof.evidence.sections)
+        facts.item_fingerprints != proof.item_fingerprints
+        or facts.full_result_set_sha256 != proof.full_result_set_sha256
+        or facts.item_type_counts != proof.item_type_counts
+        or facts.relationship_counts != proof.relationship_counts
+        or facts.resolution_counts != proof.resolution_counts
+        or facts.record_only_document_count != proof.record_only_document_count
     ):
-        _output_contract_error("immutable computation evidence is not unique")
-
-    if set(proof.filenames) != {item["filename"] for item in observations}:
-        _output_contract_error("observation filename set mismatch")
-    by_position = sorted(observations, key=lambda item: item["position"])
-    if [item["position"] for item in by_position] != list(range(len(observations))):
-        _output_contract_error("observation position sequence mismatch")
-    observations_by_document: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for position, item in enumerate(by_position):
-        if item["filename"] != proof.filenames[position]:
-            _output_contract_error("observation filename order mismatch")
-        if item["path"] != str(Path(proof.folder) / item["filename"]):
-            _output_contract_error("observation canonical path mismatch")
-        if item["position_basis"] != proof.ordering_source:
-            _output_contract_error("observation position basis mismatch")
-        if item["round_id"] != f"round-{position + 1:03d}":
-            _output_contract_error("observation round id mismatch")
-        if item["document_id"] not in documents:
-            _output_contract_error("observation document identity missing")
-        expected_id = _derived_id(
-            "rm_obs_v1",
-            {
-                "schema_version": "document_observation_identity.v1",
-                "document_id": item["document_id"],
-                "canonical_path": item["path"],
-            },
-        )
-        if item["id"] != expected_id:
-            _output_contract_error("observation identity digest mismatch")
-        observations_by_document[item["document_id"]].append(item)
-
-    if set(paragraphs) != set(paragraph_evidence):
-        _output_contract_error("paragraph evidence coverage mismatch")
-    for item in paragraphs.values():
-        if item["id"] != _derived_id("rm_par_v1", item["paragraph_ref"]):
-            _output_contract_error("paragraph identity digest mismatch")
-        if item["document_id"] != _document_id(item["paragraph_ref"]["file_sha256"]):
-            _output_contract_error("paragraph document identity mismatch")
-        if item["document_id"] not in documents:
-            _output_contract_error("paragraph document is missing")
-        fact = paragraph_evidence[item["id"]]
-        if (
-            item["document_id"] != fact.document_id
-            or item["paragraph_ref"]["paragraph_text_sha256"]
-            != fact.paragraph_text_sha256
-            or item["roles"] != [fact.role]
-        ):
-            _output_contract_error("paragraph immutable evidence mismatch")
-    seed_paragraphs = [
-        fact.paragraph_id for fact in proof.evidence.paragraphs if fact.role == "seed"
-    ]
-    if seed_paragraphs != [proof.seed_paragraph_id] or any(
-        fact.role not in {"seed", "exact_candidate"}
-        for fact in proof.evidence.paragraphs
+        _output_contract_error("projection metadata differs from source authority")
+    if len(items) != facts.eligible_item_count:
+        _output_contract_error("complete item count differs from source authority")
+    for candidate, expected in zip(
+        items, _iter_projected_items(proof.authority), strict=True
     ):
-        _output_contract_error("paragraph role semantics mismatch")
-
-    seed_sections = []
-    if set(sections) != set(section_evidence):
-        _output_contract_error("section evidence coverage mismatch")
-    for item in sections.values():
-        if item["id"] != _derived_id("rm_sec_v1", item["section_ref"]):
-            _output_contract_error("section identity digest mismatch")
-        if item["document_id"] != _document_id(item["section_ref"]["file_sha256"]):
-            _output_contract_error("section document identity mismatch")
-        if item["document_id"] not in documents:
-            _output_contract_error("section document is missing")
-        fact = section_evidence[item["id"]]
-        if (
-            item["document_id"] != fact.document_id
-            or item["label"] != fact.label
-            or item["heading"] != fact.heading
-            or item["roles"] != [fact.role]
-        ):
-            _output_contract_error("section immutable evidence mismatch")
-        if item["roles"] == ["seed_navigation"]:
-            seed_sections.append(item["id"])
-    if len(seed_sections) > 1 or any(
-        fact.role not in {"seed_navigation", "candidate_navigation"}
-        for fact in proof.evidence.sections
-    ):
-        _output_contract_error("section role semantics mismatch")
-    if section_evidence and len(seed_sections) != 1:
-        _output_contract_error("seed navigation section mismatch")
-
-    incoming: dict[str, set[str]] = defaultdict(set)
-    outgoing: dict[str, set[str]] = defaultdict(set)
-    exact_by_document: dict[str, set[str]] = defaultdict(set)
-    navigation_by_document: dict[str, set[str]] = defaultdict(set)
-    edge_pairs: set[tuple[str, str]] = set()
-    seen_recorded_evidence: set[str] = set()
-    exact_relationship_candidates: set[str] = set()
-    navigation_relationship_candidates: set[str] = set()
-    eligible_support_count = 0
-    for item in relationships:
-        relationship_type = item["relationship_type"]
-        if relationship_type == "recorded_derivation":
-            if item["from_id"] not in documents or item["to_id"] not in documents:
-                _output_contract_error("recorded relationship endpoint mismatch")
-            fact = recorded_evidence.get(item["id"])
-            if (
-                fact is None
-                or item["from_id"] != fact.source_id
-                or item["to_id"] != fact.output_id
-            ):
-                _output_contract_error("recorded relationship evidence mismatch")
-            seen_recorded_evidence.add(item["id"])
-            identity_basis = _RECORDED_BASIS_IDENTITY
-            supporting = item["basis"]["supporting_records"]
-            complete_support = [
-                {
-                    "record_id": record_id,
-                    "record_sha256": record_sha256,
-                    "profile": profile,
-                }
-                for record_id, record_sha256, profile in fact.supporting_records
-            ]
-            if not complete_support:
-                _output_contract_error("recorded relationship has no eligible support")
-            _validate_sample(
-                supporting,
-                complete_support,
-                digest_payload={
-                    "schema_version": "recorded_derivation_support.v1",
-                    "records": complete_support,
-                },
-            )
-            eligible_support_count += len(complete_support)
-            expected_counts = {
-                "current_count": sum(
-                    profile == "current_v0.3"
-                    for _record_id, _record_sha256, profile in fact.supporting_records
-                ),
-                "published_v0_1_2_count": sum(
-                    profile == "published_v0.1.2_preflightless"
-                    for _record_id, _record_sha256, profile in fact.supporting_records
-                ),
-                "frozen_legacy_count": sum(
-                    profile == "frozen_legacy_v1"
-                    for _record_id, _record_sha256, profile in fact.supporting_records
-                ),
-            }
-            if supporting["count"] != supporting["current_count"] + supporting[
-                "published_v0_1_2_count"
-            ] + supporting["frozen_legacy_count"] or any(
-                supporting[key] != expected for key, expected in expected_counts.items()
-            ):
-                _output_contract_error("support profile count mismatch")
-            expected_profile = (
-                "mixed"
-                if sum(bool(expected_counts[key]) for key in expected_counts) > 1
-                else "current_only"
-                if expected_counts["current_count"]
-                else "published_v0_1_2_only"
-                if expected_counts["published_v0_1_2_count"]
-                else "frozen_legacy_only"
-            )
-            if item["basis"]["support_profile"] != expected_profile:
-                _output_contract_error("support profile discriminator mismatch")
-            numeric_ids = [
-                _support_sort_key(
-                    _ApplyClassification(
-                        kind="valid",
-                        record={"record_id": sample["record_id"]},
-                        record_sha256=sample["record_sha256"],
-                    )
-                )
-                for sample in supporting["sample"]
-            ]
-            if numeric_ids != sorted(numeric_ids) or len(numeric_ids) != len(
-                set(numeric_ids)
-            ):
-                _output_contract_error("support sample order mismatch")
-            incoming[item["to_id"]].add(item["from_id"])
-            outgoing[item["from_id"]].add(item["to_id"])
-            edge_pairs.add((item["from_id"], item["to_id"]))
-        elif relationship_type == "exact_content_equality":
-            if item["from_id"] not in paragraphs or item["to_id"] not in paragraphs:
-                _output_contract_error("equality relationship endpoint mismatch")
-            if item["from_id"] >= item["to_id"]:
-                _output_contract_error("equality endpoint order mismatch")
-            if proof.seed_paragraph_id not in {item["from_id"], item["to_id"]}:
-                _output_contract_error("equality relationship lacks seed endpoint")
-            candidate_id = (
-                item["to_id"]
-                if item["from_id"] == proof.seed_paragraph_id
-                else item["from_id"]
-            )
-            seed_fact = paragraph_evidence[proof.seed_paragraph_id]
-            candidate_fact = paragraph_evidence[candidate_id]
-            if (
-                seed_fact.role != "seed"
-                or candidate_fact.role != "exact_candidate"
-                or item["basis"]["paragraph_text_sha256"]
-                != seed_fact.paragraph_text_sha256
-                or item["basis"]["paragraph_text_sha256"]
-                != candidate_fact.paragraph_text_sha256
-            ):
-                _output_contract_error("equality basis evidence mismatch")
-            exact_relationship_candidates.add(candidate_id)
-            exact_by_document[paragraphs[candidate_id]["document_id"]].add(candidate_id)
-            identity_basis = item["basis"]
-        else:
-            if item["from_id"] not in sections or item["to_id"] not in sections:
-                _output_contract_error("navigation relationship endpoint mismatch")
-            if len(seed_sections) != 1 or item["from_id"] != seed_sections[0]:
-                _output_contract_error("navigation relationship lacks seed endpoint")
-            seed_fact = section_evidence[item["from_id"]]
-            candidate_fact = section_evidence[item["to_id"]]
-            if (
-                seed_fact.role != "seed_navigation"
-                or candidate_fact.role != "candidate_navigation"
-                or item["from_id"] == item["to_id"]
-            ):
-                _output_contract_error("navigation endpoint role mismatch")
-            expected_signals: list[dict[str, str]] = []
-            if seed_fact.label is not None and seed_fact.label == candidate_fact.label:
-                expected_signals.append(
-                    {
-                        "kind": "label_exact_v1",
-                        "value_sha256": hashlib.sha256(
-                            seed_fact.label.encode("utf-8")
-                        ).hexdigest(),
-                    }
-                )
-            if (
-                seed_fact.heading is not None
-                and seed_fact.heading == candidate_fact.heading
-            ):
-                expected_signals.append(
-                    {
-                        "kind": "heading_exact_v1",
-                        "value_sha256": hashlib.sha256(
-                            seed_fact.heading.encode("utf-8")
-                        ).hexdigest(),
-                    }
-                )
-            if not expected_signals or not _canonical_equal(
-                item["basis"]["signals"], expected_signals
-            ):
-                _output_contract_error("navigation signal evidence mismatch")
-            navigation_relationship_candidates.add(item["to_id"])
-            navigation_by_document[sections[item["to_id"]]["document_id"]].add(
-                item["to_id"]
-            )
-            identity_basis = item["basis"]
-        identity = {
-            "schema_version": "relationship_identity.v1",
-            "relationship_type": relationship_type,
-            "from_id": item["from_id"],
-            "to_id": item["to_id"],
-            "direction": item["direction"],
-            "basis_identity": identity_basis,
-        }
-        if item["id"] != _derived_id("rm_rel_v1", identity):
-            _output_contract_error("relationship identity digest mismatch")
-
-    if seen_recorded_evidence != set(recorded_evidence):
-        _output_contract_error("recorded relationship evidence coverage mismatch")
-    if eligible_support_count != proof.eligible_derivation_record_count:
-        _output_contract_error("eligible derivation support coverage mismatch")
-    expected_exact_candidates = {
-        fact.paragraph_id
-        for fact in proof.evidence.paragraphs
-        if fact.role == "exact_candidate"
+        if not _canonical_equal(candidate, expected):
+            _output_contract_error("complete item differs from source authority")
+    return {
+        "item_type_counts": dict(facts.item_type_counts),
+        "relationship_counts": dict(facts.relationship_counts),
+        "resolution_counts": dict(facts.resolution_counts),
+        "record_only_document_count": facts.record_only_document_count,
     }
-    if exact_relationship_candidates != expected_exact_candidates:
-        _output_contract_error("exact candidate relationship coverage mismatch")
-    expected_navigation_candidates = {
-        fact.section_id
-        for fact in proof.evidence.sections
-        if fact.role == "candidate_navigation"
+
+
+def _project_result(
+    authority: _SourceEvidence, facts: _ProjectionFacts
+) -> dict[str, Any]:
+    seed = _authority_seed_paragraph(authority)
+    next_offset = authority.cursor_offset + len(facts.page_items)
+    next_cursor = None
+    if next_offset < facts.eligible_item_count:
+        next_cursor = f"rm1:{next_offset}:" + _cursor_binding(
+            next_offset=next_offset,
+            folder=authority.workspace_path,
+            seed_path=authority.seed_path,
+            seed_ref=_authority_seed_ref(authority),
+            filenames=list(_authority_filenames(authority)),
+            seed_document_id=seed.document_id,
+            seed_paragraph_id=seed.paragraph_id,
+            ordering_source=authority.ordering_source,
+            filename_manifest_sha256=_authority_filename_manifest_sha256(authority),
+            filesystem_snapshot_sha256=_authority_filesystem_snapshot_sha256(authority),
+            journal_snapshot_sha256=_authority_journal_snapshot_sha256(authority),
+            full_result_set_sha256=facts.full_result_set_sha256,
+        )
+    order_basis = (
+        {"kind": "filename", "rule": "casefold_then_exact"}
+        if authority.ordering_source == "filename_lexicographic_v1"
+        else {
+            "kind": "caller_supplied_filename_sequence",
+            "rule": "exact_sequence",
+        }
+    )
+    relevant_count = _authority_relevant_apply_record_count(authority)
+    return {
+        "schema_version": "round_map.v1",
+        "status": "ok",
+        "seed": {
+            "document_id": seed.document_id,
+            "paragraph_id": seed.paragraph_id,
+            "paragraph_ref": _authority_seed_ref(authority),
+        },
+        "ordering_source": authority.ordering_source,
+        "order_basis": {
+            **order_basis,
+            "lineage_verified": False,
+            "round_id_semantics": "position_only",
+            "filename_manifest_sha256": _authority_filename_manifest_sha256(authority),
+        },
+        "snapshot": {
+            "schema_version": "round_map_snapshot.v1",
+            "filesystem_snapshot_sha256": _authority_filesystem_snapshot_sha256(
+                authority
+            ),
+            "journal_snapshot_sha256": _authority_journal_snapshot_sha256(authority),
+            "journal_state": (
+                "relevant_apply_records_present"
+                if relevant_count
+                else "no_relevant_apply_records"
+            ),
+            "full_result_set_sha256": facts.full_result_set_sha256,
+            "filesystem_cross_file_atomic": False,
+            "cross_source_atomic": False,
+        },
+        "items": [deepcopy(item) for item in facts.page_items],
+        "coverage": {
+            "scan_complete": True,
+            "candidate_document_count": len(authority.observations),
+            "inspected_document_count": len(authority.observations),
+            "record_only_document_count": facts.record_only_document_count,
+            "relevant_apply_record_count": relevant_count,
+            "eligible_derivation_record_count": (
+                _authority_eligible_derivation_record_count(authority)
+            ),
+            "rejected_semantic_record_count": len(authority.conflicts),
+            "eligible_item_count": facts.eligible_item_count,
+            "returned_item_count": len(facts.page_items),
+            "cursor_offset": authority.cursor_offset,
+            "output_truncated": next_cursor is not None,
+            "item_type_counts": dict(facts.item_type_counts),
+            "relationship_counts": dict(facts.relationship_counts),
+            "resolution_counts": dict(facts.resolution_counts),
+            "search_scope": "word_document_xml_body_v1",
+            "reading_mode": "accepted_current_v1",
+            "container_policy": "canonical_body_flow_v1",
+            "whole_docx_coverage": False,
+            "negative_whole_doc_claims": False,
+        },
+        "limits": deepcopy(ROUND_MAP_LIMITS),
+        "next_cursor": next_cursor,
     }
-    if navigation_relationship_candidates != expected_navigation_candidates:
-        _output_contract_error("navigation relationship coverage mismatch")
-
-    cycle_members = _cycle_members(set(documents), edge_pairs)
-    record_only_count = 0
-    for document_id, item in documents.items():
-        if item["id"] != _document_id(item["file_sha256"]):
-            _output_contract_error("document identity digest mismatch")
-        observed = observations_by_document.get(document_id, [])
-        expected_state = (
-            "record_only"
-            if not observed
-            else "current_and_recorded"
-            if incoming[document_id] or outgoing[document_id]
-            else "current"
-        )
-        if item["observation_state"] != expected_state:
-            _output_contract_error("document observation state mismatch")
-        if item["observation_count"] != len(observed):
-            _output_contract_error("document observation count mismatch")
-        if (item["inspection_coverage"] is None) is not (not observed):
-            _output_contract_error("document inspection coverage mismatch")
-        if item["incoming_recorded_derivation_count"] != len(incoming[document_id]):
-            _output_contract_error("document incoming count mismatch")
-        if item["outgoing_recorded_derivation_count"] != len(outgoing[document_id]):
-            _output_contract_error("document outgoing count mismatch")
-        expected_flags = {
-            "multiple_parents": len(incoming[document_id]) > 1,
-            "cycle_member": document_id in cycle_members,
-            "self_loop": (document_id, document_id) in edge_pairs,
-        }
-        if not _canonical_equal(item["topology_flags"], expected_flags):
-            _output_contract_error("document topology flags mismatch")
-        record_only_count += expected_state == "record_only"
-
-    conflicts_by_document: dict[str, int] = defaultdict(int)
-    for item in conflicts:
-        affected = item["affected_document_ids"]
-        if affected != sorted(affected) or any(
-            value not in documents for value in affected
-        ):
-            _output_contract_error("conflict affected identity mismatch")
-        identity = {
-            "schema_version": "conflict_identity.v1",
-            "conflict_type": item["conflict_type"],
-            "affected_document_ids": affected,
-            "record_sha256": item["record_sha256"],
-        }
-        if item["id"] != _derived_id("rm_conflict_v1", identity):
-            _output_contract_error("conflict identity digest mismatch")
-        for document_id in affected:
-            conflicts_by_document[document_id] += 1
-
-    resolution_by_document: dict[str, dict[str, Any]] = {}
-    for item in resolutions:
-        document_id = item["document_id"]
-        if document_id not in documents or document_id in resolution_by_document:
-            _output_contract_error("resolution document identity mismatch")
-        if item["seed_paragraph_id"] != proof.seed_paragraph_id:
-            _output_contract_error("resolution seed identity mismatch")
-        identity = {
-            "schema_version": "resolution_identity.v1",
-            "seed_paragraph_id": proof.seed_paragraph_id,
-            "document_id": document_id,
-        }
-        if item["id"] != _derived_id("rm_resolution_v1", identity):
-            _output_contract_error("resolution identity digest mismatch")
-        exact_ids = exact_by_document.get(document_id, set())
-        navigation_ids = navigation_by_document.get(document_id, set())
-        conflict_count = conflicts_by_document[document_id]
-        observed = observations_by_document.get(document_id, [])
-        document = documents[document_id]
-        coverage = document["inspection_coverage"]
-        pruned = bool(
-            observed
-            and (
-                not coverage["container_coverage"].get("coverage_complete", False)
-                or coverage["container_coverage"].get("excluded_subtree_count", 0) > 0
-            )
-        )
-        expected_tuple = (
-            ("ambiguous", "recorded_fact_conflict")
-            if conflict_count
-            else ("ambiguous", "multiple_exact_candidates")
-            if len(exact_ids) > 1
-            else ("exact_unique", "one_exact_candidate")
-            if len(exact_ids) == 1
-            else ("unresolved", "record_only_document")
-            if not observed
-            else ("unresolved", "declared_scope_incomplete")
-            if pruned
-            else ("unresolved", "navigation_only")
-            if navigation_ids
-            else ("unresolved", "no_match_in_declared_scope")
-        )
-        if (item["state"], item["reason"]) != expected_tuple:
-            _output_contract_error("resolution state and reason mismatch")
-        if (
-            item["exact_candidate_count"] != len(exact_ids)
-            or item["navigation_candidate_count"] != len(navigation_ids)
-            or item["conflict_count"] != conflict_count
-        ):
-            _output_contract_error("resolution evidence count mismatch")
-        candidate_ids = sorted(exact_ids | navigation_ids)
-        _validate_sample(
-            item["candidate_ids"], candidate_ids, digest_payload=candidate_ids
-        )
-        resolution_by_document[document_id] = item
-    if set(resolution_by_document) != set(documents):
-        _output_contract_error("resolution coverage mismatch")
-
-    derived = {
-        "item_type_counts": type_counts,
-        "relationship_counts": relationship_counts,
-        "resolution_counts": resolution_counts,
-        "record_only_document_count": record_only_count,
-    }
-    if (
-        type_counts != dict(proof.item_type_counts)
-        or relationship_counts != dict(proof.relationship_counts)
-        or resolution_counts != dict(proof.resolution_counts)
-        or record_only_count != proof.record_only_document_count
-        or _streaming_item_set_digest(items) != proof.full_result_set_sha256
-    ):
-        _output_contract_error("complete item computation proof mismatch")
-    return derived
 
 
 def _validate_result_invariants(result: dict[str, Any], proof: _RoundMapProof) -> None:
     try:
-        complete_count = len(proof.item_fingerprints)
-        coverage = result["coverage"]
-        page = result["items"]
-        if not _canonical_equal(result["limits"], ROUND_MAP_LIMITS):
-            _output_contract_error("fixed limits mismatch")
-        expected_order_basis = (
-            ("filename", "casefold_then_exact")
-            if proof.ordering_source == "filename_lexicographic_v1"
-            else ("caller_supplied_filename_sequence", "exact_sequence")
-        )
+        facts = _projection_facts(proof.authority)
         if (
-            result["ordering_source"] != proof.ordering_source
-            or (result["order_basis"]["kind"], result["order_basis"]["rule"])
-            != expected_order_basis
-            or result["order_basis"]["lineage_verified"] is not False
-            or result["order_basis"]["round_id_semantics"] != "position_only"
+            facts.item_fingerprints != proof.item_fingerprints
+            or facts.full_result_set_sha256 != proof.full_result_set_sha256
+            or facts.item_type_counts != proof.item_type_counts
+            or facts.relationship_counts != proof.relationship_counts
+            or facts.resolution_counts != proof.resolution_counts
+            or facts.record_only_document_count != proof.record_only_document_count
         ):
-            _output_contract_error("ordering discriminator tuple mismatch")
-        manifest = {
-            "schema_version": "round_map_filename_manifest.v1",
-            "ordering_source": proof.ordering_source,
-            "filenames": list(proof.filenames),
-        }
-        if (
-            result["order_basis"]["filename_manifest_sha256"]
-            != proof.filename_manifest_sha256
-            or proof.filename_manifest_sha256 != _digest(manifest)
-        ):
-            _output_contract_error("filename manifest digest mismatch")
-        expected_seed = {
-            "document_id": proof.seed_document_id,
-            "paragraph_id": proof.seed_paragraph_id,
-            "paragraph_ref": proof.seed_ref,
-        }
-        if not _canonical_equal(result["seed"], expected_seed):
-            _output_contract_error("seed identity tuple mismatch")
-        snapshot = result["snapshot"]
-        if (
-            snapshot["filesystem_snapshot_sha256"] != proof.filesystem_snapshot_sha256
-            or snapshot["journal_snapshot_sha256"] != proof.journal_snapshot_sha256
-            or snapshot["full_result_set_sha256"] != proof.full_result_set_sha256
-            or snapshot["filesystem_cross_file_atomic"] is not False
-            or snapshot["cross_source_atomic"] is not False
-        ):
-            _output_contract_error("snapshot identity tuple mismatch")
-        expected_journal_state = (
-            "relevant_apply_records_present"
-            if proof.relevant_apply_record_count
-            else "no_relevant_apply_records"
-        )
-        if snapshot["journal_state"] != expected_journal_state:
-            _output_contract_error("journal state discriminator mismatch")
-
-        expected_coverage = {
-            "candidate_document_count": len(proof.filenames),
-            "inspected_document_count": len(proof.filenames),
-            "record_only_document_count": proof.record_only_document_count,
-            "relevant_apply_record_count": proof.relevant_apply_record_count,
-            "eligible_derivation_record_count": proof.eligible_derivation_record_count,
-            "rejected_semantic_record_count": proof.rejected_semantic_record_count,
-            "eligible_item_count": complete_count,
-            "returned_item_count": len(page),
-            "relationship_counts": dict(proof.relationship_counts),
-            "resolution_counts": dict(proof.resolution_counts),
-            "item_type_counts": dict(proof.item_type_counts),
-        }
-        for key, expected in expected_coverage.items():
-            if not _canonical_equal(coverage[key], expected):
-                _output_contract_error(f"coverage field {key} mismatch")
-        if (
-            proof.eligible_derivation_record_count
-            + proof.rejected_semantic_record_count
-            != proof.relevant_apply_record_count
-            or proof.rejected_semantic_record_count
-            != dict(proof.item_type_counts)["conflict"]
-        ):
-            _output_contract_error("journal coverage mismatch")
-        offset = coverage["cursor_offset"]
-        if type(offset) is not int or offset < 0 or offset > complete_count:
-            _output_contract_error("cursor offset mismatch")
-        page_fingerprints = tuple(_item_fingerprint(item) for item in page)
-        if (
-            page_fingerprints
-            != proof.item_fingerprints[offset : offset + len(page_fingerprints)]
-        ):
-            _output_contract_error("returned page is not the complete-set slice")
-        next_offset = offset + len(page)
-        expected_next_cursor = None
-        if next_offset < complete_count:
-            expected_next_cursor = f"rm1:{next_offset}:" + _cursor_binding(
-                next_offset=next_offset,
-                folder=proof.folder,
-                seed_path=proof.seed_path,
-                seed_ref=proof.seed_ref,
-                filenames=list(proof.filenames),
-                seed_document_id=proof.seed_document_id,
-                seed_paragraph_id=proof.seed_paragraph_id,
-                ordering_source=proof.ordering_source,
-                filename_manifest_sha256=proof.filename_manifest_sha256,
-                filesystem_snapshot_sha256=proof.filesystem_snapshot_sha256,
-                journal_snapshot_sha256=proof.journal_snapshot_sha256,
-                full_result_set_sha256=snapshot["full_result_set_sha256"],
-            )
-        if result["next_cursor"] != expected_next_cursor:
-            _output_contract_error("next cursor binding mismatch")
-        if coverage["output_truncated"] is not (expected_next_cursor is not None):
-            _output_contract_error("cursor truncation mismatch")
+            _output_contract_error("projection metadata differs from source authority")
+        candidate = deepcopy(result)
+        candidate.pop("producer", None)
+        if not _canonical_equal(candidate, _project_result(proof.authority, facts)):
+            _output_contract_error("result differs from immutable source authority")
     except RoundMapError:
         raise
     except Exception as exc:
@@ -2513,7 +2279,7 @@ def build_round_map(
     cursor: object = None,
     max_items: object = DEFAULT_MAX_ITEMS,
 ) -> RoundMapComputation:
-    """Build the complete bounded fact set, then return one stateless page."""
+    """Build immutable source evidence, then project one bounded page."""
     (
         folder_text,
         checked_seed,
@@ -2521,164 +2287,66 @@ def build_round_map(
         parsed_cursor,
         checked_max_items,
     ) = _validate_inputs(folder, seed, ordered_filenames, cursor, max_items)
-    (
-        workspace,
-        workspace_identity,
-        captured,
-        ordering_source,
-        order_basis,
-        filename_manifest_sha256,
-    ) = _capture_workspace(folder_text, checked_seed["path"], checked_order)
+    workspace, workspace_identity, captured, ordering_source, _, _ = _capture_workspace(
+        folder_text, checked_seed["path"], checked_order
+    )
     current = _parse_candidates(captured)
     canonical_seed_path = _canonical_seed_path(checked_seed["path"])
     resolved_seed = _resolve_seed_evidence(
         current, canonical_seed_path, checked_seed["paragraph_ref"]
     )
     current_ids = {item.document_id for item in current}
-    (
-        included_ids,
-        derivation_records,
-        relevant_conflicts,
-        journal_snapshot_sha256,
-        journal_state,
-    ) = _journal_facts(workspace, workspace_identity, current_ids)
-    (
-        all_items,
-        item_counts,
-        seed_document_id,
-        seed_paragraph_id,
-        derived_counts,
-        computation_evidence,
-    ) = _build_items(
-        current,
-        resolved_seed,
-        included_ids,
-        derivation_records,
-        relevant_conflicts,
+    included_ids, derivation_records, relevant_conflicts = _journal_facts(
+        workspace, workspace_identity, current_ids
     )
-    for item in all_items:
-        if item["item_type"] == "document_observation":
-            item["position_basis"] = ordering_source
-
-    filesystem_snapshot_sha256 = _filesystem_snapshot(current, filename_manifest_sha256)
-    full_result_set_sha256 = _streaming_item_set_digest(all_items)
-    filenames = [item.captured.filename for item in current]
-    if parsed_cursor is None:
-        offset = 0
-    else:
-        offset, supplied_binding = parsed_cursor
+    offset = 0 if parsed_cursor is None else parsed_cursor[0]
+    authority = _derive_source_evidence(
+        workspace=workspace,
+        workspace_identity=workspace_identity,
+        seed_path=canonical_seed_path,
+        ordering_source=ordering_source,
+        cursor_offset=offset,
+        page_size=checked_max_items,
+        current=current,
+        resolved_seed=resolved_seed,
+        included_document_ids=included_ids,
+        derivation_records=derivation_records,
+        relevant_conflicts=relevant_conflicts,
+    )
+    facts = _projection_facts(authority)
+    if parsed_cursor is not None:
+        supplied_binding = parsed_cursor[1]
         expected_binding = _cursor_binding(
             next_offset=offset,
-            folder=str(workspace),
-            seed_path=canonical_seed_path,
-            seed_ref=checked_seed["paragraph_ref"],
-            filenames=filenames,
-            seed_document_id=seed_document_id,
-            seed_paragraph_id=seed_paragraph_id,
-            ordering_source=ordering_source,
-            filename_manifest_sha256=filename_manifest_sha256,
-            filesystem_snapshot_sha256=filesystem_snapshot_sha256,
-            journal_snapshot_sha256=journal_snapshot_sha256,
-            full_result_set_sha256=full_result_set_sha256,
+            folder=authority.workspace_path,
+            seed_path=authority.seed_path,
+            seed_ref=_authority_seed_ref(authority),
+            filenames=list(_authority_filenames(authority)),
+            seed_document_id=_authority_seed_paragraph(authority).document_id,
+            seed_paragraph_id=_authority_seed_paragraph(authority).paragraph_id,
+            ordering_source=authority.ordering_source,
+            filename_manifest_sha256=_authority_filename_manifest_sha256(authority),
+            filesystem_snapshot_sha256=_authority_filesystem_snapshot_sha256(authority),
+            journal_snapshot_sha256=_authority_journal_snapshot_sha256(authority),
+            full_result_set_sha256=facts.full_result_set_sha256,
         )
         if supplied_binding != expected_binding:
             raise RoundMapError("cursor_mismatch", "cursor does not bind this map")
-        if not 1 <= offset < len(all_items):
+        if not 1 <= offset < facts.eligible_item_count:
             raise RoundMapError(
                 "invalid_cursor", "cursor offset is outside the result set"
             )
-    page = all_items[offset : offset + checked_max_items]
-    next_offset = offset + len(page)
-    next_cursor = None
-    if next_offset < len(all_items):
-        binding = _cursor_binding(
-            next_offset=next_offset,
-            folder=str(workspace),
-            seed_path=canonical_seed_path,
-            seed_ref=checked_seed["paragraph_ref"],
-            filenames=filenames,
-            seed_document_id=seed_document_id,
-            seed_paragraph_id=seed_paragraph_id,
-            ordering_source=ordering_source,
-            filename_manifest_sha256=filename_manifest_sha256,
-            filesystem_snapshot_sha256=filesystem_snapshot_sha256,
-            journal_snapshot_sha256=journal_snapshot_sha256,
-            full_result_set_sha256=full_result_set_sha256,
-        )
-        next_cursor = f"rm1:{next_offset}:{binding}"
-
-    relevant_count = len(derivation_records) + len(relevant_conflicts)
-    coverage = {
-        "scan_complete": True,
-        "candidate_document_count": len(current),
-        "inspected_document_count": len(current),
-        "record_only_document_count": derived_counts["record_only_document_count"],
-        "relevant_apply_record_count": relevant_count,
-        "eligible_derivation_record_count": len(derivation_records),
-        "rejected_semantic_record_count": len(relevant_conflicts),
-        "eligible_item_count": len(all_items),
-        "returned_item_count": len(page),
-        "cursor_offset": offset,
-        "output_truncated": next_cursor is not None,
-        **item_counts,
-        "search_scope": "word_document_xml_body_v1",
-        "reading_mode": "accepted_current_v1",
-        "container_policy": "canonical_body_flow_v1",
-        "whole_docx_coverage": False,
-        "negative_whole_doc_claims": False,
-    }
-    result = {
-        "schema_version": "round_map.v1",
-        "status": "ok",
-        "seed": {
-            "document_id": seed_document_id,
-            "paragraph_id": seed_paragraph_id,
-            "paragraph_ref": deepcopy(checked_seed["paragraph_ref"]),
-        },
-        "ordering_source": ordering_source,
-        "order_basis": {
-            **order_basis,
-            "filename_manifest_sha256": filename_manifest_sha256,
-        },
-        "snapshot": {
-            "schema_version": "round_map_snapshot.v1",
-            "filesystem_snapshot_sha256": filesystem_snapshot_sha256,
-            "journal_snapshot_sha256": journal_snapshot_sha256,
-            "journal_state": journal_state,
-            "full_result_set_sha256": full_result_set_sha256,
-            "filesystem_cross_file_atomic": False,
-            "cross_source_atomic": False,
-        },
-        "items": page,
-        "coverage": coverage,
-        "limits": deepcopy(ROUND_MAP_LIMITS),
-        "next_cursor": next_cursor,
-    }
+    result = _project_result(authority, facts)
     proof = _RoundMapProof(
-        item_fingerprints=_freeze_item_fingerprints(all_items),
-        evidence=computation_evidence,
-        full_result_set_sha256=full_result_set_sha256,
-        item_type_counts=tuple(sorted(item_counts["item_type_counts"].items())),
-        relationship_counts=tuple(sorted(item_counts["relationship_counts"].items())),
-        resolution_counts=tuple(sorted(item_counts["resolution_counts"].items())),
-        record_only_document_count=derived_counts["record_only_document_count"],
-        filenames=tuple(filenames),
-        folder=str(workspace),
-        seed_path=canonical_seed_path,
-        seed_ref=deepcopy(checked_seed["paragraph_ref"]),
-        seed_document_id=seed_document_id,
-        seed_paragraph_id=seed_paragraph_id,
-        ordering_source=ordering_source,
-        filename_manifest_sha256=filename_manifest_sha256,
-        filesystem_snapshot_sha256=filesystem_snapshot_sha256,
-        journal_snapshot_sha256=journal_snapshot_sha256,
-        relevant_apply_record_count=relevant_count,
-        eligible_derivation_record_count=len(derivation_records),
-        rejected_semantic_record_count=len(relevant_conflicts),
+        authority=authority,
+        item_fingerprints=facts.item_fingerprints,
+        full_result_set_sha256=facts.full_result_set_sha256,
+        item_type_counts=facts.item_type_counts,
+        relationship_counts=facts.relationship_counts,
+        resolution_counts=facts.resolution_counts,
+        record_only_document_count=facts.record_only_document_count,
     )
-    computation = RoundMapComputation(result=result, workspace=workspace, proof=proof)
-    _validate_complete_items(all_items, proof)
-    validate_computation_result(computation, result)
+    computation = RoundMapComputation(result=result, proof=proof)
     return computation
 
 
@@ -2715,9 +2383,27 @@ def _record_summary_projection(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def record_summary(result: dict[str, Any]) -> dict[str, Any]:
+def record_summary(computation: RoundMapComputation) -> dict[str, Any]:
     """Return the exact bounded path-free raw-journal result projection."""
-    return _record_summary_projection(result)
+    authority = computation.proof.authority
+    page = tuple(
+        islice(
+            _iter_projected_items(authority),
+            authority.cursor_offset,
+            authority.cursor_offset + authority.page_size,
+        )
+    )
+    facts = _ProjectionFacts(
+        item_fingerprints=computation.proof.item_fingerprints,
+        full_result_set_sha256=computation.proof.full_result_set_sha256,
+        page_items=page,
+        item_type_counts=computation.proof.item_type_counts,
+        relationship_counts=computation.proof.relationship_counts,
+        resolution_counts=computation.proof.resolution_counts,
+        record_only_document_count=computation.proof.record_only_document_count,
+        eligible_item_count=len(computation.proof.item_fingerprints),
+    )
+    return _record_summary_projection(_project_result(authority, facts))
 
 
 def _record_provenance_projection(result: dict[str, Any]) -> dict[str, Any]:
@@ -2733,8 +2419,16 @@ def _record_provenance_projection(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def record_provenance(result: dict[str, Any]) -> dict[str, Any]:
-    return _record_provenance_projection(result)
+def record_provenance(computation: RoundMapComputation) -> dict[str, Any]:
+    authority = computation.proof.authority
+    return {
+        "filesystem_snapshot_sha256": _authority_filesystem_snapshot_sha256(authority),
+        "journal_snapshot_sha256": _authority_journal_snapshot_sha256(authority),
+        "full_result_set_sha256": computation.proof.full_result_set_sha256,
+        "reading_mode": "accepted_current_v1",
+        "container_policy": "canonical_body_flow_v1",
+        "search_scope": "word_document_xml_body_v1",
+    }
 
 
 def validate_record_projection(
