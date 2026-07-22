@@ -1078,10 +1078,34 @@ def _authority_at_item_class_count(
     observed: int,
 ) -> round_map_module._SourceEvidence:
     def sha(index: int) -> str:
-        return f"{index + 1:064x}"
+        return f"{index:064x}"
 
     def document_id(index: int) -> str:
-        return f"rm_doc_v1:{sha(index)}"
+        return f"rm_doc_v1:{sha(index + 1)}"
+
+    inspection_coverage = round_map_module._freeze_json(
+        {
+            "schema_version": "round_map_inspection_coverage.v1",
+            "scan_complete": True,
+            "indexed_paragraph_count": 1,
+            "nonempty_indexed_paragraph_count": 1,
+            "included_parts": ["word/document.xml"],
+            "excluded_parts": [],
+            "included_containers": ["body", "table_cell"],
+            "container_coverage": {
+                "schema_version": "canonical_body_flow_v1",
+                "indexed_paragraph_count": 1,
+                "body_paragraph_count": 1,
+                "table_cell_paragraph_count": 0,
+                "excluded_subtree_count": 0,
+                "excluded_paragraph_count": 0,
+                "excluded_by_kind": {},
+                "excluded_paragraphs_by_kind": {},
+                "coverage_complete": True,
+                "legacy_two_field_anchor_safe": True,
+            },
+        }
+    )
 
     observations: list[round_map_module._ObservationEvidence] = []
     recorded: list[round_map_module._RecordedEvidence] = []
@@ -1090,131 +1114,180 @@ def _authority_at_item_class_count(
     conflicts: list[round_map_module._ConflictEvidence] = []
 
     if limit_key in {"document_nodes", "resolution_items"}:
-        observation_count = 500 + max(0, observed - 10_500)
-        observations.extend(
-            round_map_module._ObservationEvidence(
-                observation_id=f"rm_obs_v1:{sha(index + 20_000)}",
-                document_id=document_id(index),
-                canonical_path=f"/synthetic/round-{index:03d}.docx",
-                filename=f"round-{index:03d}.docx",
-                position=index,
-                byte_length=1,
-                file_sha256=sha(index),
-                inspection_coverage_json=b"{}",
-            )
-            for index in range(observation_count)
-        )
-        recorded.extend(
-            round_map_module._RecordedEvidence(
-                relationship_id=f"rm_rel_v1:{sha(index + 30_000)}",
-                source_id=document_id(0),
-                output_id=document_id(index + observation_count),
-                supporting_records=(
-                    (
-                        f"dr_{index + 1:03d}",
-                        sha(index + 40_000),
-                        "current_v0.3",
-                    ),
-                ),
-            )
-            for index in range(10_000)
-        )
+        observation_count = min(observed, ROUND_MAP_LIMITS["document_observations"])
     elif limit_key == "document_observations":
-        observations.extend(
+        observation_count = observed
+    else:
+        observation_count = 1
+
+    for index in range(observation_count):
+        observed_document_index = (
+            index if limit_key in {"document_nodes", "resolution_items"} else 0
+        )
+        canonical_path = f"/synthetic/round-{index:03d}.docx"
+        observed_document_id = document_id(observed_document_index)
+        observations.append(
             round_map_module._ObservationEvidence(
-                observation_id=f"rm_obs_v1:{sha(index + 20_000)}",
-                document_id=document_id(0),
-                canonical_path=f"/synthetic/round-{index:03d}.docx",
+                observation_id=round_map_module._derived_id(
+                    "rm_obs_v1",
+                    {
+                        "schema_version": "document_observation_identity.v1",
+                        "document_id": observed_document_id,
+                        "canonical_path": canonical_path,
+                    },
+                ),
+                document_id=observed_document_id,
+                canonical_path=canonical_path,
                 filename=f"round-{index:03d}.docx",
                 position=index,
                 byte_length=1,
-                file_sha256=sha(0),
-                inspection_coverage_json=b"{}",
+                file_sha256=sha(observed_document_index + 1),
+                inspection_coverage_json=inspection_coverage,
             )
+        )
+
+    def recorded_relationship(
+        index: int,
+        source_id: str,
+        output_id: str,
+    ) -> round_map_module._RecordedEvidence:
+        return round_map_module._RecordedEvidence(
+            relationship_id=round_map_module._relationship_id(
+                "recorded_derivation",
+                source_id,
+                output_id,
+                "directed",
+                round_map_module._RECORDED_BASIS_IDENTITY,
+            ),
+            source_id=source_id,
+            output_id=output_id,
+            supporting_records=(
+                (f"dr_{index + 1:06d}", sha(100_000 + index), "current_v0.3"),
+            ),
+        )
+
+    if limit_key in {"document_nodes", "resolution_items"}:
+        remaining = observed - observation_count
+        paired = remaining // 2
+        for index in range(paired):
+            source_index = observation_count + (index * 2)
+            recorded.append(
+                recorded_relationship(
+                    index,
+                    document_id(source_index),
+                    document_id(source_index + 1),
+                )
+            )
+        if remaining % 2:
+            recorded.append(
+                recorded_relationship(
+                    paired,
+                    document_id(0),
+                    document_id(observation_count + (paired * 2)),
+                )
+            )
+    elif limit_key == "recorded_derivation_relationships":
+        recorded.extend(
+            recorded_relationship(index, document_id(0), document_id(index + 1))
             for index in range(observed)
         )
-    elif limit_key in {"paragraph_nodes", "exact_equality_relationships"}:
-        paragraph_count = observed if limit_key == "paragraph_nodes" else observed + 1
-        paragraphs.extend(
+
+    paragraph_count = (
+        observed
+        if limit_key == "paragraph_nodes"
+        else observed + 1
+        if limit_key == "exact_equality_relationships"
+        else 1
+    )
+    paragraph_text_sha256 = sha(200_000)
+    for index in range(paragraph_count):
+        paragraph_ref = {
+            "schema_version": "paragraph_ref.v1",
+            "ref_type": "paragraph",
+            "file_sha256": sha(1),
+            "part_name": "word/document.xml",
+            "paragraph_index": index,
+            "paragraph_text_sha256": paragraph_text_sha256,
+            "reading_mode": "accepted_current_v1",
+            "container_policy": "canonical_body_flow_v1",
+        }
+        paragraphs.append(
             round_map_module._ParagraphEvidence(
-                paragraph_id=f"rm_par_v1:{sha(index + 20_000)}",
+                paragraph_id=round_map_module._derived_id(
+                    "rm_par_v1", paragraph_ref
+                ),
                 document_id=document_id(0),
-                paragraph_ref_json=b"{}",
+                paragraph_ref_json=round_map_module._freeze_json(paragraph_ref),
                 container_kind="body",
-                paragraph_text_sha256=sha(50_000),
-                role="exact_candidate" if index > 0 else "seed",
+                paragraph_text_sha256=paragraph_text_sha256,
+                role="seed" if index == 0 else "exact_candidate",
             )
-            for index in range(paragraph_count)
         )
-        expected_exact = (
-            observed
-            if limit_key == "exact_equality_relationships"
-            else max(0, observed - 1)
-        )
-        assert (
-            sum(item.role == "exact_candidate" for item in paragraphs) == expected_exact
-        )
-    elif limit_key in {"section_nodes", "navigation_relationships"}:
-        section_count = observed if limit_key == "section_nodes" else observed + 1
-        sections.extend(
+
+    section_count = (
+        observed
+        if limit_key == "section_nodes"
+        else observed + 1
+        if limit_key == "navigation_relationships"
+        else 0
+    )
+    for index in range(section_count):
+        section_ref = {
+            "schema_version": "section_ref.v1",
+            "ref_type": "section",
+            "file_sha256": sha(1),
+            "part_name": "word/document.xml",
+            "heading_paragraph_index": index,
+            "heading_text_sha256": sha(300_000),
+            "reading_mode": "accepted_current_v1",
+            "container_policy": "canonical_body_flow_v1",
+        }
+        sections.append(
             round_map_module._SectionEvidence(
-                section_id=f"rm_sec_v1:{sha(index + 20_000)}",
+                section_id=round_map_module._derived_id("rm_sec_v1", section_ref),
                 document_id=document_id(0),
-                section_ref_json=b"{}",
+                section_ref_json=round_map_module._freeze_json(section_ref),
                 label="1",
                 heading=None,
                 level=0,
                 label_basis="explicit_heading_text_v1",
-                role="candidate_navigation" if index > 0 else "seed_navigation",
+                role="seed_navigation" if index == 0 else "candidate_navigation",
             )
-            for index in range(section_count)
         )
-        expected_navigation = (
-            observed
-            if limit_key == "navigation_relationships"
-            else max(0, observed - 1)
-        )
-        assert (
-            sum(item.role == "candidate_navigation" for item in sections)
-            == expected_navigation
-        )
-    elif limit_key == "recorded_derivation_relationships":
-        recorded.extend(
-            round_map_module._RecordedEvidence(
-                relationship_id=f"rm_rel_v1:{sha(index + 20_000)}",
-                source_id=document_id(0),
-                output_id=document_id(index + 1),
-                supporting_records=(
-                    (f"dr_{index + 1:03d}", sha(index + 40_000), "current_v0.3"),
-                ),
-            )
-            for index in range(observed)
-        )
-    elif limit_key == "conflict_items":
+
+    if limit_key == "conflict_items":
         conflicts.extend(
             round_map_module._ConflictEvidence(
-                conflict_id=f"rm_conflict_v1:{sha(index + 20_000)}",
+                conflict_id=round_map_module._derived_id(
+                    "rm_conflict_v1",
+                    {
+                        "schema_version": "conflict_identity.v1",
+                        "conflict_type": "inconsistent_apply_record",
+                        "affected_document_ids": [document_id(0)],
+                        "record_sha256": sha(400_000 + index),
+                    },
+                ),
                 reason="result_output_sha256_mismatch",
                 affected_document_ids=(document_id(0),),
-                record_sha256=sha(index + 40_000),
+                record_sha256=sha(400_000 + index),
             )
             for index in range(observed)
         )
-    else:  # pragma: no cover - closed test vocabulary
-        raise AssertionError(f"unsupported authority limit: {limit_key}")
 
     return round_map_module._SourceEvidence(
         workspace_path="/synthetic",
         workspace_identity=(1, 1),
-        seed_path="/synthetic/seed.docx",
+        seed_path=observations[0].canonical_path,
         ordering_source="filename_lexicographic_v1",
         cursor_offset=0,
         page_size=100,
         observations=tuple(observations),
-        recorded_relationships=tuple(recorded),
-        paragraphs=tuple(paragraphs),
-        sections=tuple(sections),
-        conflicts=tuple(conflicts),
+        recorded_relationships=tuple(
+            sorted(recorded, key=lambda fact: fact.relationship_id)
+        ),
+        paragraphs=tuple(sorted(paragraphs, key=lambda fact: fact.paragraph_id)),
+        sections=tuple(sorted(sections, key=lambda fact: fact.section_id)),
+        conflicts=tuple(sorted(conflicts, key=lambda fact: fact.conflict_id)),
     )
 
 
@@ -1240,7 +1313,29 @@ def test_every_frozen_item_class_cap_is_inclusive_and_refuses_one_over(
     limit = ROUND_MAP_LIMITS[limit_key]
     boundary = _authority_at_item_class_count(limit_key, limit)
     round_map_module._validate_authority_limits(boundary)
-    del boundary
+    facts = round_map_module._projection_facts(boundary)
+    if limit_key in {
+        "recorded_derivation_relationships",
+        "exact_equality_relationships",
+        "navigation_relationships",
+    }:
+        relationship_type = {
+            "recorded_derivation_relationships": "recorded_derivation",
+            "exact_equality_relationships": "exact_content_equality",
+            "navigation_relationships": "navigation_candidate",
+        }[limit_key]
+        assert dict(facts.relationship_counts)[relationship_type] == limit
+    else:
+        item_type = {
+            "document_nodes": "document_node",
+            "document_observations": "document_observation",
+            "paragraph_nodes": "paragraph_node",
+            "section_nodes": "section_node",
+            "resolution_items": "resolution",
+            "conflict_items": "conflict",
+        }[limit_key]
+        assert dict(facts.item_type_counts)[item_type] == limit
+    del boundary, facts
 
     calls: list[tuple[str, int]] = []
     original_enforcement = round_map_module._enforce_resource_boundary
