@@ -5406,7 +5406,9 @@ def test_write_record_has_no_record_type_override() -> None:
     assert "record_type" not in inspect.signature(records.write_record).parameters
 
 
-def test_generic_round_map_writer_rejects_noncontract_projection(tmp_path: Path) -> None:
+def test_generic_round_map_writer_rejects_noncontract_projection(
+    tmp_path: Path,
+) -> None:
     matter = tmp_path / "matter"
     matter.mkdir()
 

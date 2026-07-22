@@ -614,7 +614,7 @@ _ITEM_SUMMARY_ENTRY = {
                 "item_type": {"const": item_type},
                 "id": {
                     "type": "string",
-                    "pattern": rf"^{prefix}:[0-9a-f]{{64}}$",
+                    "pattern": rf"^{prefix}:[0-9a-f]{{64}}(?![\s\S])",
                 },
                 "item_sha256": _SHA,
             }

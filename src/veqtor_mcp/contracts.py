@@ -335,9 +335,7 @@ INSPECT_SELECTION_SCHEMA: dict[str, Any] = {
 InspectSelectionInput = Annotated[
     dict[str, Any], WithJsonSchema(INSPECT_SELECTION_SCHEMA)
 ]
-RoundMapSeedInput = Annotated[
-    dict[str, Any], WithJsonSchema(ROUND_MAP_SEED_SCHEMA)
-]
+RoundMapSeedInput = Annotated[dict[str, Any], WithJsonSchema(ROUND_MAP_SEED_SCHEMA)]
 
 
 _RECORD_METADATA_PROPERTIES: dict[str, Any] = {

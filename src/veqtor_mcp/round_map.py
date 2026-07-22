@@ -138,7 +138,13 @@ class RoundMapComputation:
 
 @dataclass(frozen=True)
 class _RoundMapProof:
-    complete_items: list[dict[str, Any]]
+    item_fingerprints: tuple[_ItemFingerprint, ...]
+    evidence: _ComputationEvidence
+    full_result_set_sha256: str
+    item_type_counts: tuple[tuple[str, int], ...]
+    relationship_counts: tuple[tuple[str, int], ...]
+    resolution_counts: tuple[tuple[str, int], ...]
+    record_only_document_count: int
     filenames: tuple[str, ...]
     folder: str
     seed_path: str
@@ -152,6 +158,45 @@ class _RoundMapProof:
     relevant_apply_record_count: int
     eligible_derivation_record_count: int
     rejected_semantic_record_count: int
+
+
+@dataclass(frozen=True)
+class _ItemFingerprint:
+    item_type: str
+    item_id: str
+    sha256: str
+
+
+@dataclass(frozen=True)
+class _RecordedEvidence:
+    relationship_id: str
+    source_id: str
+    output_id: str
+    supporting_records: tuple[tuple[str, str, str], ...]
+
+
+@dataclass(frozen=True)
+class _ParagraphEvidence:
+    paragraph_id: str
+    document_id: str
+    paragraph_text_sha256: str
+    role: str
+
+
+@dataclass(frozen=True)
+class _SectionEvidence:
+    section_id: str
+    document_id: str
+    label: str | None
+    heading: str | None
+    role: str
+
+
+@dataclass(frozen=True)
+class _ComputationEvidence:
+    recorded_relationships: tuple[_RecordedEvidence, ...]
+    paragraphs: tuple[_ParagraphEvidence, ...]
+    sections: tuple[_SectionEvidence, ...]
 
 
 @dataclass(frozen=True)
@@ -239,6 +284,29 @@ def _canonical_equal(left: Any, right: Any) -> bool:
         )
     except Exception:
         return False
+
+
+def _item_fingerprint(item: dict[str, Any]) -> _ItemFingerprint:
+    return _ItemFingerprint(
+        item_type=item["item_type"],
+        item_id=item["id"],
+        sha256=_digest(item),
+    )
+
+
+def _freeze_item_fingerprints(
+    items: list[dict[str, Any]],
+) -> tuple[_ItemFingerprint, ...]:
+    if len(items) > ROUND_MAP_LIMITS["total_map_items"]:
+        raise RoundMapError(
+            "resource_limit_exceeded", "complete map exceeds total item limit"
+        )
+    try:
+        return tuple(_item_fingerprint(item) for item in items)
+    except Exception as exc:
+        raise RoundMapError(
+            "output_contract_error", "complete item fingerprints cannot be established"
+        ) from exc
 
 
 def _is_sha256(value: object) -> bool:
@@ -691,6 +759,7 @@ def _parse_candidates(
                 expanded_budget=expanded_budget,
                 missing_document_part_code="missing_document_part",
                 invalid_document_structure_code="invalid_docx",
+                invalid_ooxml_value_code="invalid_docx",
             )
         except ResourceLimitError as exc:
             raise RoundMapError(
@@ -945,13 +1014,12 @@ def _support_sort_key(item: _ApplyClassification) -> int:
     return int(item.record["record_id"].removeprefix("dr_"))
 
 
-def _recorded_relationship(
-    source_id: str,
-    output_id: str,
+def _support_records(
     support: list[_ApplyClassification],
-) -> dict[str, Any]:
+) -> list[dict[str, str]]:
     ordered = sorted(support, key=_support_sort_key)
-    records_list = [
+    assert all(item.profile is not None for item in ordered)
+    return [
         {
             "record_id": item.record["record_id"],
             "record_sha256": item.record_sha256,
@@ -959,6 +1027,15 @@ def _recorded_relationship(
         }
         for item in ordered
     ]
+
+
+def _recorded_relationship(
+    source_id: str,
+    output_id: str,
+    support: list[_ApplyClassification],
+) -> dict[str, Any]:
+    ordered = sorted(support, key=_support_sort_key)
+    records_list = _support_records(support)
     profile_counts = {
         "current_count": sum(item.profile == "current_v0.3" for item in ordered),
         "published_v0_1_2_count": sum(
@@ -1252,7 +1329,14 @@ def _build_items(
     included_document_ids: set[str],
     derivation_records: list[_ApplyClassification],
     relevant_conflicts: list[tuple[_ApplyClassification, tuple[str, ...]]],
-) -> tuple[list[dict[str, Any]], dict[str, Any], str, str, dict[str, int]]:
+) -> tuple[
+    list[dict[str, Any]],
+    dict[str, Any],
+    str,
+    str,
+    dict[str, int],
+    _ComputationEvidence,
+]:
     seed_current = resolved_seed.document
     seed_paragraph = resolved_seed.paragraph
     seed_paragraph_id = resolved_seed.paragraph_id
@@ -1280,12 +1364,30 @@ def _build_items(
             )
         support_by_edge[edge].append(item)
     derivation_relationships: list[dict[str, Any]] = []
+    recorded_evidence: list[_RecordedEvidence] = []
     for (source, output), support in support_by_edge.items():
+        relationship = _recorded_relationship(source, output, support)
         _append_bounded(
             derivation_relationships,
-            _recorded_relationship(source, output, support),
+            relationship,
             item_type="recorded derivation relationship",
             limit_key="recorded_derivation_relationships",
+        )
+        support_facts = _support_records(support)
+        recorded_evidence.append(
+            _RecordedEvidence(
+                relationship_id=relationship["id"],
+                source_id=source,
+                output_id=output,
+                supporting_records=tuple(
+                    (
+                        fact["record_id"],
+                        fact["record_sha256"],
+                        fact["profile"],
+                    )
+                    for fact in support_facts
+                ),
+            )
         )
     edge_pairs = set(support_by_edge)
     cycle_members = _cycle_members(document_ids, edge_pairs)
@@ -1300,6 +1402,14 @@ def _build_items(
             "container_kind": seed_paragraph.container_kind,
             "roles": ["seed"],
         }
+    }
+    paragraph_evidence_by_id: dict[str, _ParagraphEvidence] = {
+        seed_paragraph_id: _ParagraphEvidence(
+            paragraph_id=seed_paragraph_id,
+            document_id=seed_current.document_id,
+            paragraph_text_sha256=resolved_seed_ref["paragraph_text_sha256"],
+            role="seed",
+        )
     }
     exact_candidate_ids: dict[str, set[str]] = defaultdict(set)
     equality_relationships_by_id: dict[str, dict[str, Any]] = {}
@@ -1325,6 +1435,15 @@ def _build_items(
                 item_type="paragraph node",
                 limit_key="paragraph_nodes",
             )
+            paragraph_evidence_by_id.setdefault(
+                paragraph_id,
+                _ParagraphEvidence(
+                    paragraph_id=paragraph_id,
+                    document_id=document.document_id,
+                    paragraph_text_sha256=reference["paragraph_text_sha256"],
+                    role="exact_candidate",
+                ),
+            )
             exact_candidate_ids[document.document_id].add(paragraph_id)
             relationship = _equality_relationship(
                 seed_paragraph_id,
@@ -1348,6 +1467,7 @@ def _build_items(
     )
 
     section_nodes_by_id: dict[str, dict[str, Any]] = {}
+    section_evidence_by_id: dict[str, _SectionEvidence] = {}
     navigation_candidate_ids: dict[str, set[str]] = defaultdict(set)
     navigation_relationships_by_id: dict[str, dict[str, Any]] = {}
     seed_section = seed_current.snapshot.section_by_paragraph.get(
@@ -1375,6 +1495,13 @@ def _build_items(
             },
             item_type="section node",
             limit_key="section_nodes",
+        )
+        section_evidence_by_id[seed_section_id] = _SectionEvidence(
+            section_id=seed_section_id,
+            document_id=seed_current.document_id,
+            label=seed_section.label,
+            heading=seed_section.title,
+            role="seed_navigation",
         )
         for document in current:
             for section in document.snapshot.sections:
@@ -1428,6 +1555,16 @@ def _build_items(
                     },
                     item_type="section node",
                     limit_key="section_nodes",
+                )
+                section_evidence_by_id.setdefault(
+                    candidate_section_id,
+                    _SectionEvidence(
+                        section_id=candidate_section_id,
+                        document_id=document.document_id,
+                        label=section.label,
+                        heading=section.title,
+                        role="candidate_navigation",
+                    ),
                 )
                 navigation_candidate_ids[document.document_id].add(candidate_section_id)
                 relationship = _navigation_relationship(
@@ -1654,6 +1791,19 @@ def _build_items(
         seed_current.document_id,
         seed_paragraph_id,
         counts,
+        _ComputationEvidence(
+            recorded_relationships=tuple(
+                sorted(recorded_evidence, key=lambda fact: fact.relationship_id)
+            ),
+            paragraphs=tuple(
+                paragraph_evidence_by_id[item_id]
+                for item_id in sorted(paragraph_evidence_by_id)
+            ),
+            sections=tuple(
+                section_evidence_by_id[item_id]
+                for item_id in sorted(section_evidence_by_id)
+            ),
+        ),
     )
 
 
@@ -1760,22 +1910,31 @@ def _validate_complete_items(
         "navigation_candidate": 0,
     }
     resolution_counts = {"exact_unique": 0, "ambiguous": 0, "unresolved": 0}
-    expected_order = sorted(
-        items, key=lambda item: (_TYPE_RANK[item["item_type"]], item["id"])
-    )
-    if not _canonical_equal(items, expected_order):
-        _output_contract_error("complete item order mismatch")
-    for item in items:
+    if len(items) != len(proof.item_fingerprints):
+        _output_contract_error("complete item fingerprint count mismatch")
+    previous_key: tuple[int, str] | None = None
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            _output_contract_error("complete item is not an object")
+        item_type = item.get("item_type")
+        item_id = item.get("id")
+        if item_type not in _TYPE_RANK or not isinstance(item_id, str):
+            _output_contract_error("complete item discriminator is invalid")
+        order_key = (_TYPE_RANK[item_type], item_id)
+        if previous_key is not None and order_key <= previous_key:
+            _output_contract_error("complete item order mismatch")
+        previous_key = order_key
         if next(validator.iter_errors(item), None) is not None:
             _output_contract_error("complete item schema mismatch")
-        item_id = item["id"]
+        if _item_fingerprint(item) != proof.item_fingerprints[index]:
+            _output_contract_error("complete item immutable fingerprint mismatch")
         if item_id in seen_ids:
             _output_contract_error("duplicate complete item identity")
         seen_ids.add(item_id)
-        type_counts[item["item_type"]] += 1
-        if item["item_type"] == "relationship":
+        type_counts[item_type] += 1
+        if item_type == "relationship":
             relationship_counts[item["relationship_type"]] += 1
-        if item["item_type"] == "resolution":
+        if item_type == "resolution":
             resolution_counts[item["state"]] += 1
 
     class_limits = {
@@ -1811,6 +1970,17 @@ def _validate_complete_items(
     relationships = by_type["relationship"]
     resolutions = by_type["resolution"]
     conflicts = by_type["conflict"]
+    recorded_evidence = {
+        fact.relationship_id: fact for fact in proof.evidence.recorded_relationships
+    }
+    paragraph_evidence = {fact.paragraph_id: fact for fact in proof.evidence.paragraphs}
+    section_evidence = {fact.section_id: fact for fact in proof.evidence.sections}
+    if (
+        len(recorded_evidence) != len(proof.evidence.recorded_relationships)
+        or len(paragraph_evidence) != len(proof.evidence.paragraphs)
+        or len(section_evidence) != len(proof.evidence.sections)
+    ):
+        _output_contract_error("immutable computation evidence is not unique")
 
     if set(proof.filenames) != {item["filename"] for item in observations}:
         _output_contract_error("observation filename set mismatch")
@@ -1841,6 +2011,8 @@ def _validate_complete_items(
             _output_contract_error("observation identity digest mismatch")
         observations_by_document[item["document_id"]].append(item)
 
+    if set(paragraphs) != set(paragraph_evidence):
+        _output_contract_error("paragraph evidence coverage mismatch")
     for item in paragraphs.values():
         if item["id"] != _derived_id("rm_par_v1", item["paragraph_ref"]):
             _output_contract_error("paragraph identity digest mismatch")
@@ -1848,12 +2020,26 @@ def _validate_complete_items(
             _output_contract_error("paragraph document identity mismatch")
         if item["document_id"] not in documents:
             _output_contract_error("paragraph document is missing")
-    if proof.seed_paragraph_id not in paragraphs:
-        _output_contract_error("seed paragraph item is missing")
-    if paragraphs[proof.seed_paragraph_id]["roles"] != ["seed"]:
-        _output_contract_error("seed paragraph role mismatch")
+        fact = paragraph_evidence[item["id"]]
+        if (
+            item["document_id"] != fact.document_id
+            or item["paragraph_ref"]["paragraph_text_sha256"]
+            != fact.paragraph_text_sha256
+            or item["roles"] != [fact.role]
+        ):
+            _output_contract_error("paragraph immutable evidence mismatch")
+    seed_paragraphs = [
+        fact.paragraph_id for fact in proof.evidence.paragraphs if fact.role == "seed"
+    ]
+    if seed_paragraphs != [proof.seed_paragraph_id] or any(
+        fact.role not in {"seed", "exact_candidate"}
+        for fact in proof.evidence.paragraphs
+    ):
+        _output_contract_error("paragraph role semantics mismatch")
 
     seed_sections = []
+    if set(sections) != set(section_evidence):
+        _output_contract_error("section evidence coverage mismatch")
     for item in sections.values():
         if item["id"] != _derived_id("rm_sec_v1", item["section_ref"]):
             _output_contract_error("section identity digest mismatch")
@@ -1861,57 +2047,98 @@ def _validate_complete_items(
             _output_contract_error("section document identity mismatch")
         if item["document_id"] not in documents:
             _output_contract_error("section document is missing")
+        fact = section_evidence[item["id"]]
+        if (
+            item["document_id"] != fact.document_id
+            or item["label"] != fact.label
+            or item["heading"] != fact.heading
+            or item["roles"] != [fact.role]
+        ):
+            _output_contract_error("section immutable evidence mismatch")
         if item["roles"] == ["seed_navigation"]:
             seed_sections.append(item["id"])
-    if len(seed_sections) > 1:
-        _output_contract_error("multiple seed navigation sections")
+    if len(seed_sections) > 1 or any(
+        fact.role not in {"seed_navigation", "candidate_navigation"}
+        for fact in proof.evidence.sections
+    ):
+        _output_contract_error("section role semantics mismatch")
+    if section_evidence and len(seed_sections) != 1:
+        _output_contract_error("seed navigation section mismatch")
 
     incoming: dict[str, set[str]] = defaultdict(set)
     outgoing: dict[str, set[str]] = defaultdict(set)
     exact_by_document: dict[str, set[str]] = defaultdict(set)
     navigation_by_document: dict[str, set[str]] = defaultdict(set)
     edge_pairs: set[tuple[str, str]] = set()
+    seen_recorded_evidence: set[str] = set()
+    exact_relationship_candidates: set[str] = set()
+    navigation_relationship_candidates: set[str] = set()
+    eligible_support_count = 0
     for item in relationships:
         relationship_type = item["relationship_type"]
         if relationship_type == "recorded_derivation":
             if item["from_id"] not in documents or item["to_id"] not in documents:
                 _output_contract_error("recorded relationship endpoint mismatch")
+            fact = recorded_evidence.get(item["id"])
+            if (
+                fact is None
+                or item["from_id"] != fact.source_id
+                or item["to_id"] != fact.output_id
+            ):
+                _output_contract_error("recorded relationship evidence mismatch")
+            seen_recorded_evidence.add(item["id"])
             identity_basis = _RECORDED_BASIS_IDENTITY
             supporting = item["basis"]["supporting_records"]
-            if (
-                supporting["count"]
-                != supporting["current_count"]
-                + supporting["published_v0_1_2_count"]
-                + supporting["frozen_legacy_count"]
+            complete_support = [
+                {
+                    "record_id": record_id,
+                    "record_sha256": record_sha256,
+                    "profile": profile,
+                }
+                for record_id, record_sha256, profile in fact.supporting_records
+            ]
+            if not complete_support:
+                _output_contract_error("recorded relationship has no eligible support")
+            _validate_sample(
+                supporting,
+                complete_support,
+                digest_payload={
+                    "schema_version": "recorded_derivation_support.v1",
+                    "records": complete_support,
+                },
+            )
+            eligible_support_count += len(complete_support)
+            expected_counts = {
+                "current_count": sum(
+                    profile == "current_v0.3"
+                    for _record_id, _record_sha256, profile in fact.supporting_records
+                ),
+                "published_v0_1_2_count": sum(
+                    profile == "published_v0.1.2_preflightless"
+                    for _record_id, _record_sha256, profile in fact.supporting_records
+                ),
+                "frozen_legacy_count": sum(
+                    profile == "frozen_legacy_v1"
+                    for _record_id, _record_sha256, profile in fact.supporting_records
+                ),
+            }
+            if supporting["count"] != supporting["current_count"] + supporting[
+                "published_v0_1_2_count"
+            ] + supporting["frozen_legacy_count"] or any(
+                supporting[key] != expected for key, expected in expected_counts.items()
             ):
                 _output_contract_error("support profile count mismatch")
             expected_profile = (
                 "mixed"
-                if sum(
-                    bool(supporting[key])
-                    for key in (
-                        "current_count",
-                        "published_v0_1_2_count",
-                        "frozen_legacy_count",
-                    )
-                )
-                > 1
+                if sum(bool(expected_counts[key]) for key in expected_counts) > 1
                 else "current_only"
-                if supporting["current_count"]
+                if expected_counts["current_count"]
                 else "published_v0_1_2_only"
-                if supporting["published_v0_1_2_count"]
+                if expected_counts["published_v0_1_2_count"]
                 else "frozen_legacy_only"
             )
             if item["basis"]["support_profile"] != expected_profile:
                 _output_contract_error("support profile discriminator mismatch")
-            if len(supporting["sample"]) != min(
-                supporting["count"], ROUND_MAP_LIMITS["sample_items"]
-            ):
-                _output_contract_error("support sample length mismatch")
-            if supporting["truncated"] is not (
-                supporting["count"] > ROUND_MAP_LIMITS["sample_items"]
-            ):
-                _output_contract_error("support sample truncation mismatch")
             numeric_ids = [
                 _support_sort_key(
                     _ApplyClassification(
@@ -1941,6 +2168,18 @@ def _validate_complete_items(
                 if item["from_id"] == proof.seed_paragraph_id
                 else item["from_id"]
             )
+            seed_fact = paragraph_evidence[proof.seed_paragraph_id]
+            candidate_fact = paragraph_evidence[candidate_id]
+            if (
+                seed_fact.role != "seed"
+                or candidate_fact.role != "exact_candidate"
+                or item["basis"]["paragraph_text_sha256"]
+                != seed_fact.paragraph_text_sha256
+                or item["basis"]["paragraph_text_sha256"]
+                != candidate_fact.paragraph_text_sha256
+            ):
+                _output_contract_error("equality basis evidence mismatch")
+            exact_relationship_candidates.add(candidate_id)
             exact_by_document[paragraphs[candidate_id]["document_id"]].add(candidate_id)
             identity_basis = item["basis"]
         else:
@@ -1948,13 +2187,41 @@ def _validate_complete_items(
                 _output_contract_error("navigation relationship endpoint mismatch")
             if len(seed_sections) != 1 or item["from_id"] != seed_sections[0]:
                 _output_contract_error("navigation relationship lacks seed endpoint")
-            signal_kinds = [signal["kind"] for signal in item["basis"]["signals"]]
-            if signal_kinds != [
-                kind
-                for kind in ("label_exact_v1", "heading_exact_v1")
-                if kind in signal_kinds
-            ]:
-                _output_contract_error("navigation signal order mismatch")
+            seed_fact = section_evidence[item["from_id"]]
+            candidate_fact = section_evidence[item["to_id"]]
+            if (
+                seed_fact.role != "seed_navigation"
+                or candidate_fact.role != "candidate_navigation"
+                or item["from_id"] == item["to_id"]
+            ):
+                _output_contract_error("navigation endpoint role mismatch")
+            expected_signals: list[dict[str, str]] = []
+            if seed_fact.label is not None and seed_fact.label == candidate_fact.label:
+                expected_signals.append(
+                    {
+                        "kind": "label_exact_v1",
+                        "value_sha256": hashlib.sha256(
+                            seed_fact.label.encode("utf-8")
+                        ).hexdigest(),
+                    }
+                )
+            if (
+                seed_fact.heading is not None
+                and seed_fact.heading == candidate_fact.heading
+            ):
+                expected_signals.append(
+                    {
+                        "kind": "heading_exact_v1",
+                        "value_sha256": hashlib.sha256(
+                            seed_fact.heading.encode("utf-8")
+                        ).hexdigest(),
+                    }
+                )
+            if not expected_signals or not _canonical_equal(
+                item["basis"]["signals"], expected_signals
+            ):
+                _output_contract_error("navigation signal evidence mismatch")
+            navigation_relationship_candidates.add(item["to_id"])
             navigation_by_document[sections[item["to_id"]]["document_id"]].add(
                 item["to_id"]
             )
@@ -1969,6 +2236,25 @@ def _validate_complete_items(
         }
         if item["id"] != _derived_id("rm_rel_v1", identity):
             _output_contract_error("relationship identity digest mismatch")
+
+    if seen_recorded_evidence != set(recorded_evidence):
+        _output_contract_error("recorded relationship evidence coverage mismatch")
+    if eligible_support_count != proof.eligible_derivation_record_count:
+        _output_contract_error("eligible derivation support coverage mismatch")
+    expected_exact_candidates = {
+        fact.paragraph_id
+        for fact in proof.evidence.paragraphs
+        if fact.role == "exact_candidate"
+    }
+    if exact_relationship_candidates != expected_exact_candidates:
+        _output_contract_error("exact candidate relationship coverage mismatch")
+    expected_navigation_candidates = {
+        fact.section_id
+        for fact in proof.evidence.sections
+        if fact.role == "candidate_navigation"
+    }
+    if navigation_relationship_candidates != expected_navigation_candidates:
+        _output_contract_error("navigation relationship coverage mismatch")
 
     cycle_members = _cycle_members(set(documents), edge_pairs)
     record_only_count = 0
@@ -2078,18 +2364,26 @@ def _validate_complete_items(
     if set(resolution_by_document) != set(documents):
         _output_contract_error("resolution coverage mismatch")
 
-    return {
+    derived = {
         "item_type_counts": type_counts,
         "relationship_counts": relationship_counts,
         "resolution_counts": resolution_counts,
         "record_only_document_count": record_only_count,
     }
+    if (
+        type_counts != dict(proof.item_type_counts)
+        or relationship_counts != dict(proof.relationship_counts)
+        or resolution_counts != dict(proof.resolution_counts)
+        or record_only_count != proof.record_only_document_count
+        or _streaming_item_set_digest(items) != proof.full_result_set_sha256
+    ):
+        _output_contract_error("complete item computation proof mismatch")
+    return derived
 
 
 def _validate_result_invariants(result: dict[str, Any], proof: _RoundMapProof) -> None:
     try:
-        complete = proof.complete_items
-        derived = _validate_complete_items(complete, proof)
+        complete_count = len(proof.item_fingerprints)
         coverage = result["coverage"]
         page = result["items"]
         if not _canonical_equal(result["limits"], ROUND_MAP_LIMITS):
@@ -2129,8 +2423,7 @@ def _validate_result_invariants(result: dict[str, Any], proof: _RoundMapProof) -
         if (
             snapshot["filesystem_snapshot_sha256"] != proof.filesystem_snapshot_sha256
             or snapshot["journal_snapshot_sha256"] != proof.journal_snapshot_sha256
-            or snapshot["full_result_set_sha256"]
-            != _streaming_item_set_digest(complete)
+            or snapshot["full_result_set_sha256"] != proof.full_result_set_sha256
             or snapshot["filesystem_cross_file_atomic"] is not False
             or snapshot["cross_source_atomic"] is not False
         ):
@@ -2146,15 +2439,15 @@ def _validate_result_invariants(result: dict[str, Any], proof: _RoundMapProof) -
         expected_coverage = {
             "candidate_document_count": len(proof.filenames),
             "inspected_document_count": len(proof.filenames),
-            "record_only_document_count": derived["record_only_document_count"],
+            "record_only_document_count": proof.record_only_document_count,
             "relevant_apply_record_count": proof.relevant_apply_record_count,
             "eligible_derivation_record_count": proof.eligible_derivation_record_count,
             "rejected_semantic_record_count": proof.rejected_semantic_record_count,
-            "eligible_item_count": len(complete),
+            "eligible_item_count": complete_count,
             "returned_item_count": len(page),
-            "relationship_counts": derived["relationship_counts"],
-            "resolution_counts": derived["resolution_counts"],
-            "item_type_counts": derived["item_type_counts"],
+            "relationship_counts": dict(proof.relationship_counts),
+            "resolution_counts": dict(proof.resolution_counts),
+            "item_type_counts": dict(proof.item_type_counts),
         }
         for key, expected in expected_coverage.items():
             if not _canonical_equal(coverage[key], expected):
@@ -2164,17 +2457,21 @@ def _validate_result_invariants(result: dict[str, Any], proof: _RoundMapProof) -
             + proof.rejected_semantic_record_count
             != proof.relevant_apply_record_count
             or proof.rejected_semantic_record_count
-            != derived["item_type_counts"]["conflict"]
+            != dict(proof.item_type_counts)["conflict"]
         ):
             _output_contract_error("journal coverage mismatch")
         offset = coverage["cursor_offset"]
-        if type(offset) is not int or offset < 0 or offset > len(complete):
+        if type(offset) is not int or offset < 0 or offset > complete_count:
             _output_contract_error("cursor offset mismatch")
-        if not _canonical_equal(page, complete[offset : offset + len(page)]):
+        page_fingerprints = tuple(_item_fingerprint(item) for item in page)
+        if (
+            page_fingerprints
+            != proof.item_fingerprints[offset : offset + len(page_fingerprints)]
+        ):
             _output_contract_error("returned page is not the complete-set slice")
         next_offset = offset + len(page)
         expected_next_cursor = None
-        if next_offset < len(complete):
+        if next_offset < complete_count:
             expected_next_cursor = f"rm1:{next_offset}:" + _cursor_binding(
                 next_offset=next_offset,
                 folder=proof.folder,
@@ -2251,6 +2548,7 @@ def build_round_map(
         seed_document_id,
         seed_paragraph_id,
         derived_counts,
+        computation_evidence,
     ) = _build_items(
         current,
         resolved_seed,
@@ -2357,7 +2655,13 @@ def build_round_map(
         "next_cursor": next_cursor,
     }
     proof = _RoundMapProof(
-        complete_items=all_items,
+        item_fingerprints=_freeze_item_fingerprints(all_items),
+        evidence=computation_evidence,
+        full_result_set_sha256=full_result_set_sha256,
+        item_type_counts=tuple(sorted(item_counts["item_type_counts"].items())),
+        relationship_counts=tuple(sorted(item_counts["relationship_counts"].items())),
+        resolution_counts=tuple(sorted(item_counts["resolution_counts"].items())),
+        record_only_document_count=derived_counts["record_only_document_count"],
         filenames=tuple(filenames),
         folder=str(workspace),
         seed_path=canonical_seed_path,
@@ -2373,6 +2677,7 @@ def build_round_map(
         rejected_semantic_record_count=len(relevant_conflicts),
     )
     computation = RoundMapComputation(result=result, workspace=workspace, proof=proof)
+    _validate_complete_items(all_items, proof)
     validate_computation_result(computation, result)
     return computation
 

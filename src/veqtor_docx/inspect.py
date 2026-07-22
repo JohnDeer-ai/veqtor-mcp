@@ -437,6 +437,7 @@ def _load_snapshot_from_payload(
     expanded_budget=None,
     missing_document_part_code: str = "file_unextractable",
     invalid_document_structure_code: str = "file_unextractable",
+    invalid_ooxml_value_code: str = "file_unextractable",
 ) -> _Snapshot:
     """Build the Stage 3A snapshot from caller-owned immutable DOCX bytes.
 
@@ -524,7 +525,7 @@ def _load_snapshot_from_payload(
         raise
     except (IndexError, KeyError, OverflowError, TypeError, ValueError) as exc:
         raise InspectError(
-            "file_unextractable",
+            invalid_ooxml_value_code,
             "cannot inspect invalid OOXML values",
             observed_source_sha256=file_sha256,
         ) from exc
