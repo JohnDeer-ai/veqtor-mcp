@@ -206,6 +206,32 @@ def test_navigation_only_candidates_remain_unresolved(tmp_path: Path) -> None:
     assert all(item["state"] == "unresolved" for item in navigation_only)
 
 
+def test_single_navigation_candidate_remains_unresolved(tmp_path: Path) -> None:
+    matter = _matter(tmp_path)
+    paths = sorted(matter.glob("*.docx"))
+    seed_path = paths[1]
+    for path in paths[2:]:
+        path.unlink()
+    seed = _seed(seed_path, paragraph_index=60)
+
+    result = build_round_map(str(matter), seed, max_items=100).result
+    navigation = [
+        item
+        for item in _items(result, "relationship")
+        if item["relationship_type"] == "navigation_candidate"
+    ]
+    assert len(navigation) == 1
+    resolution = next(
+        item
+        for item in _items(result, "resolution")
+        if item["reason"] == "navigation_only"
+    )
+    assert (resolution["state"], resolution["navigation_candidate_count"]) == (
+        "unresolved",
+        1,
+    )
+
+
 def test_current_apply_record_creates_only_a_document_recorded_derivation(
     tmp_path: Path,
 ) -> None:
@@ -1036,6 +1062,38 @@ def test_round_map_normalizes_main_body_structure_but_not_archive_ambiguity(
     assert archive_error.value.code == "file_unextractable"
 
 
+@pytest.mark.parametrize(
+    ("parser_error", "expected_code"),
+    [
+        (round_map_module.InspectError("encrypted_docx", "sentinel"), "encrypted_docx"),
+        (
+            round_map_module.InspectError("unsupported_compression", "sentinel"),
+            "unsupported_compression",
+        ),
+        (
+            round_map_module.ResourceLimitError("synthetic_limit", "sentinel"),
+            "resource_limit_exceeded",
+        ),
+    ],
+)
+def test_one_candidate_parse_refusal_aborts_the_complete_map(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    parser_error: Exception,
+    expected_code: str,
+) -> None:
+    matter = _matter(tmp_path)
+    seed = _seed(_round(matter, 1))
+
+    def refuse(*_args, **_kwargs):
+        raise parser_error
+
+    monkeypatch.setattr(round_map_module, "_load_snapshot_from_payload", refuse)
+    with pytest.raises(RoundMapError) as error:
+        build_round_map(str(matter), seed)
+    assert error.value.code == expected_code
+
+
 def test_explicit_order_accepts_platform_direct_backslash_basename(
     tmp_path: Path,
 ) -> None:
@@ -1388,6 +1446,34 @@ def test_excluded_container_never_creates_exact_match_or_negative_whole_doc_clai
     assert result["coverage"]["negative_whole_doc_claims"] is False
 
 
+def test_document_without_exact_or_navigation_candidate_is_unresolved(
+    tmp_path: Path,
+) -> None:
+    generated = _matter(tmp_path / "generated")
+    matter = tmp_path / "no-candidate"
+    matter.mkdir()
+    seed_path = matter / "01-seed.docx"
+    candidate_path = matter / "02-candidate.docx"
+    shutil.copyfile(_round(generated, 1), seed_path)
+    shutil.copyfile(_round(generated, 2), candidate_path)
+    _replace_body_text(seed_path, ["Unique seed clause"])
+    _replace_body_text(candidate_path, ["Entirely different clause"])
+    seed = _seed(seed_path)
+    result = build_round_map(str(matter), seed, max_items=100).result
+    candidate_id = "rm_doc_v1:" + _seed(candidate_path)["paragraph_ref"]["file_sha256"]
+    resolution = next(
+        item
+        for item in _items(result, "resolution")
+        if item["document_id"] == candidate_id
+    )
+    assert (
+        resolution["state"],
+        resolution["reason"],
+        resolution["exact_candidate_count"],
+        resolution["navigation_candidate_count"],
+    ) == ("unresolved", "no_match_in_declared_scope", 0, 0)
+
+
 def test_candidate_id_sample_uses_complete_digest_and_bounded_prefix(
     tmp_path: Path,
 ) -> None:
@@ -1641,13 +1727,16 @@ ACCEPTANCE_FIXTURE_TEST_EVIDENCE = {
         "test_frozen_and_published_profiles_cover_every_strengthened_presence_case",
     ),
     3: ("test_failed_apply_and_successful_preflight_create_no_derivation",),
-    4: ("test_apply_fact_copies_use_canonical_json_type_and_value_equality",),
+    4: ("test_divergent_output_conflict_affects_only_the_current_endpoint",),
     5: ("test_exact_equality_and_navigation_never_become_lineage_or_chronology",),
     6: ("test_equal_hash_signal_is_not_trusted_without_full_text_comparison",),
     7: ("test_explicit_manifest_and_mtimes_remain_position_only",),
     8: ("test_duplicate_exact_paragraphs_are_ambiguous_without_arbitrary_choice",),
-    9: ("test_navigation_only_candidates_remain_unresolved",),
-    10: ("test_invalid_seed_manifest_cursor_and_limits_use_closed_codes",),
+    9: (
+        "test_single_navigation_candidate_remains_unresolved",
+        "test_navigation_only_candidates_remain_unresolved",
+    ),
+    10: ("test_document_without_exact_or_navigation_candidate_is_unresolved",),
     11: ("test_duplicate_bytes_collapse_document_and_paragraph_identity",),
     12: ("test_rename_changes_observation_identity_and_keeps_content_identity",),
     13: (
@@ -1670,8 +1759,16 @@ ACCEPTANCE_FIXTURE_TEST_EVIDENCE = {
         "test_workspace_set_drift_and_candidate_count_boundary",
     ),
     19: ("test_pagination_allows_page_size_change_and_ignores_own_records",),
-    20: ("test_round_map_pre_result_refusals_never_initialize_or_append_journal",),
-    21: ("test_round_map_normalizes_main_body_structure_but_not_archive_ambiguity",),
+    20: (
+        "test_corrupt_journal_and_semantic_limit_fail_before_success",
+        "test_journal_snapshot_contention_is_fail_closed",
+        "test_round_map_success_writes_once_and_append_failure_is_fail_open",
+    ),
+    21: (
+        "test_round_map_normalizes_main_body_structure_but_not_archive_ambiguity",
+        "test_one_candidate_parse_refusal_aborts_the_complete_map",
+        "test_candidate_symlink_and_hardlink_fail_closed",
+    ),
     22: (
         "test_excluded_container_never_creates_exact_match_or_negative_whole_doc_claim",
     ),
