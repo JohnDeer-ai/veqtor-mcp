@@ -144,6 +144,41 @@ function pageSignals(html) {
   return { title, h1, canonical, description, twitterTitle }
 }
 
+function expectedMainNavigationCurrent(route) {
+  if (route === '/product' || route === '/demo' || route === '/setup') {
+    return { href: route, value: 'page' }
+  }
+  if (route === '/guides') return { href: '/guides', value: 'page' }
+  if (route.startsWith('/guides/')) return { href: '/guides', value: 'location' }
+  return null
+}
+
+function assertMainNavigationCurrent(route, html) {
+  const navigation = html.match(/<nav\b[^>]*aria-label=(?:"Main navigation"|'Main navigation')[^>]*>[\s\S]*?<\/nav>/i)?.[0]
+  if (!navigation) {
+    fail(`${route}: main navigation is missing`)
+    return
+  }
+
+  const current = matchingTags(
+    navigation,
+    'a',
+    (attrs) => attrs.has('aria-current'),
+  ).map((tag) => {
+    const attrs = attributesForTag(tag)
+    return { href: attrs.get('href') ?? '', value: (attrs.get('aria-current') ?? '').toLowerCase() }
+  })
+  const expected = expectedMainNavigationCurrent(route)
+
+  if (expected && (current.length !== 1 || current[0].href !== expected.href || current[0].value !== expected.value)) {
+    const found = current.map((item) => `${item.href} (${item.value})`).join(', ') || 'none'
+    fail(`${route}: expected current main navigation link ${expected.href} (${expected.value}), found ${found}`)
+  }
+  if (!expected && current.length > 0) {
+    fail(`${route}: unexpected current main navigation link ${current.map((item) => item.href).join(', ')}`)
+  }
+}
+
 function sha256Json(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex')
 }
@@ -524,6 +559,7 @@ function main() {
     }
     const html = readUtf8(path)
     pagesByRoute.set(route, { path, html })
+    assertMainNavigationCurrent(route, html)
     const signals = pageSignals(html)
     const title = assertOneNonEmpty(route, '<title>', signals.title)
     const description = assertOneNonEmpty(route, 'meta description', signals.description)

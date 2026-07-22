@@ -29,7 +29,9 @@
   --type-page-title: clamp(42px, calc(26px + 2.9vw), 72px);
   --type-article-title: clamp(38px, calc(31px + 2.3vw), 68px);
   --type-section-title: clamp(30px, calc(18px + 2.15vw), 52px);
+  --type-micro: 11px;
   --shell: 1240px;
+  --shell-wide: 1800px;
   --radius: 14px;
   --shadow: 0 22px 90px rgba(0, 0, 0, 0.3);
 }
@@ -139,7 +141,14 @@ img, video { max-width: 100%; }
 
 .site-nav { align-items: center; display: flex; gap: clamp(16px, 2.3vw, 30px); }
 .site-nav a { color: var(--muted); font-size: 13px; font-weight: var(--weight-control); text-decoration: none; transition: color 150ms ease; }
-.site-nav a:hover { color: var(--ink); }
+.site-nav a:hover,
+.site-nav a[aria-current] { color: var(--ink); }
+.site-nav a[aria-current] {
+  text-decoration: underline;
+  text-decoration-color: var(--violet-strong);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 6px;
+}
 .site-nav .site-nav__github { color: var(--lime); }
 
 .nav-toggle {

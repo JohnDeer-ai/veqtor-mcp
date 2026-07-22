@@ -205,16 +205,10 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
     color: var(--ink);
   }
 
-  .shell {
-    width: min(1220px, calc(100% - 2.5rem));
-    margin-inline: auto;
-  }
-
-  /* Only the article grid runs wide (the global .shell caps width at
-     var(--shell) = 1240px, hence the lifted max-width). Breadcrumbs and the
-     hero stay in the narrow shell, aligned with the global header. */
+  /* Breadcrumbs and the hero use the global shell, so their content edge
+     matches the header exactly. Only the editorial grid runs wide. */
   .article-shell.shell {
-    width: min(1800px, calc(100% - 2.5rem));
+    width: min(var(--shell-wide), calc(100% - 2.5rem));
     max-width: none;
   }
 
@@ -361,7 +355,7 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
   .topic-rail a span {
     color: var(--accent-soft);
     font-family: var(--mono, ui-monospace, monospace);
-    font-size: 0.62rem;
+    font-size: var(--type-micro);
     letter-spacing: 0.06em;
     text-transform: uppercase;
   }
@@ -507,7 +501,7 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
     padding: 0.75rem 0.9rem;
     color: var(--accent-soft);
     font-family: var(--mono, ui-monospace, monospace);
-    font-size: 0.68rem;
+    font-size: 0.7rem;
     font-weight: var(--weight-label);
     letter-spacing: 0.08em;
     text-align: left;
@@ -662,6 +656,10 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
       grid-template-columns: 1fr;
     }
 
+    .article-shell.shell {
+      width: 100%;
+    }
+
     .topic-rail {
       display: none;
     }
@@ -680,13 +678,6 @@ const nextGuide = topicIndex >= 0 && topicIndex < topic.guides.length - 1
   }
 
   @media (max-width: 540px) {
-    /* The wide article rule is more specific than .shell, so it needs its own
-       mobile override or narrow screens would keep the 2.5rem margin. */
-    .shell,
-    .article-shell.shell {
-      width: min(100% - 1.25rem, 1220px);
-    }
-
     .related__grid,
     .prev-next {
       grid-template-columns: 1fr;
