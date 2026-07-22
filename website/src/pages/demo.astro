@@ -109,7 +109,7 @@ const videoSchema = {
   .prompt-grid { border-top: 1px solid var(--line-strong); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .prompt-grid article { padding: 28px clamp(18px, 3vw, 34px) 8px 0; }
   .prompt-grid article + article { border-left: 1px solid var(--line); padding-left: clamp(18px, 3vw, 34px); }
-  .prompt-grid article > span { color: var(--violet); font-family: var(--mono); font-size: 10px; font-weight: var(--weight-label); }
+  .prompt-grid article > span { color: var(--violet); font-family: var(--mono); font-size: var(--type-micro); font-weight: var(--weight-label); }
   .prompt-grid blockquote { font-size: 19px; line-height: 1.45; margin: 34px 0 18px; }
   .prompt-grid p { color: var(--muted); font-size: 13px; }
   @media (max-width: 760px) { .prompt-grid { grid-template-columns: 1fr; } .prompt-grid article { padding: 24px 0; } .prompt-grid article + article { border-left: 0; border-top: 1px solid var(--line); padding-left: 0; } }
