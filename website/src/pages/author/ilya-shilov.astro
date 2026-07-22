@@ -54,8 +54,20 @@ const authorStructuredData = [
       <figure>
         <img src={imagePath} width="800" height="1200" alt="Ilya Shilov" loading="eager" />
         <figcaption>
-          {AUTHOR.sameAs[0] && <a href={AUTHOR.sameAs[0]} rel="me noreferrer">LinkedIn</a>}
-          {AUTHOR.sameAs[1] && <a href={AUTHOR.sameAs[1]} rel="me noreferrer">Telegram</a>}
+          {AUTHOR.sameAs[0] && (
+            <a class="social-link social-link--linkedin" href={AUTHOR.sameAs[0]} rel="me noreferrer" aria-label="Ilya Shilov on LinkedIn">
+              <span class="social-link__icon" aria-hidden="true">in</span>
+              <span class="social-link__copy"><small>Profile</small><strong>LinkedIn</strong></span>
+              <span class="social-link__arrow" aria-hidden="true">↗</span>
+            </a>
+          )}
+          {AUTHOR.sameAs[1] && (
+            <a class="social-link social-link--telegram" href={AUTHOR.sameAs[1]} rel="me noreferrer" aria-label="Ilya Shilov on Telegram">
+              <span class="social-link__icon" aria-hidden="true">tg</span>
+              <span class="social-link__copy"><small>Direct</small><strong>Telegram</strong></span>
+              <span class="social-link__arrow" aria-hidden="true">↗</span>
+            </a>
+          )}
         </figcaption>
       </figure>
     </header>
@@ -236,15 +248,93 @@ const authorStructuredData = [
   }
 
   figcaption {
-    display: flex;
-    gap: 0.6rem;
-    padding: 0.75rem 0.2rem 0.1rem;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.55rem;
+    padding-top: 0.7rem;
   }
 
-  figcaption a {
-    color: var(--accent-soft);
-    font-size: 0.76rem;
+  .social-link {
+    --social-accent: var(--accent-soft);
+    --social-glow: rgb(143 128 255 / 14%);
+    display: grid;
+    grid-template-columns: 1.75rem minmax(0, 1fr) auto;
+    gap: 0.5rem;
+    align-items: center;
+    min-width: 0;
+    min-height: 3rem;
+    padding: 0.62rem;
+    color: var(--ink);
+    background: linear-gradient(135deg, var(--social-glow), transparent 72%), #0d0c13;
+    border: 1px solid var(--line);
+    border-radius: 0.7rem;
     text-decoration: none;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 4%);
+    transition: border-color 160ms ease, transform 160ms ease, background-color 160ms ease;
+  }
+
+  .social-link--telegram {
+    --social-accent: var(--lime);
+    --social-glow: rgb(200 255 88 / 10%);
+  }
+
+  .social-link:hover,
+  .social-link:focus-visible {
+    border-color: var(--social-accent);
+    transform: translateY(-2px);
+  }
+
+  .social-link__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    color: #0b0912;
+    background: var(--social-accent);
+    border-radius: 0.48rem;
+    font-family: var(--mono, ui-monospace, monospace);
+    font-size: var(--type-micro);
+    font-weight: var(--weight-label);
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+
+  .social-link__copy {
+    min-width: 0;
+  }
+
+  .social-link__copy small {
+    display: block;
+    color: var(--muted);
+    font-family: var(--mono, ui-monospace, monospace);
+    font-size: var(--type-micro);
+    font-weight: var(--weight-label);
+    letter-spacing: 0.06em;
+    line-height: 1.2;
+    text-transform: uppercase;
+  }
+
+  .social-link__copy strong {
+    display: block;
+    margin-top: 0.18rem;
+    overflow: hidden;
+    font-size: 0.76rem;
+    font-weight: var(--weight-title);
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .social-link__arrow {
+    color: var(--social-accent);
+    font-size: 0.82rem;
+    transition: transform 160ms ease;
+  }
+
+  .social-link:hover .social-link__arrow,
+  .social-link:focus-visible .social-link__arrow {
+    transform: translate(2px, -2px);
   }
 
   .profile {
@@ -457,6 +547,13 @@ const authorStructuredData = [
 
     .shell {
       width: min(100% - 1.25rem, 1160px);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .social-link,
+    .social-link__arrow {
+      transition: none;
     }
   }
 </style>
