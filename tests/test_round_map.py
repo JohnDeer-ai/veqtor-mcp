@@ -1844,6 +1844,33 @@ def test_workspace_replacement_between_filesystem_and_journal_is_refused(
     assert error.value.code == "workspace_changed"
 
 
+def test_server_refuses_final_symlink_race_before_journal_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matter = _matter(tmp_path)
+    seed = _seed(_round(matter, 1))
+    moved = tmp_path / "captured-workspace"
+    original = round_map_module._parse_candidates
+
+    def parse_then_replace(captured):
+        current = original(captured)
+        matter.rename(moved)
+        matter.symlink_to(moved, target_is_directory=True)
+        return current
+
+    monkeypatch.setattr(round_map_module, "_parse_candidates", parse_then_replace)
+    assert (
+        _unwritten_error_code(lambda: server.map_rounds(str(matter), seed))
+        == "workspace_changed"
+    )
+    sidecar = moved / records.SIDECAR_DIR
+    assert matter.is_symlink()
+    assert not sidecar.exists()
+    assert not (sidecar / records.JOURNAL_NAME).exists()
+    assert not (matter / records.SIDECAR_DIR).exists()
+
+
 @pytest.mark.parametrize("path_race", ["case_rename", "final_symlink"])
 def test_workspace_exact_spelling_between_filesystem_and_journal_is_refused(
     tmp_path: Path,

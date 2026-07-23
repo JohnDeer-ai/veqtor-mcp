@@ -739,6 +739,7 @@ def _capture_workspace(
     Path,
     tuple[int, int],
     list[_CapturedCandidate],
+    _CapturedCandidate,
     str,
     dict[str, Any],
     str,
@@ -843,6 +844,9 @@ def _capture_workspace(
             raise RoundMapError(
                 "workspace_changed", "workspace identity or spelling changed"
             )
+        captured_seed = next(
+            candidate for candidate in captured if candidate.path == canonical_seed
+        )
     finally:
         os.close(root_fd)
 
@@ -852,7 +856,15 @@ def _capture_workspace(
         "filenames": filenames,
     }
     manifest_sha256 = _digest(manifest)
-    return canonical, identity, captured, ordering_source, order_basis, manifest_sha256
+    return (
+        canonical,
+        identity,
+        captured,
+        captured_seed,
+        ordering_source,
+        order_basis,
+        manifest_sha256,
+    )
 
 
 def _inspection_coverage(snapshot: _Snapshot) -> dict[str, Any]:
@@ -1271,11 +1283,12 @@ def _cycle_members(
 
 def _resolve_seed_evidence(
     current: list[_CurrentDocument],
-    seed_path: str,
+    captured_seed: _CapturedCandidate,
     seed_ref: dict[str, Any],
 ) -> _ResolvedSeed:
-    by_path = {item.captured.path: item for item in current}
-    seed_current = by_path[seed_path]
+    seed_current = next(
+        document for document in current if document.captured is captured_seed
+    )
     if seed_ref["file_sha256"] != seed_current.snapshot.file_sha256:
         raise RoundMapError(
             "file_sha256_mismatch", "seed reference was produced from different bytes"
@@ -2287,13 +2300,18 @@ def build_round_map(
         parsed_cursor,
         checked_max_items,
     ) = _validate_inputs(folder, seed, ordered_filenames, cursor, max_items)
-    workspace, workspace_identity, captured, ordering_source, _, _ = _capture_workspace(
-        folder_text, checked_seed["path"], checked_order
-    )
+    (
+        workspace,
+        workspace_identity,
+        captured,
+        captured_seed,
+        ordering_source,
+        _,
+        _,
+    ) = _capture_workspace(folder_text, checked_seed["path"], checked_order)
     current = _parse_candidates(captured)
-    canonical_seed_path = _canonical_seed_path(checked_seed["path"])
     resolved_seed = _resolve_seed_evidence(
-        current, canonical_seed_path, checked_seed["paragraph_ref"]
+        current, captured_seed, checked_seed["paragraph_ref"]
     )
     current_ids = {item.document_id for item in current}
     included_ids, derivation_records, relevant_conflicts = _journal_facts(
@@ -2303,7 +2321,7 @@ def build_round_map(
     authority = _derive_source_evidence(
         workspace=workspace,
         workspace_identity=workspace_identity,
-        seed_path=canonical_seed_path,
+        seed_path=captured_seed.path,
         ordering_source=ordering_source,
         cursor_offset=offset,
         page_size=checked_max_items,
