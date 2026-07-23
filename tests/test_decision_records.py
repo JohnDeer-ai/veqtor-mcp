@@ -205,33 +205,60 @@ def _write_concurrent_record(workspace: str, index: int) -> dict:
     )
 
 
-def _write_delayed_concurrent_record(
+_PROCESS_GATE_TIMEOUT_SECONDS = 10.0
+_PROCESS_GATE_POLL_SECONDS = 0.01
+
+
+def _wait_for_process_markers(paths: list[Path]) -> bool:
+    deadline = time.monotonic() + _PROCESS_GATE_TIMEOUT_SECONDS
+    while not all(path.is_file() for path in paths):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        time.sleep(min(_PROCESS_GATE_POLL_SECONDS, remaining))
+    return True
+
+
+def _write_gated_concurrent_record(
     workspace: str,
     index: int,
-    start_at: float,
-    initialization_delay: float,
-    append_delay: float,
-) -> dict:
-    original_ensure = records._ensure_private_gitignore
+    leader_marker: str,
+    follower_marker_dir: str,
+    follower_count: int,
+) -> tuple[dict, bool | None]:
+    original_open = records._open_journal_for_append
     original_append = records._append_to_scanned_journal
+    handoff_observed: bool | None = None
 
-    def delayed_ensure(*args, **kwargs):
-        time.sleep(initialization_delay)
-        return original_ensure(*args, **kwargs)
+    def mark_initialized_journal(*args, **kwargs):
+        handle = original_open(*args, **kwargs)
+        try:
+            marker = Path(follower_marker_dir) / f"follower-{index}.ready"
+            marker.write_bytes(b"ready\n")
+            return handle
+        except BaseException:
+            handle.close()
+            raise
 
-    def delayed_append(*args, **kwargs):
-        time.sleep(append_delay)
+    def hold_journal_for_root_handoff(*args, **kwargs):
+        nonlocal handoff_observed
+        Path(leader_marker).write_bytes(b"ready\n")
+        follower_markers = [
+            Path(follower_marker_dir) / f"follower-{follower}.ready"
+            for follower in range(1, follower_count + 1)
+        ]
+        handoff_observed = _wait_for_process_markers(follower_markers)
         return original_append(*args, **kwargs)
 
-    remaining = start_at - time.monotonic()
-    if remaining > 0:
-        time.sleep(remaining)
-    records._ensure_private_gitignore = delayed_ensure
-    records._append_to_scanned_journal = delayed_append
+    if index == 0:
+        records._append_to_scanned_journal = hold_journal_for_root_handoff
+    else:
+        records._open_journal_for_append = mark_initialized_journal
     try:
-        return _write_concurrent_record(workspace, index)
+        meta = _write_concurrent_record(workspace, index)
+        return meta, handoff_observed
     finally:
-        records._ensure_private_gitignore = original_ensure
+        records._open_journal_for_append = original_open
         records._append_to_scanned_journal = original_append
 
 
@@ -6805,24 +6832,66 @@ def test_process_cold_start_pipelines_bounded_initialization_and_append_work(
 ) -> None:
     workspace = tmp_path / "matter"
     workspace.mkdir()
-    start_at = time.monotonic() + 2.0
+    marker_dir = tmp_path / "process-markers"
+    marker_dir.mkdir()
+    leader_marker = marker_dir / "leader-in-append.ready"
 
     with ProcessPoolExecutor(max_workers=4) as pool:
-        metas = list(
-            pool.map(
-                _write_delayed_concurrent_record,
-                [str(workspace)] * 4,
-                range(4),
-                [start_at] * 4,
-                [0.15] * 4,
-                [0.22] * 4,
-            )
+        leader = pool.submit(
+            _write_gated_concurrent_record,
+            str(workspace),
+            0,
+            str(leader_marker),
+            str(marker_dir),
+            3,
         )
+        assert _wait_for_process_markers([leader_marker]), (
+            "leader did not reach the journal-locked append hook"
+        )
+        followers = [
+            pool.submit(
+                _write_gated_concurrent_record,
+                str(workspace),
+                index,
+                str(leader_marker),
+                str(marker_dir),
+                3,
+            )
+            for index in range(1, 4)
+        ]
+        results = [
+            leader.result(timeout=_PROCESS_GATE_TIMEOUT_SECONDS + 5.0),
+            *(
+                follower.result(timeout=_PROCESS_GATE_TIMEOUT_SECONDS + 5.0)
+                for follower in followers
+            ),
+        ]
 
+    metas = [meta for meta, _handoff_observed in results]
     failures = [meta for meta in metas if meta["record_status"] != "written"]
+    assert results[0][1] is True, (
+        "followers did not initialize while the leader held the journal lock"
+    )
     assert failures == []
-    exported = records.read_records(str(workspace), max_records=10)
+    assert all(handoff_observed is None for _meta, handoff_observed in results[1:])
+    exported = records.read_records(
+        str(workspace),
+        max_records=10,
+        include_payload=True,
+    )
     assert exported["total_count"] == 4
+    assert [record["record_id"] for record in exported["records"]] == [
+        "dr_001",
+        "dr_002",
+        "dr_003",
+        "dr_004",
+    ]
+    assert sorted(record["input"]["index"] for record in exported["records"]) == [
+        0,
+        1,
+        2,
+        3,
+    ]
 
 
 def test_cold_start_concurrent_appends_do_not_drop_records(tmp_path: Path) -> None:
