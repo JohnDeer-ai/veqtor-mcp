@@ -612,7 +612,7 @@ def _ensure_private_gitignore(sidecar_fd: int, sidecar: Path) -> None:
 
 
 @contextmanager
-def _sidecar_for_write(
+def _journal_for_write(
     workspace: str | Path,
     *,
     expected_identity: tuple[int, int] | None = None,
@@ -625,30 +625,44 @@ def _sidecar_for_write(
     root_fd = _open_workspace_fd(root, expected_identity)
     sidecar = root / SIDECAR_DIR
     deadline = _journal_lock_deadline() if lock_deadline is None else lock_deadline
+    journal_handle: Any | None = None
     try:
-        with _bounded_journal_lock(root_fd, fcntl.LOCK_EX, deadline=deadline):
-            try:
-                os.mkdir(SIDECAR_DIR, mode=0o700, dir_fd=root_fd)
+        try:
+            with _bounded_journal_lock(root_fd, fcntl.LOCK_EX, deadline=deadline):
                 try:
-                    os.fsync(root_fd)
-                except OSError:
+                    os.mkdir(SIDECAR_DIR, mode=0o700, dir_fd=root_fd)
                     try:
-                        os.rmdir(SIDECAR_DIR, dir_fd=root_fd)
+                        os.fsync(root_fd)
                     except OSError:
-                        pass
-                    raise
-            except FileExistsError:
-                pass
-            sidecar_fd = _open_sidecar_fd(root_fd, sidecar, missing_ok=False)
-            assert sidecar_fd is not None
-            try:
-                os.fchmod(sidecar_fd, 0o700)
-                _ensure_private_gitignore(sidecar_fd, sidecar)
-                yield sidecar, sidecar_fd
-            finally:
-                os.close(sidecar_fd)
+                        try:
+                            os.rmdir(SIDECAR_DIR, dir_fd=root_fd)
+                        except OSError:
+                            pass
+                        raise
+                except FileExistsError:
+                    pass
+                sidecar_fd = _open_sidecar_fd(root_fd, sidecar, missing_ok=False)
+                assert sidecar_fd is not None
+                try:
+                    os.fchmod(sidecar_fd, 0o700)
+                    _ensure_private_gitignore(sidecar_fd, sidecar)
+                    journal_handle = _open_journal_for_append(
+                        sidecar_fd,
+                        sidecar / JOURNAL_NAME,
+                    )
+                finally:
+                    os.close(sidecar_fd)
+        finally:
+            os.close(root_fd)
+    except BaseException:
+        if journal_handle is not None:
+            journal_handle.close()
+        raise
+    assert journal_handle is not None
+    try:
+        yield sidecar / JOURNAL_NAME, journal_handle
     finally:
-        os.close(root_fd)
+        journal_handle.close()
 
 
 @contextmanager
@@ -1611,20 +1625,19 @@ def _open_journal_for_read(sidecar_fd: int, path: Path):
 
 
 def _append_locked(
-    sidecar_fd: int,
+    handle: Any,
     path: Path,
     record: dict[str, Any],
     *,
     lock_deadline: float,
 ) -> str:
-    with _open_journal_for_append(sidecar_fd, path) as handle:
-        with _bounded_journal_lock(
-            handle.fileno(),
-            fcntl.LOCK_EX,
-            deadline=lock_deadline,
-        ):
-            scan = _scan_records_for_append(handle, path, limit=None)
-            return _append_to_scanned_journal(handle, scan, record)
+    with _bounded_journal_lock(
+        handle.fileno(),
+        fcntl.LOCK_EX,
+        deadline=lock_deadline,
+    ):
+        scan = _scan_records_for_append(handle, path, limit=None)
+        return _append_to_scanned_journal(handle, scan, record)
 
 
 def _append_to_scanned_journal(
@@ -2411,14 +2424,14 @@ def _write_record(
                 lock_deadline=lock_deadline,
             )
         else:
-            with _sidecar_for_write(
+            with _journal_for_write(
                 root,
                 expected_identity=expected_identity,
                 lock_deadline=lock_deadline,
-            ) as (sidecar, sidecar_fd):
+            ) as (journal_path, journal_handle):
                 record_id = _append_locked(
-                    sidecar_fd,
-                    sidecar / JOURNAL_NAME,
+                    journal_handle,
+                    journal_path,
                     record,
                     lock_deadline=lock_deadline,
                 )

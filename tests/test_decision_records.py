@@ -205,6 +205,36 @@ def _write_concurrent_record(workspace: str, index: int) -> dict:
     )
 
 
+def _write_delayed_concurrent_record(
+    workspace: str,
+    index: int,
+    start_at: float,
+    initialization_delay: float,
+    append_delay: float,
+) -> dict:
+    original_ensure = records._ensure_private_gitignore
+    original_append = records._append_to_scanned_journal
+
+    def delayed_ensure(*args, **kwargs):
+        time.sleep(initialization_delay)
+        return original_ensure(*args, **kwargs)
+
+    def delayed_append(*args, **kwargs):
+        time.sleep(append_delay)
+        return original_append(*args, **kwargs)
+
+    remaining = start_at - time.monotonic()
+    if remaining > 0:
+        time.sleep(remaining)
+    records._ensure_private_gitignore = delayed_ensure
+    records._append_to_scanned_journal = delayed_append
+    try:
+        return _write_concurrent_record(workspace, index)
+    finally:
+        records._ensure_private_gitignore = original_ensure
+        records._append_to_scanned_journal = original_append
+
+
 def _export_concurrent_record(workspace: str, _index: int) -> dict:
     return server.export_decision_record(workspace, max_records=1)
 
@@ -320,6 +350,32 @@ os.close(fd)
             process.stdin.close()
         stderr = process.stderr.read() if process.stderr is not None else ""
         assert process.wait(timeout=5) == 0, stderr
+
+
+def _process_lock_state(path: Path) -> str:
+    script = """
+import fcntl
+import os
+import sys
+
+fd = os.open(sys.argv[1], os.O_RDONLY)
+try:
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    print("busy")
+else:
+    print("available")
+    fcntl.flock(fd, fcntl.LOCK_UN)
+finally:
+    os.close(fd)
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(path)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
 
 
 def test_with_record_preserves_explicit_empty_record_result(
@@ -6717,6 +6773,58 @@ def test_threaded_cold_start_buffers_scans_under_slow_raw_contention(
     assert exported["total_count"] == 48
 
 
+def test_ordinary_append_releases_root_while_journal_lock_protects_frame(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "matter"
+    workspace.mkdir()
+    journal = workspace / records.SIDECAR_DIR / records.JOURNAL_NAME
+    original_append = records._append_to_scanned_journal
+    observed: list[tuple[str, str]] = []
+
+    def inspect_lock_handoff(handle, scan, record):
+        observed.append(
+            (
+                _process_lock_state(workspace),
+                _process_lock_state(journal),
+            )
+        )
+        return original_append(handle, scan, record)
+
+    monkeypatch.setattr(records, "_append_to_scanned_journal", inspect_lock_handoff)
+
+    result = _write_concurrent_record(str(workspace), 0)
+
+    assert result["record_status"] == "written"
+    assert observed == [("available", "busy")]
+
+
+def test_process_cold_start_pipelines_bounded_initialization_and_append_work(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "matter"
+    workspace.mkdir()
+    start_at = time.monotonic() + 2.0
+
+    with ProcessPoolExecutor(max_workers=4) as pool:
+        metas = list(
+            pool.map(
+                _write_delayed_concurrent_record,
+                [str(workspace)] * 4,
+                range(4),
+                [start_at] * 4,
+                [0.15] * 4,
+                [0.22] * 4,
+            )
+        )
+
+    failures = [meta for meta in metas if meta["record_status"] != "written"]
+    assert failures == []
+    exported = records.read_records(str(workspace), max_records=10)
+    assert exported["total_count"] == 4
+
+
 def test_cold_start_concurrent_appends_do_not_drop_records(tmp_path: Path) -> None:
     for iteration in range(40):
         workspace = tmp_path / f"matter-{iteration}"
@@ -6731,7 +6839,8 @@ def test_cold_start_concurrent_appends_do_not_drop_records(tmp_path: Path) -> No
                 )
             )
 
-        assert all(meta["record_status"] == "written" for meta in metas), iteration
+        failures = [meta for meta in metas if meta["record_status"] != "written"]
+        assert failures == [], (iteration, failures)
         exported = records.read_records(str(workspace), max_records=20)
         assert exported["total_count"] == 12, iteration
         assert len({record["record_id"] for record in exported["records"]}) == 12
