@@ -1,46 +1,76 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro'
-import PageHero from '../components/PageHero.astro'
+import Breadcrumbs from '../components/Breadcrumbs.astro'
 import SiteCta from '../components/SiteCta.astro'
+import { DEMO_VIDEO } from '../lib/demo-video'
 
 const title = 'Veqtor MCP Demo — Review Word Redlines with Claude'
-const description = 'Watch Claude use Veqtor with sample Word contract drafts to explain a negotiation, check exact wording, and create a separate counterproposal with tracked changes.'
+const description = DEMO_VIDEO.description
+const pageSchema = {
+  '@type': 'WebPage',
+  '@id': `${DEMO_VIDEO.pageUrl}#webpage`,
+  url: DEMO_VIDEO.pageUrl,
+  name: title,
+  description,
+  isPartOf: { '@id': 'https://veqtor.pro/#website' },
+  mainEntity: { '@id': DEMO_VIDEO.id },
+  inLanguage: 'en',
+}
 const videoSchema = {
   '@type': 'VideoObject',
-  name: 'Veqtor MCP demo — review Word redlines with Claude',
+  '@id': DEMO_VIDEO.id,
+  name: DEMO_VIDEO.name,
   description,
-  thumbnailUrl: 'https://veqtor.pro/media/veqtor-demo-v0.1.2-poster.jpg',
-  contentUrl: 'https://veqtor.pro/media/veqtor-demo-v0.1.2.mp4',
-  uploadDate: '2026-07-14T00:00:00+03:00',
-  duration: 'PT1M44S',
+  thumbnailUrl: DEMO_VIDEO.thumbnailUrl,
+  contentUrl: DEMO_VIDEO.contentUrl,
+  uploadDate: DEMO_VIDEO.uploadDate,
+  duration: DEMO_VIDEO.duration,
+  url: DEMO_VIDEO.pageUrl,
+  mainEntityOfPage: { '@id': pageSchema['@id'] },
+}
+const breadcrumbSchema = {
+  '@type': 'BreadcrumbList',
+  itemListElement: [
+    { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://veqtor.pro/' },
+    { '@type': 'ListItem', position: 2, name: 'Demo', item: DEMO_VIDEO.pageUrl },
+  ],
 }
 ---
 
-<BaseLayout title={title} description={description} canonicalPath="/demo" structuredData={videoSchema}>
-  <PageHero
-    eyebrow="Sample contract workflow"
-    title="See Claude move from four Word drafts to a reviewable counterproposal."
-    lede="The demo uses synthetic documents and normal user prompts. No client data, hidden edits or pre-recorded product responses."
-    meta="1 minute 44 seconds · Veqtor v0.1.2 · Sample documents"
-    breadcrumbs={[{ label: 'Demo' }]}
-  >
-    <div slot="actions" class="actions"><a class="button button--primary" href="#watch">Play the demo</a><a class="button button--secondary" href="/setup">Connect Veqtor</a></div>
-  </PageHero>
+<BaseLayout title={title} description={description} canonicalPath="/demo" structuredData={[pageSchema, videoSchema, breadcrumbSchema]}>
+  <section class="page-hero page-hero--compact demo-hero">
+    <div class="shell">
+      <Breadcrumbs items={[{ label: 'Demo' }]} />
+      <div class="demo-hero__grid">
+        <div class="demo-hero__title">
+          <p class="eyebrow">Sample contract workflow</p>
+          <h1 id="demo-title">See Claude move from four Word drafts to a reviewable counterproposal.</h1>
+        </div>
+        <div class="demo-hero__media" id="watch">
+          <div class="demo-video">
+            <video controls playsinline preload="metadata" poster={DEMO_VIDEO.thumbnailPath} aria-labelledby="demo-title">
+              <source src={DEMO_VIDEO.contentPath} type="video/mp4" />
+              <track kind="captions" src={DEMO_VIDEO.captionsPath} srclang="en" label="English" default />
+              Your browser does not support video playback. <a href={DEMO_VIDEO.contentPath}>Open the video directly.</a>
+            </video>
+          </div>
+          <div class="demo-caption"><strong>Recorded with Veqtor v0.1.2</strong><span>Claude explains and drafts · Veqtor reads, checks and writes · You review</span></div>
+        </div>
+        <div class="demo-hero__aside">
+          <p>The demo uses synthetic documents and normal user prompts. No client data, hidden edits or pre-recorded product responses.</p>
+          <span class="mono-note">1 minute 44 seconds · Veqtor v0.1.2 · Sample documents</span>
+          <div class="actions"><a class="button button--primary" href="/setup">Connect Veqtor</a><a class="button button--secondary" href="#transcript">Read the transcript</a></div>
+        </div>
+      </div>
+    </div>
+  </section>
 
-  <section class="section section--surface" id="watch" aria-labelledby="video-heading">
+  <section class="section section--surface demo-notes" aria-labelledby="video-heading">
     <div class="shell">
       <div class="section-heading">
-        <div><p class="eyebrow">Watch</p><h2 id="video-heading">A real Claude session with a disposable negotiation.</h2></div>
+        <div><p class="eyebrow">What you will see</p><h2 id="video-heading">A real Claude session with a disposable negotiation.</h2></div>
         <p>Claude compares the rounds, checks important wording and prepares a separate Word document. The original drafts stay unchanged.</p>
       </div>
-      <div class="demo-video">
-        <video controls playsinline preload="metadata" poster="/media/veqtor-demo-v0.1.2-poster.jpg">
-          <source src="/media/veqtor-demo-v0.1.2.mp4" type="video/mp4" />
-          <track kind="captions" src="/media/veqtor-demo-v0.1.2-r2.en.vtt" srclang="en" label="English" default />
-          Your browser does not support video playback. <a href="/media/veqtor-demo-v0.1.2.mp4">Open the video directly.</a>
-        </video>
-      </div>
-      <div class="demo-caption"><strong>Recorded with Veqtor v0.1.2</strong><span>Claude explains and drafts · Veqtor reads, checks and writes · You review</span></div>
       <p class="demo-install-note">This video was recorded with public v0.1.2: its “one command” line refers to Claude Code and its Desktop path used a configuration edit. The v0.2.0 release candidate adds a macOS Desktop extension, but that MCPB is not a public download until promotion succeeds. One correction: v0.1.2 checks the proposed Word document in memory before saving it; it does not reopen the saved copy for a separate final check.</p>
       <details class="demo-transcript" id="transcript">
         <summary>Read the corrected transcript</summary>
@@ -85,6 +115,7 @@ const videoSchema = {
       </article>
       <aside class="side-index" aria-label="Demo resources">
         <strong>Next</strong>
+        <a href="/product">See what Veqtor can do</a>
         <a href="/setup">Connect Veqtor</a>
         <a href="/how-it-works">Understand the workflow</a>
         <a href="/limitations">Read the Alpha limits</a>
@@ -97,11 +128,21 @@ const videoSchema = {
 </BaseLayout>
 
 <style>
+  .demo-hero { padding-bottom: clamp(42px, 6vw, 72px); padding-top: clamp(38px, 5vw, 62px); }
+  .demo-hero__grid { align-items: start; display: grid; gap: 28px clamp(42px, 6vw, 78px); grid-template-areas: "title media" "aside media"; grid-template-columns: minmax(0, .82fr) minmax(440px, 1.18fr); margin-top: clamp(28px, 4vw, 48px); }
+  .demo-hero__title { grid-area: title; }
+  .demo-hero__title h1 { margin-bottom: 0; }
+  .demo-hero__media { grid-area: media; min-width: 0; scroll-margin-top: 24px; }
+  .demo-hero__aside { grid-area: aside; }
+  .demo-hero__aside > p { color: var(--muted-strong); font-size: clamp(16px, 1.55vw, 19px); margin: 0; }
+  .demo-hero__aside .mono-note { margin-top: 20px; }
+  .demo-hero__aside .actions { margin-top: 24px; }
   .demo-video { background: #030205; border: 1px solid var(--line-strong); box-shadow: var(--shadow); }
   .demo-video video { aspect-ratio: 16/9; display: block; width: 100%; }
   .demo-caption { color: var(--muted); display: flex; flex-wrap: wrap; font-size: 12px; gap: 12px 24px; justify-content: space-between; padding-top: 14px; }
   .demo-caption strong { color: var(--ink); font-weight: var(--weight-title); }
-  .demo-install-note { color: var(--muted); font-size: 13px; line-height: 1.55; margin: 12px 0 0; }
+  .demo-notes .section-heading { margin-bottom: clamp(24px, 3vw, 38px); }
+  .demo-install-note { color: var(--muted); font-size: 13px; line-height: 1.55; margin: 0; }
   .demo-transcript { border-bottom: 1px solid var(--line); border-top: 1px solid var(--line); margin-top: 28px; }
   .demo-transcript summary { color: var(--muted-strong); cursor: pointer; font-size: 13px; padding: 18px 0; }
   .demo-transcript > div { color: var(--muted); font-size: 14px; line-height: 1.7; max-width: 840px; padding-bottom: 20px; }
@@ -112,5 +153,6 @@ const videoSchema = {
   .prompt-grid article > span { color: var(--violet); font-family: var(--mono); font-size: var(--type-micro); font-weight: var(--weight-label); }
   .prompt-grid blockquote { font-size: 19px; line-height: 1.45; margin: 34px 0 18px; }
   .prompt-grid p { color: var(--muted); font-size: 13px; }
+  @media (max-width: 900px) { .demo-hero__grid { grid-template-areas: "title" "media" "aside"; grid-template-columns: minmax(0, 1fr); } .demo-hero__aside { max-width: 760px; } }
   @media (max-width: 760px) { .prompt-grid { grid-template-columns: 1fr; } .prompt-grid article { padding: 24px 0; } .prompt-grid article + article { border-left: 0; border-top: 1px solid var(--line); padding-left: 0; } }
 </style>

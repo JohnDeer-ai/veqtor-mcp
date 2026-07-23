@@ -47,7 +47,10 @@ test('all topic pillar and spoke references resolve to approved guides', () => {
     )
     assert.ok(!topicDescriptions.has(topic.metaDescription), `${topic.id} has a duplicate topic meta description`)
     topicDescriptions.add(topic.metaDescription)
-    assert.equal(topic.productBridge.href, '/demo', `${topic.id} has an unexpected product bridge target`)
+    const expectedBridge = topic.id === 'limitation-of-liability'
+      ? '/demo'
+      : '/contract-redline-analysis'
+    assert.equal(topic.productBridge.href, expectedBridge, `${topic.id} has an unexpected product bridge target`)
     for (const field of ['label', 'heading', 'title', 'body']) {
       assert.ok(topic.productBridge[field], `${topic.id} product bridge has no ${field}`)
     }
@@ -56,6 +59,13 @@ test('all topic pillar and spoke references resolve to approved guides', () => {
       `${topic.id} has a duplicate product bridge heading`,
     )
     topicBridgeHeadings.add(topic.productBridge.heading)
+    if (expectedBridge !== '/demo') {
+      assert.doesNotMatch(
+        `${topic.productBridge.label} ${topic.productBridge.title} ${topic.productBridge.body}`,
+        /\bdemo\b|\bwatch\b/i,
+        `${topic.id} promises a demo but links to the redline-analysis page`,
+      )
+    }
     for (const slug of topic.spokeSlugs) {
       assert.ok(approvedSlugs.has(slug), `${topic.id} links to unpublished spoke ${slug}`)
     }

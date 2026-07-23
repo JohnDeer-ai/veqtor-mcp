@@ -418,10 +418,10 @@ export const TOPICS: GuideTopic[] = source.clusters.flatMap((cluster) => {
 export const TOPIC_BY_ID = new Map(TOPICS.map((topic) => [topic.id, topic]))
 
 export const MCP_GUIDE_BRIDGE = {
-  href: '/demo',
-  label: 'Product demo',
-  title: 'See Veqtor work with Word redlines',
-  body: 'Watch Claude compare negotiation drafts and create a separate Word document with proposed tracked changes.',
+  href: '/product',
+  label: 'Product overview',
+  title: 'See what Veqtor can do',
+  body: 'See how Veqtor lets Claude compare Word negotiation drafts, check exact wording, and create a separate document with proposed tracked changes.',
 } as const
 
 export function productBridgeForGuide(guide: Guide): GuideProductBridge {
