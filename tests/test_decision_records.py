@@ -205,6 +205,20 @@ def _write_concurrent_record(workspace: str, index: int) -> dict:
     )
 
 
+def _write_threaded_records_in_waves(workspace: Path) -> list[dict]:
+    metas: list[dict] = []
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for start in range(0, 48, 8):
+            metas.extend(
+                pool.map(
+                    _write_concurrent_record,
+                    [str(workspace)] * 8,
+                    range(start, start + 8),
+                )
+            )
+    return metas
+
+
 _PROCESS_GATE_TIMEOUT_SECONDS = 10.0
 _PROCESS_GATE_POLL_SECONDS = 0.01
 
@@ -1412,10 +1426,11 @@ def test_root_lock_contention_is_bounded_fail_open_and_recovers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     matter = _matter(tmp_path)
-    monkeypatch.setattr(records, "JOURNAL_LOCK_TIMEOUT_SECONDS", 0.05)
 
-    with _held_process_lock(matter, "exclusive"):
-        result = server.list_rounds(str(matter))
+    with monkeypatch.context() as contention:
+        contention.setattr(records, "JOURNAL_LOCK_TIMEOUT_SECONDS", 0.05)
+        with _held_process_lock(matter, "exclusive"):
+            result = server.list_rounds(str(matter))
 
     assert len(result["rounds"]) == 4
     assert result["record_id"] is None
@@ -1423,6 +1438,7 @@ def test_root_lock_contention_is_bounded_fail_open_and_recovers(
     assert result["record_error"] == "journal_busy"
     assert not (matter / records.SIDECAR_DIR).exists()
 
+    assert records.JOURNAL_LOCK_TIMEOUT_SECONDS == 1.0
     recovered = server.list_rounds(str(matter))
     assert recovered["record_id"] == "dr_001"
     assert recovered["record_status"] == "written"
@@ -1436,12 +1452,13 @@ def test_journal_lock_contention_bounds_append_and_read_then_recovers(
     assert server.list_rounds(str(matter))["record_id"] == "dr_001"
     journal = matter / records.SIDECAR_DIR / records.JOURNAL_NAME
     before = journal.read_bytes()
-    monkeypatch.setattr(records, "JOURNAL_LOCK_TIMEOUT_SECONDS", 0.05)
 
-    with _held_process_lock(journal, "exclusive"):
-        appended = server.list_rounds(str(matter))
-        with pytest.raises(records.DecisionRecordError) as error:
-            records.read_records(str(matter), max_records=1)
+    with monkeypatch.context() as contention:
+        contention.setattr(records, "JOURNAL_LOCK_TIMEOUT_SECONDS", 0.05)
+        with _held_process_lock(journal, "exclusive"):
+            appended = server.list_rounds(str(matter))
+            with pytest.raises(records.DecisionRecordError) as error:
+                records.read_records(str(matter), max_records=1)
 
     assert appended["record_id"] is None
     assert appended["record_status"] == "write_failed"
@@ -1449,6 +1466,7 @@ def test_journal_lock_contention_bounds_append_and_read_then_recovers(
     assert error.value.code == "journal_busy"
     assert journal.read_bytes() == before
 
+    assert records.JOURNAL_LOCK_TIMEOUT_SECONDS == 1.0
     recovered = server.list_rounds(str(matter))
     assert recovered["record_id"] == "dr_002"
     loaded = records.read_records(str(matter), max_records=10, include_payload=True)
@@ -1466,24 +1484,26 @@ def test_export_lock_contention_fails_closed_without_fallback_snapshot(
     assert server.list_rounds(str(matter))["record_id"] == "dr_001"
     journal = matter / records.SIDECAR_DIR / records.JOURNAL_NAME
     before = journal.read_bytes()
-    monkeypatch.setattr(records, "JOURNAL_LOCK_TIMEOUT_SECONDS", 0.05)
 
-    with _held_process_lock(matter, "exclusive"):
-        with pytest.raises(records.DecisionRecordError) as root_error:
-            _export_core(matter)
-    assert root_error.value.code == "journal_busy"
-    assert journal.read_bytes() == before
+    with monkeypatch.context() as contention:
+        contention.setattr(records, "JOURNAL_LOCK_TIMEOUT_SECONDS", 0.05)
+        with _held_process_lock(matter, "exclusive"):
+            with pytest.raises(records.DecisionRecordError) as root_error:
+                _export_core(matter)
+        assert root_error.value.code == "journal_busy"
+        assert journal.read_bytes() == before
 
-    with _held_process_lock(journal, "shared"):
-        with pytest.raises(records.DecisionRecordError) as journal_error:
-            _export_core(matter)
-        with pytest.raises(server._McpBoundaryError) as boundary_error:
-            server.export_decision_record(str(matter))
+        with _held_process_lock(journal, "shared"):
+            with pytest.raises(records.DecisionRecordError) as journal_error:
+                _export_core(matter)
+            with pytest.raises(server._McpBoundaryError) as boundary_error:
+                server.export_decision_record(str(matter))
     assert journal_error.value.code == "journal_busy"
     assert boundary_error.value.code == "journal_busy"
     assert str(matter) not in str(boundary_error.value)
     assert journal.read_bytes() == before
 
+    assert records.JOURNAL_LOCK_TIMEOUT_SECONDS == 1.0
     snapshot, meta = _export_core(matter)
     assert snapshot["total_count"] == 1
     assert meta == {"record_id": "dr_002", "record_status": "written"}
@@ -6755,49 +6775,57 @@ def test_threaded_cold_start_appends_do_not_drop_records(tmp_path: Path) -> None
     workspace = tmp_path / "matter"
     workspace.mkdir()
 
-    with ThreadPoolExecutor(max_workers=48) as pool:
-        metas = list(
-            pool.map(
-                _write_concurrent_record,
-                [str(workspace)] * 48,
-                range(48),
-            )
-        )
+    metas = _write_threaded_records_in_waves(workspace)
 
     failures = [meta for meta in metas if meta["record_status"] != "written"]
     assert failures == []
-    exported = records.read_records(str(workspace), max_records=50)
+    exported = records.read_records(
+        str(workspace), max_records=50, include_payload=True
+    )
     assert exported["total_count"] == 48
-    assert len({record["record_id"] for record in exported["records"]}) == 48
+    assert [record["record_id"] for record in exported["records"]] == [
+        f"dr_{index:03d}" for index in range(1, 49)
+    ]
+    assert sorted(record["input"]["index"] for record in exported["records"]) == list(
+        range(48)
+    )
 
 
-def test_threaded_cold_start_buffers_scans_under_slow_raw_contention(
+def test_threaded_cold_start_uses_buffered_append_scans(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = tmp_path / "matter"
     workspace.mkdir()
     original_scan = records._scan_records
+    append_scan_handle_kinds: list[tuple[bool, bool]] = []
 
-    def slow_unbuffered_scan(handle, *args, **kwargs):
-        if isinstance(handle, io.RawIOBase):
-            time.sleep(records.JOURNAL_LOCK_TIMEOUT_SECONDS + 0.1)
-        return original_scan(handle, *args, **kwargs)
-
-    monkeypatch.setattr(records, "_scan_records", slow_unbuffered_scan)
-    with ThreadPoolExecutor(max_workers=48) as pool:
-        metas = list(
-            pool.map(
-                _write_concurrent_record,
-                [str(workspace)] * 48,
-                range(48),
+    def observe_append_scan(handle, *args, **kwargs):
+        append_scan_handle_kinds.append(
+            (
+                isinstance(handle, io.RawIOBase),
+                isinstance(handle, io.BufferedIOBase),
             )
         )
+        return original_scan(handle, *args, **kwargs)
+
+    monkeypatch.setattr(records, "_scan_records", observe_append_scan)
+    metas = _write_threaded_records_in_waves(workspace)
 
     failures = [meta for meta in metas if meta["record_status"] != "written"]
     assert failures == []
-    exported = records.read_records(str(workspace), max_records=50)
+    assert append_scan_handle_kinds == [(False, True)] * 48
+    monkeypatch.setattr(records, "_scan_records", original_scan)
+    exported = records.read_records(
+        str(workspace), max_records=50, include_payload=True
+    )
     assert exported["total_count"] == 48
+    assert [record["record_id"] for record in exported["records"]] == [
+        f"dr_{index:03d}" for index in range(1, 49)
+    ]
+    assert sorted(record["input"]["index"] for record in exported["records"]) == list(
+        range(48)
+    )
 
 
 def test_ordinary_append_releases_root_while_journal_lock_protects_frame(
