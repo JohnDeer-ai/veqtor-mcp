@@ -6,6 +6,7 @@ from __future__ import annotations
 import copy
 import errno
 import hashlib
+import io
 import importlib
 import inspect
 import json
@@ -14,6 +15,7 @@ import re
 import stat
 import subprocess
 import sys
+import time
 import zipfile
 import zlib
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
@@ -6679,10 +6681,40 @@ def test_threaded_cold_start_appends_do_not_drop_records(tmp_path: Path) -> None
             )
         )
 
-    assert all(meta["record_status"] == "written" for meta in metas)
+    failures = [meta for meta in metas if meta["record_status"] != "written"]
+    assert failures == []
     exported = records.read_records(str(workspace), max_records=50)
     assert exported["total_count"] == 48
     assert len({record["record_id"] for record in exported["records"]}) == 48
+
+
+def test_threaded_cold_start_buffers_scans_under_slow_raw_contention(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "matter"
+    workspace.mkdir()
+    original_scan = records._scan_records
+
+    def slow_unbuffered_scan(handle, *args, **kwargs):
+        if isinstance(handle, io.RawIOBase):
+            time.sleep(records.JOURNAL_LOCK_TIMEOUT_SECONDS + 0.1)
+        return original_scan(handle, *args, **kwargs)
+
+    monkeypatch.setattr(records, "_scan_records", slow_unbuffered_scan)
+    with ThreadPoolExecutor(max_workers=48) as pool:
+        metas = list(
+            pool.map(
+                _write_concurrent_record,
+                [str(workspace)] * 48,
+                range(48),
+            )
+        )
+
+    failures = [meta for meta in metas if meta["record_status"] != "written"]
+    assert failures == []
+    exported = records.read_records(str(workspace), max_records=50)
+    assert exported["total_count"] == 48
 
 
 def test_cold_start_concurrent_appends_do_not_drop_records(tmp_path: Path) -> None:

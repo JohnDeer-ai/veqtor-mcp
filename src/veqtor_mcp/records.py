@@ -1333,6 +1333,32 @@ def _scan_records(
     )
 
 
+def _scan_records_for_append(
+    handle: Any,
+    path: Path,
+    *,
+    limit: int | None,
+    before_record_number: int | None = None,
+    include_access_events: bool = True,
+) -> _JournalScan:
+    """Buffer a locked append descriptor's scan without reopening its path."""
+    scan_fd = os.dup(handle.fileno())
+    try:
+        scan_handle = os.fdopen(scan_fd, "rb")
+        scan_fd = -1
+        with scan_handle:
+            return _scan_records(
+                scan_handle,
+                path,
+                limit=limit,
+                before_record_number=before_record_number,
+                include_access_events=include_access_events,
+            )
+    finally:
+        if scan_fd >= 0:
+            os.close(scan_fd)
+
+
 def _scan_round_map_apply_records(
     handle,
     path: Path,
@@ -1597,7 +1623,7 @@ def _append_locked(
             fcntl.LOCK_EX,
             deadline=lock_deadline,
         ):
-            scan = _scan_records(handle, path, limit=None)
+            scan = _scan_records_for_append(handle, path, limit=None)
             return _append_to_scanned_journal(handle, scan, record)
 
 
@@ -2133,7 +2159,7 @@ def _append_path_bound_record(
                                 "workspace_changed",
                                 "journal changed before map publication",
                             )
-                        scan = _scan_records(
+                        scan = _scan_records_for_append(
                             journal_handle,
                             sidecar / JOURNAL_NAME,
                             limit=None,
@@ -4040,7 +4066,7 @@ def export_records_with_access_event(
                     fcntl.LOCK_EX,
                     deadline=lock_deadline,
                 ):
-                    scan = _scan_records(
+                    scan = _scan_records_for_append(
                         handle,
                         path,
                         limit=limit,
