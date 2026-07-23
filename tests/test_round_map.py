@@ -1314,6 +1314,10 @@ def test_every_frozen_item_class_cap_is_inclusive_and_refuses_one_over(
     boundary = _authority_at_item_class_count(limit_key, limit)
     round_map_module._validate_authority_limits(boundary)
     facts = round_map_module._projection_facts(boundary)
+    if limit_key == "section_nodes":
+        roles = [section.role for section in boundary.sections]
+        assert roles.count("seed_navigation") == 1
+        assert roles.count("candidate_navigation") == limit - 1
     if limit_key in {
         "recorded_derivation_relationships",
         "exact_equality_relationships",
