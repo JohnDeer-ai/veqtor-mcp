@@ -9,6 +9,13 @@ const sections = [
       'Keep the negotiation drafts in one folder. Ask Claude what changed, whether a particular quote is accurate, or how a clause moved across the drafts. Veqtor lets Claude inspect the Word files instead of relying only on text pasted into chat.',
       'When you approve proposed wording, Claude can ask Veqtor to test the complete set of changes and create a separate Word document for review. Your source file remains untouched.',
     ],
+    links: [
+      {
+        href: '/how-it-works',
+        title: 'Follow the review workflow step by step',
+        description: 'See how to connect Veqtor, order the drafts, check wording, test edits, and review the separate output in Word.',
+      },
+    ],
   },
   {
     id: 'what-it-can-do',
@@ -82,9 +89,10 @@ const useCases = {
   description="See how Veqtor helps Claude compare Word contract drafts, check specific tracked wording, test proposed edits, and create a separate counterproposal for review."
   path="/product"
   eyebrow="The product"
-  heading="Let Claude work with your Word drafts without losing the document."
+  heading="Give Claude a checkable workflow for Word contract negotiations."
   lede="Ask normal questions about the negotiation. Veqtor reads and checks the tracked changes it supports, then creates a separate Word file only when every requested edit can be made."
   meta="Local · Open source · Public technical Alpha"
+  breadcrumbs={[{ label: 'Product' }]}
   sections={sections}
   linkSection={useCases}
   ctaTitle="Watch the complete workflow on sample contract documents."

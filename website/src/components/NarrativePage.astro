@@ -27,6 +27,11 @@ interface LinkSection {
   links: PageLink[]
 }
 
+interface Breadcrumb {
+  label: string
+  href?: string
+}
+
 interface Props {
   title: string
   description: string
@@ -40,6 +45,7 @@ interface Props {
   ctaBody?: string
   structuredData?: Record<string, unknown> | Record<string, unknown>[]
   linkSection?: LinkSection
+  breadcrumbs?: Breadcrumb[]
 }
 
 const {
@@ -55,8 +61,10 @@ const {
   ctaBody,
   structuredData = [],
   linkSection,
+  breadcrumbs,
 } = Astro.props
 const linkSectionId = linkSection?.id ?? 'related-pages'
+const pageBreadcrumbs = breadcrumbs ?? [{ label: heading }]
 const pageSchema = {
   '@type': 'WebPage',
   '@id': `https://veqtor.pro${path}#webpage`,
@@ -67,11 +75,27 @@ const pageSchema = {
   about: { '@id': 'https://veqtor.pro/#software' },
   inLanguage: 'en',
 }
+const breadcrumbSchema = {
+  '@type': 'BreadcrumbList',
+  '@id': `https://veqtor.pro${path}#breadcrumb`,
+  itemListElement: [
+    { label: 'Home', href: '/' },
+    ...pageBreadcrumbs.map((item, index) => ({
+      label: item.label,
+      href: item.href ?? (index === pageBreadcrumbs.length - 1 ? path : undefined),
+    })),
+  ].map((item, index) => ({
+    '@type': 'ListItem',
+    position: index + 1,
+    name: item.label,
+    item: item.href === '/' ? 'https://veqtor.pro/' : `https://veqtor.pro${item.href}`,
+  })),
+}
 const extraSchemas = Array.isArray(structuredData) ? structuredData : [structuredData]
 ---
 
-<BaseLayout title={title} description={description} canonicalPath={path} structuredData={[pageSchema, ...extraSchemas]}>
-  <PageHero eyebrow={eyebrow} title={heading} lede={lede} meta={meta} breadcrumbs={[{ label: heading }]}>
+<BaseLayout title={title} description={description} canonicalPath={path} structuredData={[pageSchema, breadcrumbSchema, ...extraSchemas]}>
+  <PageHero eyebrow={eyebrow} title={heading} lede={lede} meta={meta} breadcrumbs={pageBreadcrumbs}>
     <div slot="actions" class="actions">
       <a class="button button--primary" href="/demo">Watch the demo</a>
       <a class="button button--secondary" href="/setup">Connection guide</a>

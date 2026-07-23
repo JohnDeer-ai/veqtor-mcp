@@ -16,9 +16,21 @@ const aboutBody = [
   'As founder of Veqtor, Ilya brings that contract-review experience to an open-source tool that helps Claude work with tracked changes in Word while keeping the original file untouched.',
 ]
 const imagePath = AUTHOR.imageUrl.replace(SITE_URL, '')
+const profilePageId = `${SITE_URL}${AUTHOR.path}#profilepage`
 const authorStructuredData = [
   {
     ...AUTHOR.schema,
+    mainEntityOfPage: { '@id': profilePageId },
+  },
+  {
+    '@type': 'ProfilePage',
+    '@id': profilePageId,
+    url: `${SITE_URL}${AUTHOR.path}`,
+    name: AUTHOR.metaTitle,
+    description: AUTHOR.metaDescription,
+    mainEntity: { '@id': AUTHOR.schemaId },
+    isPartOf: { '@id': `${SITE_URL}/#website` },
+    inLanguage: 'en',
   },
   {
     '@type': 'BreadcrumbList',

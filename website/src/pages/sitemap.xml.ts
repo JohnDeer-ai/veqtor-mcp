@@ -1,14 +1,10 @@
 import type { APIRoute } from 'astro'
+import { DEMO_VIDEO } from '../lib/demo-video'
 import { GUIDES, TOPICS } from '../lib/guides'
+import { LINK_ARCHITECTURE_LASTMOD, latestLastmod } from '../lib/sitemap-lastmod.mjs'
 
 const SITE = 'https://veqtor.pro'
-const DEMO_VIDEO = {
-  thumbnail: `${SITE}/media/veqtor-demo-v0.1.2-poster.jpg`,
-  title: 'Veqtor demo: review Word redlines with Claude',
-  description: 'See Claude compare contract drafts with Veqtor and create a separate Word document with proposed tracked changes.',
-  content: `${SITE}/media/veqtor-demo-v0.1.2.mp4`,
-  duration: 104,
-}
+const UNCHANGED_TOPIC_BRIDGE = 'limitation-of-liability'
 const STATIC_ROUTES = [
   '/',
   '/product',
@@ -27,6 +23,19 @@ const STATIC_ROUTES = [
   '/docs',
   '/limitations',
 ]
+const STATIC_ROUTE_LASTMOD = new Map<string, string>([
+  ['/', '2026-07-23'],
+  ['/product', '2026-07-23'],
+  ['/how-it-works', '2026-07-23'],
+  ['/security', '2026-07-23'],
+  ['/demo', '2026-07-23'],
+  ['/ai-contract-review', '2026-07-23'],
+  ['/contract-redline-analysis', '2026-07-23'],
+  ['/docx-track-changes-review', '2026-07-23'],
+  ['/author/ilya-shilov', '2026-07-23'],
+  ['/guides', '2026-07-23'],
+  ['/setup', '2026-07-23'],
+])
 
 function escapeXml(value: string): string {
   return value
@@ -43,9 +52,22 @@ function absolute(path: string): string {
 
 export const GET: APIRoute = () => {
   const entries: Array<{ path: string; lastmod?: string; video?: typeof DEMO_VIDEO }> = [
-    ...STATIC_ROUTES.map((path) => ({ path, video: path === '/demo' ? DEMO_VIDEO : undefined })),
-    ...TOPICS.map((topic) => ({ path: topic.path })),
-    ...GUIDES.map((guide) => ({ path: guide.path, lastmod: guide.modifiedAt })),
+    ...STATIC_ROUTES.map((path) => ({
+      path,
+      lastmod: STATIC_ROUTE_LASTMOD.get(path),
+      video: path === DEMO_VIDEO.pagePath ? DEMO_VIDEO : undefined,
+    })),
+    ...TOPICS.map((topic) => ({
+      path: topic.path,
+      lastmod: topic.id === UNCHANGED_TOPIC_BRIDGE ? undefined : LINK_ARCHITECTURE_LASTMOD,
+    })),
+    ...GUIDES.map((guide) => ({
+      path: guide.path,
+      lastmod: latestLastmod(
+        guide.modifiedAt,
+        guide.cluster === UNCHANGED_TOPIC_BRIDGE ? undefined : LINK_ARCHITECTURE_LASTMOD,
+      ),
+    })),
   ]
 
   const urls = entries.map(({ path, lastmod, video }) => [
@@ -54,11 +76,12 @@ export const GET: APIRoute = () => {
     lastmod ? `    <lastmod>${escapeXml(lastmod)}</lastmod>` : null,
     ...(video ? [
       '    <video:video>',
-      `      <video:thumbnail_loc>${escapeXml(video.thumbnail)}</video:thumbnail_loc>`,
-      `      <video:title>${escapeXml(video.title)}</video:title>`,
+      `      <video:thumbnail_loc>${escapeXml(video.thumbnailUrl)}</video:thumbnail_loc>`,
+      `      <video:title>${escapeXml(video.name)}</video:title>`,
       `      <video:description>${escapeXml(video.description)}</video:description>`,
-      `      <video:content_loc>${escapeXml(video.content)}</video:content_loc>`,
-      `      <video:duration>${video.duration}</video:duration>`,
+      `      <video:content_loc>${escapeXml(video.contentUrl)}</video:content_loc>`,
+      `      <video:duration>${video.durationSeconds}</video:duration>`,
+      `      <video:publication_date>${escapeXml(video.uploadDate)}</video:publication_date>`,
       '    </video:video>',
     ] : []),
     '  </url>',
