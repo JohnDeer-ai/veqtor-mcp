@@ -631,7 +631,7 @@ def _canonical_seed_path(seed_path: str) -> str:
         path = Path.cwd() / path
     try:
         parent = path.parent.resolve(strict=True)
-    except OSError:
+    except (OSError, RuntimeError):
         return str(path.absolute())
     return str(parent / path.name)
 

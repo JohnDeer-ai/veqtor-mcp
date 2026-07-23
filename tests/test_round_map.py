@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import hashlib
 import json
 import os
@@ -1654,6 +1655,20 @@ def test_invalid_seed_manifest_cursor_and_limits_use_closed_codes(
         assert error.value.code == code
 
 
+def test_seed_parent_symlink_loop_is_seed_not_candidate(tmp_path: Path) -> None:
+    matter = _matter(tmp_path)
+    seed = _seed(_round(matter, 1))
+    first = tmp_path / "seed-loop-a"
+    second = tmp_path / "seed-loop-b"
+    first.symlink_to(second, target_is_directory=True)
+    second.symlink_to(first, target_is_directory=True)
+    looped_seed = {**seed, "path": str(first / "seed.docx")}
+
+    with pytest.raises(RoundMapError) as error:
+        build_round_map(str(matter), looped_seed)
+    assert error.value.code == "seed_not_candidate"
+
+
 def test_round_map_pre_result_refusals_never_initialize_or_append_journal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1827,6 +1842,60 @@ def test_workspace_replacement_between_filesystem_and_journal_is_refused(
     with pytest.raises(RoundMapError) as error:
         build_round_map(str(matter), seed)
     assert error.value.code == "workspace_changed"
+
+
+@pytest.mark.parametrize("path_race", ["case_rename", "final_symlink"])
+def test_workspace_exact_spelling_between_filesystem_and_journal_is_refused(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    path_race: str,
+) -> None:
+    matter = _matter(tmp_path)
+    seed = _seed(_round(matter, 1))
+    original = records.read_round_map_apply_records
+    moved = tmp_path / ("MATTER" if path_race == "case_rename" else "captured")
+
+    def replace_then_read(workspace, *, expected_workspace_identity=None):
+        matter.rename(moved)
+        if path_race == "final_symlink":
+            matter.symlink_to(moved, target_is_directory=True)
+        return original(
+            workspace, expected_workspace_identity=expected_workspace_identity
+        )
+
+    monkeypatch.setattr(records, "read_round_map_apply_records", replace_then_read)
+    with pytest.raises(RoundMapError) as error:
+        build_round_map(str(matter), seed)
+    assert error.value.code == "workspace_changed"
+    assert not (moved / records.SIDECAR_DIR).exists()
+
+
+@pytest.mark.parametrize("path_race", ["case_rename", "final_symlink"])
+def test_workspace_exact_spelling_is_rechecked_after_journal_scan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    path_race: str,
+) -> None:
+    matter = _matter(tmp_path)
+    seed = _seed(_round(matter, 1))
+    assert server.map_rounds(str(matter), seed)["record_status"] == "written"
+    journal = matter / records.SIDECAR_DIR / records.JOURNAL_NAME
+    before = journal.read_bytes()
+    moved = tmp_path / ("MATTER" if path_race == "case_rename" else "captured")
+    original = records._scan_round_map_apply_records
+
+    def scan_then_replace(handle, path):
+        selected = original(handle, path)
+        matter.rename(moved)
+        if path_race == "final_symlink":
+            matter.symlink_to(moved, target_is_directory=True)
+        return selected
+
+    monkeypatch.setattr(records, "_scan_round_map_apply_records", scan_then_replace)
+    with pytest.raises(RoundMapError) as error:
+        build_round_map(str(matter), seed)
+    assert error.value.code == "workspace_changed"
+    assert (moved / records.SIDECAR_DIR / records.JOURNAL_NAME).read_bytes() == before
 
 
 def test_seed_evidence_precedes_journal_and_candidate_safety_precedes_order(
@@ -2052,6 +2121,114 @@ def test_round_map_publication_is_bound_to_captured_workspace_identity(
     )
     assert not (original / records.SIDECAR_DIR).exists()
     assert not (matter / records.SIDECAR_DIR).exists()
+
+
+@pytest.mark.parametrize("path_race", ["case_rename", "final_symlink"])
+def test_round_map_publication_requires_captured_workspace_spelling(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    path_race: str,
+) -> None:
+    matter = _matter(tmp_path)
+    seed = _seed(_round(matter, 1))
+    computation = build_round_map(str(matter), seed, max_items=100)
+    moved = tmp_path / ("MATTER" if path_race == "case_rename" else "captured")
+    monkeypatch.setattr(
+        round_map_module,
+        "build_round_map",
+        lambda *_args, **_kwargs: computation,
+    )
+    pristine_write = records.write_record
+
+    def replace_before_write(**kwargs):
+        matter.rename(moved)
+        if path_race == "final_symlink":
+            matter.symlink_to(moved, target_is_directory=True)
+        return pristine_write(**kwargs)
+
+    monkeypatch.setattr(records, "write_record", replace_before_write)
+    result = server.map_rounds(str(matter), seed, max_items=100)
+
+    assert (result["record_id"], result["record_status"], result["record_error"]) == (
+        None,
+        "write_failed",
+        "workspace_changed",
+    )
+    assert not (moved / records.SIDECAR_DIR).exists()
+
+
+@pytest.mark.parametrize("initialized", [False, True])
+def test_round_map_publication_completes_short_journal_writes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    initialized: bool,
+) -> None:
+    matter = _matter(tmp_path)
+    seed = _seed(_round(matter, 1))
+    if initialized:
+        assert server.map_rounds(str(matter), seed)["record_status"] == "written"
+
+    real_write = records.os.write
+    shortened = False
+
+    def short_once(fd: int, payload: bytes) -> int:
+        nonlocal shortened
+        if not shortened and len(payload) > 2:
+            shortened = True
+            return real_write(fd, payload[: len(payload) // 2])
+        return real_write(fd, payload)
+
+    monkeypatch.setattr(records.os, "write", short_once)
+    result = server.map_rounds(str(matter), seed)
+
+    assert shortened is True
+    assert result["record_status"] == "written"
+    snapshot = records.read_records(str(matter), include_payload=True)
+    assert snapshot["total_count"] == (2 if initialized else 1)
+
+
+@pytest.mark.parametrize("initialized", [False, True])
+def test_round_map_partial_write_then_enospc_restores_exact_journal_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    initialized: bool,
+) -> None:
+    matter = _matter(tmp_path)
+    seed = _seed(_round(matter, 1))
+    sidecar = matter / records.SIDECAR_DIR
+    journal = sidecar / records.JOURNAL_NAME
+    if initialized:
+        assert server.map_rounds(str(matter), seed)["record_status"] == "written"
+        before = journal.read_bytes()
+    else:
+        before = None
+
+    real_write = records.os.write
+    frame_writes = 0
+
+    def partial_then_enospc(fd: int, payload: bytes) -> int:
+        nonlocal frame_writes
+        if len(payload) <= 2:
+            return real_write(fd, payload)
+        frame_writes += 1
+        if frame_writes == 1:
+            return real_write(fd, payload[: len(payload) // 2])
+        raise OSError(errno.ENOSPC, "synthetic full device")
+
+    monkeypatch.setattr(records.os, "write", partial_then_enospc)
+    result = server.map_rounds(str(matter), seed)
+
+    assert frame_writes == 2
+    assert (result["record_id"], result["record_status"], result["record_error"]) == (
+        None,
+        "write_failed",
+        "internal_error",
+    )
+    if initialized:
+        assert journal.read_bytes() == before
+        records.read_records(str(matter), include_payload=True)
+    else:
+        assert not sidecar.exists()
 
 
 @pytest.mark.parametrize(

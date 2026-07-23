@@ -310,11 +310,10 @@ def journal_path(workspace: str | Path) -> Path:
     return workspace_for_folder(workspace) / SIDECAR_DIR / JOURNAL_NAME
 
 
-def _filesystem_spelled_workspace(
+def _observed_filesystem_spelled_workspace(
     fd: int,
-    fallback: Path,
     expected_identity: tuple[int, int],
-) -> Path:
+) -> Path | None:
     """Return the filesystem's spelling for an already-open workspace."""
     # Descriptor-backed paths preserve the directory entry's spelling. Do not
     # lower/casefold here: case-sensitive volumes may contain both names.
@@ -339,23 +338,32 @@ def _filesystem_spelled_workspace(
         except OSError:
             pass
     if value is None:
-        return fallback
+        return None
     try:
         candidate = Path(os.fsdecode(value))
     except (TypeError, ValueError, UnicodeError):
-        return fallback
+        return None
     if not candidate.is_absolute():
-        return fallback
+        return None
     try:
         info = candidate.lstat()
     except OSError:
-        return fallback
+        return None
     if (
         not stat.S_ISDIR(info.st_mode)
         or (info.st_dev, info.st_ino) != expected_identity
     ):
-        return fallback
+        return None
     return candidate
+
+
+def _filesystem_spelled_workspace(
+    fd: int,
+    fallback: Path,
+    expected_identity: tuple[int, int],
+) -> Path:
+    observed = _observed_filesystem_spelled_workspace(fd, expected_identity)
+    return fallback if observed is None else observed
 
 
 def _canonical_workspace(workspace: str | Path) -> tuple[Path, tuple[int, int]]:
@@ -439,6 +447,42 @@ def _open_workspace_fd(root: Path, expected_identity: tuple[int, int]) -> int:
     return fd
 
 
+def _require_exact_workspace_fd(
+    root: Path,
+    expected_identity: tuple[int, int],
+    fd: int,
+) -> None:
+    observed = _observed_filesystem_spelled_workspace(fd, expected_identity)
+    if observed is None or observed != root:
+        raise DecisionRecordError(
+            "workspace_changed",
+            "workspace identity or filesystem spelling changed",
+        )
+
+
+def _open_exact_workspace_fd(
+    root: Path,
+    expected_identity: tuple[int, int],
+) -> int:
+    fd = _open_workspace_fd(root, expected_identity)
+    try:
+        _require_exact_workspace_fd(root, expected_identity, fd)
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def _revalidate_exact_workspace_path(
+    root: Path,
+    expected_identity: tuple[int, int],
+    fd: int,
+) -> None:
+    _require_exact_workspace_fd(root, expected_identity, fd)
+    check_fd = _open_exact_workspace_fd(root, expected_identity)
+    os.close(check_fd)
+
+
 def _open_sidecar_fd(root_fd: int, sidecar: Path, *, missing_ok: bool) -> int | None:
     try:
         fd = os.open(
@@ -479,13 +523,14 @@ def _open_sidecar_fd(root_fd: int, sidecar: Path, *, missing_ok: bool) -> int | 
 
 
 def _write_all(fd: int, payload: bytes) -> None:
+    view = memoryview(payload)
     offset = 0
-    while offset < len(payload):
+    while offset < len(view):
         try:
-            written = os.write(fd, payload[offset:])
+            written = os.write(fd, view[offset:])
         except InterruptedError:
             continue
-        if written <= 0:
+        if written <= 0 or written > len(view) - offset:
             raise OSError(errno.EIO, "write returned no progress")
         offset += written
 
@@ -1358,21 +1403,13 @@ def read_round_map_apply_records(
     while the journal's shared lock protects the complete streaming scan.
     """
     try:
-        root, resolved_identity = _canonical_workspace(workspace)
-        if (
-            expected_workspace_identity is not None
-            and resolved_identity != expected_workspace_identity
-        ):
-            raise DecisionRecordError(
-                "workspace_changed",
-                "workspace identity changed between filesystem and journal snapshots",
-            )
-        expected_identity = (
-            resolved_identity
-            if expected_workspace_identity is None
-            else expected_workspace_identity
-        )
-        root_fd = _open_workspace_fd(root, expected_identity)
+        if expected_workspace_identity is None:
+            root, expected_identity = _canonical_workspace(workspace)
+            root_fd = _open_workspace_fd(root, expected_identity)
+        else:
+            root = Path(workspace)
+            expected_identity = expected_workspace_identity
+            root_fd = _open_exact_workspace_fd(root, expected_identity)
         sidecar = root / SIDECAR_DIR
         deadline = _journal_lock_deadline()
         try:
@@ -1383,26 +1420,35 @@ def read_round_map_apply_records(
             ):
                 sidecar_fd = _open_sidecar_fd(root_fd, sidecar, missing_ok=True)
                 if sidecar_fd is None:
-                    return ()
-                try:
-                    handle = _open_journal_for_read(
-                        sidecar_fd,
-                        sidecar / JOURNAL_NAME,
+                    selected: tuple[dict[str, Any], ...] = ()
+                else:
+                    try:
+                        handle = _open_journal_for_read(
+                            sidecar_fd,
+                            sidecar / JOURNAL_NAME,
+                        )
+                        if handle is None:
+                            selected = ()
+                        else:
+                            with handle:
+                                with _bounded_journal_lock(
+                                    handle.fileno(),
+                                    fcntl.LOCK_SH,
+                                    deadline=deadline,
+                                ):
+                                    selected = _scan_round_map_apply_records(
+                                        handle,
+                                        sidecar / JOURNAL_NAME,
+                                    )
+                    finally:
+                        os.close(sidecar_fd)
+                if expected_workspace_identity is not None:
+                    _revalidate_exact_workspace_path(
+                        root,
+                        expected_identity,
+                        root_fd,
                     )
-                    if handle is None:
-                        return ()
-                    with handle:
-                        with _bounded_journal_lock(
-                            handle.fileno(),
-                            fcntl.LOCK_SH,
-                            deadline=deadline,
-                        ):
-                            return _scan_round_map_apply_records(
-                                handle,
-                                sidecar / JOURNAL_NAME,
-                            )
-                finally:
-                    os.close(sidecar_fd)
+                return selected
         finally:
             os.close(root_fd)
     except DecisionRecordError:
@@ -1479,7 +1525,7 @@ def _open_journal_for_append(sidecar_fd: int, path: Path):
                 except OSError:
                     pass
                 raise
-        return os.fdopen(fd, "a+b")
+        return os.fdopen(fd, "a+b", buffering=0)
     except Exception:
         if fd is not None:
             os.close(fd)
@@ -1509,7 +1555,7 @@ def _open_existing_journal_for_append(sidecar_fd: int, path: Path):
     try:
         _validate_journal_fd(fd, path)
         os.fchmod(fd, 0o600)
-        return os.fdopen(fd, "a+b")
+        return os.fdopen(fd, "a+b", buffering=0)
     except Exception:
         os.close(fd)
         raise
@@ -1571,10 +1617,21 @@ def _append_to_scanned_journal(
             "journal_oversize",
             f"decision-record journal exceeds {MAX_JOURNAL_BYTES} bytes",
         )
-    handle.seek(0, os.SEEK_END)
-    handle.write(line + b"\n")
+    frame = line + b"\n"
+    fd = handle.fileno()
     handle.flush()
-    os.fsync(handle.fileno())
+    eof = os.lseek(fd, 0, os.SEEK_END)
+    if eof != scan.byte_count or os.fstat(fd).st_size != scan.byte_count:
+        raise DecisionRecordError(
+            "workspace_changed", "journal changed before record append"
+        )
+    _write_all(fd, frame)
+    expected_eof = eof + len(frame)
+    if os.fstat(fd).st_size != expected_eof:
+        raise OSError(errno.EIO, "journal append length is inconsistent")
+    if os.pread(fd, len(frame), eof) != frame:
+        raise OSError(errno.EIO, "journal append bytes are inconsistent")
+    os.fsync(fd)
     return record_id
 
 
@@ -1905,13 +1962,15 @@ def _revalidate_path_bound_publication(
     journal_state: _PublicationEntrySnapshot,
 ) -> None:
     try:
-        check_fd = _open_workspace_fd(root, expected_workspace_identity)
+        _revalidate_exact_workspace_path(
+            root,
+            expected_workspace_identity,
+            root_fd,
+        )
     except Exception as exc:
         raise DecisionRecordError(
             "workspace_changed", "workspace path changed during map publication"
         ) from exc
-    else:
-        os.close(check_fd)
     _require_publication_entry_identity(
         root_fd,
         SIDECAR_DIR,
@@ -2026,7 +2085,7 @@ def _append_path_bound_record(
     *,
     lock_deadline: float,
 ) -> str:
-    root_fd = _open_workspace_fd(root, expected_workspace_identity)
+    root_fd = _open_exact_workspace_fd(root, expected_workspace_identity)
     sidecar = root / SIDECAR_DIR
     sidecar_fd: int | None = None
     gitignore_fd: int | None = None
@@ -2275,7 +2334,16 @@ def _write_record(
         return {"record_id": None, "record_status": "disabled"}
     try:
         try:
-            root, resolved_identity = _canonical_workspace(workspace)
+            if expected_workspace_identity is None:
+                root, resolved_identity = _canonical_workspace(workspace)
+            else:
+                root = Path(workspace)
+                check_fd = _open_exact_workspace_fd(
+                    root,
+                    expected_workspace_identity,
+                )
+                os.close(check_fd)
+                resolved_identity = expected_workspace_identity
         except DecisionRecordError as exc:
             if expected_workspace_identity is not None:
                 raise DecisionRecordError(
