@@ -12,7 +12,9 @@ import shutil
 import struct
 import subprocess
 import sys
+import time
 import zipfile
+from concurrent.futures import ProcessPoolExecutor
 from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import replace
@@ -75,6 +77,50 @@ def _seed(path: Path, paragraph_index: int = 0) -> dict:
         "path": str(path),
         "paragraph_ref": paragraph["paragraph_ref"],
     }
+
+
+def _wait_for_marker(path: Path, *, timeout: float = 10.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while not path.is_file():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        time.sleep(min(0.01, remaining))
+    return True
+
+
+def _write_ordinary_record_after_root_handoff(
+    workspace: str,
+    ready_marker: str,
+    release_marker: str,
+    done_marker: str,
+) -> tuple[dict, bool]:
+    original_append_locked = records._append_locked
+    release_observed = False
+
+    def wait_after_root_handoff(*args, **kwargs):
+        nonlocal release_observed
+        Path(ready_marker).write_bytes(b"ready\n")
+        release_observed = _wait_for_marker(Path(release_marker))
+        if not release_observed:
+            raise RuntimeError("map did not release the ordinary writer")
+        try:
+            return original_append_locked(*args, **kwargs)
+        finally:
+            Path(done_marker).write_bytes(b"done\n")
+
+    records._append_locked = wait_after_root_handoff
+    try:
+        meta = records.write_record(
+            workspace=Path(workspace),
+            tool_name="list_rounds",
+            input_payload={"writer": "ordinary"},
+            result={"status": "ok"},
+            provenance={"writer": "ordinary"},
+        )
+        return meta, release_observed
+    finally:
+        records._append_locked = original_append_locked
 
 
 def _current_apply_record(
@@ -2256,6 +2302,82 @@ def test_round_map_partial_write_then_enospc_restores_exact_journal_bytes(
         records.read_records(str(matter), include_payload=True)
     else:
         assert not sidecar.exists()
+
+
+def test_round_map_rollback_preserves_concurrent_ordinary_writer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matter = _matter(tmp_path)
+    seed = _seed(_round(matter, 1))
+    first = records.write_record(
+        workspace=matter,
+        tool_name="list_rounds",
+        input_payload={"writer": "initial"},
+        result={"status": "ok"},
+        provenance={"writer": "initial"},
+    )
+    assert (first["record_id"], first["record_status"]) == ("dr_001", "written")
+    computation = build_round_map(str(matter), seed, max_items=100)
+    monkeypatch.setattr(
+        round_map_module,
+        "build_round_map",
+        lambda *_args, **_kwargs: computation,
+    )
+
+    ready_marker = tmp_path / "ordinary.ready"
+    release_marker = tmp_path / "ordinary.release"
+    done_marker = tmp_path / "ordinary.done"
+    original_lock = records._bounded_journal_lock
+    lock_calls = 0
+
+    @contextmanager
+    def release_ordinary_writer_before_map_journal_lock(*args, **kwargs):
+        nonlocal lock_calls
+        lock_calls += 1
+        if lock_calls == 2:
+            release_marker.write_bytes(b"release\n")
+            assert _wait_for_marker(done_marker), (
+                "ordinary writer did not finish before Map took the journal lock"
+            )
+        with original_lock(*args, **kwargs):
+            yield
+
+    with ProcessPoolExecutor(max_workers=1) as pool:
+        ordinary_future = pool.submit(
+            _write_ordinary_record_after_root_handoff,
+            str(matter),
+            str(ready_marker),
+            str(release_marker),
+            str(done_marker),
+        )
+        assert _wait_for_marker(ready_marker), (
+            "ordinary writer did not release the root lock before append"
+        )
+        monkeypatch.setattr(
+            records,
+            "_bounded_journal_lock",
+            release_ordinary_writer_before_map_journal_lock,
+        )
+        mapped = server.map_rounds(str(matter), seed, max_items=100)
+        ordinary, release_observed = ordinary_future.result(timeout=15.0)
+
+    assert lock_calls == 2
+    assert release_observed is True
+    assert (ordinary["record_id"], ordinary["record_status"]) == (
+        "dr_002",
+        "written",
+    )
+    assert (
+        mapped["record_id"],
+        mapped["record_status"],
+        mapped["record_error"],
+    ) == (None, "write_failed", "workspace_changed")
+    visible = records.read_records(str(matter), include_payload=True)
+    assert [record["record_id"] for record in visible["records"]] == [
+        "dr_001",
+        "dr_002",
+    ]
 
 
 @pytest.mark.parametrize(

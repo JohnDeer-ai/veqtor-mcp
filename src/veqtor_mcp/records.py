@@ -2058,6 +2058,7 @@ def _rollback_path_bound_publication(
     sidecar_fd: int | None,
     gitignore_fd: int | None,
     journal_handle: Any | None,
+    journal_rollback_eof: int | None,
     snapshot: _PathBoundPublicationSnapshot,
     sidecar_state: _PublicationEntrySnapshot | None,
     gitignore_state: _PublicationEntrySnapshot | None,
@@ -2070,9 +2071,20 @@ def _rollback_path_bound_publication(
             if snapshot.journal.present:
                 journal_handle.flush()
                 current_size = os.fstat(journal_handle.fileno()).st_size
-                if current_size != snapshot.journal_eof:
-                    os.ftruncate(journal_handle.fileno(), snapshot.journal_eof)
+                if (
+                    journal_rollback_eof is not None
+                    and current_size > journal_rollback_eof
+                ):
+                    os.ftruncate(journal_handle.fileno(), journal_rollback_eof)
                     os.fsync(journal_handle.fileno())
+                elif (
+                    journal_rollback_eof is not None
+                    and current_size < journal_rollback_eof
+                ):
+                    raise DecisionRecordError(
+                        "internal_error",
+                        "map journal shrank during publication rollback",
+                    )
                 _restore_publication_mode(journal_handle.fileno(), snapshot.journal)
             elif journal_state is not None and sidecar_fd is not None:
                 _unlink_created_publication_entry(
@@ -2129,6 +2141,7 @@ def _append_path_bound_record(
     sidecar_fd: int | None = None
     gitignore_fd: int | None = None
     journal_handle: Any | None = None
+    journal_rollback_eof: int | None = None
     snapshot: _PathBoundPublicationSnapshot | None = None
     sidecar_state: _PublicationEntrySnapshot | None = None
     gitignore_state: _PublicationEntrySnapshot | None = None
@@ -2197,6 +2210,21 @@ def _append_path_bound_record(
                         os.fsync(gitignore_fd)
                         os.fchmod(journal_handle.fileno(), 0o600)
                         os.fsync(journal_handle.fileno())
+                        journal_rollback_eof = os.lseek(
+                            journal_handle.fileno(),
+                            0,
+                            os.SEEK_END,
+                        )
+                        if (
+                            journal_rollback_eof != scan.byte_count
+                            or os.fstat(journal_handle.fileno()).st_size
+                            != journal_rollback_eof
+                        ):
+                            journal_rollback_eof = None
+                            raise DecisionRecordError(
+                                "workspace_changed",
+                                "journal changed before map record append",
+                            )
                         record_id = _append_to_scanned_journal(
                             journal_handle,
                             scan,
@@ -2219,6 +2247,7 @@ def _append_path_bound_record(
                             sidecar_fd=sidecar_fd,
                             gitignore_fd=gitignore_fd,
                             journal_handle=journal_handle,
+                            journal_rollback_eof=journal_rollback_eof,
                             snapshot=snapshot,
                             sidecar_state=sidecar_state,
                             gitignore_state=gitignore_state,
@@ -2233,6 +2262,7 @@ def _append_path_bound_record(
                         sidecar_fd=sidecar_fd,
                         gitignore_fd=gitignore_fd,
                         journal_handle=journal_handle,
+                        journal_rollback_eof=journal_rollback_eof,
                         snapshot=snapshot,
                         sidecar_state=sidecar_state,
                         gitignore_state=gitignore_state,
