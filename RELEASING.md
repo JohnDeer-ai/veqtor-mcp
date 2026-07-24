@@ -262,7 +262,7 @@ and rolls back the complete batch after an expected publication failure.
   Python or a developer toolchain, using Claude Desktop's host-managed UV
   runtime. Acceptance explicitly confirms the extension is enabled and its
   server is connected, confirms the tracked-change author, exposes exactly the
-  six public tools, calls each tool and completes the bundled four-round
+  eight public tools, calls each tool and completes the bundled four-round
   read-only demo prompt. The write workflow runs only on a fresh writable copy
   of those four DOCX files outside the immutable installed extension. After
   apply, a second `list_rounds` must report five files, retain the exact source
@@ -284,7 +284,7 @@ The acceptance packet has one canonical byte representation and is exact-SHA,
 tree and build bound. Its executable schema remains in
 `scripts/check_acceptance_evidence.py`.
 
-### Construct the v4 acceptance packet
+### Construct the v5 acceptance packet
 
 Freeze one clean candidate before collecting evidence. These three values must
 come from that checkout and the same `producer_build` value must be copied into

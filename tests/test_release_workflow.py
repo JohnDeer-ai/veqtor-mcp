@@ -521,6 +521,8 @@ def test_product_acceptance_documents_complete_path_free_packet() -> None:
 
     assert "installed wheel completes the eight-tool synthetic smoke" in releasing
     assert "fresh-copy Claude Desktop rehearsal" in releasing
+    assert "exposes exactly the\n  eight public tools" in releasing
+    assert "### Construct the v5 acceptance packet" in releasing
     assert "Claude Code" not in releasing
     assert "canonical path-free acceptance packet" in releasing
     assert "never filenames, local paths, quotations or document text" in releasing
