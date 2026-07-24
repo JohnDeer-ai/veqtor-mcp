@@ -173,10 +173,6 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
     sdist_includes = set(sdist["include"])
     frozen_runtime = {f"/{path}" for path in RUNTIME_SOURCE_FILES}
     development_runtime = {f"/{path}" for path in DEVELOPMENT_RUNTIME_SOURCE_FILES}
-    stage3b_runtime = {
-        "/src/veqtor_mcp/round_map.py",
-        "/src/veqtor_mcp/round_map_contract.py",
-    }
     discovered_runtime = {
         f"/{path.relative_to(ROOT).as_posix()}"
         for package in (ROOT / "src" / "veqtor_docx", ROOT / "src" / "veqtor_mcp")
@@ -186,24 +182,21 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
     assert wheel["sources"] == ["src"]
     assert "/src" not in sdist["include"]
     assert len(DEVELOPMENT_RUNTIME_SOURCE_FILES) == len(development_runtime)
-    assert development_runtime | stage3b_runtime == discovered_runtime
-    assert frozen_runtime < development_runtime | stage3b_runtime
-    if config["project"]["version"] == VERSION:
-        assert wheel_includes == frozen_runtime
-        assert frozen_runtime <= sdist_includes
-    else:
-        assert config["project"]["version"] == "0.3.0.dev0"
-        assert wheel_includes == discovered_runtime
-        assert discovered_runtime <= sdist_includes
-        assert "/src/veqtor_mcp/_inspection_live.py" in wheel_includes
-        assert "/src/veqtor_mcp/_inspection_live.py" in sdist_includes
-        assert "/INSPECT_DOCUMENT_V0.3.md" in sdist_includes
+    assert development_runtime == discovered_runtime
+    assert frozen_runtime == discovered_runtime
+    assert config["project"]["version"] == VERSION
+    assert wheel_includes == discovered_runtime
+    assert discovered_runtime <= sdist_includes
+    assert "/src/veqtor_mcp/_inspection_live.py" in wheel_includes
+    assert "/src/veqtor_mcp/_inspection_live.py" in sdist_includes
+    assert "/INSPECT_DOCUMENT_V0.3.md" in sdist_includes
+    assert "/ROUND_MAP_V0.3.md" in sdist_includes
 
 
 release_contract_only = pytest.mark.skipif(
     tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
     != VERSION,
-    reason="closed v0.2 artifact ratchets apply only to source version 0.2.0",
+    reason="closed v0.3 artifact ratchets apply only to source version 0.3.0",
 )
 
 

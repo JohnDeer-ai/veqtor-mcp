@@ -4,15 +4,15 @@ import PageHero from '../components/PageHero.astro'
 import SiteCta from '../components/SiteCta.astro'
 
 const title = 'Veqtor MCP Documentation — Tools, Workflow and Boundaries'
-const description = 'Technical overview of the Veqtor 0.2.0 source candidate: local MCP connection, supported Word redline workflow, six tools, output behavior, privacy boundary and release status.'
+const description = 'Technical overview of the Veqtor 0.3.0 source candidate: local MCP connection, supported Word redline workflow, eight tools, output behavior, privacy boundary and release status.'
 ---
 
 <BaseLayout title={title} description={description} canonicalPath="/docs">
   <PageHero
     eyebrow="Documentation"
-    title="A technical map of the Veqtor 0.2.0 candidate."
-    lede="Start here for the candidate tool surface and operating model. The current public distribution remains v0.1.2; a source branch is not an immutable v0.2.0 release."
-    meta="Source candidate v0.2.0 · Public distribution v0.1.2"
+    title="A technical map of the Veqtor 0.3.0 candidate."
+    lede="Start here for the candidate tool surface and operating model. The current public distribution remains v0.1.2; a source branch is not an immutable v0.3.0 release."
+    meta="Source candidate v0.3.0 · Public distribution v0.1.2"
     breadcrumbs={[{ label: 'Documentation' }]}
   />
 
@@ -26,10 +26,12 @@ const description = 'Technical overview of the Veqtor 0.2.0 source candidate: lo
         </section>
 
         <section id="tools">
-          <h2>Public tools</h2>
+          <h2>0.3 release-candidate tools</h2>
           <div class="tool-list">
             <article><code>list_rounds</code><h3>Discover negotiation drafts</h3><p>Scans one local folder, ignores Word lock files and reports readable rounds in deterministic filename order.</p></article>
             <article><code>extract_redlines</code><h3>Read supported tracked changes</h3><p>Returns change units, document hashes, structural references and bounded paragraph context.</p></article>
+            <article><code>inspect_document</code><h3>Read accepted/current text</h3><p>Returns bounded main-body views with paragraph references bound to the exact document bytes.</p></article>
+            <article><code>map_rounds</code><h3>Map exact cross-round evidence</h3><p>Reports exact paragraph equality and recorded document-byte derivations without inferring chronology or lineage.</p></article>
             <article><code>verify_quote</code><h3>Check one quote at its source</h3><p>Compares supplied wording with one anchored change and returns exact, normalized or not_found.</p></article>
             <article><code>preflight_edits</code><h3>Test the complete edit batch</h3><p>Runs the full document-processing pipeline in memory and never creates an output document.</p></article>
             <article><code>apply_edits</code><h3>Create a new tracked-change output</h3><p>Writes supported replace, delete, counter and reinstate edits atomically to a create-if-absent file.</p></article>
@@ -41,6 +43,7 @@ const description = 'Technical overview of the Veqtor 0.2.0 source candidate: lo
           <h2>Expected trust sequence</h2>
           <ol>
             <li>List the available rounds.</li>
+            <li>Inspect or map the exact document evidence needed for the task.</li>
             <li>Extract the current redlines.</li>
             <li>Verify every quotation used as evidence.</li>
             <li>Preflight the complete proposed edit batch.</li>
@@ -64,9 +67,9 @@ const description = 'Technical overview of the Veqtor 0.2.0 source candidate: lo
             <li><a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/KNOWN_LIMITATIONS.md">Default-branch known limitations</a></li>
             <li><a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/SECURITY.md">Security policy and threat model</a></li>
             <li><a href="https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/v0.1.2">Current public v0.1.2 artifacts</a></li>
-            <li><a href="https://github.com/JohnDeer-ai/veqtor-mcp/releases">Check the live release list for v0.2.0</a></li>
+            <li><a href="https://github.com/JohnDeer-ai/veqtor-mcp/releases">Check the live release list for v0.3.0</a></li>
           </ul>
-          <div class="notice"><strong>No tagged v0.2.0 contract exists before promotion.</strong><p>The site can describe candidate behavior, but only a published immutable tag and its verified assets define the v0.2.0 release users may install.</p></div>
+          <div class="notice"><strong>No tagged v0.3.0 contract exists before promotion.</strong><p>The site can describe candidate behavior, but only a published immutable tag and its verified assets define the v0.3.0 release users may install.</p></div>
         </section>
       </article>
       <aside class="side-index" aria-label="Documentation sections">

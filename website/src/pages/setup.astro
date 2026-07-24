@@ -4,7 +4,7 @@ import PageHero from '../components/PageHero.astro'
 import SiteCta from '../components/SiteCta.astro'
 
 const title = 'Connect Veqtor MCP to Claude Desktop or Claude Code'
-const description = 'Install the current public Veqtor 0.1.2 package for Claude Code or manual Claude Desktop setup, and check the publication status of the v0.2.0 Desktop Extension candidate.'
+const description = 'Install the current public Veqtor 0.1.2 package for Claude Code or manual Claude Desktop setup, and check the publication status of the v0.3.0 Desktop Extension candidate.'
 const releasesUrl = 'https://github.com/JohnDeer-ai/veqtor-mcp/releases'
 const desktopServerEntry = `"veqtor": {
   "command": "/absolute/path/to/uvx",
@@ -36,8 +36,8 @@ const desktopAuthorSetting = `"env": {
   <PageHero
     eyebrow="Connect"
     title="Connect Veqtor to Claude."
-    lede="The current public release is 0.1.2 on PyPI with matching immutable GitHub artifacts. The v0.2.0 macOS extension is still a release candidate, not a public download."
-    meta="Public v0.1.2 · v0.2.0 release candidate · macOS and Linux"
+    lede="The current public release is 0.1.2 on PyPI with matching immutable GitHub artifacts. The v0.3.0 macOS extension is still a release candidate, not a public download."
+    meta="Public v0.1.2 · v0.3.0 release candidate · macOS and Linux"
     breadcrumbs={[{ label: 'Connect' }]}
   />
 
@@ -62,17 +62,17 @@ const desktopAuthorSetting = `"env": {
             <li>For the future Desktop extension: Claude Desktop on a Mac. The public MCPB is not available yet.</li>
             <li>For the current public Claude Code or Desktop setup: <a href="https://docs.astral.sh/uv/getting-started/installation/">uv installed</a>.</li>
           </ul>
-          <div class="notice"><strong>v0.2.0 is not public yet.</strong><p>A package version in source or a CI artifact is not a release. The macOS MCPB becomes installable only after clean-Mac acceptance, public PyPI verification and immutable GitHub Release publication all succeed for the same candidate.</p></div>
+          <div class="notice"><strong>v0.3.0 is not public yet.</strong><p>A package version in source or a CI artifact is not a release. The macOS MCPB becomes installable only after clean-Mac acceptance, public PyPI verification and immutable GitHub Release publication all succeed for the same candidate.</p></div>
           <div class="notice"><strong>Windows is not supported in the public Alpha.</strong><p>Do not improvise a Windows installation for real matters; the current local record locking and release tests target Mac and Linux.</p></div>
         </section>
 
         <section id="claude-desktop">
           <p class="eyebrow">Release-candidate status</p>
           <h2>Claude Desktop Extension for Mac</h2>
-          <p>The v0.2.0 candidate packages the local server, its exact dependency lock and four synthetic Word rounds into one macOS extension. It still processes documents locally; the extension does not create a Veqtor account or upload your files to a Veqtor service.</p>
-          <div class="notice"><strong>There is no official v0.2.0 download yet.</strong><p>Do not guess a release-asset URL or install an MCPB copied from CI, a branch, chat, issue or unrelated site. Publication must follow the exact release workflow; the source tree cannot declare itself immutable.</p></div>
+          <p>The v0.3.0 candidate packages the local server, its exact dependency lock and four synthetic Word rounds into one macOS extension. It still processes documents locally; the extension does not create a Veqtor account or upload your files to a Veqtor service.</p>
+          <div class="notice"><strong>There is no official v0.3.0 download yet.</strong><p>Do not guess a release-asset URL or install an MCPB copied from CI, a branch, chat, issue or unrelated site. Publication must follow the exact release workflow; the source tree cannot declare itself immutable.</p></div>
           <p><a class="button button--secondary" href={releasesUrl}>Check official GitHub Releases ↗</a></p>
-          <p>After v0.2.0 appears in that release list with the exact MCPB and checksum manifest:</p>
+          <p>After v0.3.0 appears in that release list with the exact MCPB and checksum manifest:</p>
           <ol>
             <li>Download the file ending in <code>-macos.mcpb</code> from that official release.</li>
             <li>Open it and approve installation in Claude Desktop.</li>
@@ -82,14 +82,14 @@ const desktopAuthorSetting = `"env": {
           </ol>
           <p>After publication, the first start may download a compatible Python runtime and the dependencies pinned in the extension. Later starts can use the local host cache.</p>
           <h3>First prompt</h3>
-          <blockquote>Using the Veqtor tools, what happened to the limitation of liability across the four Word rounds in the folder named demo? Start with list_rounds. Keep tool-confirmed document facts separate from your interpretation, and do not treat filename order as verified chronology.</blockquote>
+          <blockquote>Using the Veqtor tools, what happened to the limitation of liability across the four Word rounds in the folder named demo? Start with list_rounds, use inspect_document for a hash-bound paragraph reference, then use map_rounds to compare that evidence across the folder. Keep tool-confirmed document facts separate from your interpretation, and do not treat filename order as verified chronology or lineage.</blockquote>
           <p>The bundled prompt is read-only. For a write test, first copy the four synthetic DOCX files to a new writable folder outside the installed extension and create the output only in that copy. After apply, ask Claude to list the folder again and re-extract the output; the source hash should stay unchanged and the output hash should agree across apply, list and extraction.</p>
           <h3>Optional advanced integrity check</h3>
           <p>After promotion, the ordinary path will be to download from the official immutable GitHub Release and open the extension. Advanced users can also download <code>SHA256SUMS.txt</code>, run the commands below and compare the two values. The future public artifact will be checksum-bound but not digitally signed.</p>
-          <div class="code-block"><div class="code-block__head"><span>Terminal · optional</span><span>SHA-256</span></div><pre><code>{`shasum -a 256 veqtor-mcp-0.2.0-macos.mcpb
-grep ' veqtor-mcp-0.2.0-macos.mcpb$' SHA256SUMS.txt`}</code></pre></div>
+          <div class="code-block"><div class="code-block__head"><span>Terminal · optional</span><span>SHA-256</span></div><pre><code>{`shasum -a 256 veqtor-mcp-0.3.0-macos.mcpb
+grep ' veqtor-mcp-0.3.0-macos.mcpb$' SHA256SUMS.txt`}</code></pre></div>
           <h3>Remove or reinstall</h3>
-          <p>Once published, uninstall Veqtor from Claude Desktop's extension settings. The first public MCPB has no older extension to roll back to; before promotion its gate covers a clean Mac without a manually installed uv or Python, all six tools, uninstall, confirmation that the tools disappear, and reinstall of the same artifact. Real upgrade and rollback become required for the next extension release.</p>
+          <p>Once published, uninstall Veqtor from Claude Desktop's extension settings. The first public MCPB has no older extension to roll back to; before promotion its gate covers a clean Mac without a manually installed uv or Python, all eight tools, uninstall, confirmation that the tools disappear, and reinstall of the same artifact. Real upgrade and rollback become required for the next extension release.</p>
         </section>
 
         <section id="claude-code">
@@ -111,7 +111,7 @@ grep ' veqtor-mcp-0.2.0-macos.mcpb$' SHA256SUMS.txt`}</code></pre></div>
         <section id="desktop-manual">
           <p class="eyebrow">Current public fallback</p>
           <h2>Manual Claude Desktop setup</h2>
-          <p>This path uses the exact public PyPI version 0.1.2. Matching wheel, sdist and checksum artifacts remain available from the immutable GitHub v0.1.2 release while the v0.2.0 Desktop Extension completes its separate release gate.</p>
+          <p>This path uses the exact public PyPI version 0.1.2. Matching wheel, sdist and checksum artifacts remain available from the immutable GitHub v0.1.2 release while the v0.3.0 Desktop Extension completes its separate release gate.</p>
           <p>Desktop apps may not see the same terminal paths as your shell. First find the full path to <code>uvx</code>:</p>
           <div class="code-block"><div class="code-block__head"><span>Terminal</span><span>Find uvx</span></div><pre><code>command -v uvx</code></pre></div>
           <p>In Claude Desktop, open <strong>Settings → Developer → Edit Config</strong>. This opens <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>.</p>

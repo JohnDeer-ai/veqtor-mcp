@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Frozen v0.2 release inventory plus the current development runtime ratchet."""
+"""Frozen v0.3 release inventory."""
 
 from __future__ import annotations
 
 
 PROJECT_NAME = "veqtor-mcp"
 DIST_NAME = "veqtor_mcp"
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 WHEEL_FILENAME = f"{DIST_NAME}-{VERSION}-py3-none-any.whl"
 SDIST_FILENAME = f"{DIST_NAME}-{VERSION}.tar.gz"
 MCPB_FILENAME = f"{PROJECT_NAME}-{VERSION}-macos.mcpb"
@@ -47,24 +47,6 @@ RUNTIME_SOURCE_FILES = (
     "src/veqtor_docx/apply.py",
     "src/veqtor_docx/contracts.py",
     "src/veqtor_docx/extract.py",
-    "src/veqtor_docx/rounds.py",
-    "src/veqtor_docx/synthetic.py",
-    "src/veqtor_docx/verify.py",
-    "src/veqtor_mcp/__init__.py",
-    "src/veqtor_mcp/contracts.py",
-    "src/veqtor_mcp/records.py",
-    "src/veqtor_mcp/server.py",
-)
-
-# Current development packaging is ratcheted separately from the immutable
-# v0.2 release/MCPB inventory above.  A future frozen release contract must
-# promote this complete set deliberately rather than mutating v0.2 in place.
-DEVELOPMENT_RUNTIME_SOURCE_FILES = (
-    "src/veqtor_docx/__init__.py",
-    "src/veqtor_docx/_ooxml.py",
-    "src/veqtor_docx/apply.py",
-    "src/veqtor_docx/contracts.py",
-    "src/veqtor_docx/extract.py",
     "src/veqtor_docx/inspect.py",
     "src/veqtor_docx/rounds.py",
     "src/veqtor_docx/synthetic.py",
@@ -73,12 +55,19 @@ DEVELOPMENT_RUNTIME_SOURCE_FILES = (
     "src/veqtor_mcp/_inspection_live.py",
     "src/veqtor_mcp/contracts.py",
     "src/veqtor_mcp/records.py",
+    "src/veqtor_mcp/round_map.py",
+    "src/veqtor_mcp/round_map_contract.py",
     "src/veqtor_mcp/server.py",
 )
+
+# Kept as a compatibility alias for release-identity tests and helper imports.
+DEVELOPMENT_RUNTIME_SOURCE_FILES = RUNTIME_SOURCE_FILES
 
 MCPB_REQUIRED_TOOLS = (
     "list_rounds",
     "extract_redlines",
+    "inspect_document",
+    "map_rounds",
     "verify_quote",
     "preflight_edits",
     "apply_edits",
@@ -118,11 +107,13 @@ PUBLIC_DOCUMENT_FILES = (
     "API.md",
     "CHANGELOG.md",
     "CONTRIBUTING.md",
+    "INSPECT_DOCUMENT_V0.3.md",
     "KNOWN_LIMITATIONS.md",
     "LICENSE",
     "NOTICE",
     "README.md",
     "RELEASING.md",
+    "ROUND_MAP_V0.3.md",
     "ROADMAP.md",
     "SECURITY.md",
     "TRADEMARKS.md",

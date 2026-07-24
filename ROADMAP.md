@@ -11,7 +11,7 @@ apply tracked changes fail-closed, and retain re-checkable provenance.
 The calling model decides what to analyze or propose. Veqtor supplies bounded
 document facts and deterministic writes; it does not claim legal correctness.
 
-## Current public Alpha
+## Alpha scope
 
 - Local stdio MCP for macOS and Linux with Python 3.12-3.14.
 - Deterministic discovery of filename-ordered DOCX rounds.
@@ -25,16 +25,21 @@ document facts and deterministic writes; it does not claim legal correctness.
 - Bounded DOCX/ZIP processing and versioned installation from PyPI, with the
   same verified wheel, sdist and checksum manifest on GitHub Releases.
 
-## Implemented in source version 0.2.0
+## Implemented in source version 0.3.0
 
-Source package version `0.2.0` advertises MCP contract `veqtor.mcp.v0.2`. The
+Source package version `0.3.0` advertises MCP contract `veqtor.mcp.v0.3`. The
 contract version is an API-schema identifier and the source version alone is
 not proof of a published package or release.
 
-Reliable-workflow stages 0 and 1 now provide:
+Reliable-workflow stages 0 through 3B now provide:
 
 - versioned, closed nested MCP input schemas and explicit output schemas for all
-  six tools;
+  eight tools;
+- bounded accepted/current document inspection with hash-bound paragraph and
+  section references;
+- a seed-centred Round Map of exact paragraph equality and recorded document-byte
+  derivations with explicit unresolved/ambiguous states and no inferred
+  chronology or lineage;
 - a successful `preflight_edits` proof that binds the exact source bytes,
   canonical edit payload, configured author, producer build and predicted
   candidate SHA-256; the MCP `apply_edits` call requires that complete proof and
@@ -62,7 +67,7 @@ digital signature, a trusted timestamp or tamper evidence.
   into evidence.
 - Refine installation, diagnostics and examples from external-user feedback.
 
-### Claude Desktop Extension in source version 0.2.0
+### Claude Desktop Extension in source version 0.3.0
 
 Veqtor can be packaged as a versioned Claude Desktop Extension (`.mcpb`). It is
 a public installation path only when the exact artifact passes the documented
@@ -72,7 +77,7 @@ JSON or running `uvx` manually: download the release artifact, open it, review
 the requested configuration, enter the tracked-change author name, confirm
 installation in Claude Desktop, and try Veqtor on the synthetic demo documents.
 
-Version 0.2.0 scope:
+Version 0.3.0 scope:
 
 - macOS-only v1; Linux keeps the existing CLI setup until its Desktop path is
   separately supported and tested.
@@ -80,9 +85,10 @@ Version 0.2.0 scope:
   `VEQTOR_TRACKED_CHANGE_AUTHOR` as required user configuration.
 - The build is validated and byte-reproducible. Only promotion can bind a
   public artifact to its published checksum; it is not digitally signed.
-- The release gate requires a clean Claude Desktop install with all six public tools:
-  `list_rounds`, `extract_redlines`, `verify_quote`, `preflight_edits`,
-  `apply_edits`, and `export_decision_record`.
+- The release gate requires a clean Claude Desktop install with all eight public
+  tools: `list_rounds`, `extract_redlines`, `inspect_document`, `map_rounds`,
+  `verify_quote`, `preflight_edits`, `apply_edits`, and
+  `export_decision_record`.
 - The package ships the same disposable four-round demo documents used by the website and a
   copyable first prompt, so activation does not require generating a new corpus
   in Terminal after the extension is installed.

@@ -6,10 +6,11 @@ All notable changes to Veqtor MCP are documented here.
 Publication dates are authoritative in each version's immutable GitHub Release
 through its `published_at` timestamp.
 
-## Unreleased — 0.3.0.dev0
+## 0.3.0
 
-Development-only Stage 3 work. This section and the package version do not
-establish publication and do not provide a public `0.3` installation target.
+Veqtor v0.3.0 Alpha release contents. The immutable GitHub Release
+`published_at` timestamp, not this file, is authoritative for whether and when
+publication occurred.
 
 ### Added
 
@@ -32,7 +33,7 @@ establish publication and do not provide a public `0.3` installation target.
   response page. A fixed 64 MiB aggregate cap returns `journal_oversize`,
   blocks mutation, and leaves recovery to non-destructive manual archive;
   post-snapshot export publication failures return the frozen snapshot.
-- Successful live responses from all eight development tools now carry the
+- Successful live responses from all eight tools now carry the
   same bounded producer identity.
 - Inspection coverage now names its outer canonical-flow totals
   `indexed_paragraph_count` and `nonempty_indexed_paragraph_count`; compact
@@ -41,11 +42,10 @@ establish publication and do not provide a public `0.3` installation target.
 - Evidence documentation now states that full paragraph/section references,
   not heading hashes alone, provide identity and that search snippets remain
   navigation output even when untruncated.
-- Development package identity is `0.3.0.dev0`, separated from the frozen v0.2
-  release inventory and its six-tool MCPB.
-- Development CI builds and smokes wheel/sdist artifacts and the eight-tool
-  surface without presenting them as a sealed release set. Frozen MCPB,
-  checksum and independent release-reproduction gates remain v0.2-only.
+- Package identity is `0.3.0`; publication still requires the exact release
+  contract, clean-Mac MCPB acceptance and immutable promotion workflow.
+- Release CI builds and smokes wheel, sdist and the eight-tool MCPB surface,
+  then independently reproduces the sealed release set.
 - Compact inspection-record projection remains readable when a historical
   base-schema record lacks the closed v0.3 mode, coverage or limits fields, and
   incomplete v2 anchors are omitted from observed samples as truncated.

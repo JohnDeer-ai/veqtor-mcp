@@ -15,7 +15,7 @@ from typing import Any
 from release_contract import FIVE_EDIT_OUTPUT_SHA256, MCPB_REQUIRED_TOOLS, VERSION
 
 
-SCHEMA_VERSION = "veqtor_release_acceptance.v4"
+SCHEMA_VERSION = "veqtor_release_acceptance.v5"
 MAX_EVIDENCE_BYTES = 64 * 1024
 MAX_PACKET_INTEGER_DIGITS = 128
 HEX = frozenset("0123456789abcdef")
@@ -288,6 +288,7 @@ def validate_evidence(
             "runtime_version",
             "demo_round_count",
             "bundled_demo_prompt_completed",
+            "inspection_map",
             "post_apply_list_rounds_status",
             "post_apply_round_count",
             "source_sha256_unchanged",
@@ -354,6 +355,53 @@ def validate_evidence(
     _exact_count(
         extension["demo_round_count"], 4, "desktop_extension.demo_round_count"
     )
+    inspection_map = _exact_keys(
+        extension["inspection_map"],
+        {
+            "inspect_browse_status",
+            "inspect_record_status",
+            "round_map_schema_version",
+            "round_map_status",
+            "round_map_record_status",
+            "scan_complete",
+            "candidate_document_count",
+            "exact_content_equality_count",
+            "navigation_candidate_count",
+            "recorded_derivation_count",
+            "ambiguous_count",
+            "exact_unique_count",
+            "unresolved_count",
+            "derivation_recorded",
+            "lineage_verified",
+            "chronology_verified",
+            "support_profile",
+            "supporting_record_count",
+            "supporting_current_count",
+        },
+        "desktop_extension.inspection_map",
+    )
+    if inspection_map != {
+        "inspect_browse_status": "passed",
+        "inspect_record_status": "written",
+        "round_map_schema_version": "round_map.v1",
+        "round_map_status": "ok",
+        "round_map_record_status": "written",
+        "scan_complete": True,
+        "candidate_document_count": 5,
+        "exact_content_equality_count": 4,
+        "navigation_candidate_count": 0,
+        "recorded_derivation_count": 1,
+        "ambiguous_count": 0,
+        "exact_unique_count": 4,
+        "unresolved_count": 1,
+        "derivation_recorded": True,
+        "lineage_verified": False,
+        "chronology_verified": False,
+        "support_profile": "current_only",
+        "supporting_record_count": 1,
+        "supporting_current_count": 1,
+    }:
+        raise EvidenceError("Desktop inspection and Round Map acceptance differs")
     _passed(
         extension["post_apply_list_rounds_status"],
         "desktop_extension.post_apply_list_rounds_status",

@@ -5,8 +5,8 @@
 This file defines the public tool surface. Output examples are part of the API
 because models use them to decide how to call tools and how to cite results.
 
-The development source is package `0.3.0.dev0` and advertises draft MCP
-contract `veqtor.mcp.v0.3`. Package version, contract and publication status
+The release candidate source is package `0.3.0` and advertises MCP contract
+`veqtor.mcp.v0.3`. Package version, contract and publication status
 are separate identities: only matching entries on public PyPI and the
 immutable GitHub Releases list establish distribution. This file alone does
 not. Every
@@ -269,7 +269,7 @@ the folder before retrying:
   "skipped": [],
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.3.0.dev0",
+    "version": "0.3.0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "record_id": "dr_001",
@@ -483,7 +483,7 @@ guessed:
   },
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.3.0.dev0",
+    "version": "0.3.0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "record_id": "dr_002",
@@ -701,7 +701,7 @@ inventory abbreviated):
   "next_cursor": null,
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.3.0.dev0",
+    "version": "0.3.0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "record_id": "dr_003",
@@ -801,7 +801,7 @@ Output:
   "diff": [],
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.3.0.dev0",
+    "version": "0.3.0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "record_id": "dr_003",
@@ -867,7 +867,7 @@ Output:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.3.0.dev0",
+    "version": "0.3.0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "batch_applicable": true,
@@ -918,7 +918,7 @@ for example:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.3.0.dev0",
+    "version": "0.3.0",
     "build": "source-snapshot-v1-sha256:example"
   },
   "batch_applicable": false,
@@ -1157,7 +1157,7 @@ Output:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.3.0.dev0",
+    "version": "0.3.0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "applied": [
@@ -1327,7 +1327,7 @@ Output:
 {
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.3.0.dev0",
+    "version": "0.3.0",
     "build": "source-snapshot-v1-sha256:..."
   },
   "workspace": {"sha256": "example-workspace-digest", "omitted": true},
@@ -1365,7 +1365,7 @@ Output:
       "created_at": "2026-07-09T12:00:00Z",
       "tool_name": "verify_quote",
       "workspace": {"sha256": "example-workspace-digest", "omitted": true},
-      "producer": {"name": "veqtor-mcp", "version": "0.3.0.dev0", "build": "source-snapshot-v1-sha256:..."},
+      "producer": {"name": "veqtor-mcp", "version": "0.3.0", "build": "source-snapshot-v1-sha256:..."},
       "payloads": "compact",
       "input": {"sha256": "example-input-digest", "omitted": true},
       "result": {

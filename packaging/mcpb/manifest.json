@@ -3,9 +3,9 @@
   "manifest_version": "0.4",
   "name": "veqtor-mcp",
   "display_name": "Veqtor",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Local DOCX redline evidence and fail-closed tracked edits for Claude",
-  "long_description": "Veqtor lets Claude inspect tracked changes in local Word documents, verify quoted wording, preflight a complete edit proposal, create a separate DOCX with real tracked changes, and retain privacy-minimized local provenance. Document processing stays on the user's computer. Veqtor supplies bounded document facts and deterministic writes; it does not provide legal advice or decide whether wording is legally or commercially suitable.",
+  "long_description": "Veqtor lets Claude inspect accepted/current Word text, map exact evidence across negotiation rounds, inspect tracked changes, verify quoted wording, preflight a complete edit proposal, create a separate DOCX with real tracked changes, and retain privacy-minimized local provenance. Document processing stays on the user's computer. Veqtor supplies bounded document facts and deterministic writes; it does not provide legal advice or decide whether wording is legally or commercially suitable.",
   "author": {
     "name": "Ilya Shilov",
     "url": "https://veqtor.pro"
@@ -56,6 +56,14 @@
       "description": "Extract supported tracked revisions with hash-bound change-unit anchors."
     },
     {
+      "name": "inspect_document",
+      "description": "Read bounded accepted/current main-body text with hash-bound paragraph references."
+    },
+    {
+      "name": "map_rounds",
+      "description": "Map exact paragraph evidence and recorded byte derivations without inferring chronology or lineage."
+    },
+    {
       "name": "verify_quote",
       "description": "Verify wording against one hash-bound tracked-change unit."
     },
@@ -77,7 +85,7 @@
     {
       "name": "try_veqtor_demo",
       "description": "Check the connection with four bundled synthetic Word rounds.",
-      "text": "Using the Veqtor tools, what happened to the limitation of liability across the four Word rounds in the folder named demo? Start with list_rounds. Keep tool-confirmed document facts separate from your interpretation, and do not treat filename order as verified chronology."
+      "text": "Using the Veqtor tools, what happened to the limitation of liability across the four Word rounds in the folder named demo? Start with list_rounds, use inspect_document for a hash-bound paragraph reference, then use map_rounds to compare that evidence across the folder. Keep tool-confirmed document facts separate from your interpretation, and do not treat filename order as verified chronology or lineage."
     }
   ],
   "prompts_generated": false,

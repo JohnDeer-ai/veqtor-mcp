@@ -1,7 +1,7 @@
 # Veqtor for Claude Desktop
 
 > **Release-candidate packaging notes:** there is no official public
-> `v0.2.0` MCPB merely because this directory can build one. These installation
+> `v0.3.0` MCPB merely because this directory can build one. These installation
 > steps apply only after the exact candidate passes clean-Mac acceptance and is
 > attached to the immutable GitHub Release by the promotion workflow.
 

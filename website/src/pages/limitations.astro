@@ -2,16 +2,16 @@
 import BaseLayout from '../layouts/BaseLayout.astro'
 import PageHero from '../components/PageHero.astro'
 
-const title = 'Veqtor MCP Known Limitations — 0.2.0 Release Candidate'
-const description = 'Plain-language and technical limits of the Veqtor 0.2.0 source candidate, with the current public distribution still at v0.1.2.'
+const title = 'Veqtor MCP Known Limitations — 0.3.0 Release Candidate'
+const description = 'Plain-language and technical limits of the Veqtor 0.3.0 source candidate, with the current public distribution still at v0.1.2.'
 ---
 
 <BaseLayout title={title} description={description} canonicalPath="/limitations">
   <PageHero
     eyebrow="Known limitations"
     title="Know what Veqtor does not support yet."
-    lede="The Alpha is intentionally narrow. This page describes candidate behavior; v0.2.0 is not a public release until promotion succeeds."
-    meta="Source candidate v0.2.0 · Public distribution v0.1.2"
+    lede="The Alpha is intentionally narrow. This page describes candidate behavior; v0.3.0 is not a public release until promotion succeeds."
+    meta="Source candidate v0.3.0 · Public distribution v0.1.2"
     breadcrumbs={[{ label: 'Limitations' }]}
   >
     <div slot="actions" class="actions"><a class="button button--primary" href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/KNOWN_LIMITATIONS.md">Open default-branch technical limits ↗</a></div>
@@ -55,7 +55,7 @@ const description = 'Plain-language and technical limits of the Veqtor 0.2.0 sou
         <p>Decision records are best-effort local provenance. They are not authenticated, signed, hash-chained or tamper-evident. The supported threat model is a non-hostile, single-user Mac or Linux workspace. A malicious process running as the same user is outside scope.</p>
 
         <h3>Canonical release document</h3>
-        <p>This page is an accessible candidate summary. Before promotion, use the <a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/KNOWN_LIMITATIONS.md">default-branch KNOWN_LIMITATIONS.md</a> for merged development behavior and the <a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/v0.1.2/KNOWN_LIMITATIONS.md">immutable v0.1.2 file</a> for the public release. A tagged v0.2.0 file becomes authoritative only if that release is published.</p>
+        <p>This page is an accessible candidate summary. Before promotion, use the <a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/KNOWN_LIMITATIONS.md">default-branch KNOWN_LIMITATIONS.md</a> for merged development behavior and the <a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/v0.1.2/KNOWN_LIMITATIONS.md">immutable v0.1.2 file</a> for the public release. A tagged v0.3.0 file becomes authoritative only if that release is published.</p>
       </article>
       <aside class="side-index"><strong>Related</strong><a href="/security">Security &amp; privacy</a><a href="/docs">Tool documentation</a><a href="/demo">Sample workflow</a><a href="/setup">Connection guide</a></aside>
     </div>
