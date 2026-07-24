@@ -64,6 +64,7 @@ async def smoke() -> dict:
                 "list_rounds",
                 "extract_redlines",
                 "inspect_document",
+                "map_rounds",
                 "verify_quote",
                 "preflight_edits",
                 "apply_edits",
@@ -147,6 +148,42 @@ async def smoke() -> dict:
             )
             assert applied["candidate_output_sha256_match"] is True
             assert applied["output_sha256"] == preflight["candidate_sha256"]
+            browsed = _payload(
+                await session.call_tool(
+                    "inspect_document",
+                    {"path": source, "mode": "browse", "max_items": 1},
+                )
+            )
+            _assert_producer(browsed)
+            mapped = _payload(
+                await session.call_tool(
+                    "map_rounds",
+                    {
+                        "folder": str(matter),
+                        "seed": {
+                            "schema_version": "round_map_seed.v1",
+                            "path": source,
+                            "paragraph_ref": browsed["paragraphs"][0]["paragraph_ref"],
+                        },
+                        "max_items": 100,
+                    },
+                )
+            )
+            _assert_producer(mapped)
+            derivations = [
+                item
+                for item in mapped["items"]
+                if item["item_type"] == "relationship"
+                and item["relationship_type"] == "recorded_derivation"
+            ]
+            assert any(
+                item["from_id"] == f"rm_doc_v1:{applied['source_sha256']}"
+                and item["to_id"] == f"rm_doc_v1:{applied['output_sha256']}"
+                and item["derivation_recorded"] is True
+                and item["lineage_verified"] is False
+                and item["chronology_verified"] is False
+                for item in derivations
+            )
             exported = _payload(
                 await session.call_tool(
                     "export_decision_record",

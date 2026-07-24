@@ -25,6 +25,7 @@ from veqtor_docx.contracts import INSPECT_FIXED_LIMITS_V1, InspectionContractV1
 from veqtor_docx.inspect import DEFAULT_MAX_ITEMS as DEFAULT_INSPECT_MAX_ITEMS
 from veqtor_mcp import __version__
 from veqtor_mcp import records
+from veqtor_mcp import round_map
 from veqtor_mcp._inspection_live import (
     CheckedInspectionError,
     CheckedInspectionResult,
@@ -39,6 +40,8 @@ from veqtor_mcp.contracts import (
     InspectDocumentResult,
     InspectSelectionInput,
     ListRoundsResult,
+    RoundMapResult,
+    RoundMapSeedInput,
     PreflightEditsResult,
     PreflightProofInput,
     VerifyAnchorInput,
@@ -77,6 +80,7 @@ _RESULT_MODELS = {
     "list_rounds": ListRoundsResult,
     "extract_redlines": ExtractRedlinesResult,
     "inspect_document": InspectDocumentResult,
+    "map_rounds": RoundMapResult,
     "preflight_edits": PreflightEditsResult,
     "apply_edits": ApplyEditsResult,
     "verify_quote": VerifyQuoteResult,
@@ -923,6 +927,66 @@ def inspect_document(
         internal_provenance_factory=lambda: {"source_path": path, "mode": mode},
         operation=operation,
     )
+
+
+@mcp.tool(
+    annotations=local_journaling_annotations("Map bounded document rounds"),
+    meta=contract_meta(),
+    structured_output=True,
+)
+def map_rounds(
+    folder: str,
+    seed: RoundMapSeedInput,
+    ordered_filenames: list[str] | None = None,
+    cursor: str | None = None,
+    max_items: Annotated[StrictInt, Field(ge=1, le=100)] = 50,
+) -> RoundMapResult:
+    """Map bounded exact evidence around one hash-bound paragraph.
+
+    The map reports only recorded document-byte derivation, complete exact
+    paragraph equality, navigation candidates and explicit unresolved or
+    ambiguous states.  Filenames, positions, mtimes, labels and headings never
+    become chronology or lineage.  The local journal is mutable and
+    non-tamper-evident; ``recorded_derivation`` states only what a validated
+    local apply record says.
+    """
+    input_payload = {
+        "folder": folder,
+        "seed": seed,
+        "ordered_filenames": ordered_filenames,
+        "cursor": cursor,
+        "max_items": max_items,
+    }
+    try:
+        computation = round_map.build_round_map(
+            folder,
+            seed,
+            ordered_filenames=ordered_filenames,
+            cursor=cursor,
+            max_items=max_items,
+        )
+        normalized = _validated_success_result("map_rounds", computation.result)
+        if not isinstance(normalized, dict):
+            raise _OutputContractError
+        round_map.validate_computation_result(computation, normalized)
+        meta = _validated_record_metadata(
+            records.write_record(
+                workspace=computation.workspace,
+                tool_name="map_rounds",
+                input_payload=input_payload,
+                result=round_map.record_summary(computation),
+                tool_result=normalized,
+                provenance=round_map.record_provenance(computation),
+                expected_workspace_identity=computation.workspace_identity,
+            )
+        )
+        return {**normalized, **meta}
+    except (veqtor_docx.DocxError, _OutputContractError):
+        raise
+    except records.DecisionRecordError as exc:
+        raise _McpBoundaryError(exc.code, "decision-record operation refused") from None
+    except Exception:
+        raise _McpBoundaryError("internal_error", "unexpected tool failure") from None
 
 
 @mcp.tool(

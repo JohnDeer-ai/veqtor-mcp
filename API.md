@@ -17,7 +17,7 @@ top-level results remain additive where the advertised schema says so.
 
 Every successful live tool response includes the same bounded `producer`
 object with `name`, package `version`, and the process-start Python source
-snapshot `build`. This applies to all seven tools, including read-only results
+snapshot `build`. This applies to all eight tools, including read-only results
 and decision-record export. Error envelopes are not successful tool results.
 `producer`, `record_id`, `record_status`, and `record_error` are server-owned;
 core tool results cannot supply them. `record_error` is present only with
@@ -84,8 +84,9 @@ existing matter folder, unless disabled by
 `0600` files). Before every append the server validates or restores
 `.veqtor/.gitignore`; symlink, hardlink, non-regular, or unexpected ignore
 targets are refused before the journal is touched.
-Read-only calls — list, extract, inspect, verify, preflight and decision-record
-export — also normally attempt to append provenance, with the outcome reported in
+Read-only document operations — list, extract, inspect, Round Map, verify and
+preflight — and decision-record export also normally attempt to append
+provenance, with the outcome reported in
 `record_status`. In particular, export is a read of the document history but
 normally writes its own local `access_event.v1` after the response snapshot.
 Export requires an existing journal in the exact supplied workspace; it never
@@ -110,15 +111,22 @@ the journal file fsync succeeded. Operations that create `.veqtor`, its
 `.gitignore`, or the journal also require the relevant directory fsync. This is
 not an absolute hardware power-loss guarantee. After low-level storage
 failures, `write_failed` means the commit is unknown even if a partial frame
-later appears on disk. Controlled fail-closed
-`DocxError` refusals attempt to record and are then re-raised; FastMCP error
-responses cannot echo their `record_id` in v1. Transport/type validation
-errors never reach the tool wrapper and are not recorded. Unexpected failures
-anywhere in workspace resolution, the core call, provenance projection,
-journal publication or response construction are journaled as a generic
-`internal_error` when a safe workspace exists, then replaced with a
-context-free MCP error. Their exception type, message, document content and
-local paths are never returned to the client. A corrupt journal
+later appears on disk. Controlled fail-closed `DocxError` refusals from the
+seven tools other than `map_rounds` attempt to record and are then re-raised;
+FastMCP error responses cannot echo their `record_id` in v1. Round Map has a
+frozen success-only `round_map.v1` record: a pre-result refusal, including
+sanitized `internal_error`, neither appends a Map failure record nor initializes
+`.veqtor`. Only a fully validated successful map attempts that record; a
+post-result publication failure returns the valid map with
+`record_status: "write_failed"`. Publication is bound to the captured workspace
+device/inode: if that path is missing or names a replacement after validation,
+the returned map has `record_id: null`, `record_status: "write_failed"`, and
+`record_error: "workspace_changed"`, and neither workspace is written.
+Transport/type validation errors never reach
+the tool wrapper and are not recorded. Unexpected failures from the other
+seven tools are journaled as a generic `internal_error` when a safe workspace
+exists, then replaced with a context-free MCP error. Exception types, messages,
+document content and local paths are never returned to the client. A corrupt journal
 (`journal_corrupt`) or aggregate-oversized journal (`journal_oversize`) fails
 closed on direct read and export and blocks further append. The journal is a
 sequence of non-empty JSON records, each terminated by one LF; blank frames and
@@ -140,9 +148,9 @@ or changing the journal. Callers must not mutate payload structures during
 `write_record`; if they do, the selected snapshot is unspecified, but any
 `written` frame remains internally consistent and readable. The current writer
 admits only the MCP names in its writable allowlist and derives each
-`record_type` from the permanent `decision_record.v1` historical tool spec. An
+`record_type` from the permanent `decision_record.v1` tool spec. An
 unknown tool or mismatched pair is `record_invalid` on write and
-`journal_corrupt` on read. The seven historical `(tool_name, record_type)` pairs
+`journal_corrupt` on read. The eight permanent `(tool_name, record_type)` pairs
 documented by this source contract, together with their compact
 projection rules, are
 append-only v1 format commitments: a retired tool may leave the writable and
@@ -166,6 +174,7 @@ The permanent pairs registered by this source contract are:
 - `verify_quote` → `verification.v1`;
 - `preflight_edits` → `verification.v1`;
 - `apply_edits` → `decision.v1`;
+- `map_rounds` → `round_map.v1`;
 - `export_decision_record` → `access_event.v1`.
 
 Each existing pair remains forward-compatible for readers that know it. Once a
@@ -267,6 +276,59 @@ the folder before retrying:
   "record_status": "written"
 }
 ```
+
+## `map_rounds`
+
+Call this with one complete `paragraph_ref.v1` from `inspect_document` and the
+direct candidate folder. It returns a bounded, seed-centred evidence map over
+immutable candidate snapshots and the workspace's validated local journal.
+The closed relationship vocabulary is `recorded_derivation`,
+`exact_content_equality`, and `navigation_candidate`; every document also has
+an explicit `exact_unique`, `ambiguous`, or `unresolved` resolution item.
+
+`recorded_derivation` is only the source/output assertion in a validated local
+`apply_edits` record. The journal is mutable, unsigned and not tamper-evident,
+so the map always reports `lineage_verified: false` and
+`chronology_verified: false`. Filename order, an explicit manifest, mtimes,
+labels and headings never establish chronology or lineage. Navigation alone
+never resolves a paragraph, and `unresolved` never means deleted.
+
+Input:
+
+```json
+{
+  "folder": "/Users/example/Deals/AcmeDistribution",
+  "seed": {
+    "schema_version": "round_map_seed.v1",
+    "path": "/Users/example/Deals/AcmeDistribution/02-counterparty.docx",
+    "paragraph_ref": {
+      "schema_version": "paragraph_ref.v1",
+      "ref_type": "paragraph",
+      "file_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "part_name": "word/document.xml",
+      "paragraph_index": 42,
+      "paragraph_text_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "reading_mode": "accepted_current_v1",
+      "container_policy": "canonical_body_flow_v1"
+    }
+  },
+  "ordered_filenames": null,
+  "cursor": null,
+  "max_items": 50
+}
+```
+
+The complete result set is ordered by item type and stable id before one
+stateless `rm1` cursor pages it. A later page revalidates every candidate and
+the complete journal, then binds the filename manifest, filesystem snapshot,
+relevant apply-record snapshot, policies, limits and full result set. A changed
+page size is allowed; drift returns `cursor_mismatch`. Candidate and journal
+limits fail the whole call rather than returning a selected subset. The exact
+closed schemas, fixed limits and failure precedence are frozen in
+`ROUND_MAP_V0.3.md`. That file is the preimplementation acceptance contract and
+therefore preserves its historical seven-tool/future-implementation wording;
+the current development source implements the resulting permanent eighth tool
+without rewriting the frozen specification.
 
 ## `extract_redlines`
 

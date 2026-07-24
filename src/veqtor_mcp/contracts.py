@@ -27,6 +27,12 @@ from veqtor_docx.contracts import (
     REVISION_COUNT_BASIS_V1,
 )
 
+from .round_map_contract import (
+    ROUND_MAP_RESULT_PROPERTIES,
+    ROUND_MAP_RESULT_REQUIRED,
+    ROUND_MAP_SEED_SCHEMA,
+)
+
 MCP_CONTRACT_SCHEMA_VERSION = "veqtor.mcp.v0.3"
 MCP_CONTRACT_META_KEY = "veqtor.pro/contractSchemaVersion"
 MCP_CONTRACT_SCHEMA_EXTENSION = "x-veqtor-contract-schema-version"
@@ -329,6 +335,7 @@ INSPECT_SELECTION_SCHEMA: dict[str, Any] = {
 InspectSelectionInput = Annotated[
     dict[str, Any], WithJsonSchema(INSPECT_SELECTION_SCHEMA)
 ]
+RoundMapSeedInput = Annotated[dict[str, Any], WithJsonSchema(ROUND_MAP_SEED_SCHEMA)]
 
 
 _RECORD_METADATA_PROPERTIES: dict[str, Any] = {
@@ -473,6 +480,13 @@ def _output_schema(
         # Result payloads are intentionally additive across compatible releases.
         "additionalProperties": True,
     }
+
+
+ROUND_MAP_RESULT_SCHEMA = _output_schema(
+    "map_rounds result",
+    ROUND_MAP_RESULT_PROPERTIES,
+    ROUND_MAP_RESULT_REQUIRED,
+)
 
 
 LIST_ROUNDS_RESULT_SCHEMA = _output_schema(
@@ -1384,6 +1398,22 @@ class InspectDocumentResult(_ContractResult):
     container_policy: Literal["canonical_body_flow_v1"]
     has_tracked_text_revisions: bool
     revision_inventory: dict[str, Any]
+    coverage: dict[str, Any]
+    limits: dict[str, Any]
+    next_cursor: str | None
+
+
+class RoundMapResult(_ContractResult):
+    contract_schema = ROUND_MAP_RESULT_SCHEMA
+    schema_version: Literal["round_map.v1"]
+    status: Literal["ok"]
+    seed: dict[str, Any]
+    ordering_source: Literal[
+        "filename_lexicographic_v1", "explicit_filename_sequence_v1"
+    ]
+    order_basis: dict[str, Any]
+    snapshot: dict[str, Any]
+    items: list[dict[str, Any]]
     coverage: dict[str, Any]
     limits: dict[str, Any]
     next_cursor: str | None

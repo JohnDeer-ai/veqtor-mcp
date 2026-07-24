@@ -112,10 +112,13 @@ and is not a published v0.3 commitment or release claim.
 
 ### Stage 3B — bounded round map
 
-The closed, non-implemented first-slice contract is specified in
-[`ROUND_MAP_V0.3.md`](ROUND_MAP_V0.3.md). It defines future tool `map_rounds`
-and record pair `(map_rounds, round_map.v1)` without registering either in the
-current seven-tool runtime.
+The frozen preimplementation first-slice acceptance contract is specified in
+[`ROUND_MAP_V0.3.md`](ROUND_MAP_V0.3.md). Current development source now
+registers `map_rounds` and `(map_rounds, round_map.v1)` as the eighth tool and
+permanent success-only record pair. The frozen specification retains its
+historical future/seven-tool wording; implementation, independent review,
+installed-artifact testing and user-owned Desktop acceptance remain separate
+gates.
 
 - Classify every relationship by its actual claim and basis: a semantically
   valid local apply record supports document-level `recorded_derivation`;
