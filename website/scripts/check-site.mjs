@@ -3,6 +3,9 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { LINK_ARCHITECTURE_LASTMOD, latestLastmod } from '../src/lib/sitemap-lastmod.mjs'
+import { validateRenderedBridge } from './lib/rendered-bridge.mjs'
+
 const SITE_ORIGIN = 'https://veqtor.pro'
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const WEBSITE_DIR = resolve(SCRIPT_DIR, '..')
@@ -142,6 +145,81 @@ function pageSignals(html) {
     (attrs) => (attrs.get('name') ?? '').toLowerCase() === 'twitter:title',
   ).map((tag) => normalizeText(attributesForTag(tag).get('content') ?? ''))
   return { title, h1, canonical, description, twitterTitle }
+}
+
+function structuredDataNodes(route, html) {
+  const nodes = []
+  const scripts = [...html.matchAll(
+    /<script\b[^>]*\btype=(?:"application\/ld\+json"|'application\/ld\+json')[^>]*>([\s\S]*?)<\/script>/gi,
+  )]
+  if (scripts.length === 0) {
+    fail(`${route}: application/ld+json is missing`)
+    return nodes
+  }
+  for (const script of scripts) {
+    let value
+    try {
+      value = JSON.parse(script[1])
+    } catch (error) {
+      fail(`${route}: application/ld+json is invalid (${error.message})`)
+      continue
+    }
+    if (Array.isArray(value)) nodes.push(...value)
+    else if (Array.isArray(value?.['@graph'])) nodes.push(...value['@graph'])
+    else nodes.push(value)
+  }
+  return nodes
+}
+
+function mainContent(route, html) {
+  const content = html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i)?.[1]
+  if (content === undefined) {
+    fail(`${route}: <main> content is missing`)
+    return ''
+  }
+  return content
+}
+
+function withoutBreadcrumbNavigation(html) {
+  return html.replace(
+    /<nav\b(?=[^>]*\baria-label=(?:"Breadcrumb"|'Breadcrumb'))[^>]*>[\s\S]*?<\/nav>/gi,
+    '',
+  )
+}
+
+function expectedMainNavigationCurrent(route) {
+  if (route === '/product' || route === '/demo' || route === '/setup') {
+    return { href: route, value: 'page' }
+  }
+  if (route === '/guides') return { href: '/guides', value: 'page' }
+  if (route.startsWith('/guides/')) return { href: '/guides', value: 'location' }
+  return null
+}
+
+function assertMainNavigationCurrent(route, html) {
+  const navigation = html.match(/<nav\b[^>]*aria-label=(?:"Main navigation"|'Main navigation')[^>]*>[\s\S]*?<\/nav>/i)?.[0]
+  if (!navigation) {
+    fail(`${route}: main navigation is missing`)
+    return
+  }
+
+  const current = matchingTags(
+    navigation,
+    'a',
+    (attrs) => attrs.has('aria-current'),
+  ).map((tag) => {
+    const attrs = attributesForTag(tag)
+    return { href: attrs.get('href') ?? '', value: (attrs.get('aria-current') ?? '').toLowerCase() }
+  })
+  const expected = expectedMainNavigationCurrent(route)
+
+  if (expected && (current.length !== 1 || current[0].href !== expected.href || current[0].value !== expected.value)) {
+    const found = current.map((item) => `${item.href} (${item.value})`).join(', ') || 'none'
+    fail(`${route}: expected current main navigation link ${expected.href} (${expected.value}), found ${found}`)
+  }
+  if (!expected && current.length > 0) {
+    fail(`${route}: unexpected current main navigation link ${current.map((item) => item.href).join(', ')}`)
+  }
 }
 
 function sha256Json(value) {
@@ -301,6 +379,75 @@ function assertIndexablePagesHaveInboundLinks(pagesByRoute, indexableRoutes) {
   }
 }
 
+function assertPriorityPagesHaveContextualInboundLinks(pagesByRoute, indexableRoutes) {
+  const minimumSources = new Map([
+    ['/product', 4],
+    ['/how-it-works', 3],
+    ['/ai-contract-review', 3],
+    ['/contract-redline-analysis', 3],
+    ['/docx-track-changes-review', 3],
+    ['/demo', 3],
+  ])
+  const indexableSet = new Set(indexableRoutes)
+  const inboundSources = new Map(
+    [...minimumSources].map(([route]) => [route, new Set()]),
+  )
+
+  for (const [sourceRoute, { html }] of pagesByRoute) {
+    if (!indexableSet.has(sourceRoute)) continue
+    const sourceUrl = canonicalUrl(sourceRoute)
+    const contextualContent = withoutBreadcrumbNavigation(mainContent(sourceRoute, html))
+    const anchors = matchingTags(contextualContent, 'a', (attrs) => attrs.has('href'))
+    for (const anchor of anchors) {
+      const href = attributesForTag(anchor).get('href')?.trim() ?? ''
+      if (!href || href === '#' || /^(mailto:|tel:|javascript:|data:)/i.test(href)) continue
+      let targetUrl
+      try {
+        targetUrl = new URL(href, sourceUrl)
+      } catch {
+        continue
+      }
+      if (targetUrl.origin !== SITE_ORIGIN) continue
+      const targetRoute = normalizeRoute(targetUrl.pathname)
+      if (targetRoute === sourceRoute || !minimumSources.has(targetRoute)) continue
+      inboundSources.get(targetRoute)?.add(sourceRoute)
+    }
+  }
+
+  for (const [route, minimum] of minimumSources) {
+    const sources = inboundSources.get(route) ?? new Set()
+    if (sources.size < minimum) {
+      fail(`${route}: expected contextual inbound links from at least ${minimum} indexable pages, found ${sources.size}`)
+    }
+  }
+}
+
+function assertRenderedBridgeLink(route, html, className, expectedTarget) {
+  try {
+    validateRenderedBridge({
+      html,
+      className,
+      pageUrl: canonicalUrl(route),
+      expectedTarget,
+      siteOrigin: SITE_ORIGIN,
+    })
+  } catch (error) {
+    fail(`${route}: ${error.message}`)
+  }
+}
+
+function assertRenderedBridgeCohorts(pagesByRoute, cohorts) {
+  for (const cohort of cohorts) {
+    if (cohort.routes.length !== cohort.expectedCount) {
+      fail(`${cohort.label}: expected ${cohort.expectedCount} routes, found ${cohort.routes.length}`)
+    }
+    for (const route of cohort.routes) {
+      const html = pagesByRoute.get(route)?.html ?? ''
+      assertRenderedBridgeLink(route, html, cohort.sectionClass, cohort.target)
+    }
+  }
+}
+
 function assertUnique(label, valuesByRoute) {
   const routesByValue = new Map()
   for (const [route, value] of valuesByRoute) {
@@ -354,6 +501,11 @@ function assertReal404(homeHtml) {
   }
 }
 
+function headerRuleBody(headers, routePattern) {
+  const escaped = routePattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return headers.match(new RegExp(`(?:^|\\n)${escaped}\\s*\\n((?:[ \\t]+[^\\n]+\\n?)*)`, 'i'))?.[1] ?? ''
+}
+
 function assertStaticDeploymentFiles() {
   const required = [
     '_headers',
@@ -385,15 +537,31 @@ function assertStaticDeploymentFiles() {
   const headersPath = join(DIST_DIR, '_headers')
   if (existsSync(headersPath)) {
     const headers = readUtf8(headersPath)
-    const assetBlock = headers.match(/(?:^|\n)\/assets\/\*\s*\n((?:[ \t]+[^\n]+\n?)*)/i)?.[1] ?? ''
+    const assetBlock = headerRuleBody(headers, '/assets/*')
     if (/\bimmutable\b/i.test(assetBlock)) {
       fail('dist/_headers gives immutable caching to stable, unhashed /assets/* filenames')
     }
     if (!/Content-Security-Policy:/i.test(headers)) fail('dist/_headers is missing Content-Security-Policy')
 
-    const versionedMediaBlock = headers.match(/(?:^|\n)\/media\/veqtor-demo-v0\.1\.2\.mp4\s*\n((?:[ \t]+[^\n]+\n?)*)/i)?.[1] ?? ''
-    if (!/\bimmutable\b/i.test(versionedMediaBlock)) {
-      fail('dist/_headers must give immutable caching to the versioned demo video')
+    const astroAssetBlock = headerRuleBody(headers, '/_astro/*')
+    if (!/max-age=31536000/i.test(astroAssetBlock) || !/\bimmutable\b/i.test(astroAssetBlock)) {
+      fail('dist/_headers must give one-year immutable caching to hashed /_astro/* assets')
+    }
+
+    for (const mediaPath of [
+      '/media/veqtor-demo-v0.1.2.mp4',
+      '/media/veqtor-demo-v0.1.2-poster.jpg',
+      '/media/veqtor-demo-v0.1.2-r2.en.vtt',
+    ]) {
+      const mediaBlock = headerRuleBody(headers, mediaPath)
+      if (!/max-age=31536000/i.test(mediaBlock) || !/\bimmutable\b/i.test(mediaBlock)) {
+        fail(`dist/_headers must give one-year immutable caching to ${mediaPath}`)
+      }
+    }
+
+    const setupBlock = headerRuleBody(headers, '/setup')
+    if (!/Cache-Control:[^\n]*\bno-transform\b/i.test(setupBlock)) {
+      fail('dist/_headers must protect /setup commands from Cloudflare Email Address Obfuscation with no-transform')
     }
   }
 
@@ -440,6 +608,119 @@ function assertStaticDeploymentFiles() {
     if (!/<video:content_loc>https:\/\/veqtor\.pro\/media\/veqtor-demo-v0\.1\.2\.mp4<\/video:content_loc>/i.test(sitemap)) {
       fail('dist/sitemap.xml is missing the versioned demo video entry')
     }
+    if (!/<video:publication_date>2026-07-14T00:00:00\+03:00<\/video:publication_date>/i.test(sitemap)) {
+      fail('dist/sitemap.xml is missing the demo video publication date')
+    }
+    const videoBlocks = [...sitemap.matchAll(/<url(?:\s[^>]*)?>[\s\S]*?<\/url>/gi)]
+      .map((match) => match[0])
+      .filter((block) => /<video:video>/i.test(block))
+    if (videoBlocks.length !== 1 || !/<loc>https:\/\/veqtor\.pro\/demo<\/loc>/i.test(videoBlocks[0] ?? '')) {
+      fail('dist/sitemap.xml must attach its single video entry only to /demo')
+    }
+    for (const match of sitemap.matchAll(/<lastmod>([^<]+)<\/lastmod>/gi)) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(match[1])) fail(`sitemap: invalid lastmod ${JSON.stringify(match[1])}`)
+    }
+  }
+}
+
+function assertSetupCommandIntegrity(pagesByRoute) {
+  const html = pagesByRoute.get('/setup')?.html ?? ''
+  const packageSpecifier = 'veqtor-mcp@0.1.2'
+  const occurrences = html.split(packageSpecifier).length - 1
+  if (occurrences !== 6) {
+    fail(`/setup: expected six literal ${packageSpecifier} commands in built HTML, found ${occurrences}`)
+  }
+  for (const marker of ['/cdn-cgi/l/email-protection', 'data-cfemail', '__cf_email__', 'email-decode.min.js']) {
+    if (html.includes(marker)) fail(`/setup: built HTML contains unexpected Cloudflare obfuscation marker ${marker}`)
+  }
+}
+
+function assertSchemaContracts(schemasByRoute) {
+  const nodesOfType = (route, type) => (schemasByRoute.get(route) ?? [])
+    .filter((node) => node?.['@type'] === type)
+
+  const homeSoftware = nodesOfType('/', 'SoftwareApplication')
+  if (homeSoftware.length !== 1) fail(`/: expected one SoftwareApplication node, found ${homeSoftware.length}`)
+  if (homeSoftware.some((node) => Object.hasOwn(node, 'codeRepository'))) {
+    fail('/: SoftwareApplication must not use the SoftwareSourceCode-only codeRepository property')
+  }
+  const homeVideos = nodesOfType('/', 'VideoObject')
+  if (homeVideos.length !== 0) fail(`/: homepage must not compete with /demo as a video watch page, found ${homeVideos.length} VideoObject node(s)`)
+
+  const demoPages = nodesOfType('/demo', 'WebPage')
+    .filter((node) => node?.['@id'] === 'https://veqtor.pro/demo#webpage')
+  const demoVideos = nodesOfType('/demo', 'VideoObject')
+    .filter((node) => node?.['@id'] === 'https://veqtor.pro/demo#video')
+  if (demoPages.length !== 1) fail(`/demo: expected one watch-page WebPage node, found ${demoPages.length}`)
+  if (demoVideos.length !== 1) fail(`/demo: expected one canonical VideoObject node, found ${demoVideos.length}`)
+  if (demoPages[0]?.mainEntity?.['@id'] !== 'https://veqtor.pro/demo#video') {
+    fail('/demo: WebPage mainEntity must reference the canonical video node')
+  }
+  if (demoVideos[0]?.mainEntityOfPage?.['@id'] !== 'https://veqtor.pro/demo#webpage') {
+    fail('/demo: VideoObject mainEntityOfPage must reference the watch page')
+  }
+  if (demoVideos[0]?.contentUrl !== 'https://veqtor.pro/media/veqtor-demo-v0.1.2.mp4') {
+    fail('/demo: VideoObject contentUrl does not match the versioned demo video')
+  }
+
+  const profilePages = nodesOfType('/author/ilya-shilov', 'ProfilePage')
+  const people = nodesOfType('/author/ilya-shilov', 'Person')
+    .filter((node) => node?.['@id'] === 'https://veqtor.pro/author/ilya-shilov#person')
+  if (profilePages.length !== 1) fail(`/author/ilya-shilov: expected one ProfilePage node, found ${profilePages.length}`)
+  if (people.length !== 1) fail(`/author/ilya-shilov: expected one canonical Person node, found ${people.length}`)
+  if (profilePages[0]?.mainEntity?.['@id'] !== 'https://veqtor.pro/author/ilya-shilov#person') {
+    fail('/author/ilya-shilov: ProfilePage mainEntity must reference the canonical Person')
+  }
+
+  for (const route of [
+    '/product',
+    '/how-it-works',
+    '/security',
+    '/demo',
+    '/ai-contract-review',
+    '/contract-redline-analysis',
+    '/docx-track-changes-review',
+  ]) {
+    if (nodesOfType(route, 'BreadcrumbList').length !== 1) {
+      fail(`${route}: expected one BreadcrumbList node matching the visible product hierarchy`)
+    }
+  }
+}
+
+function assertDemoWatchPageProminence(pagesByRoute) {
+  const html = pagesByRoute.get('/demo')?.html ?? ''
+  const heroTag = matchingTags(
+    html,
+    'section',
+    (attrs) => (attrs.get('class') ?? '').split(/\s+/).includes('demo-hero'),
+  )[0]
+  const heroStart = heroTag ? html.indexOf(heroTag) : -1
+  const heroEnd = heroStart >= 0 ? html.indexOf('</section>', heroStart) : -1
+  const headingStart = heroStart >= 0 ? html.indexOf('<h1', heroStart) : -1
+  const videoStart = heroStart >= 0 ? html.indexOf('<video', heroStart) : -1
+  if (heroStart < 0 || heroEnd < 0 || headingStart < heroStart || videoStart < headingStart || videoStart > heroEnd) {
+    fail('/demo: the canonical video must appear in the hero immediately after the primary heading')
+  }
+}
+
+function assertPageLastmods(expectedLastmodsByRoute) {
+  const sitemapPath = join(DIST_DIR, 'sitemap.xml')
+  if (!existsSync(sitemapPath)) return
+  const sitemap = readUtf8(sitemapPath)
+  const blocksByRoute = new Map()
+  for (const match of sitemap.matchAll(/<url(?:\s[^>]*)?>[\s\S]*?<\/url>/gi)) {
+    const block = match[0]
+    const location = block.match(/<loc>([^<]+)<\/loc>/i)?.[1]
+    if (!location) continue
+    const url = new URL(decodeEntities(location))
+    blocksByRoute.set(normalizeRoute(url.pathname), block)
+  }
+  for (const [route, expectedDate] of expectedLastmodsByRoute) {
+    const block = blocksByRoute.get(route) ?? ''
+    const actualDate = block.match(/<lastmod>([^<]+)<\/lastmod>/i)?.[1]
+    if (actualDate !== expectedDate) {
+      fail(`sitemap: ${route} lastmod must be ${JSON.stringify(expectedDate)}, found ${JSON.stringify(actualDate)}`)
+    }
   }
 }
 
@@ -459,6 +740,23 @@ function main() {
   const draftGuides = guideSource.guides.filter((guide) => guide.legalReviewStatus !== 'approved')
   const topicRoutes = guideSource.clusters.map((cluster) => `/guides/topics/${cluster.id}`)
   const guideRoutes = approvedGuides.map((guide) => `/guides/${guide.slug}`)
+  const bridgeChangedClusters = new Set(
+    guideSource.clusters
+      .filter((cluster) => cluster.id !== 'limitation-of-liability')
+      .map((cluster) => cluster.id),
+  )
+  const bridgeChangedTopicRoutes = guideSource.clusters
+    .filter((cluster) => bridgeChangedClusters.has(cluster.id))
+    .map((cluster) => `/guides/topics/${cluster.id}`)
+  const bridgeChangedGuideRoutes = approvedGuides
+    .filter((guide) => bridgeChangedClusters.has(guide.cluster))
+    .map((guide) => `/guides/${guide.slug}`)
+  const demoBridgeTopicRoutes = guideSource.clusters
+    .filter((cluster) => cluster.id === 'limitation-of-liability')
+    .map((cluster) => `/guides/topics/${cluster.id}`)
+  const demoBridgeGuideRoutes = approvedGuides
+    .filter((guide) => guide.cluster === 'limitation-of-liability')
+    .map((guide) => `/guides/${guide.slug}`)
   const legacyRoutes = [...STATIC_LEGACY_ROUTES, ...topicRoutes, ...guideRoutes]
 
   const pickEditorialMeta = (entry) => ({
@@ -502,6 +800,10 @@ function main() {
   if (legacyRoutes.length !== 153) fail(`legacy manifest drift: expected 153 routes, found ${legacyRoutes.length}`)
   if (approvedGuides.length !== 122) fail(`approved guide count drift: expected 122, found ${approvedGuides.length}`)
   if (topicRoutes.length !== 18) fail(`guide topic count drift: expected 18, found ${topicRoutes.length}`)
+  if (bridgeChangedTopicRoutes.length !== 17) fail(`bridge update drift: expected 17 topic routes, found ${bridgeChangedTopicRoutes.length}`)
+  if (bridgeChangedGuideRoutes.length !== 115) fail(`bridge update drift: expected 115 guide routes, found ${bridgeChangedGuideRoutes.length}`)
+  if (demoBridgeTopicRoutes.length !== 1) fail(`demo bridge drift: expected 1 topic route, found ${demoBridgeTopicRoutes.length}`)
+  if (demoBridgeGuideRoutes.length !== 7) fail(`demo bridge drift: expected 7 guide routes, found ${demoBridgeGuideRoutes.length}`)
   if (new Set(legacyRoutes).size !== legacyRoutes.length) fail('legacy route manifest contains duplicates')
   if (sha256Json(legacyRoutes) !== LEGACY_ROUTE_MANIFEST_SHA256) {
     fail('legacy URL identity manifest changed; preserve old routes or add an explicit redirect plan before updating the pinned hash')
@@ -512,6 +814,7 @@ function main() {
 
   const expectedRoutes = [...legacyRoutes, ...ALLOWED_NEW_ROUTES]
   const pagesByRoute = new Map()
+  const schemasByRoute = new Map()
   const titles = new Map()
   const descriptions = new Map()
   const headings = new Map()
@@ -524,6 +827,8 @@ function main() {
     }
     const html = readUtf8(path)
     pagesByRoute.set(route, { path, html })
+    schemasByRoute.set(route, structuredDataNodes(route, html))
+    assertMainNavigationCurrent(route, html)
     const signals = pageSignals(html)
     const title = assertOneNonEmpty(route, '<title>', signals.title)
     const description = assertOneNonEmpty(route, 'meta description', signals.description)
@@ -592,6 +897,88 @@ function main() {
 
   assertInternalLinks(pagesByRoute)
   assertIndexablePagesHaveInboundLinks(pagesByRoute, expectedSitemapRoutes)
+  assertPriorityPagesHaveContextualInboundLinks(pagesByRoute, expectedSitemapRoutes)
+  assertRenderedBridgeCohorts(pagesByRoute, [
+    {
+      label: 'redline guide bridge cohort',
+      routes: bridgeChangedGuideRoutes,
+      expectedCount: 115,
+      sectionClass: 'product-bridge',
+      target: '/contract-redline-analysis',
+    },
+    {
+      label: 'redline topic bridge cohort',
+      routes: bridgeChangedTopicRoutes,
+      expectedCount: 17,
+      sectionClass: 'bridge',
+      target: '/contract-redline-analysis',
+    },
+    {
+      label: 'demo guide bridge cohort',
+      routes: demoBridgeGuideRoutes,
+      expectedCount: 7,
+      sectionClass: 'product-bridge',
+      target: '/demo',
+    },
+    {
+      label: 'demo topic bridge cohort',
+      routes: demoBridgeTopicRoutes,
+      expectedCount: 1,
+      sectionClass: 'bridge',
+      target: '/demo',
+    },
+    {
+      label: 'guide library product bridge',
+      routes: ['/guides'],
+      expectedCount: 1,
+      sectionClass: 'bridge',
+      target: '/product',
+    },
+    {
+      label: 'author product bridge',
+      routes: ['/author/ilya-shilov'],
+      expectedCount: 1,
+      sectionClass: 'bridge',
+      target: '/product',
+    },
+  ])
+  assertSetupCommandIntegrity(pagesByRoute)
+  assertSchemaContracts(schemasByRoute)
+  assertDemoWatchPageProminence(pagesByRoute)
+  const expectedInventoryText = `${approvedGuides.length} guides across ${topicRoutes.length} topics`
+  if (!normalizeText(pagesByRoute.get('/')?.html ?? '').includes(expectedInventoryText)) {
+    fail(`/: guide-library summary must be dynamic and read ${JSON.stringify(expectedInventoryText)}`)
+  }
+  const expectedLastmodsByRoute = new Map([
+    ...[
+      '/',
+      '/product',
+      '/how-it-works',
+      '/security',
+      '/demo',
+      '/ai-contract-review',
+      '/contract-redline-analysis',
+      '/docx-track-changes-review',
+      '/author/ilya-shilov',
+      '/guides',
+      '/setup',
+    ].map((route) => [route, LINK_ARCHITECTURE_LASTMOD]),
+    ...guideSource.clusters.map((cluster) => [
+      `/guides/topics/${cluster.id}`,
+      cluster.id === 'limitation-of-liability' ? undefined : LINK_ARCHITECTURE_LASTMOD,
+    ]),
+    ...approvedGuides.map((guide) => {
+      const editorialLastmod = guide.reviewedAt ?? guide.updated ?? guide.publishedAt
+      return [
+        `/guides/${guide.slug}`,
+        latestLastmod(
+          editorialLastmod,
+          guide.cluster === 'limitation-of-liability' ? undefined : LINK_ARCHITECTURE_LASTMOD,
+        ),
+      ]
+    }),
+  ])
+  assertPageLastmods(expectedLastmodsByRoute)
   assertReal404(pagesByRoute.get('/')?.html ?? '')
 
   if (!failures.length) {

@@ -26,7 +26,7 @@ output locally.
 
 `npm run build` writes the deployable site to `website/dist/`, then verifies the
 legacy URL/SEO inventory, internal links, real 404 behavior and plain-language
-copy. The check pins all 145 legacy routes and the title, description, and
+copy. The check pins all 153 legacy routes and the title, description, and
 social title of the migrated Guides library, so a future slug or metadata
 change requires an explicit migration decision. No build output or
 `node_modules/` directory should be committed.

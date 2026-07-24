@@ -1,5 +1,24 @@
 ---
 import Logo from './Logo.astro'
+
+interface Props {
+  currentPath: string
+}
+
+const { currentPath } = Astro.props
+const pathname = currentPath.replace(/\/+$/, '') || '/'
+const navItems = [
+  { href: '/product', label: 'Product' },
+  { href: '/demo', label: 'Demo' },
+  { href: '/setup', label: 'Connect' },
+  { href: '/guides', label: 'Guides' },
+]
+
+const currentValue = (href: string) => {
+  if (pathname === href) return 'page'
+  if (href === '/guides' && pathname.startsWith('/guides/')) return 'location'
+  return undefined
+}
 ---
 
 <header class="site-header" data-site-header>
@@ -12,10 +31,9 @@ import Logo from './Logo.astro'
       <span></span><span></span>
     </button>
     <nav class="site-nav" id="site-navigation" aria-label="Main navigation" data-site-nav>
-      <a href="/product">Product</a>
-      <a href="/demo">Demo</a>
-      <a href="/setup">Connect</a>
-      <a href="/guides">Guides</a>
+      {navItems.map((item) => (
+        <a href={item.href} aria-current={currentValue(item.href)}>{item.label}</a>
+      ))}
       <a class="site-nav__github" href="https://github.com/JohnDeer-ai/veqtor-mcp">GitHub <span aria-hidden="true">↗</span></a>
     </nav>
   </div>

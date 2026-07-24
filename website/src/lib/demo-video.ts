@@ -1,0 +1,15 @@
+export const DEMO_VIDEO = {
+  id: 'https://veqtor.pro/demo#video',
+  pagePath: '/demo',
+  pageUrl: 'https://veqtor.pro/demo',
+  name: 'Veqtor MCP demo — review Word redlines with Claude',
+  description: 'Watch Claude use Veqtor with sample Word contract drafts to explain a negotiation, check exact wording, and create a separate counterproposal with tracked changes.',
+  thumbnailPath: '/media/veqtor-demo-v0.1.2-poster.jpg',
+  thumbnailUrl: 'https://veqtor.pro/media/veqtor-demo-v0.1.2-poster.jpg',
+  contentPath: '/media/veqtor-demo-v0.1.2.mp4',
+  contentUrl: 'https://veqtor.pro/media/veqtor-demo-v0.1.2.mp4',
+  captionsPath: '/media/veqtor-demo-v0.1.2-r2.en.vtt',
+  uploadDate: '2026-07-14T00:00:00+03:00',
+  duration: 'PT1M44S',
+  durationSeconds: 104,
+} as const
