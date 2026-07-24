@@ -382,7 +382,7 @@ def test_public_checklists_separate_development_from_frozen_release_commands(
     assert "development-only" in frozen
 
 
-def test_development_wheel_smoke_binds_metadata_and_seven_tool_surface() -> None:
+def test_development_wheel_smoke_binds_metadata_and_eight_tool_surface() -> None:
     smoke = (ROOT / "scripts" / "installed_wheel_smoke.py").read_text()
 
     assert 'distribution("veqtor-mcp")' in smoke
@@ -393,9 +393,10 @@ def test_development_wheel_smoke_binds_metadata_and_seven_tool_surface() -> None
     )
     assert '"inspect_document"' in smoke
     assert 'session.call_tool(\n                    "inspect_document"' in smoke
+    assert 'session.call_tool(\n                    "map_rounds"' in smoke
     assert 'inspected["revision_inventory"]["schema_version"]' in smoke
     assert "def _assert_producer(payload: dict)" in smoke
-    assert smoke.count("_assert_producer(") == 9
+    assert smoke.count("_assert_producer(") == 11
     assert 'payload["record_status"] == "written"' in smoke
     assert '"installed_metadata_version": installed.version' in smoke
     assert '"tool_count": len(names)' in smoke

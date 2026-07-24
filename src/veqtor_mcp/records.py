@@ -17,11 +17,14 @@ import time
 from collections import deque
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
+
+import jsonschema
 
 from veqtor_docx.contracts import (
     APPLY_OPERATIONS_V1,
@@ -62,6 +65,7 @@ COMPACT_SAMPLE_LIMIT = 20
 MAX_COMPACT_ID_LENGTH = 32
 MAX_JOURNAL_LINE_BYTES = 1_048_576
 MAX_JOURNAL_BYTES = 64 * 1024 * 1024
+ROUND_MAP_MAX_APPLY_RECORDS = 10_000
 MAX_JOURNAL_DEPTH = 64
 MAX_JOURNAL_NODES = 100_000
 JOURNAL_LOCK_TIMEOUT_SECONDS = 1.0
@@ -249,6 +253,7 @@ V1_HISTORICAL_TOOL_SPECS: Mapping[str, _V1ToolSpec] = MappingProxyType(
         "verify_quote": _V1ToolSpec("verification.v1", "verify_quote"),
         "preflight_edits": _V1ToolSpec("verification.v1", "preflight_edits"),
         "apply_edits": _V1ToolSpec("decision.v1", "apply_edits"),
+        "map_rounds": _V1ToolSpec("round_map.v1", "map_rounds"),
         "export_decision_record": _V1ToolSpec(
             ACCESS_RECORD_TYPE, "export_decision_record"
         ),
@@ -262,6 +267,7 @@ WRITABLE_TOOL_NAMES = frozenset(
         "verify_quote",
         "preflight_edits",
         "apply_edits",
+        "map_rounds",
         "export_decision_record",
     }
 )
@@ -304,11 +310,10 @@ def journal_path(workspace: str | Path) -> Path:
     return workspace_for_folder(workspace) / SIDECAR_DIR / JOURNAL_NAME
 
 
-def _filesystem_spelled_workspace(
+def _observed_filesystem_spelled_workspace(
     fd: int,
-    fallback: Path,
     expected_identity: tuple[int, int],
-) -> Path:
+) -> Path | None:
     """Return the filesystem's spelling for an already-open workspace."""
     # Descriptor-backed paths preserve the directory entry's spelling. Do not
     # lower/casefold here: case-sensitive volumes may contain both names.
@@ -333,23 +338,32 @@ def _filesystem_spelled_workspace(
         except OSError:
             pass
     if value is None:
-        return fallback
+        return None
     try:
         candidate = Path(os.fsdecode(value))
     except (TypeError, ValueError, UnicodeError):
-        return fallback
+        return None
     if not candidate.is_absolute():
-        return fallback
+        return None
     try:
         info = candidate.lstat()
     except OSError:
-        return fallback
+        return None
     if (
         not stat.S_ISDIR(info.st_mode)
         or (info.st_dev, info.st_ino) != expected_identity
     ):
-        return fallback
+        return None
     return candidate
+
+
+def _filesystem_spelled_workspace(
+    fd: int,
+    fallback: Path,
+    expected_identity: tuple[int, int],
+) -> Path:
+    observed = _observed_filesystem_spelled_workspace(fd, expected_identity)
+    return fallback if observed is None else observed
 
 
 def _canonical_workspace(workspace: str | Path) -> tuple[Path, tuple[int, int]]:
@@ -433,6 +447,42 @@ def _open_workspace_fd(root: Path, expected_identity: tuple[int, int]) -> int:
     return fd
 
 
+def _require_exact_workspace_fd(
+    root: Path,
+    expected_identity: tuple[int, int],
+    fd: int,
+) -> None:
+    observed = _observed_filesystem_spelled_workspace(fd, expected_identity)
+    if observed is None or observed != root:
+        raise DecisionRecordError(
+            "workspace_changed",
+            "workspace identity or filesystem spelling changed",
+        )
+
+
+def _open_exact_workspace_fd(
+    root: Path,
+    expected_identity: tuple[int, int],
+) -> int:
+    fd = _open_workspace_fd(root, expected_identity)
+    try:
+        _require_exact_workspace_fd(root, expected_identity, fd)
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def _revalidate_exact_workspace_path(
+    root: Path,
+    expected_identity: tuple[int, int],
+    fd: int,
+) -> None:
+    _require_exact_workspace_fd(root, expected_identity, fd)
+    check_fd = _open_exact_workspace_fd(root, expected_identity)
+    os.close(check_fd)
+
+
 def _open_sidecar_fd(root_fd: int, sidecar: Path, *, missing_ok: bool) -> int | None:
     try:
         fd = os.open(
@@ -473,13 +523,14 @@ def _open_sidecar_fd(root_fd: int, sidecar: Path, *, missing_ok: bool) -> int | 
 
 
 def _write_all(fd: int, payload: bytes) -> None:
+    view = memoryview(payload)
     offset = 0
-    while offset < len(payload):
+    while offset < len(view):
         try:
-            written = os.write(fd, payload[offset:])
+            written = os.write(fd, view[offset:])
         except InterruptedError:
             continue
-        if written <= 0:
+        if written <= 0 or written > len(view) - offset:
             raise OSError(errno.EIO, "write returned no progress")
         offset += written
 
@@ -561,7 +612,7 @@ def _ensure_private_gitignore(sidecar_fd: int, sidecar: Path) -> None:
 
 
 @contextmanager
-def _sidecar_for_write(
+def _journal_for_write(
     workspace: str | Path,
     *,
     expected_identity: tuple[int, int] | None = None,
@@ -574,30 +625,44 @@ def _sidecar_for_write(
     root_fd = _open_workspace_fd(root, expected_identity)
     sidecar = root / SIDECAR_DIR
     deadline = _journal_lock_deadline() if lock_deadline is None else lock_deadline
+    journal_handle: Any | None = None
     try:
-        with _bounded_journal_lock(root_fd, fcntl.LOCK_EX, deadline=deadline):
-            try:
-                os.mkdir(SIDECAR_DIR, mode=0o700, dir_fd=root_fd)
+        try:
+            with _bounded_journal_lock(root_fd, fcntl.LOCK_EX, deadline=deadline):
                 try:
-                    os.fsync(root_fd)
-                except OSError:
+                    os.mkdir(SIDECAR_DIR, mode=0o700, dir_fd=root_fd)
                     try:
-                        os.rmdir(SIDECAR_DIR, dir_fd=root_fd)
+                        os.fsync(root_fd)
                     except OSError:
-                        pass
-                    raise
-            except FileExistsError:
-                pass
-            sidecar_fd = _open_sidecar_fd(root_fd, sidecar, missing_ok=False)
-            assert sidecar_fd is not None
-            try:
-                os.fchmod(sidecar_fd, 0o700)
-                _ensure_private_gitignore(sidecar_fd, sidecar)
-                yield sidecar, sidecar_fd
-            finally:
-                os.close(sidecar_fd)
+                        try:
+                            os.rmdir(SIDECAR_DIR, dir_fd=root_fd)
+                        except OSError:
+                            pass
+                        raise
+                except FileExistsError:
+                    pass
+                sidecar_fd = _open_sidecar_fd(root_fd, sidecar, missing_ok=False)
+                assert sidecar_fd is not None
+                try:
+                    os.fchmod(sidecar_fd, 0o700)
+                    _ensure_private_gitignore(sidecar_fd, sidecar)
+                    journal_handle = _open_journal_for_append(
+                        sidecar_fd,
+                        sidecar / JOURNAL_NAME,
+                    )
+                finally:
+                    os.close(sidecar_fd)
+        finally:
+            os.close(root_fd)
+    except BaseException:
+        if journal_handle is not None:
+            journal_handle.close()
+        raise
+    assert journal_handle is not None
+    try:
+        yield sidecar / JOURNAL_NAME, journal_handle
     finally:
-        os.close(root_fd)
+        journal_handle.close()
 
 
 @contextmanager
@@ -1136,6 +1201,10 @@ def _check_record_schema(record: Any) -> int:
     for key in ("input", "result", "provenance", "producer"):
         if not isinstance(record.get(key), dict):
             fail(f"{key} missing")
+    if record["tool_name"] == "map_rounds" and not _round_map_record_shape_is_valid(
+        record["result"], record["provenance"]
+    ):
+        fail("invalid round_map projection")
     producer = record["producer"]
     if not isinstance(producer.get("name"), str) or not producer["name"]:
         fail("producer.name missing")
@@ -1278,6 +1347,158 @@ def _scan_records(
     )
 
 
+def _scan_records_for_append(
+    handle: Any,
+    path: Path,
+    *,
+    limit: int | None,
+    before_record_number: int | None = None,
+    include_access_events: bool = True,
+) -> _JournalScan:
+    """Buffer a locked append descriptor's scan without reopening its path."""
+    scan_fd = os.dup(handle.fileno())
+    try:
+        scan_handle = os.fdopen(scan_fd, "rb")
+        scan_fd = -1
+        with scan_handle:
+            return _scan_records(
+                scan_handle,
+                path,
+                limit=limit,
+                before_record_number=before_record_number,
+                include_access_events=include_access_events,
+            )
+    finally:
+        if scan_fd >= 0:
+            os.close(scan_fd)
+
+
+def _scan_round_map_apply_records(
+    handle,
+    path: Path,
+) -> tuple[dict[str, Any], ...]:
+    """Validate the complete bounded journal and retain only apply records."""
+    declared_bytes = os.fstat(handle.fileno()).st_size
+    if declared_bytes > MAX_JOURNAL_BYTES:
+        raise DecisionRecordError(
+            "journal_oversize",
+            f"decision-record journal exceeds {MAX_JOURNAL_BYTES} bytes",
+        )
+    handle.seek(0)
+    selected: list[dict[str, Any]] = []
+    last_id = 0
+    line_no = 0
+    byte_count = 0
+    while True:
+        raw_line = handle.readline(MAX_JOURNAL_LINE_BYTES + 2)
+        if not raw_line:
+            break
+        byte_count += len(raw_line)
+        if byte_count > MAX_JOURNAL_BYTES:
+            raise DecisionRecordError(
+                "journal_oversize",
+                f"decision-record journal exceeds {MAX_JOURNAL_BYTES} bytes",
+            )
+        line_no += 1
+        terminated = raw_line.endswith(b"\n")
+        payload = raw_line[:-1] if terminated else raw_line
+        if len(payload) > MAX_JOURNAL_LINE_BYTES:
+            raise DecisionRecordError(
+                "journal_corrupt",
+                f"{path}:{line_no}: journal record exceeds "
+                f"{MAX_JOURNAL_LINE_BYTES} bytes",
+            )
+        if not terminated:
+            raise DecisionRecordError(
+                "journal_corrupt",
+                f"{path}:{line_no}: unterminated journal record",
+            )
+        record, current_id = _decode_record_line(payload, path, line_no)
+        if current_id <= last_id:
+            raise DecisionRecordError(
+                "journal_corrupt",
+                f"{path}:{line_no}: record_id is not strictly increasing",
+            )
+        last_id = current_id
+        if record.get("tool_name") != "apply_edits":
+            continue
+        if len(selected) >= ROUND_MAP_MAX_APPLY_RECORDS:
+            raise DecisionRecordError(
+                "resource_limit_exceeded",
+                "journal contains more than 10000 apply records",
+            )
+        selected.append(record)
+    return tuple(selected)
+
+
+def read_round_map_apply_records(
+    workspace: str | Path,
+    *,
+    expected_workspace_identity: tuple[int, int] | None = None,
+) -> tuple[dict[str, Any], ...]:
+    """Take Round Map's fail-closed root-then-journal shared snapshot.
+
+    The root lock makes an absent sidecar/journal classification atomic with
+    cooperating writers.  If a journal exists, the root lock remains held
+    while the journal's shared lock protects the complete streaming scan.
+    """
+    try:
+        if expected_workspace_identity is None:
+            root, expected_identity = _canonical_workspace(workspace)
+            root_fd = _open_workspace_fd(root, expected_identity)
+        else:
+            root = Path(workspace)
+            expected_identity = expected_workspace_identity
+            root_fd = _open_exact_workspace_fd(root, expected_identity)
+        sidecar = root / SIDECAR_DIR
+        deadline = _journal_lock_deadline()
+        try:
+            with _bounded_journal_lock(
+                root_fd,
+                fcntl.LOCK_SH,
+                deadline=deadline,
+            ):
+                sidecar_fd = _open_sidecar_fd(root_fd, sidecar, missing_ok=True)
+                if sidecar_fd is None:
+                    selected: tuple[dict[str, Any], ...] = ()
+                else:
+                    try:
+                        handle = _open_journal_for_read(
+                            sidecar_fd,
+                            sidecar / JOURNAL_NAME,
+                        )
+                        if handle is None:
+                            selected = ()
+                        else:
+                            with handle:
+                                with _bounded_journal_lock(
+                                    handle.fileno(),
+                                    fcntl.LOCK_SH,
+                                    deadline=deadline,
+                                ):
+                                    selected = _scan_round_map_apply_records(
+                                        handle,
+                                        sidecar / JOURNAL_NAME,
+                                    )
+                    finally:
+                        os.close(sidecar_fd)
+                if expected_workspace_identity is not None:
+                    _revalidate_exact_workspace_path(
+                        root,
+                        expected_identity,
+                        root_fd,
+                    )
+                return selected
+        finally:
+            os.close(root_fd)
+    except DecisionRecordError:
+        raise
+    except OSError as exc:
+        raise DecisionRecordError(
+            "workspace_unreadable", "workspace cannot be read"
+        ) from exc
+
+
 def _validate_journal_fd(fd: int, path: Path) -> None:
     info = os.fstat(fd)
     if not stat.S_ISREG(info.st_mode):
@@ -1344,7 +1565,7 @@ def _open_journal_for_append(sidecar_fd: int, path: Path):
                 except OSError:
                     pass
                 raise
-        return os.fdopen(fd, "a+b")
+        return os.fdopen(fd, "a+b", buffering=0)
     except Exception:
         if fd is not None:
             os.close(fd)
@@ -1374,7 +1595,7 @@ def _open_existing_journal_for_append(sidecar_fd: int, path: Path):
     try:
         _validate_journal_fd(fd, path)
         os.fchmod(fd, 0o600)
-        return os.fdopen(fd, "a+b")
+        return os.fdopen(fd, "a+b", buffering=0)
     except Exception:
         os.close(fd)
         raise
@@ -1404,20 +1625,19 @@ def _open_journal_for_read(sidecar_fd: int, path: Path):
 
 
 def _append_locked(
-    sidecar_fd: int,
+    handle: Any,
     path: Path,
     record: dict[str, Any],
     *,
     lock_deadline: float,
 ) -> str:
-    with _open_journal_for_append(sidecar_fd, path) as handle:
-        with _bounded_journal_lock(
-            handle.fileno(),
-            fcntl.LOCK_EX,
-            deadline=lock_deadline,
-        ):
-            scan = _scan_records(handle, path, limit=None)
-            return _append_to_scanned_journal(handle, scan, record)
+    with _bounded_journal_lock(
+        handle.fileno(),
+        fcntl.LOCK_EX,
+        deadline=lock_deadline,
+    ):
+        scan = _scan_records_for_append(handle, path, limit=None)
+        return _append_to_scanned_journal(handle, scan, record)
 
 
 def _append_to_scanned_journal(
@@ -1436,11 +1656,627 @@ def _append_to_scanned_journal(
             "journal_oversize",
             f"decision-record journal exceeds {MAX_JOURNAL_BYTES} bytes",
         )
-    handle.seek(0, os.SEEK_END)
-    handle.write(line + b"\n")
+    frame = line + b"\n"
+    fd = handle.fileno()
     handle.flush()
-    os.fsync(handle.fileno())
+    eof = os.lseek(fd, 0, os.SEEK_END)
+    if eof != scan.byte_count or os.fstat(fd).st_size != scan.byte_count:
+        raise DecisionRecordError(
+            "workspace_changed", "journal changed before record append"
+        )
+    _write_all(fd, frame)
+    expected_eof = eof + len(frame)
+    if os.fstat(fd).st_size != expected_eof:
+        raise OSError(errno.EIO, "journal append length is inconsistent")
+    if os.pread(fd, len(frame), eof) != frame:
+        raise OSError(errno.EIO, "journal append bytes are inconsistent")
+    os.fsync(fd)
     return record_id
+
+
+@dataclass(frozen=True)
+class _PublicationEntrySnapshot:
+    present: bool
+    identity: tuple[int, int] | None
+    mode: int | None
+
+
+@dataclass(frozen=True)
+class _PathBoundPublicationSnapshot:
+    sidecar: _PublicationEntrySnapshot
+    gitignore: _PublicationEntrySnapshot
+    journal: _PublicationEntrySnapshot
+    journal_eof: int
+
+
+_ABSENT_PUBLICATION_ENTRY = _PublicationEntrySnapshot(
+    present=False,
+    identity=None,
+    mode=None,
+)
+
+
+def _publication_entry_snapshot(info: os.stat_result) -> _PublicationEntrySnapshot:
+    return _PublicationEntrySnapshot(
+        present=True,
+        identity=(info.st_dev, info.st_ino),
+        mode=stat.S_IMODE(info.st_mode),
+    )
+
+
+def _snapshot_publication_gitignore(
+    sidecar_fd: int,
+    path: Path,
+) -> tuple[_PublicationEntrySnapshot, int | None]:
+    try:
+        fd = os.open(
+            GITIGNORE_NAME,
+            os.O_RDONLY | O_NOFOLLOW | O_NONBLOCK,
+            dir_fd=sidecar_fd,
+        )
+    except FileNotFoundError:
+        return _ABSENT_PUBLICATION_ENTRY, None
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise DecisionRecordError(
+                "gitignore_symlink", f"{path} must not be a symlink"
+            ) from exc
+        raise
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise DecisionRecordError("gitignore_not_file", f"{path} must be a file")
+        if info.st_nlink != 1:
+            raise DecisionRecordError(
+                "gitignore_hardlink", f"{path} must not have multiple hard links"
+            )
+        if os.read(fd, 3) != b"*\n":
+            raise DecisionRecordError(
+                "gitignore_invalid", f"{path} must contain exactly '*\\n'"
+            )
+        return _publication_entry_snapshot(info), fd
+    except Exception:
+        os.close(fd)
+        raise
+
+
+def _snapshot_publication_journal(
+    sidecar_fd: int,
+    path: Path,
+) -> tuple[_PublicationEntrySnapshot, int, Any | None]:
+    try:
+        fd = os.open(
+            JOURNAL_NAME,
+            os.O_RDWR | os.O_APPEND | O_NOFOLLOW | O_NONBLOCK,
+            dir_fd=sidecar_fd,
+        )
+    except FileNotFoundError:
+        return _ABSENT_PUBLICATION_ENTRY, 0, None
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise DecisionRecordError(
+                "journal_symlink", f"{path} must not be a symlink"
+            ) from exc
+        raise
+    try:
+        _validate_journal_fd(fd, path)
+        info = os.fstat(fd)
+        return (
+            _publication_entry_snapshot(info),
+            info.st_size,
+            os.fdopen(fd, "a+b", buffering=0),
+        )
+    except Exception:
+        os.close(fd)
+        raise
+
+
+def _snapshot_path_bound_publication(
+    root_fd: int,
+    root: Path,
+) -> tuple[
+    _PathBoundPublicationSnapshot,
+    int | None,
+    int | None,
+    Any | None,
+]:
+    sidecar = root / SIDECAR_DIR
+    sidecar_fd = _open_sidecar_fd(root_fd, sidecar, missing_ok=True)
+    if sidecar_fd is None:
+        return (
+            _PathBoundPublicationSnapshot(
+                sidecar=_ABSENT_PUBLICATION_ENTRY,
+                gitignore=_ABSENT_PUBLICATION_ENTRY,
+                journal=_ABSENT_PUBLICATION_ENTRY,
+                journal_eof=0,
+            ),
+            None,
+            None,
+            None,
+        )
+    gitignore_fd: int | None = None
+    journal_handle: Any | None = None
+    try:
+        sidecar_snapshot = _publication_entry_snapshot(os.fstat(sidecar_fd))
+        gitignore_snapshot, gitignore_fd = _snapshot_publication_gitignore(
+            sidecar_fd,
+            sidecar / GITIGNORE_NAME,
+        )
+        journal_snapshot, journal_eof, journal_handle = _snapshot_publication_journal(
+            sidecar_fd,
+            sidecar / JOURNAL_NAME,
+        )
+        return (
+            _PathBoundPublicationSnapshot(
+                sidecar=sidecar_snapshot,
+                gitignore=gitignore_snapshot,
+                journal=journal_snapshot,
+                journal_eof=journal_eof,
+            ),
+            sidecar_fd,
+            gitignore_fd,
+            journal_handle,
+        )
+    except Exception:
+        if journal_handle is not None:
+            journal_handle.close()
+        if gitignore_fd is not None:
+            os.close(gitignore_fd)
+        os.close(sidecar_fd)
+        raise
+
+
+def _create_publication_sidecar(
+    root_fd: int,
+    sidecar: Path,
+) -> tuple[int, _PublicationEntrySnapshot]:
+    try:
+        os.mkdir(SIDECAR_DIR, mode=0o700, dir_fd=root_fd)
+    except FileExistsError as exc:
+        raise DecisionRecordError(
+            "workspace_changed", "sidecar appeared during map publication"
+        ) from exc
+    sidecar_fd: int | None = None
+    created_state: _PublicationEntrySnapshot | None = None
+    try:
+        created_info = os.stat(SIDECAR_DIR, dir_fd=root_fd, follow_symlinks=False)
+        if not stat.S_ISDIR(created_info.st_mode):
+            raise DecisionRecordError(
+                "workspace_changed", "new map sidecar identity changed"
+            )
+        created_state = _publication_entry_snapshot(created_info)
+        os.fsync(root_fd)
+        sidecar_fd = _open_sidecar_fd(root_fd, sidecar, missing_ok=False)
+        assert sidecar_fd is not None
+        if _publication_entry_snapshot(os.fstat(sidecar_fd)).identity != (
+            created_state.identity
+        ):
+            raise DecisionRecordError(
+                "workspace_changed", "new map sidecar identity changed"
+            )
+        return sidecar_fd, created_state
+    except Exception:
+        if sidecar_fd is not None:
+            os.close(sidecar_fd)
+        try:
+            if created_state is None:
+                raise DecisionRecordError(
+                    "internal_error", "new map sidecar identity is unavailable"
+                )
+            _require_publication_entry_identity(
+                root_fd,
+                SIDECAR_DIR,
+                created_state,
+                kind="sidecar",
+            )
+            os.rmdir(SIDECAR_DIR, dir_fd=root_fd)
+            os.fsync(root_fd)
+        except Exception as rollback_exc:
+            raise DecisionRecordError(
+                "internal_error", "new map sidecar could not be rolled back"
+            ) from rollback_exc
+        raise
+
+
+def _create_publication_gitignore(
+    sidecar_fd: int,
+    path: Path,
+) -> tuple[int, _PublicationEntrySnapshot]:
+    try:
+        fd = os.open(
+            GITIGNORE_NAME,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | O_NOFOLLOW,
+            0o600,
+            dir_fd=sidecar_fd,
+        )
+    except FileExistsError as exc:
+        raise DecisionRecordError(
+            "workspace_changed", "gitignore appeared during map publication"
+        ) from exc
+    created_state: _PublicationEntrySnapshot | None = None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise DecisionRecordError(
+                "gitignore_not_file", f"{path} must be a private regular file"
+            )
+        created_state = _publication_entry_snapshot(info)
+        _write_all(fd, b"*\n")
+        os.fsync(fd)
+        os.fsync(sidecar_fd)
+        return fd, created_state
+    except Exception:
+        os.close(fd)
+        try:
+            if created_state is None:
+                raise DecisionRecordError(
+                    "internal_error", "new map gitignore identity is unavailable"
+                )
+            _unlink_created_publication_entry(
+                sidecar_fd,
+                GITIGNORE_NAME,
+                created_state,
+                kind="gitignore",
+            )
+        except Exception as rollback_exc:
+            raise DecisionRecordError(
+                "internal_error", "new map gitignore could not be rolled back"
+            ) from rollback_exc
+        raise
+
+
+def _create_publication_journal(
+    sidecar_fd: int,
+    path: Path,
+) -> tuple[Any, _PublicationEntrySnapshot]:
+    try:
+        fd = os.open(
+            JOURNAL_NAME,
+            os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_APPEND | O_NOFOLLOW,
+            0o600,
+            dir_fd=sidecar_fd,
+        )
+    except FileExistsError as exc:
+        raise DecisionRecordError(
+            "workspace_changed", "journal appeared during map publication"
+        ) from exc
+    created_state: _PublicationEntrySnapshot | None = None
+    try:
+        _validate_journal_fd(fd, path)
+        created_state = _publication_entry_snapshot(os.fstat(fd))
+        os.fsync(sidecar_fd)
+        return os.fdopen(fd, "a+b", buffering=0), created_state
+    except Exception:
+        os.close(fd)
+        try:
+            if created_state is None:
+                raise DecisionRecordError(
+                    "internal_error", "new map journal identity is unavailable"
+                )
+            _unlink_created_publication_entry(
+                sidecar_fd,
+                JOURNAL_NAME,
+                created_state,
+                kind="journal",
+            )
+        except Exception as rollback_exc:
+            raise DecisionRecordError(
+                "internal_error", "new map journal could not be rolled back"
+            ) from rollback_exc
+        raise
+
+
+def _require_publication_entry_identity(
+    parent_fd: int,
+    name: str,
+    expected: _PublicationEntrySnapshot,
+    *,
+    kind: str,
+) -> None:
+    assert expected.present and expected.identity is not None
+    try:
+        info = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    except OSError as exc:
+        raise DecisionRecordError(
+            "workspace_changed", f"{kind} changed during map publication"
+        ) from exc
+    unsafe_type = kind == "sidecar" and not stat.S_ISDIR(info.st_mode)
+    unsafe_type = unsafe_type or (
+        kind in {"gitignore", "journal"}
+        and (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1)
+    )
+    if unsafe_type or (info.st_dev, info.st_ino) != expected.identity:
+        raise DecisionRecordError(
+            "workspace_changed", f"{kind} changed during map publication"
+        )
+
+
+def _revalidate_path_bound_publication(
+    root: Path,
+    expected_workspace_identity: tuple[int, int],
+    root_fd: int,
+    sidecar_fd: int,
+    sidecar_state: _PublicationEntrySnapshot,
+    gitignore_state: _PublicationEntrySnapshot,
+    journal_state: _PublicationEntrySnapshot,
+) -> None:
+    try:
+        _revalidate_exact_workspace_path(
+            root,
+            expected_workspace_identity,
+            root_fd,
+        )
+    except Exception as exc:
+        raise DecisionRecordError(
+            "workspace_changed", "workspace path changed during map publication"
+        ) from exc
+    _require_publication_entry_identity(
+        root_fd,
+        SIDECAR_DIR,
+        sidecar_state,
+        kind="sidecar",
+    )
+    _require_publication_entry_identity(
+        sidecar_fd,
+        GITIGNORE_NAME,
+        gitignore_state,
+        kind="gitignore",
+    )
+    _require_publication_entry_identity(
+        sidecar_fd,
+        JOURNAL_NAME,
+        journal_state,
+        kind="journal",
+    )
+
+
+def _restore_publication_mode(
+    fd: int,
+    snapshot: _PublicationEntrySnapshot,
+) -> None:
+    assert snapshot.present and snapshot.mode is not None
+    if stat.S_IMODE(os.fstat(fd).st_mode) != snapshot.mode:
+        os.fchmod(fd, snapshot.mode)
+        os.fsync(fd)
+
+
+def _unlink_created_publication_entry(
+    parent_fd: int,
+    name: str,
+    state: _PublicationEntrySnapshot,
+    *,
+    kind: str,
+) -> None:
+    _require_publication_entry_identity(parent_fd, name, state, kind=kind)
+    os.unlink(name, dir_fd=parent_fd)
+    os.fsync(parent_fd)
+
+
+def _rollback_path_bound_publication(
+    *,
+    root_fd: int,
+    sidecar_fd: int | None,
+    gitignore_fd: int | None,
+    journal_handle: Any | None,
+    journal_rollback_eof: int | None,
+    snapshot: _PathBoundPublicationSnapshot,
+    sidecar_state: _PublicationEntrySnapshot | None,
+    gitignore_state: _PublicationEntrySnapshot | None,
+    journal_state: _PublicationEntrySnapshot | None,
+) -> None:
+    rollback_errors: list[Exception] = []
+
+    try:
+        if journal_handle is not None:
+            if snapshot.journal.present:
+                journal_handle.flush()
+                current_size = os.fstat(journal_handle.fileno()).st_size
+                if (
+                    journal_rollback_eof is not None
+                    and current_size > journal_rollback_eof
+                ):
+                    os.ftruncate(journal_handle.fileno(), journal_rollback_eof)
+                    os.fsync(journal_handle.fileno())
+                elif (
+                    journal_rollback_eof is not None
+                    and current_size < journal_rollback_eof
+                ):
+                    raise DecisionRecordError(
+                        "internal_error",
+                        "map journal shrank during publication rollback",
+                    )
+                _restore_publication_mode(journal_handle.fileno(), snapshot.journal)
+            elif journal_state is not None and sidecar_fd is not None:
+                _unlink_created_publication_entry(
+                    sidecar_fd,
+                    JOURNAL_NAME,
+                    journal_state,
+                    kind="journal",
+                )
+    except Exception as exc:
+        rollback_errors.append(exc)
+    try:
+        if gitignore_fd is not None:
+            if snapshot.gitignore.present:
+                _restore_publication_mode(gitignore_fd, snapshot.gitignore)
+            elif gitignore_state is not None and sidecar_fd is not None:
+                _unlink_created_publication_entry(
+                    sidecar_fd,
+                    GITIGNORE_NAME,
+                    gitignore_state,
+                    kind="gitignore",
+                )
+    except Exception as exc:
+        rollback_errors.append(exc)
+    try:
+        if sidecar_fd is not None:
+            if snapshot.sidecar.present:
+                _restore_publication_mode(sidecar_fd, snapshot.sidecar)
+            elif sidecar_state is not None:
+                _require_publication_entry_identity(
+                    root_fd,
+                    SIDECAR_DIR,
+                    sidecar_state,
+                    kind="sidecar",
+                )
+                os.rmdir(SIDECAR_DIR, dir_fd=root_fd)
+                os.fsync(root_fd)
+    except Exception as exc:
+        rollback_errors.append(exc)
+    if rollback_errors:
+        raise DecisionRecordError(
+            "internal_error", "path-bound map publication rollback failed"
+        ) from rollback_errors[0]
+
+
+def _append_path_bound_record(
+    root: Path,
+    expected_workspace_identity: tuple[int, int],
+    record: dict[str, Any],
+    *,
+    lock_deadline: float,
+) -> str:
+    root_fd = _open_exact_workspace_fd(root, expected_workspace_identity)
+    sidecar = root / SIDECAR_DIR
+    sidecar_fd: int | None = None
+    gitignore_fd: int | None = None
+    journal_handle: Any | None = None
+    journal_rollback_eof: int | None = None
+    snapshot: _PathBoundPublicationSnapshot | None = None
+    sidecar_state: _PublicationEntrySnapshot | None = None
+    gitignore_state: _PublicationEntrySnapshot | None = None
+    journal_state: _PublicationEntrySnapshot | None = None
+    rolled_back = False
+    try:
+        with _bounded_journal_lock(root_fd, fcntl.LOCK_EX, deadline=lock_deadline):
+            (
+                snapshot,
+                sidecar_fd,
+                gitignore_fd,
+                journal_handle,
+            ) = _snapshot_path_bound_publication(root_fd, root)
+            try:
+                if sidecar_fd is None:
+                    sidecar_fd, sidecar_state = _create_publication_sidecar(
+                        root_fd,
+                        sidecar,
+                    )
+                else:
+                    sidecar_state = snapshot.sidecar
+                if journal_handle is None:
+                    journal_handle, journal_state = _create_publication_journal(
+                        sidecar_fd,
+                        sidecar / JOURNAL_NAME,
+                    )
+                else:
+                    journal_state = snapshot.journal
+                with _bounded_journal_lock(
+                    journal_handle.fileno(),
+                    fcntl.LOCK_EX,
+                    deadline=lock_deadline,
+                ):
+                    try:
+                        if (
+                            snapshot.journal.present
+                            and os.fstat(journal_handle.fileno()).st_size
+                            != snapshot.journal_eof
+                        ):
+                            raise DecisionRecordError(
+                                "workspace_changed",
+                                "journal changed before map publication",
+                            )
+                        scan = _scan_records_for_append(
+                            journal_handle,
+                            sidecar / JOURNAL_NAME,
+                            limit=None,
+                        )
+                        if scan.byte_count != snapshot.journal_eof:
+                            raise DecisionRecordError(
+                                "workspace_changed",
+                                "journal changed before map publication",
+                            )
+                        if gitignore_fd is None:
+                            gitignore_fd, gitignore_state = (
+                                _create_publication_gitignore(
+                                    sidecar_fd,
+                                    sidecar / GITIGNORE_NAME,
+                                )
+                            )
+                        else:
+                            gitignore_state = snapshot.gitignore
+                        os.fchmod(sidecar_fd, 0o700)
+                        os.fsync(sidecar_fd)
+                        os.fchmod(gitignore_fd, 0o600)
+                        os.fsync(gitignore_fd)
+                        os.fchmod(journal_handle.fileno(), 0o600)
+                        os.fsync(journal_handle.fileno())
+                        journal_rollback_eof = os.lseek(
+                            journal_handle.fileno(),
+                            0,
+                            os.SEEK_END,
+                        )
+                        if (
+                            journal_rollback_eof != scan.byte_count
+                            or os.fstat(journal_handle.fileno()).st_size
+                            != journal_rollback_eof
+                        ):
+                            journal_rollback_eof = None
+                            raise DecisionRecordError(
+                                "workspace_changed",
+                                "journal changed before map record append",
+                            )
+                        record_id = _append_to_scanned_journal(
+                            journal_handle,
+                            scan,
+                            record,
+                        )
+                        _revalidate_path_bound_publication(
+                            root,
+                            expected_workspace_identity,
+                            root_fd,
+                            sidecar_fd,
+                            sidecar_state,
+                            gitignore_state,
+                            journal_state,
+                        )
+                        return record_id
+                    except BaseException:
+                        rolled_back = True
+                        _rollback_path_bound_publication(
+                            root_fd=root_fd,
+                            sidecar_fd=sidecar_fd,
+                            gitignore_fd=gitignore_fd,
+                            journal_handle=journal_handle,
+                            journal_rollback_eof=journal_rollback_eof,
+                            snapshot=snapshot,
+                            sidecar_state=sidecar_state,
+                            gitignore_state=gitignore_state,
+                            journal_state=journal_state,
+                        )
+                        raise
+            except BaseException:
+                if not rolled_back:
+                    rolled_back = True
+                    _rollback_path_bound_publication(
+                        root_fd=root_fd,
+                        sidecar_fd=sidecar_fd,
+                        gitignore_fd=gitignore_fd,
+                        journal_handle=journal_handle,
+                        journal_rollback_eof=journal_rollback_eof,
+                        snapshot=snapshot,
+                        sidecar_state=sidecar_state,
+                        gitignore_state=gitignore_state,
+                        journal_state=journal_state,
+                    )
+                raise
+    finally:
+        if journal_handle is not None:
+            journal_handle.close()
+        if gitignore_fd is not None:
+            os.close(gitignore_fd)
+        if sidecar_fd is not None:
+            os.close(sidecar_fd)
+        os.close(root_fd)
 
 
 def _record_error(exc: BaseException) -> str:
@@ -1506,6 +2342,34 @@ def _inspection_write_is_authorized(
     return False
 
 
+def _round_map_record_shape_is_valid(result: object, provenance: object) -> bool:
+    """Keep the privacy-minimized raw Round Map record shape fail-closed."""
+    from veqtor_mcp.round_map_contract import (
+        ROUND_MAP_RECORD_PROVENANCE_SCHEMA,
+        ROUND_MAP_RECORD_RESULT_SCHEMA,
+    )
+
+    try:
+        jsonschema.validate(result, ROUND_MAP_RECORD_RESULT_SCHEMA)
+        jsonschema.validate(provenance, ROUND_MAP_RECORD_PROVENANCE_SCHEMA)
+    except (jsonschema.SchemaError, jsonschema.ValidationError):
+        return False
+    return True
+
+
+def _round_map_write_is_valid(
+    result: object, provenance: object, tool_result: object
+) -> bool:
+    if not _round_map_record_shape_is_valid(result, provenance):
+        return False
+    try:
+        from veqtor_mcp.round_map import validate_record_projection
+
+        return validate_record_projection(tool_result, result, provenance)
+    except Exception:
+        return False
+
+
 def _write_record(
     *,
     workspace: Path,
@@ -1516,6 +2380,7 @@ def _write_record(
     tool_result: dict[str, Any] | None = None,
     clock: Clock = utc_now,
     _inspection_authority: object | None = None,
+    expected_workspace_identity: tuple[int, int] | None = None,
 ) -> dict[str, Any]:
     """Write one already-authorized journal record."""
     if tool_name == "inspect_document" and not _inspection_write_is_authorized(
@@ -1526,10 +2391,47 @@ def _write_record(
             "record_status": "write_failed",
             "record_error": "record_invalid",
         }
+    if tool_name == "map_rounds" and not _round_map_write_is_valid(
+        result, provenance, tool_result
+    ):
+        return {
+            "record_id": None,
+            "record_status": "write_failed",
+            "record_error": "record_invalid",
+        }
     if disabled():
         return {"record_id": None, "record_status": "disabled"}
     try:
-        root, expected_identity = _canonical_workspace(workspace)
+        try:
+            if expected_workspace_identity is None:
+                root, resolved_identity = _canonical_workspace(workspace)
+            else:
+                root = Path(workspace)
+                check_fd = _open_exact_workspace_fd(
+                    root,
+                    expected_workspace_identity,
+                )
+                os.close(check_fd)
+                resolved_identity = expected_workspace_identity
+        except DecisionRecordError as exc:
+            if expected_workspace_identity is not None:
+                raise DecisionRecordError(
+                    "workspace_changed",
+                    "workspace identity changed before publication",
+                ) from exc
+            raise
+        if (
+            expected_workspace_identity is not None
+            and resolved_identity != expected_workspace_identity
+        ):
+            raise DecisionRecordError(
+                "workspace_changed", "workspace identity changed before publication"
+            )
+        expected_identity = (
+            resolved_identity
+            if expected_workspace_identity is None
+            else expected_workspace_identity
+        )
         try:
             record = _base_record(
                 tool_name=tool_name,
@@ -1544,17 +2446,25 @@ def _write_record(
         except (_JsonBoundaryError, _RecordSchemaError) as exc:
             raise DecisionRecordError("record_invalid", str(exc)) from exc
         lock_deadline = _journal_lock_deadline()
-        with _sidecar_for_write(
-            root,
-            expected_identity=expected_identity,
-            lock_deadline=lock_deadline,
-        ) as (sidecar, sidecar_fd):
-            record_id = _append_locked(
-                sidecar_fd,
-                sidecar / JOURNAL_NAME,
+        if expected_workspace_identity is not None:
+            record_id = _append_path_bound_record(
+                root,
+                expected_identity,
                 record,
                 lock_deadline=lock_deadline,
             )
+        else:
+            with _journal_for_write(
+                root,
+                expected_identity=expected_identity,
+                lock_deadline=lock_deadline,
+            ) as (journal_path, journal_handle):
+                record_id = _append_locked(
+                    journal_handle,
+                    journal_path,
+                    record,
+                    lock_deadline=lock_deadline,
+                )
     except Exception as exc:
         return {
             "record_id": None,
@@ -1573,6 +2483,7 @@ def write_record(
     provenance: dict[str, Any],
     tool_result: dict[str, Any] | None = None,
     clock: Clock = utc_now,
+    expected_workspace_identity: tuple[int, int] | None = None,
 ) -> dict[str, Any]:
     """Write a non-inspection record; live inspection records are dedicated."""
     return _write_record(
@@ -1583,6 +2494,7 @@ def write_record(
         provenance=provenance,
         tool_result=tool_result,
         clock=clock,
+        expected_workspace_identity=expected_workspace_identity,
     )
 
 
@@ -2698,6 +3610,14 @@ def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
             "paragraph_count": _nonnegative_int(result.get("paragraph_count")),
             "next_cursor_present": _strict_bool(result.get("next_cursor_present")),
         }
+    if projection_kind == "map_rounds":
+        from veqtor_mcp.round_map_contract import ROUND_MAP_RECORD_RESULT_SCHEMA
+
+        try:
+            jsonschema.validate(result, ROUND_MAP_RECORD_RESULT_SCHEMA)
+        except Exception as exc:
+            raise _RecordSchemaError("invalid round_map result") from exc
+        return deepcopy(result)
     if projection_kind == "apply_edits":
         summary = {
             "status": _known_value(result.get("status"), V1_OK_STATUSES),
@@ -2801,6 +3721,14 @@ def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
 def _summary_provenance(record: dict[str, Any]) -> dict[str, Any]:
     provenance = record["provenance"]
     projection_kind = _historical_tool_spec(record["tool_name"]).projection_kind
+    if projection_kind == "map_rounds":
+        from veqtor_mcp.round_map_contract import ROUND_MAP_RECORD_PROVENANCE_SCHEMA
+
+        try:
+            jsonschema.validate(provenance, ROUND_MAP_RECORD_PROVENANCE_SCHEMA)
+        except Exception as exc:
+            raise _RecordSchemaError("invalid round_map provenance") from exc
+        return deepcopy(provenance)
     summary: dict[str, Any] = {}
     for key in (
         "file_sha256",
@@ -3181,7 +4109,7 @@ def export_records_with_access_event(
                     fcntl.LOCK_EX,
                     deadline=lock_deadline,
                 ):
-                    scan = _scan_records(
+                    scan = _scan_records_for_append(
                         handle,
                         path,
                         limit=limit,

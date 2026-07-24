@@ -190,6 +190,10 @@ that exact artifact or its matching immutable tag.
   a mechanical accepted/current projection of main-body text, with every
   returned paragraph bound to the exact file bytes. This reading mode does not
   decide which wording has legal effect.
+- `map_rounds`: a bounded seed-centred map of recorded document-byte
+  derivation, complete exact paragraph equality, navigation candidates and
+  explicit unresolved/ambiguous states. It does not infer chronology, lineage,
+  deletion or restoration.
 - `verify_quote`: anchored `exact`, `normalized`, or `not_found` verification.
 - `preflight_edits`: the complete apply pipeline as an in-memory dry-run, with
   closed position/failure diagnostics and a successful drift-binding proof.

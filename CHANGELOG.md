@@ -13,9 +13,10 @@ establish publication and do not provide a public `0.3` installation target.
 
 ### Added
 
-- A closed, non-implemented Stage 3B Round Map specification for a bounded
-  seed-centred evidence map, with explicit relationship bases, uncertainty,
-  snapshot/cursor binding, privacy, compatibility and acceptance cases.
+- The Stage 3B `map_rounds` tool: a bounded seed-centred evidence map with
+  recorded document-byte derivation, complete exact paragraph equality,
+  navigation-only candidates, explicit uncertainty, stateless snapshot-bound
+  pagination, and privacy-minimized compact provenance.
 - Draft MCP contract `veqtor.mcp.v0.3` and the read-only `inspect_document`
   tool for bounded outline, literal-search, browse and read views over canonical
   main-body text, with hash-bound paragraph and section references.
@@ -31,7 +32,7 @@ establish publication and do not provide a public `0.3` installation target.
   response page. A fixed 64 MiB aggregate cap returns `journal_oversize`,
   blocks mutation, and leaves recovery to non-destructive manual archive;
   post-snapshot export publication failures return the frozen snapshot.
-- Successful live responses from all seven development tools now carry the
+- Successful live responses from all eight development tools now carry the
   same bounded producer identity.
 - Inspection coverage now names its outer canonical-flow totals
   `indexed_paragraph_count` and `nonempty_indexed_paragraph_count`; compact
@@ -42,7 +43,7 @@ establish publication and do not provide a public `0.3` installation target.
   navigation output even when untruncated.
 - Development package identity is `0.3.0.dev0`, separated from the frozen v0.2
   release inventory and its six-tool MCPB.
-- Development CI builds and smokes wheel/sdist artifacts and the seven-tool
+- Development CI builds and smokes wheel/sdist artifacts and the eight-tool
   surface without presenting them as a sealed release set. Frozen MCPB,
   checksum and independent release-reproduction gates remain v0.2-only.
 - Compact inspection-record projection remains readable when a historical
