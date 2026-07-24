@@ -118,6 +118,27 @@ def _packet() -> dict:
             "runtime_version": RUNTIME_VERSION,
             "demo_round_count": 4,
             "bundled_demo_prompt_completed": True,
+            "inspection_map": {
+                "inspect_browse_status": "passed",
+                "inspect_record_status": "written",
+                "round_map_schema_version": "round_map.v1",
+                "round_map_status": "ok",
+                "round_map_record_status": "written",
+                "scan_complete": True,
+                "candidate_document_count": 5,
+                "exact_content_equality_count": 4,
+                "navigation_candidate_count": 0,
+                "recorded_derivation_count": 1,
+                "ambiguous_count": 0,
+                "exact_unique_count": 4,
+                "unresolved_count": 1,
+                "derivation_recorded": True,
+                "lineage_verified": False,
+                "chronology_verified": False,
+                "support_profile": "current_only",
+                "supporting_record_count": 1,
+                "supporting_current_count": 1,
+            },
             "post_apply_list_rounds_status": "passed",
             "post_apply_round_count": 5,
             "source_sha256_unchanged": True,
@@ -149,10 +170,10 @@ def test_complete_exact_candidate_evidence_passes() -> None:
     _validate(_packet())
 
 
-def test_documented_working_template_matches_executable_v4_schema() -> None:
+def test_documented_working_template_matches_executable_v5_schema() -> None:
     releasing = (ROOT / "RELEASING.md").read_text()
-    template = releasing.split("<!-- acceptance-v4-template-begin -->", 1)[1]
-    template = template.split("<!-- acceptance-v4-template-end -->", 1)[0]
+    template = releasing.split("<!-- acceptance-v5-template-begin -->", 1)[1]
+    template = template.split("<!-- acceptance-v5-template-end -->", 1)[0]
     packet = json.loads(template.split("```json\n", 1)[1].split("\n```", 1)[0])
 
     validate_evidence(
@@ -267,6 +288,12 @@ def test_documented_working_template_matches_executable_v4_schema() -> None:
             "post_apply_list_rounds_status did not pass",
         ),
         (
+            lambda packet: packet["desktop_extension"]["inspection_map"].update(
+                {"lineage_verified": True}
+            ),
+            "inspection and Round Map acceptance differs",
+        ),
+        (
             lambda packet: packet["desktop_extension"].update(
                 {"post_apply_round_count": 4}
             ),
@@ -321,6 +348,7 @@ def test_documented_working_template_matches_executable_v4_schema() -> None:
         "mcpb_tools",
         "mcpb_tool_calls",
         "mcpb_post_apply_list",
+        "mcpb_round_map_lineage",
         "mcpb_post_apply_count",
         "mcpb_source_unchanged",
         "mcpb_output_list_hash",
@@ -338,7 +366,11 @@ def test_incomplete_or_non_private_shape_fails(mutate, message: str) -> None:
 
 @pytest.mark.parametrize(
     "schema_version",
-    ["veqtor_release_acceptance.v2", "veqtor_release_acceptance.v3"],
+    [
+        "veqtor_release_acceptance.v2",
+        "veqtor_release_acceptance.v3",
+        "veqtor_release_acceptance.v4",
+    ],
 )
 def test_older_packet_is_rejected_before_shape_validation(
     schema_version: str,

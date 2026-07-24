@@ -20,10 +20,11 @@ const sections = [
   {
     id: 'what-it-can-do',
     title: 'What Veqtor can help with',
-    body: ['The public Alpha focuses on a deliberately narrow negotiation workflow.'],
+    body: ['The 0.3 Alpha candidate focuses on a deliberately narrow negotiation workflow. The current public distribution remains v0.1.2 until promotion succeeds.'],
     bullets: [
       'Find the Word drafts in a folder and use their file names to establish a clear order.',
-      'Read supported tracked text changes and show Claude a small amount of nearby text.',
+      'Read accepted/current main-body text and supported tracked changes with exact document-byte references.',
+      'Map exact paragraph evidence and recorded byte derivations across drafts without treating file order as lineage.',
       'Check a quote against one specific tracked change before Claude relies on it.',
       'Test all proposed edits together before any output is created.',
       'Create a new Word document with supported tracked changes.',
@@ -37,7 +38,7 @@ const sections = [
       'Veqtor does not decide whether a legal position is good or bad. Claude provides the analysis and drafting. Veqtor reads the changes it supports, checks exact wording, tests proposed edits, and makes only the kinds of Word edits it supports.',
       'This separation does not make AI infallible. It gives you a clearer basis for checking what came from the document, what came from Claude, and what was ultimately written.',
     ],
-    note: 'Veqtor is a local MCP server using the stdio transport. Its six tools are list_rounds, extract_redlines, verify_quote, preflight_edits, apply_edits, and export_decision_record.',
+    note: 'The Veqtor 0.3 candidate is a local MCP server using the stdio transport. Its eight tools are list_rounds, extract_redlines, inspect_document, map_rounds, verify_quote, preflight_edits, apply_edits, and export_decision_record.',
     links: [
       {
         href: '/veqtor-vs-claude-for-word',

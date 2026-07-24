@@ -45,7 +45,7 @@ uvx twine check dist/*.whl dist/*.tar.gz
 After the development checks, run the commands below only from a frozen
 release candidate where `[project].version` exactly matches
 `scripts/release_contract.py::VERSION`. They intentionally reject a
-development-only tree such as `0.3.0.dev0` whose identity differs from the
+development-only tree such as `0.4.0.dev0` whose identity differs from the
 frozen release contract. See [RELEASING.md](RELEASING.md) for the complete
 release process.
 

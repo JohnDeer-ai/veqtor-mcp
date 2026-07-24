@@ -2,18 +2,18 @@
 
 # Known limitations
 
-This file describes development source `0.3.0.dev0` and draft MCP contract
-`veqtor.mcp.v0.3`. It does not establish that a `0.3` package, extension or
-release exists. Published installation status comes only from matching entries
-on PyPI and the immutable GitHub Releases list. The frozen v0.2 release contract
-and this development surface remain intentionally narrow.
+This file describes release candidate source `0.3.0` and MCP contract
+`veqtor.mcp.v0.3`. It does not establish that the package, extension or release
+exists publicly. Published installation status comes only from matching entries
+on PyPI and the immutable GitHub Releases list. The release surface remains
+intentionally narrow.
 
-The frozen v0.2 MCPB v0.4 extension is macOS-only and is public only when the
+The v0.3 MCPB v0.4 extension is macOS-only and is public only when the
 exact artifact is attached to the matching verified release after clean-Mac
-acceptance. Development source `0.3.0.dev0` has no corresponding MCPB. Linux
-keeps the CLI setup. There is no Windows extension, catalog listing, automatic
-update promise, silent installation or guaranteed in-app rollback. If
-published, `0.2.0` is the first public MCPB and has no older public extension to
+acceptance. Linux keeps the CLI setup. There is no Windows extension, catalog
+listing, automatic update promise, silent installation or guaranteed in-app
+rollback. If
+published, `0.3.0` is the first public MCPB and has no older public extension to
 restore; real upgrade and rollback testing starts with the next extension
 release. The first UV activation may download a compatible Python runtime and
 locked dependencies, so it is not guaranteed to work offline. MCPB installation
@@ -147,7 +147,7 @@ current user's permissions.
   same source bytes, build, configured author and edits. Apply can still fail if
   the source changes, the output exists, or publication encounters permissions,
   storage or filesystem races.
-- Under MCP contract `veqtor.mcp.v0.2` and draft `veqtor.mcp.v0.3`,
+- Under MCP contracts `veqtor.mcp.v0.2` and `veqtor.mcp.v0.3`,
   `apply_edits` requires the complete `preflight_proof` returned by a successful
   preflight. The proof binds the source SHA-256, canonical edits digest,
   configured author, producer build and candidate SHA-256; it does not bind the

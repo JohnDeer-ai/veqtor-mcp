@@ -23,10 +23,10 @@ tamper-evident audit system. Review the
 [known limitations](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/KNOWN_LIMITATIONS.md)
 before using it on a real matter.
 
-This source tree is the development-only package `0.3.0.dev0` and advertises
-draft MCP contract `veqtor.mcp.v0.3`. No `0.3` package, extension or release is
-offered by this statement, and the development version is intentionally absent
-from the installation choices below.
+This source tree is the release candidate for package `0.3.0` and advertises
+MCP contract `veqtor.mcp.v0.3`. Source, CI, or a candidate artifact is not
+publication; only matching public PyPI and immutable GitHub Release entries
+establish that the version is installable.
 
 Before installing, check both the generic
 [PyPI project](https://pypi.org/project/veqtor-mcp/) and the
@@ -35,15 +35,15 @@ select one exact version for every command below:
 
 | Official state | Replace `X.Y.Z` with |
 |---|---|
-| Both sources expose `0.2.0`, and the GitHub release contains the complete verified asset set | `0.2.0` |
+| Both sources expose `0.3.0`, and the GitHub release contains the complete verified asset set | `0.3.0` |
 | Otherwise | `0.1.2` |
 
 Do not run the placeholder literally or mix versions within one installation.
 
 ## Claude Desktop Extension status
 
-`veqtor-mcp-0.2.0-macos.mcpb` is an official public download only if it appears
-inside the verified immutable `v0.2.0` entry in the live GitHub Releases list.
+`veqtor-mcp-0.3.0-macos.mcpb` is an official public download only if it appears
+inside the verified immutable `v0.3.0` entry in the live GitHub Releases list.
 Its presence in source, CI, a branch, chat or issue is not publication. If that
 release entry or its checksum manifest is absent, use the non-extension setup
 below with the fallback selected above; never guess a release-asset URL.
@@ -137,12 +137,12 @@ The expected trust sequence is:
 2. verify every quotation used as evidence;
 3. preflight the complete atomic batch;
 4. apply only when `batch_applicable` is true — version `0.1.2` reuses the exact
-   edit payload, while contract `veqtor.mcp.v0.2` and the draft v0.3 contract
+   edit payload, while contracts `veqtor.mcp.v0.2` and `veqtor.mcp.v0.3`
    also pass the complete `preflight_proof` returned by that successful
    preflight;
 5. re-extract the output and export the decision record.
 
-In MCP contracts `veqtor.mcp.v0.2` and draft `veqtor.mcp.v0.3`, the proof binds
+In MCP contracts `veqtor.mcp.v0.2` and `veqtor.mcp.v0.3`, the proof binds
 the source bytes, canonical edit payload, configured author, producer build and
 predicted candidate hash so apply can detect drift. It is an unkeyed content
 binding, not authentication or a digital signature. Version `0.1.2` does not
@@ -177,9 +177,10 @@ or environment.
 
 ## Tool surface
 
-The descriptions below follow development source `0.3.0.dev0`. They are not an
-installation promise. For an installed version, use the API file carried by
-that exact artifact or its matching immutable tag.
+The descriptions below follow release candidate source `0.3.0`. They are not
+an installation promise until both public verifiers expose the version. For an
+installed version, use the API file carried by that exact artifact or its
+matching immutable tag.
 
 - `list_rounds`: disclosed lexicographic filename order or a complete explicit
   `ordered_filenames` positional manifest; neither is lineage proof.
@@ -198,7 +199,7 @@ that exact artifact or its matching immutable tag.
 - `preflight_edits`: the complete apply pipeline as an in-memory dry-run, with
   closed position/failure diagnostics and a successful drift-binding proof.
 - `apply_edits`: atomic tracked replace, delete, counter and reinstate writes;
-  MCP contracts `veqtor.mcp.v0.2` and draft `veqtor.mcp.v0.3` require the
+  MCP contracts `veqtor.mcp.v0.2` and `veqtor.mcp.v0.3` require the
   complete successful preflight proof; version `0.1.2` reuses the exact edit
   payload without that new field.
 - `export_decision_record`: compact privacy-aware local provenance.

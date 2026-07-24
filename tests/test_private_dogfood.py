@@ -176,10 +176,7 @@ def test_apply_edits_on_a_copy_of_a_real_redline(tmp_path: Path) -> None:
         out = tmp_path / f"out-{applied}-{original.name}"
         edits = [
             {
-                "anchor": {
-                    "change_unit_id": unit["change_unit_id"],
-                    "file_sha256": source["file_sha256"],
-                },
+                "anchor": unit["anchor"],
                 "delete_text": delete_text,
                 "insert_text": delete_text.upper(),
             }
@@ -221,10 +218,7 @@ def test_verify_quote_confirms_extracted_texts_on_real_redlines() -> None:
                 continue
             outcome = verify_quote(
                 str(path),
-                {
-                    "change_unit_id": unit["change_unit_id"],
-                    "file_sha256": extraction["file_sha256"],
-                },
+                unit["anchor"],
                 text,
             )
             assert outcome["verdict"] == "exact", unit["change_unit_id"]
@@ -271,10 +265,7 @@ def test_mcp_recorder_export_workflow_on_private_matter_copy(tmp_path: Path) -> 
             continue
 
         quote_unit, quote = quote_target
-        anchor = {
-            "change_unit_id": quote_unit["change_unit_id"],
-            "file_sha256": extraction["file_sha256"],
-        }
+        anchor = quote_unit["anchor"]
         verified = server.verify_quote(str(working_copy), anchor, quote)
         assert verified["record_status"] == "written"
         assert verified["verdict"] == "exact"
@@ -283,10 +274,7 @@ def test_mcp_recorder_export_workflow_on_private_matter_copy(tmp_path: Path) -> 
         output_path = matter / f"mcp-output-{original.name}"
         edits = [
             {
-                "anchor": {
-                    "change_unit_id": edit_unit["change_unit_id"],
-                    "file_sha256": extraction["file_sha256"],
-                },
+                "anchor": edit_unit["anchor"],
                 "delete_text": delete_text,
                 "insert_text": delete_text.upper(),
             }

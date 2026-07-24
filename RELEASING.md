@@ -52,7 +52,7 @@ signing and trusted-builder design.
 - The MCPB member set equals its separate allowlist. Reviewed source members
   equal the exact candidate git blobs, the four DOCX members equal the
   deterministic synthetic generator, and the manifest, locked UV project,
-  required author configuration, six-tool list and macOS-only compatibility
+  required author configuration, eight-tool list and macOS-only compatibility
   equal the extension contract.
 - Every source-derived member is byte-identical to its approved git blob.
 - Complete raw Core Metadata bytes (headers, separator and README body), wheel
@@ -250,7 +250,7 @@ and rolls back the complete batch after an expected publication failure.
   `five_edit_batch` scenario passes preflight and apply for all five edits,
   reports a passing round trip and zero collateral changes, and produces the
   exact output SHA-256 pinned in `scripts/release_contract.py`.
-- The installed wheel completes the six-tool synthetic smoke. Its two compact
+- The installed wheel completes the eight-tool synthetic smoke. Its two compact
   exports report access counts 0 then 1, omit the first access event from both
   returned record windows, and keep each current event outside its own
   snapshot.
@@ -262,7 +262,7 @@ and rolls back the complete batch after an expected publication failure.
   Python or a developer toolchain, using Claude Desktop's host-managed UV
   runtime. Acceptance explicitly confirms the extension is enabled and its
   server is connected, confirms the tracked-change author, exposes exactly the
-  six public tools, calls each tool and completes the bundled four-round
+  eight public tools, calls each tool and completes the bundled four-round
   read-only demo prompt. The write workflow runs only on a fresh writable copy
   of those four DOCX files outside the immutable installed extension. After
   apply, a second `list_rounds` must report five files, retain the exact source
@@ -284,7 +284,7 @@ The acceptance packet has one canonical byte representation and is exact-SHA,
 tree and build bound. Its executable schema remains in
 `scripts/check_acceptance_evidence.py`.
 
-### Construct the v4 acceptance packet
+### Construct the v5 acceptance packet
 
 Freeze one clean candidate before collecting evidence. These three values must
 come from that checkout and the same `producer_build` value must be copied into
@@ -306,8 +306,8 @@ the CI run for the commit and download the Actions artifact named
 confirm that it contains the exact four-file release set, and compare:
 
 ```bash
-shasum -a 256 veqtor-mcp-0.2.0-macos.mcpb
-grep ' veqtor-mcp-0.2.0-macos.mcpb$' SHA256SUMS.txt
+shasum -a 256 veqtor-mcp-0.3.0-macos.mcpb
+grep ' veqtor-mcp-0.3.0-macos.mcpb$' SHA256SUMS.txt
 ```
 
 The two digests must match. Install that exact MCPB on the clean acceptance Mac
@@ -328,24 +328,24 @@ retained evidence.
 | `five_edit_batch` | From the maintained five-edit scenario: applicable preflight, successful apply of five edits, passing round trip, zero collateral changes and the fixed output digest shown below. |
 | `installed_two_export` | Copy the JSON fields printed by `scripts/installed_wheel_smoke.py` when run from the installed candidate wheel: access counts 0 then 1, both exclusion booleans `true`, and the installed version/build. |
 | `desktop_rehearsal` | Record the exact literals and booleans shown below plus the installed version/build and SHA-256 digests of the retained private transcript and raw journal. |
-| `desktop_extension` | On a clean Mac without manually installed uv or Python, install the exact candidate `.mcpb` downloaded from the final commit's successful CI artifact on a fresh-copy Claude Desktop for macOS and confirm its host-managed UV runtime. Explicitly confirm that the extension is enabled and its server is connected. Record the MCPB SHA-256, tested client/OS labels, author confirmation, exact six-tool visible and called lists, version/build and four-round bundled read-only demo result. For the write check, copy only the four synthetic DOCX files to a fresh writable folder outside the installed extension. Record the pre-apply source hash, create the output in that copied folder, call `list_rounds` again and require five rounds, an unchanged source hash and an output hash equal to apply; re-extract the output and require the same hash. Retain only the path-free booleans/count plus private session transcript and copied-workspace journal digests in the packet. Also record fresh install, uninstall, post-uninstall absence and same-artifact reinstall. For this first public MCPB only, record the two closed not-applicable lifecycle values shown below. |
+| `desktop_extension` | On a clean Mac without manually installed uv or Python, install the exact candidate `.mcpb` downloaded from the final commit's successful CI artifact on a fresh-copy Claude Desktop for macOS and confirm its host-managed UV runtime. Explicitly confirm that the extension is enabled and its server is connected. Record the MCPB SHA-256, tested client/OS labels, author confirmation, exact eight-tool visible and called lists, version/build and four-round bundled read-only demo result. For the write check, copy only the four synthetic DOCX files to a fresh writable folder outside the installed extension. Record the pre-apply source hash, create the output in that copied folder, call `list_rounds` again and require five rounds, an unchanged source hash and an output hash equal to apply; re-extract the output and require the same hash. Call `inspect_document` in browse mode on the source and pass its verbatim paragraph reference to `map_rounds`; require the exact path-free `inspection_map` matrix below, including one current recorded derivation and explicit false lineage/chronology verification. Retain only path-free booleans/counts plus private session transcript and copied-workspace journal digests in the packet. Also record fresh install, uninstall, post-uninstall absence and same-artifact reinstall. For this first public MCPB only, record the two closed not-applicable lifecycle values shown below. |
 
 `desktop_extension.client_version` must be a public numeric
 `MAJOR.MINOR.PATCH[.BUILD]` value, and `platform_version` must be
 `MAJOR.MINOR[.PATCH]`. Record only those public version numbers: product names,
 paths, build labels and free-form OS text are rejected by the packet validator.
 
-The following is the complete, type-correct v4 working template. Its repeated
+The following is the complete, type-correct v5 working template. Its repeated
 sample digests are deliberately not candidate values and will fail exact-SHA
 validation. Replace the candidate SHA/tree/build, all private evidence digests,
 and the observed private pass/skip counts. Keep the fixed statuses, booleans,
 version and five-edit output digest exactly as shown unless the executable
 schema changes in a later release.
 
-<!-- acceptance-v4-template-begin -->
+<!-- acceptance-v5-template-begin -->
 ```json
 {
-  "schema_version": "veqtor_release_acceptance.v4",
+  "schema_version": "veqtor_release_acceptance.v5",
   "candidate_sha": "0000000000000000000000000000000000000000",
   "candidate_tree": "1111111111111111111111111111111111111111",
   "producer_build": "source-snapshot-v1-sha256:2222222222222222222222222222222222222222222222222222222222222222",
@@ -388,7 +388,7 @@ schema changes in a later release.
     "first_event_absent_from_windows": true,
     "current_event_outside_own_snapshot": true,
     "runtime_producer_build": "source-snapshot-v1-sha256:2222222222222222222222222222222222222222222222222222222222222222",
-    "runtime_version": "0.2.0"
+    "runtime_version": "0.3.0"
   },
   "desktop_rehearsal": {
     "verdict": "passed",
@@ -398,7 +398,7 @@ schema changes in a later release.
     "current_event_not_in_access_count": true,
     "raw_vs_compact_explained": true,
     "runtime_producer_build": "source-snapshot-v1-sha256:2222222222222222222222222222222222222222222222222222222222222222",
-    "runtime_version": "0.2.0",
+    "runtime_version": "0.3.0",
     "transcript_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
     "raw_journal_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
   },
@@ -418,6 +418,8 @@ schema changes in a later release.
     "visible_tools": [
       "list_rounds",
       "extract_redlines",
+      "inspect_document",
+      "map_rounds",
       "verify_quote",
       "preflight_edits",
       "apply_edits",
@@ -426,15 +428,38 @@ schema changes in a later release.
     "called_tools": [
       "list_rounds",
       "extract_redlines",
+      "inspect_document",
+      "map_rounds",
       "verify_quote",
       "preflight_edits",
       "apply_edits",
       "export_decision_record"
     ],
     "runtime_producer_build": "source-snapshot-v1-sha256:2222222222222222222222222222222222222222222222222222222222222222",
-    "runtime_version": "0.2.0",
+    "runtime_version": "0.3.0",
     "demo_round_count": 4,
     "bundled_demo_prompt_completed": true,
+    "inspection_map": {
+      "inspect_browse_status": "passed",
+      "inspect_record_status": "written",
+      "round_map_schema_version": "round_map.v1",
+      "round_map_status": "ok",
+      "round_map_record_status": "written",
+      "scan_complete": true,
+      "candidate_document_count": 5,
+      "exact_content_equality_count": 4,
+      "navigation_candidate_count": 0,
+      "recorded_derivation_count": 1,
+      "ambiguous_count": 0,
+      "exact_unique_count": 4,
+      "unresolved_count": 1,
+      "derivation_recorded": true,
+      "lineage_verified": false,
+      "chronology_verified": false,
+      "support_profile": "current_only",
+      "supporting_record_count": 1,
+      "supporting_current_count": 1
+    },
     "post_apply_list_rounds_status": "passed",
     "post_apply_round_count": 5,
     "source_sha256_unchanged": true,
@@ -452,9 +477,9 @@ schema changes in a later release.
   }
 }
 ```
-<!-- acceptance-v4-template-end -->
+<!-- acceptance-v5-template-end -->
 
-Every field is required and exact; v1, v2 and v3 packets are rejected. No
+Every field is required and exact; v1, v2, v3 and v4 packets are rejected. No
 filenames, local paths, quotes or document text are allowed by the packet schema. The
 packet has one accepted byte representation: UTF-8 JSON produced with sorted
 keys, `ensure_ascii=False`, `allow_nan=False`, separators `(",", ":")`, and no
@@ -462,8 +487,8 @@ trailing newline or whitespace. After replacing the sample values in a private
 working copy of the template, create the canonical compact file with:
 
 ```bash
-WORKING_PACKET=/secure/external/veqtor-v0.2.0-acceptance.working.json
-EVIDENCE_PACKET=/secure/external/veqtor-v0.2.0-acceptance.json
+WORKING_PACKET=/secure/external/veqtor-v0.3.0-acceptance.working.json
+EVIDENCE_PACKET=/secure/external/veqtor-v0.3.0-acceptance.json
 uv run --frozen python - "$WORKING_PACKET" "$EVIDENCE_PACKET" <<'PY'
 import json
 import sys
@@ -487,7 +512,7 @@ the canonical file against that exact candidate:
 
 ```bash
 uv run --frozen python scripts/check_acceptance_evidence.py \
-  --source-root . /secure/external/veqtor-v0.2.0-acceptance.json
+  --source-root . /secure/external/veqtor-v0.3.0-acceptance.json
 ```
 
 The validator rejects every non-canonical representation and prints the SHA-256
@@ -495,7 +520,7 @@ of the exact packet bytes. Retain supporting private material outside git.
 Before dispatch, capture the same digest from the canonical file:
 
 ```bash
-EVIDENCE_PACKET=/secure/external/veqtor-v0.2.0-acceptance.json
+EVIDENCE_PACKET=/secure/external/veqtor-v0.3.0-acceptance.json
 EVIDENCE_SHA256=$(shasum -a 256 "$EVIDENCE_PACKET" | awk '{print $1}')
 ```
 
@@ -507,7 +532,7 @@ job; it is not a boundary that runs before candidate code:
 
 ```bash
 gh workflow run release.yml \
-  -f version=0.2.0 \
+  -f version=0.3.0 \
   -f commit_sha="$(git rev-parse HEAD)" \
   -f acceptance_evidence="$(<"$EVIDENCE_PACKET")" \
   -f acceptance_evidence_sha256="$EVIDENCE_SHA256"
@@ -537,18 +562,18 @@ test implementation tip
 → publish and verify PyPI
 → publish and verify the immutable GitHub Release
 → install the exact public PyPI release for the demo
-→ activate the website's v0.2.0 release copy in a separate docs/site change
+→ activate the website's v0.3.0 release copy in a separate docs/site change
 → verify the deployed setup page and every public download/install link
 ```
 
 Public installation copy follows that external state; it never predicts it.
 The immutable README and package metadata use a state-neutral version-selection
-rule: `0.2.0` is selected only when both public verifiers expose it; otherwise
+rule: `0.3.0` is selected only when both public verifiers expose it; otherwise
 the explicit fallback is `0.1.2`. Before those verifiers pass, website install
 commands remain pinned to public PyPI `0.1.2`, matching download links remain on
 the immutable GitHub `v0.1.2` release, and the Desktop Extension is labelled a
-`v0.2.0` candidate or preview. After both pass, a separate docs/site change
-must activate the public `v0.2.0` links and release wording, deploy them, and
+`v0.3.0` candidate or preview. After both pass, a separate docs/site change
+must activate the public `v0.3.0` links and release wording, deploy them, and
 smoke the live setup page. That required copy activation does not amend the tag,
 replace clean-Mac acceptance, or waive any gate above.
 

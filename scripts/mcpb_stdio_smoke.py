@@ -17,6 +17,8 @@ from mcp.client.stdio import stdio_client
 EXPECTED_TOOLS = {
     "list_rounds",
     "extract_redlines",
+    "inspect_document",
+    "map_rounds",
     "verify_quote",
     "preflight_edits",
     "apply_edits",
@@ -64,8 +66,45 @@ async def smoke(stage_dir: Path) -> dict:
             filenames = [round_["filename"] for round_ in listed["rounds"]]
             if len(filenames) != 4 or listed["skipped"]:
                 raise ValueError("bundled demo is not available from MCPB cwd")
+            source = listed["rounds"][1]["path"]
+            inspected = _payload(
+                await session.call_tool(
+                    "inspect_document",
+                    {"path": source, "mode": "browse", "max_items": 1},
+                )
+            )
+            if (
+                inspected["mode"] != "browse"
+                or inspected["coverage"]["returned_item_count"] != 1
+            ):
+                raise ValueError("bundled demo inspection differs")
+            mapped = _payload(
+                await session.call_tool(
+                    "map_rounds",
+                    {
+                        "folder": "demo",
+                        "seed": {
+                            "schema_version": "round_map_seed.v1",
+                            "path": source,
+                            "paragraph_ref": inspected["paragraphs"][0][
+                                "paragraph_ref"
+                            ],
+                        },
+                        "max_items": 100,
+                    },
+                )
+            )
+            if (
+                mapped["status"] != "ok"
+                or mapped["coverage"]["scan_complete"] is not True
+                or mapped["coverage"]["candidate_document_count"] != 4
+            ):
+                raise ValueError("bundled demo Round Map differs")
             return {
                 "bundled_demo_filenames": filenames,
+                "round_map_candidate_document_count": mapped["coverage"][
+                    "candidate_document_count"
+                ],
                 "stdio_tool_count": len(names),
             }
 

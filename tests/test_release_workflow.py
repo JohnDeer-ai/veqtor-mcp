@@ -50,7 +50,7 @@ def test_release_guard_precedes_execution_of_requested_commit() -> None:
     assert "private_dogfood_passed" not in workflow
     assert "acceptance_evidence:" in workflow
     assert "acceptance_evidence_sha256:" in workflow
-    assert "veqtor_release_acceptance.v4" in workflow
+    assert "veqtor_release_acceptance.v5" in workflow
     assert "expected_mcpb_sha256" in verify
     assert '"desktop_extension"]["artifact_sha256"]' in guard
     assert "mcpb_sha256=%s" in guard
@@ -519,8 +519,10 @@ def test_product_acceptance_documents_complete_path_free_packet() -> None:
     releasing = (ROOT / "RELEASING.md").read_text()
     smoke = (ROOT / "scripts" / "installed_wheel_smoke.py").read_text()
 
-    assert "installed wheel completes the six-tool synthetic smoke" in releasing
+    assert "installed wheel completes the eight-tool synthetic smoke" in releasing
     assert "fresh-copy Claude Desktop rehearsal" in releasing
+    assert "exposes exactly the\n  eight public tools" in releasing
+    assert "### Construct the v5 acceptance packet" in releasing
     assert "Claude Code" not in releasing
     assert "canonical path-free acceptance packet" in releasing
     assert "never filenames, local paths, quotations or document text" in releasing
@@ -531,8 +533,8 @@ def test_product_acceptance_documents_complete_path_free_packet() -> None:
     assert "Do not infer or" in releasing
     assert "Only after all required gates" in releasing
 
-    template = releasing.split("<!-- acceptance-v4-template-begin -->", 1)[1]
-    template = template.split("<!-- acceptance-v4-template-end -->", 1)[0]
+    template = releasing.split("<!-- acceptance-v5-template-begin -->", 1)[1]
+    template = template.split("<!-- acceptance-v5-template-end -->", 1)[0]
     packet = json.loads(template.split("```json\n", 1)[1].split("\n```", 1)[0])
     assert set(packet) == {
         "schema_version",
@@ -564,6 +566,8 @@ def test_product_acceptance_documents_complete_path_free_packet() -> None:
     assert packet["desktop_extension"]["visible_tools"] == [
         "list_rounds",
         "extract_redlines",
+        "inspect_document",
+        "map_rounds",
         "verify_quote",
         "preflight_edits",
         "apply_edits",
@@ -629,7 +633,7 @@ def test_all_release_actions_are_pinned_to_full_shas() -> None:
 def test_release_documents_use_only_the_canonical_project_slug() -> None:
     documents = [
         ROOT / "README.md",
-        ROOT / ".github" / "release-notes" / "v0.2.0.md",
+        ROOT / ".github" / "release-notes" / "v0.3.0.md",
     ]
     combined = "\n".join(path.read_text() for path in documents)
 

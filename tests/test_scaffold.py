@@ -13,7 +13,7 @@ ROOT = Path(__file__).parents[1]
 
 
 def test_package_versions_match() -> None:
-    assert docx_version == "0.3.0.dev0"
+    assert docx_version == "0.3.0"
     assert mcp_version == docx_version
 
 
@@ -104,24 +104,19 @@ def test_export_example_matches_compact_count_and_gap_contract() -> None:
     assert match["clause_sha256"] is None
 
 
-def test_changelog_separates_development_from_frozen_release_copy() -> None:
+def test_changelog_keeps_timeless_release_copy() -> None:
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
     changelog = (ROOT / "CHANGELOG.md").read_text()
     releasing = (ROOT / "RELEASING.md").read_text()
     version = project["version"]
-    development_marker = f"## Unreleased — {version}\n"
-    frozen_marker = "## 0.2.0\n"
+    release_marker = f"## {version}\n"
 
-    assert changelog.count(development_marker) == 1
-    assert changelog.count(frozen_marker) == 1
-    development = changelog.split(development_marker, 1)[1].split("\n## ", 1)[0]
-    frozen = changelog.split(frozen_marker, 1)[1].split("\n## ", 1)[0]
-    assert "development-only" in development.casefold()
-    assert re.search(r"do not\s+establish publication", development)
-    assert "Veqtor v0.2.0 Alpha release contents." in frozen
-    assert "Unreleased" not in frozen
-    assert "Planned" not in frozen
-    assert re.search(r"\b20\d{2}-\d{2}-\d{2}\b", frozen) is None
+    assert changelog.count(release_marker) == 1
+    release = changelog.split(release_marker, 1)[1].split("\n## ", 1)[0]
+    assert "Veqtor v0.3.0 Alpha release contents." in release
+    assert "Unreleased" not in release
+    assert "Planned" not in release
+    assert re.search(r"\b20\d{2}-\d{2}-\d{2}\b", release) is None
     assert "Publication dates are authoritative" in changelog
     assert "`published_at` timestamp" in changelog
     assert "only timeless release contents" in releasing
@@ -150,20 +145,20 @@ def test_release_copy_is_promotion_safe_and_site_stays_on_published_version() ->
     ) in readme
     assert '"args": ["veqtor-mcp@0.1.2"]' in setup
     assert "https://pypi.org/project/veqtor-mcp/" in readme
-    assert "Both sources expose `0.2.0`" in readme
+    assert "Both sources expose `0.3.0`" in readme
     assert "| Otherwise | `0.1.2` |" in readme
     assert "current public distribution" not in immutable_docs.lower()
     assert "current public release" not in immutable_docs.lower()
-    assert "v0.2.0 is not public yet" in setup
+    assert "v0.3.0 is not public yet" in setup
     for forbidden in (
-        "releases/tag/v0.2.0",
-        "releases/download/v0.2.0",
+        "releases/tag/v0.3.0",
+        "releases/download/v0.3.0",
     ):
         assert forbidden not in readme
         assert forbidden not in public_pages
     assert "state-neutral version-selection" in releasing
     assert re.search(
-        r"must activate the public `v0\.2\.0` links.*deploy them, and\s+smoke the live setup page",
+        r"must activate the public `v0\.3\.0` links.*deploy them, and\s+smoke the live setup page",
         releasing,
         re.DOTALL,
     )

@@ -86,7 +86,7 @@ def _dummy_preflight_proof() -> dict[str, str]:
 def _test_producer() -> dict[str, str]:
     return {
         "name": "veqtor-mcp",
-        "version": "0.3.0.dev0",
+        "version": "0.3.0",
         "build": "source-snapshot-v1-sha256:" + "0" * 64,
     }
 
