@@ -625,10 +625,29 @@ function assertStaticDeploymentFiles() {
 
 function assertSetupCommandIntegrity(pagesByRoute) {
   const html = pagesByRoute.get('/setup')?.html ?? ''
-  const packageSpecifier = 'veqtor-mcp@0.1.2'
+  const packageSpecifier = 'veqtor-mcp@0.3.0'
   const occurrences = html.split(packageSpecifier).length - 1
   if (occurrences !== 6) {
     fail(`/setup: expected six literal ${packageSpecifier} commands in built HTML, found ${occurrences}`)
+  }
+  const packagePin = 'veqtor-mcp==0.3.0'
+  const pinOccurrences = html.split(packagePin).length - 1
+  if (pinOccurrences !== 1) {
+    fail(`/setup: expected one literal ${packagePin} demo command in built HTML, found ${pinOccurrences}`)
+  }
+  for (const staleSpecifier of ['veqtor-mcp@0.1.2', 'veqtor-mcp==0.1.2']) {
+    if (html.includes(staleSpecifier)) fail(`/setup: built HTML contains stale package specifier ${staleSpecifier}`)
+  }
+  for (const requiredValue of [
+    'https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/v0.3.0',
+    'https://github.com/JohnDeer-ai/veqtor-mcp/releases/download/v0.3.0/veqtor-mcp-0.3.0-macos.mcpb',
+    'https://github.com/JohnDeer-ai/veqtor-mcp/releases/download/v0.3.0/SHA256SUMS.txt',
+    '43e939a60c7f13d8d31b61f090b1520cab951732395e078cfb590622ece0c596',
+  ]) {
+    if (!html.includes(requiredValue)) fail(`/setup: built HTML is missing public release value ${requiredValue}`)
+  }
+  if (/v0\.3\.0 is not public(?: yet)?/i.test(html)) {
+    fail('/setup: built HTML still describes v0.3.0 as unpublished')
   }
   for (const marker of ['/cdn-cgi/l/email-protection', 'data-cfemail', '__cf_email__', 'email-decode.min.js']) {
     if (html.includes(marker)) fail(`/setup: built HTML contains unexpected Cloudflare obfuscation marker ${marker}`)
@@ -643,6 +662,12 @@ function assertSchemaContracts(schemasByRoute) {
   if (homeSoftware.length !== 1) fail(`/: expected one SoftwareApplication node, found ${homeSoftware.length}`)
   if (homeSoftware.some((node) => Object.hasOwn(node, 'codeRepository'))) {
     fail('/: SoftwareApplication must not use the SoftwareSourceCode-only codeRepository property')
+  }
+  if (homeSoftware[0]?.softwareVersion !== '0.3.0') {
+    fail('/: SoftwareApplication softwareVersion must match public v0.3.0')
+  }
+  if (homeSoftware[0]?.downloadUrl !== 'https://github.com/JohnDeer-ai/veqtor-mcp/releases/download/v0.3.0/veqtor-mcp-0.3.0-macos.mcpb') {
+    fail('/: SoftwareApplication downloadUrl must point to the public v0.3.0 MCPB')
   }
   const homeVideos = nodesOfType('/', 'VideoObject')
   if (homeVideos.length !== 0) fail(`/: homepage must not compete with /demo as a video watch page, found ${homeVideos.length} VideoObject node(s)`)

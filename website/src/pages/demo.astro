@@ -3,6 +3,7 @@ import BaseLayout from '../layouts/BaseLayout.astro'
 import Breadcrumbs from '../components/Breadcrumbs.astro'
 import SiteCta from '../components/SiteCta.astro'
 import { DEMO_VIDEO } from '../lib/demo-video'
+import { PUBLIC_PACKAGE_PIN, PUBLIC_RELEASE_VERSION } from '../lib/public-release'
 
 const title = 'Veqtor MCP Demo — Review Word Redlines with Claude'
 const description = DEMO_VIDEO.description
@@ -71,7 +72,7 @@ const breadcrumbSchema = {
         <div><p class="eyebrow">What you will see</p><h2 id="video-heading">A real Claude session with a disposable negotiation.</h2></div>
         <p>Claude compares the rounds, checks important wording and prepares a separate Word document. The original drafts stay unchanged.</p>
       </div>
-      <p class="demo-install-note">This video was recorded with public v0.1.2: its “one command” line refers to Claude Code and its Desktop path used a configuration edit. The v0.3.0 release candidate adds a macOS Desktop extension, but that MCPB is not a public download until promotion succeeds. One correction: v0.1.2 checks the proposed Word document in memory before saving it; it does not reopen the saved copy for a separate final check.</p>
+      <p class="demo-install-note">This video remains a historical v0.1.2 recording: its “one command” line refers to Claude Code and its Desktop path used a configuration edit. Public v0.3.0 now adds the downloadable macOS Claude Desktop extension described in the current connection guide. One correction to the recording still applies: v0.1.2 checks the proposed Word document in memory before saving it; it does not reopen the saved copy for a separate final check.</p>
       <details class="demo-transcript" id="transcript">
         <summary>Read the corrected transcript</summary>
         <div>
@@ -81,7 +82,7 @@ const breadcrumbSchema = {
           <p>In this demo, I ask what happened to the liability cap across four rounds. Veqtor extracts the tracked revisions. Claude turns the evidence into a clear explanation of how the cap and its carve-outs changed.</p>
           <p>Then I ask for the counterparty's exact latest wording. Instead of relying on the summary, Veqtor checks the quotation against that specific tracked change. In this run it matches exactly, and Veqtor returns the checked wording.</p>
           <p>Finally, I turn the review into an action: restore our 150% cap and the willful misconduct carve-out in a new round-five draft. The original stays untouched.</p>
-          <p>Veqtor checks the complete set of requested edits, builds the proposed Word file in memory, and reads it again before saving anything. If the tracked changes it supports do not match the plan, it refuses to create the final file. Claude does the reasoning; Veqtor performs specific document steps that can be checked. Veqtor is free and open source. Public v0.1.2 uses one Claude Code registration command after uv is installed; the v0.3.0 candidate adds a macOS Claude Desktop extension that becomes public only after promotion.</p>
+          <p>Veqtor checks the complete set of requested edits, builds the proposed Word file in memory, and reads it again before saving anything. If the tracked changes it supports do not match the plan, it refuses to create the final file. Claude does the reasoning; Veqtor performs specific document steps that can be checked. Veqtor is free and open source. Public v0.3.0 supports an exact Claude Code registration after uv is installed and a downloadable macOS Claude Desktop extension.</p>
         </div>
       </details>
     </div>
@@ -107,7 +108,7 @@ const breadcrumbSchema = {
         <p class="eyebrow">Reproduce it</p>
         <h2 id="try-heading">Try the same workflow with fresh sample documents.</h2>
         <p>After connecting Veqtor, create a disposable four-round negotiation in your home folder:</p>
-        <div class="code-block" data-copy-layer="technical"><div class="code-block__head"><span>Terminal</span><span>Public v0.1.2</span></div><pre><code>uvx --from "veqtor-mcp==0.1.2" veqtor-demo-rounds ~/veqtor-demo-rounds</code></pre></div>
+        <div class="code-block" data-copy-layer="technical"><div class="code-block__head"><span>Terminal</span><span>Public v{PUBLIC_RELEASE_VERSION}</span></div><pre><code>{`uvx --from "${PUBLIC_PACKAGE_PIN}" veqtor-demo-rounds ~/veqtor-demo-rounds`}</code></pre></div>
         <p>Open a new Claude session and ask:</p>
         <blockquote>Using the Veqtor tools, what happened to the limitation of liability across the rounds in ~/veqtor-demo-rounds?</blockquote>
         <p>The sample is safe to discard and recreate. Use it to learn the workflow before pointing Claude at any real matter.</p>

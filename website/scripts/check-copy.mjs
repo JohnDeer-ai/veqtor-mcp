@@ -36,6 +36,12 @@ const OBSOLETE_PATTERNS = [
   ['retired demo asset', /\bveqtor-demo-hd\.mp4\b/i],
   ['retired demo duration', /\b(?:two[- ]minute|2:15)\b/i],
   ['retired demo workflow', /\bcounter[- ]redline export\b/i],
+  ['stale public v0.1.2 status', /\bcurrent public v0\.1\.2\b/i],
+  ['stale v0.3.0 unpublished status', /\bv0\.3\.0 is not public(?: yet)?\b/i],
+  ['stale v0.3.0 release-candidate status', /\bv0\.3\.0 (?:release )?candidate\b/i],
+  ['stale 0.3 Alpha candidate status', /\b(?:the )?0\.3 Alpha candidate\b/i],
+  ['stale missing v0.3.0 download status', /\bthere is no official v0\.3\.0 download(?: yet)?\b/i],
+  ['stale pending-promotion status', /\bnot a public download until promotion\b/i],
 ]
 
 // Timed captions are a primary accessible artifact. Keep these guards narrow to the

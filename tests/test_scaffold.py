@@ -123,13 +123,16 @@ def test_changelog_keeps_timeless_release_copy() -> None:
     assert "`published_at` timestamp" in releasing
 
 
-def test_release_copy_is_promotion_safe_and_site_stays_on_published_version() -> None:
+def test_release_copy_is_state_neutral_and_site_uses_public_v030() -> None:
     readme = (ROOT / "README.md").read_text()
     immutable_docs = "\n".join(
         (ROOT / name).read_text()
         for name in ("README.md", "API.md", "KNOWN_LIMITATIONS.md", "ROADMAP.md")
     )
     setup = (ROOT / "website" / "src" / "pages" / "setup.astro").read_text()
+    release_config = (
+        ROOT / "website" / "src" / "lib" / "public-release.ts"
+    ).read_text()
     public_pages = "\n".join(
         path.read_text()
         for path in (ROOT / "website" / "src" / "pages").rglob("*.astro")
@@ -143,19 +146,37 @@ def test_release_copy_is_promotion_safe_and_site_stays_on_published_version() ->
         '-e VEQTOR_TRACKED_CHANGE_AUTHOR="Your Name" -- '
         "uvx veqtor-mcp@X.Y.Z"
     ) in readme
-    assert '"args": ["veqtor-mcp@0.1.2"]' in setup
+    assert "PUBLIC_RELEASE_VERSION = '0.3.0'" in release_config
+    assert "PUBLIC_MCPB_URL" in setup
+    assert "PUBLIC_RELEASE_URL" in setup
+    assert "PUBLIC_CHECKSUMS_URL" in setup
+    assert "PUBLIC_MCPB_SHA256" in setup
+    assert "veqtor-mcp@0.1.2" not in setup
+    assert "veqtor-mcp==0.1.2" not in setup
     assert "https://pypi.org/project/veqtor-mcp/" in readme
     assert "Both sources expose `0.3.0`" in readme
     assert "| Otherwise | `0.1.2` |" in readme
     assert "current public distribution" not in immutable_docs.lower()
     assert "current public release" not in immutable_docs.lower()
-    assert "v0.3.0 is not public yet" in setup
+    assert "v0.3.0 is not public yet" not in setup
+    assert "Download Veqtor v{PUBLIC_RELEASE_VERSION} (.mcpb)" in setup
+    assert "This is the first public MCPB" in setup
     for forbidden in (
         "releases/tag/v0.3.0",
         "releases/download/v0.3.0",
     ):
         assert forbidden not in readme
-        assert forbidden not in public_pages
+    for stale_site_copy in (
+        "v0.3.0 is not public yet",
+        "v0.3.0 release candidate",
+        "v0.3.0 candidate",
+        "current public v0.1.2",
+        "current public distribution remains v0.1.2",
+        "there is no official v0.3.0 download yet",
+    ):
+        assert stale_site_copy not in public_pages.lower()
+    assert "Recorded with Veqtor v0.1.2" in public_pages
+    assert "Public v0.3.0" in public_pages
     assert "state-neutral version-selection" in releasing
     assert re.search(
         r"must activate the public `v0\.3\.0` links.*deploy them, and\s+smoke the live setup page",
