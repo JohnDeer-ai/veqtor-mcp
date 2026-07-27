@@ -1,0 +1,10 @@
+export const PUBLIC_RELEASE_VERSION = '0.3.0'
+export const PUBLIC_RELEASE_TAG = `v${PUBLIC_RELEASE_VERSION}`
+export const PUBLIC_RELEASE_URL = `https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/${PUBLIC_RELEASE_TAG}`
+export const PUBLIC_MCPB_FILENAME = `veqtor-mcp-${PUBLIC_RELEASE_VERSION}-macos.mcpb`
+export const PUBLIC_MCPB_URL = `https://github.com/JohnDeer-ai/veqtor-mcp/releases/download/${PUBLIC_RELEASE_TAG}/${PUBLIC_MCPB_FILENAME}`
+export const PUBLIC_CHECKSUMS_URL = `https://github.com/JohnDeer-ai/veqtor-mcp/releases/download/${PUBLIC_RELEASE_TAG}/SHA256SUMS.txt`
+export const PUBLIC_PYPI_URL = `https://pypi.org/project/veqtor-mcp/${PUBLIC_RELEASE_VERSION}/`
+export const PUBLIC_PACKAGE_SPECIFIER = `veqtor-mcp@${PUBLIC_RELEASE_VERSION}`
+export const PUBLIC_PACKAGE_PIN = `veqtor-mcp==${PUBLIC_RELEASE_VERSION}`
+export const PUBLIC_MCPB_SHA256 = '43e939a60c7f13d8d31b61f090b1520cab951732395e078cfb590622ece0c596'

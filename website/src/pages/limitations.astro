@@ -1,17 +1,18 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro'
 import PageHero from '../components/PageHero.astro'
+import { PUBLIC_RELEASE_URL, PUBLIC_RELEASE_VERSION } from '../lib/public-release'
 
-const title = 'Veqtor MCP Known Limitations — 0.3.0 Release Candidate'
-const description = 'Plain-language and technical limits of the Veqtor 0.3.0 source candidate, with the current public distribution still at v0.1.2.'
+const title = 'Veqtor MCP Known Limitations — Public 0.3.0 Alpha'
+const description = `Plain-language and technical limits of the public Veqtor ${PUBLIC_RELEASE_VERSION} Alpha.`
 ---
 
 <BaseLayout title={title} description={description} canonicalPath="/limitations">
   <PageHero
     eyebrow="Known limitations"
     title="Know what Veqtor does not support yet."
-    lede="The Alpha is intentionally narrow. This page describes candidate behavior; v0.3.0 is not a public release until promotion succeeds."
-    meta="Source candidate v0.3.0 · Public distribution v0.1.2"
+    lede="The public v0.3.0 Alpha is intentionally narrow. Read these boundaries before using Veqtor on a real matter."
+    meta="Public v0.3.0 · Community supported · Not legal advice"
     breadcrumbs={[{ label: 'Limitations' }]}
   >
     <div slot="actions" class="actions"><a class="button button--primary" href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/KNOWN_LIMITATIONS.md">Open default-branch technical limits ↗</a></div>
@@ -46,7 +47,7 @@ const description = 'Plain-language and technical limits of the Veqtor 0.3.0 sou
         <p>Numbering and clause labels are navigation aids, not evidence. Durable references combine the document hash, change-unit identity, structural location and checked wording.</p>
 
         <h3>Round interpretation</h3>
-        <p>Round order is deterministic filename order, not lineage proof. There is no semantic cross-round clause matcher or authorship forensics in v0.1.</p>
+        <p>Round order is deterministic filename order, not lineage proof. Public v0.3.0 maps exact paragraph evidence and recorded document-byte derivations, but does not provide semantic clause lineage or authorship forensics.</p>
 
         <h3>Preflight and apply</h3>
         <p>One atomic batch accepts up to 100 edits, 20,000 new characters per edit and 200,000 across the batch. Preflight runs the same document pipeline in memory, but apply can still fail if the source changes, the destination already exists or the filesystem refuses publication.</p>
@@ -55,7 +56,7 @@ const description = 'Plain-language and technical limits of the Veqtor 0.3.0 sou
         <p>Decision records are best-effort local provenance. They are not authenticated, signed, hash-chained or tamper-evident. The supported threat model is a non-hostile, single-user Mac or Linux workspace. A malicious process running as the same user is outside scope.</p>
 
         <h3>Canonical release document</h3>
-        <p>This page is an accessible candidate summary. Before promotion, use the <a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/KNOWN_LIMITATIONS.md">default-branch KNOWN_LIMITATIONS.md</a> for merged development behavior and the <a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/v0.1.2/KNOWN_LIMITATIONS.md">immutable v0.1.2 file</a> for the public release. A tagged v0.3.0 file becomes authoritative only if that release is published.</p>
+        <p>This page is an accessible summary. The <a href={`${PUBLIC_RELEASE_URL.replace('/releases/tag/', '/blob/')}/KNOWN_LIMITATIONS.md`}>immutable v{PUBLIC_RELEASE_VERSION} limitations file</a> is authoritative for the public release; the <a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/KNOWN_LIMITATIONS.md">default-branch file</a> may describe later merged development.</p>
       </article>
       <aside class="side-index"><strong>Related</strong><a href="/security">Security &amp; privacy</a><a href="/docs">Tool documentation</a><a href="/demo">Sample workflow</a><a href="/setup">Connection guide</a></aside>
     </div>
