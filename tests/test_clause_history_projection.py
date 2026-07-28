@@ -8,6 +8,7 @@ import re
 import runpy
 import tomllib
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -22,9 +23,11 @@ from veqtor_docx._ooxml import (
     current_text_atom,
     iter_canonical_paragraph_nodes,
     parse_xml,
-    pending_text_revisions_rejected_atom,
+    pending_text_revisions_rejected_text,
+    text_atom,
     w,
 )
+from veqtor_docx.synthetic import TITLE_SENTENCE
 from veqtor_mcp import records
 from veqtor_mcp.contracts import MCP_CONTRACT_SCHEMA_VERSION
 
@@ -43,17 +46,7 @@ def _has_non_whitespace(value: str) -> bool:
 
 
 def _projection_text(paragraph: etree._Element) -> str:
-    return "".join(
-        contribution
-        for node in iter_canonical_paragraph_nodes(paragraph)
-        if (
-            contribution := pending_text_revisions_rejected_atom(
-                node,
-                boundary=paragraph,
-            )
-        )
-        is not None
-    )
+    return pending_text_revisions_rejected_text(paragraph)
 
 
 def _current_text(paragraph: etree._Element) -> str:
@@ -93,9 +86,57 @@ def _wrapper(
     return wrapper
 
 
-def _round_paragraphs(path: Path) -> list[tuple[str, str, bool]]:
+@dataclass(frozen=True)
+class _RoundParagraph:
+    current: str
+    rejected: str
+    move_wrapper_count: int
+    move_text_contributions: tuple[tuple[tuple[str, ...], str], ...]
+
+
+@dataclass(frozen=True)
+class _RejectedMatch:
+    right_index: int
+    left_index: int
+    current: str
+    rejected: str
+    move_wrapper_count: int
+    move_text_contributions: tuple[tuple[tuple[str, ...], str], ...]
+
+
+def _move_text_contributions(
+    paragraph: etree._Element,
+) -> tuple[tuple[tuple[str, ...], str], ...]:
+    contributions = []
+    for node in iter_canonical_paragraph_nodes(paragraph):
+        value = text_atom(node, include_deleted_text=True)
+        if value is None:
+            continue
+        move_ancestors = []
+        for ancestor in node.iterancestors():
+            if ancestor is paragraph:
+                break
+            if ancestor.tag in MOVE_REVISION_TAGS:
+                move_ancestors.append(etree.QName(ancestor).localname)
+        if move_ancestors:
+            contributions.append((tuple(move_ancestors), value))
+    return tuple(contributions)
+
+
+def _round_paragraphs(
+    path: Path,
+    *,
+    retype_move_text_atoms: bool = False,
+) -> list[_RoundParagraph]:
     with zipfile.ZipFile(path) as archive:
         document = parse_xml(archive.read(DOCUMENT_PART))
+    if retype_move_text_atoms:
+        for wrapper in document.iter():
+            if wrapper.tag not in MOVE_REVISION_TAGS:
+                continue
+            for node in wrapper.iterdescendants():
+                if text_atom(node, include_deleted_text=True) is not None:
+                    node.tag = w("instrText")
     body = document.find(w("body"))
     assert body is not None
 
@@ -103,33 +144,45 @@ def _round_paragraphs(path: Path) -> list[tuple[str, str, bool]]:
     for item in canonical_body_flow_v1(body).paragraphs:
         current = _current_text(item.element)
         rejected = _projection_text(item.element)
-        move_visibility_applied = any(
-            node.tag in MOVE_REVISION_TAGS
+        move_wrappers = tuple(
+            node
             for node in iter_canonical_paragraph_nodes(item.element)
+            if node.tag in MOVE_REVISION_TAGS
         )
-        paragraphs.append((current, rejected, move_visibility_applied))
+        paragraphs.append(
+            _RoundParagraph(
+                current=current,
+                rejected=rejected,
+                move_wrapper_count=len(move_wrappers),
+                move_text_contributions=_move_text_contributions(item.element),
+            )
+        )
     return paragraphs
 
 
 def _classify_adjacent_pair(
-    left: list[tuple[str, str, bool]],
-    right: list[tuple[str, str, bool]],
-) -> tuple[dict[str, int], int]:
+    left: list[_RoundParagraph],
+    right: list[_RoundParagraph],
+) -> tuple[dict[str, int], tuple[_RejectedMatch, ...]]:
     counts = {
         "unique_current": 0,
         "ambiguous_current": 0,
         "unique_rejected": 0,
         "unmatched": 0,
     }
-    rejected_matches_with_move_visibility = 0
     left_current = [
-        current for current, _, _ in left if _has_non_whitespace(current)
+        (index, paragraph.current)
+        for index, paragraph in enumerate(left)
+        if _has_non_whitespace(paragraph.current)
     ]
+    rejected_matches = []
 
-    for current, rejected, move_visibility_applied in right:
+    for right_index, paragraph in enumerate(right):
+        current = paragraph.current
+        rejected = paragraph.rejected
         if not _has_non_whitespace(current):
             continue
-        current_count = sum(candidate == current for candidate in left_current)
+        current_count = sum(candidate == current for _, candidate in left_current)
         if current_count == 1:
             counts["unique_current"] += 1
             continue
@@ -142,24 +195,35 @@ def _classify_adjacent_pair(
             and _has_non_whitespace(rejected)
             and rejected != current
         )
-        rejected_count = (
-            sum(candidate == rejected for candidate in left_current)
+        rejected_indices = (
+            [index for index, candidate in left_current if candidate == rejected]
             if rejected_eligible
-            else 0
+            else []
         )
-        if rejected_count == 1:
+        if len(rejected_indices) == 1:
             counts["unique_rejected"] += 1
-            rejected_matches_with_move_visibility += int(move_visibility_applied)
+            rejected_matches.append(
+                _RejectedMatch(
+                    right_index=right_index,
+                    left_index=rejected_indices[0],
+                    current=current,
+                    rejected=rejected,
+                    move_wrapper_count=paragraph.move_wrapper_count,
+                    move_text_contributions=paragraph.move_text_contributions,
+                )
+            )
         else:
             counts["unmatched"] += 1
 
-    return counts, rejected_matches_with_move_visibility
+    return counts, tuple(rejected_matches)
 
 
 def test_development_identity_packages_the_frozen_spec_without_widening_v03() -> None:
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     release = runpy.run_path(str(ROOT / "scripts" / "release_contract.py"))
     sdist_includes = project["tool"]["hatch"]["build"]["targets"]["sdist"]["include"]
+    api = (ROOT / "API.md").read_text(encoding="utf-8")
+    limitations = (ROOT / "KNOWN_LIMITATIONS.md").read_text(encoding="utf-8")
 
     assert project["project"]["version"] == "0.4.0.dev0"
     assert "/CLAUSE_HISTORY_V0.4.md" in sdist_includes
@@ -169,6 +233,15 @@ def test_development_identity_packages_the_frozen_spec_without_widening_v03() ->
     assert MCP_CONTRACT_SCHEMA_VERSION == "veqtor.mcp.v0.3"
     assert len(records.WRITABLE_TOOL_NAMES) == 8
     assert "trace_paragraph_history" not in records.WRITABLE_TOOL_NAMES
+    assert re.search(
+        r"development source is package `0\.4\.0\.dev0`.*frozen\s+eight-tool MCP contract `veqtor\.mcp\.v0\.3`",
+        api,
+        re.DOTALL,
+    )
+    assert "the v0.3 examples and contracts below\nremain unchanged" in api
+    assert "development source `0.4.0.dev0`" in limitations
+    assert "frozen v0.3 examples and eight-tool MCP contract" in limitations
+    assert '"version": "0.3.0"' in api
 
 
 def test_frozen_clause_history_spec_has_closed_projection_fixture_contract() -> None:
@@ -198,7 +271,7 @@ def test_frozen_clause_history_spec_has_closed_projection_fixture_contract() -> 
         assert isinstance(json.loads(block), dict)
 
 
-def test_rejected_pending_atom_applies_the_closed_literal_visibility_table() -> None:
+def test_rejected_pending_text_applies_the_closed_literal_visibility_table() -> None:
     root = etree.Element(w("document"), nsmap={"w": W_NS})
     body = etree.SubElement(root, w("body"))
     paragraph = _paragraph(body, "plain")
@@ -234,12 +307,29 @@ def test_rejected_pending_atom_applies_the_closed_literal_visibility_table() -> 
     )
 
 
-def test_rejected_pending_atom_refuses_combined_revision_depth_three() -> None:
+@pytest.mark.parametrize(
+    ("depth", "payload"),
+    [
+        (3, "empty"),
+        (3, "unsupported"),
+        (3, "text"),
+        (4, "text"),
+        (8, "text"),
+    ],
+)
+def test_rejected_pending_paragraph_refuses_exact_structural_depth(
+    depth: int,
+    payload: str,
+) -> None:
     paragraph = etree.Element(w("p"), nsmap={"w": W_NS})
-    outer = etree.SubElement(paragraph, w("moveFrom"))
-    middle = etree.SubElement(outer, w("del"))
-    inner = etree.SubElement(middle, w("moveTo"))
-    _run(inner, "too deep")
+    parent = paragraph
+    wrapper_kinds = ("moveFrom", "del", "moveTo", "ins")
+    for index in range(depth):
+        parent = etree.SubElement(parent, w(wrapper_kinds[index % 4]))
+    if payload == "unsupported":
+        etree.SubElement(parent, w("instrText")).text = "unsupported"
+    elif payload == "text":
+        _run(parent, "too deep")
 
     with pytest.raises(ResourceLimitError) as error:
         _projection_text(paragraph)
@@ -247,7 +337,7 @@ def test_rejected_pending_atom_refuses_combined_revision_depth_three() -> None:
     assert error.value.metadata == {
         "limit": "revision_nesting_depth",
         "allowed_count": 2,
-        "observed_count": 3,
+        "observed_count": depth,
     }
 
 
@@ -277,14 +367,76 @@ def test_real_fixture_2_adjacent_pair_classifier_matches_frozen_counts(
     ]
 
     observed = []
-    move_visibility_counts = []
+    observed_matches = []
     for left_path, right_path in zip(rounds, rounds[1:]):
-        counts, move_visibility_count = _classify_adjacent_pair(
+        counts, rejected_matches = _classify_adjacent_pair(
             _round_paragraphs(left_path),
             _round_paragraphs(right_path),
         )
         observed.append(counts)
-        move_visibility_counts.append(move_visibility_count)
+        observed_matches.append(rejected_matches)
 
     assert observed == expected
-    assert move_visibility_counts == [0, 2, 0]
+    assert [
+        [(match.right_index, match.left_index) for match in matches]
+        for matches in observed_matches
+    ] == [
+        [(18, 18), (33, 31), (38, 36), (60, 58)],
+        [(26, 26), (27, 27), (61, 60)],
+        [(61, 61)],
+    ]
+
+    delivery = (
+        "Contractor shall deliver each Batch FCA (Incoterms 2020) Contractor's "
+        "facility in Hamburg, Germany, unless the Work Order states otherwise."
+    )
+    risk = "Risk in each Batch passes to Client upon handover to the first carrier."
+    causal_move_matches = [
+        match for match in observed_matches[1] if match.move_text_contributions
+    ]
+    assert [
+        (
+            match.right_index,
+            match.left_index,
+            match.move_wrapper_count,
+            match.move_text_contributions,
+            match.current,
+            match.rejected,
+        )
+        for match in causal_move_matches
+    ] == [
+        (
+            26,
+            26,
+            1,
+            ((("moveTo",), TITLE_SENTENCE),),
+            delivery + TITLE_SENTENCE,
+            delivery,
+        ),
+        (
+            27,
+            27,
+            1,
+            ((("moveFrom",), TITLE_SENTENCE),),
+            risk,
+            risk + TITLE_SENTENCE,
+        ),
+    ]
+
+    retyped_right = _round_paragraphs(
+        rounds[2],
+        retype_move_text_atoms=True,
+    )
+    assert sum(paragraph.move_wrapper_count for paragraph in retyped_right) == 2
+    assert all(
+        not paragraph.move_text_contributions
+        for paragraph in retyped_right
+        if paragraph.move_wrapper_count
+    )
+    _, retyped_matches = _classify_adjacent_pair(
+        _round_paragraphs(rounds[1]),
+        retyped_right,
+    )
+    assert [
+        (match.right_index, match.left_index) for match in retyped_matches
+    ] == [(61, 60)]
