@@ -178,8 +178,10 @@ or environment.
 
 ## Tool surface
 
-The descriptions below follow release candidate source `0.3.0`. They are not
-an installation promise until both public verifiers expose the version. For an
+The descriptions below follow the frozen eight-tool MCP contract
+`veqtor.mcp.v0.3` and its examples. The development package identity is
+`0.4.0.dev0`; it does not advertise an MCP v0.4 tool surface. They are not an
+installation promise until both public verifiers expose the version. For an
 installed version, use the API file carried by that exact artifact or its
 matching immutable tag.
 

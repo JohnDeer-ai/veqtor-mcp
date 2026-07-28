@@ -160,6 +160,12 @@ def test_release_copy_is_state_neutral_and_site_uses_public_v030() -> None:
     assert "https://pypi.org/project/veqtor-mcp/" in readme
     assert "Both sources expose `0.3.0`" in readme
     assert "| Otherwise | `0.1.2` |" in readme
+    assert (
+        "The descriptions below follow the frozen eight-tool MCP contract\n"
+        "`veqtor.mcp.v0.3` and its examples. The development package identity is\n"
+        "`0.4.0.dev0`; it does not advertise an MCP v0.4 tool surface."
+    ) in readme
+    assert "release candidate source `0.3.0`" not in readme
     assert "current public distribution" not in immutable_docs.lower()
     assert "current public release" not in immutable_docs.lower()
     assert "v0.3.0 is not public yet" not in setup
