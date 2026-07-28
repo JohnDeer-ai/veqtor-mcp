@@ -23,10 +23,11 @@ tamper-evident audit system. Review the
 [known limitations](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/KNOWN_LIMITATIONS.md)
 before using it on a real matter.
 
-This source tree is the release candidate for package `0.3.0` and advertises
-MCP contract `veqtor.mcp.v0.3`. Source, CI, or a candidate artifact is not
-publication; only matching public PyPI and immutable GitHub Release entries
-establish that the version is installable.
+This source tree is the development line for package `0.4.0.dev0`. It still
+advertises the frozen eight-tool MCP contract `veqtor.mcp.v0.3`; the Stage 3C
+history tool and MCP v0.4 surface are not implemented. Source, CI, or a
+development artifact is not publication; only matching public PyPI and
+immutable GitHub Release entries establish that a version is installable.
 
 Before installing, check both the generic
 [PyPI project](https://pypi.org/project/veqtor-mcp/) and the
@@ -265,7 +266,7 @@ No response-time, compatibility, uptime, or fix-time SLA is provided.
 ### Development checks
 
 Run these checks for ordinary development changes, including development-only
-versions such as `0.3.0.dev0`:
+versions such as `0.4.0.dev0`:
 
 ```bash
 uv lock --check

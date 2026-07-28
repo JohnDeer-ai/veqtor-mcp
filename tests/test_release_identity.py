@@ -184,13 +184,16 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
     assert len(DEVELOPMENT_RUNTIME_SOURCE_FILES) == len(development_runtime)
     assert development_runtime == discovered_runtime
     assert frozen_runtime == discovered_runtime
-    assert config["project"]["version"] == VERSION
+    assert config["project"]["version"] == "0.4.0.dev0"
+    assert VERSION == "0.3.0"
     assert wheel_includes == discovered_runtime
     assert discovered_runtime <= sdist_includes
     assert "/src/veqtor_mcp/_inspection_live.py" in wheel_includes
     assert "/src/veqtor_mcp/_inspection_live.py" in sdist_includes
     assert "/INSPECT_DOCUMENT_V0.3.md" in sdist_includes
     assert "/ROUND_MAP_V0.3.md" in sdist_includes
+    assert "/CLAUSE_HISTORY_V0.4.md" in sdist_includes
+    assert "CLAUSE_HISTORY_V0.4.md" not in SDIST_GIT_FILES
 
 
 release_contract_only = pytest.mark.skipif(
