@@ -128,12 +128,31 @@ gates.
   fake edges or confidence percentages. Filename order and explicit manifests
   remain position-only and never become chronology or paragraph lineage.
 
-### Stage 3C — validate the next write job
+### Stage 3C — evidence-preserving paragraph history
 
-- Validate whether external users primarily need evidence-preserving
-  negotiation history or a clean sendable redline before adding another write
-  mode.
-- Keep the existing history-preserving ledger separate from a future sendable
-  deliverable. The latter needs an explicit baseline and complete
-  accept/reject/normalize dispositions, a new output artifact and its own
-  preflight proof; it must never silently collapse prior negotiation evidence.
+The frozen preimplementation first-slice acceptance contract is specified in
+[`CLAUSE_HISTORY_V0.4.md`](CLAUSE_HISTORY_V0.4.md). It defines a future
+contract only; implementation, package, CI, installed-artifact, Desktop and
+publication acceptance remain separate gates.
+
+- Add one bounded `trace_paragraph_history` contract for following one exact
+  `paragraph_ref.v1` across the complete declared document set using only
+  reproducible document facts and explicit `exact_unique`, `ambiguous` or
+  `unresolved` outcomes.
+- Treat equality between a document's rejected-pending text projection and
+  another snapshot's accepted/current text as an exact text relationship only,
+  not proof of chronology, authorship, semantic clause identity or lineage.
+  Filename and manifest order remain position-only.
+- Keep the first slice read-only relative to source DOCX files and return
+  structured JSON for host formatting. It does not create a sendable redline
+  or reconstruct whole-contract history.
+
+### Stage 3D — clean sendable redline
+
+- Gate this future write slice on external-user validation of Stage 3C.
+- Require an explicit baseline, complete accept/reject/normalize dispositions,
+  a new output artifact and its own preflight proof. A sendable deliverable
+  must never silently collapse or overwrite negotiation evidence.
+- Treat specification, implementation, artifact, Desktop and publication
+  acceptance as separate gates; this backlog entry is not a release
+  commitment.

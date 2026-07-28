@@ -63,8 +63,9 @@ digital signature, a trusted timestamp or tamper evidence.
 ## Next
 
 - Extend supported OOXML layouts based on reproducible public issues.
-- Improve round-to-round navigation without turning probabilistic matching
-  into evidence.
+- Explore bounded, evidence-preserving paragraph history while keeping
+  positional order, revision metadata and exact text relationships distinct
+  from chronology, authorship and semantic lineage.
 - Refine installation, diagnostics and examples from external-user feedback.
 
 ### Claude Desktop Extension in source version 0.3.0
