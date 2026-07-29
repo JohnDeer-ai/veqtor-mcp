@@ -123,8 +123,7 @@ def _has_selected_exclusion(
 
 
 def _containing_paragraph(element: etree._Element) -> etree._Element | None:
-    if element.tag == w("p"):
-        return element
+    """Return the nearest outer paragraph, never ``element`` itself."""
     return next(
         (ancestor for ancestor in element.iterancestors() if ancestor.tag == w("p")),
         None,

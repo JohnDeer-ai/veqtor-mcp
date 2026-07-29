@@ -637,6 +637,26 @@ def test_projection_builder_refuses_orphan_text_bearing_context(
     assert error.value.code == "file_unextractable"
 
 
+def test_projection_builder_scopes_nested_paragraph_exclusion_to_outer() -> None:
+    document = etree.Element(w("document"), nsmap={"w": W_NS})
+    body = etree.SubElement(document, w("body"))
+    outer = _paragraph(body, "outer current")
+    _paragraph(outer, "excluded nested text")
+    sibling = _paragraph(body, "unrelated sibling")
+    flow = canonical_body_flow_v1(body)
+    assert flow.container_policy["excluded_by_kind"] == {"nested_paragraph": 1}
+
+    outer_projection = build_paragraph_projection_v1(outer, flow)
+    assert outer_projection["projection_status"] == "unavailable"
+    assert outer_projection["unavailable_reasons"] == [
+        "declared_scope_incomplete"
+    ]
+
+    sibling_projection = build_paragraph_projection_v1(sibling, flow)
+    assert sibling_projection["projection_status"] == "complete"
+    assert sibling_projection["unavailable_reasons"] == []
+
+
 def test_projection_builder_attributes_structural_revisions_to_owners_only() -> None:
     document = etree.Element(w("document"), nsmap={"w": W_NS})
     body = etree.SubElement(document, w("body"))
