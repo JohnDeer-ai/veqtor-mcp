@@ -98,12 +98,12 @@ def _enforce_text_limit(text: str, *, limit: str, allowed_count: int) -> None:
 
 
 def _has_stray_deleted_text(paragraph: etree._Element) -> bool:
-    for node in iter_canonical_paragraph_nodes(paragraph):
-        if node.tag != w("delText"):
+    for node in paragraph.iter(w("delText")):
+        if _containing_paragraph(node) != paragraph:
             continue
         deletion_like = False
         for ancestor in node.iterancestors():
-            if ancestor == paragraph:
+            if ancestor.tag == w("p"):
                 break
             if ancestor.tag in {w("del"), w("moveFrom")}:
                 deletion_like = True
@@ -117,9 +117,49 @@ def _has_selected_exclusion(
     body_flow: CanonicalBodyFlow,
 ) -> bool:
     return any(
-        _is_descendant_of(excluded.element, paragraph)
+        _containing_paragraph(excluded.element) == paragraph
         for excluded in body_flow.excluded_subtrees
     )
+
+
+def _containing_paragraph(element: etree._Element) -> etree._Element | None:
+    if element.tag == w("p"):
+        return element
+    return next(
+        (ancestor for ancestor in element.iterancestors() if ancestor.tag == w("p")),
+        None,
+    )
+
+
+def _validate_exclusion_attribution(body_flow: CanonicalBodyFlow) -> None:
+    canonical_paragraphs = {item.element for item in body_flow.paragraphs}
+    for excluded in body_flow.excluded_subtrees:
+        containing_paragraph = _containing_paragraph(excluded.element)
+        if containing_paragraph in canonical_paragraphs:
+            continue
+        raise ArchiveValidationError(
+            "excluded text-bearing subtree has no attributable canonical paragraph"
+        )
+
+
+def _validate_stray_deleted_text_attribution(body_flow: CanonicalBodyFlow) -> None:
+    if not body_flow.paragraphs:
+        return
+    canonical_paragraphs = {item.element for item in body_flow.paragraphs}
+    document = body_flow.paragraphs[0].element.getroottree().getroot()
+    for node in document.iter(w("delText")):
+        deletion_like = False
+        for ancestor in node.iterancestors():
+            if ancestor.tag == w("p"):
+                break
+            if ancestor.tag in {w("del"), w("moveFrom")}:
+                deletion_like = True
+        if deletion_like:
+            continue
+        if _containing_paragraph(node) not in canonical_paragraphs:
+            raise ArchiveValidationError(
+                "stray deleted text has no attributable canonical paragraph"
+            )
 
 
 def _direct_owner(
@@ -209,8 +249,6 @@ def _has_existence_affecting_revision(
         if element.tag not in TEXT_REVISION_TAGS | _CELL_EXISTENCE_TAGS:
             continue
         owner = _existence_revision_owner(element)
-        if body_flow.exclusion_kind_for(element) is not None:
-            continue
         if owner is sentinel or owner is None:
             continue
         if _is_descendant_of(paragraph, owner):
@@ -273,6 +311,8 @@ def build_paragraph_projection_v1(
     refuse before a projection object is returned.
     """
     _require_selected_paragraph(paragraph, body_flow)
+    _validate_exclusion_attribution(body_flow)
+    _validate_stray_deleted_text_attribution(body_flow)
     _validate_revision_placements(body_flow)
 
     current = _current_text(paragraph)

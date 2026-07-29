@@ -509,6 +509,134 @@ def test_projection_builder_preserves_all_unavailable_reasons_in_order() -> None
     }
 
 
+@pytest.mark.parametrize(
+    "expected_reasons",
+    [
+        ("stray_deleted_text",),
+        ("existence_affecting_revision",),
+        ("declared_scope_incomplete",),
+        ("stray_deleted_text", "existence_affecting_revision"),
+        ("stray_deleted_text", "declared_scope_incomplete"),
+        ("existence_affecting_revision", "declared_scope_incomplete"),
+        (
+            "stray_deleted_text",
+            "existence_affecting_revision",
+            "declared_scope_incomplete",
+        ),
+    ],
+)
+def test_projection_builder_preserves_every_unavailable_reason_subset(
+    expected_reasons: tuple[str, ...],
+) -> None:
+    body, paragraph, _ = _single_paragraph_flow("current")
+    unknown = None
+    if "declared_scope_incomplete" in expected_reasons:
+        unknown = etree.SubElement(paragraph, w("unknownTextContainer"))
+
+    if "stray_deleted_text" in expected_reasons:
+        _run(unknown if unknown is not None else paragraph, " stray", deleted=True)
+    elif unknown is not None:
+        _run(unknown, " hidden")
+
+    if "existence_affecting_revision" in expected_reasons:
+        properties = etree.Element(w("pPr"))
+        run_properties = etree.SubElement(properties, w("rPr"))
+        etree.SubElement(run_properties, w("ins"))
+        paragraph.insert(0, properties)
+
+    projection = build_paragraph_projection_v1(
+        paragraph,
+        canonical_body_flow_v1(body),
+    )
+
+    assert projection["projection_status"] == "unavailable"
+    assert projection["unavailable_reasons"] == list(expected_reasons)
+    assert projection["text_state"] is None
+    assert projection["equals_current"] is None
+    assert projection["has_non_whitespace"] is False
+    assert projection["match_eligible"] is False
+    assert projection["projection_text_sha256"] is None
+    assert projection["text_length"] is None
+    assert projection["text"] is None
+    assert projection["move_wrapper_visibility_applied"] is False
+    assert projection["move_pairing"] == "not_attempted"
+
+
+def test_projection_builder_refuses_unattributable_excluded_row_context() -> None:
+    document = etree.Element(w("document"), nsmap={"w": W_NS})
+    body = etree.SubElement(document, w("body"))
+    table = etree.SubElement(body, w("tbl"))
+
+    affected_row = etree.SubElement(table, w("tr"))
+    affected_properties = etree.SubElement(affected_row, w("trPr"))
+    etree.SubElement(affected_properties, w("ins"))
+    etree.SubElement(affected_properties, w("t")).text = "illegal property text"
+    affected_paragraphs = []
+    for text in ("first affected", "second affected"):
+        cell = etree.SubElement(affected_row, w("tc"))
+        affected_paragraphs.append(_paragraph(cell, text))
+
+    unaffected_row = etree.SubElement(table, w("tr"))
+    unaffected_cell = etree.SubElement(unaffected_row, w("tc"))
+    unaffected_paragraph = _paragraph(unaffected_cell, "unaffected sibling")
+    flow = canonical_body_flow_v1(body)
+    assert flow.container_policy["excluded_by_kind"] == {"unknown_container": 1}
+
+    for paragraph in (*affected_paragraphs, unaffected_paragraph):
+        with pytest.raises(ArchiveValidationError) as error:
+            build_paragraph_projection_v1(paragraph, flow)
+        assert error.value.code == "file_unextractable"
+
+
+def test_projection_builder_attributes_row_revision_to_every_owner_only() -> None:
+    document = etree.Element(w("document"), nsmap={"w": W_NS})
+    body = etree.SubElement(document, w("body"))
+    table = etree.SubElement(body, w("tbl"))
+
+    affected_row = etree.SubElement(table, w("tr"))
+    affected_properties = etree.SubElement(affected_row, w("trPr"))
+    etree.SubElement(affected_properties, w("ins"))
+    affected_paragraphs = []
+    for text in ("first affected", "second affected"):
+        cell = etree.SubElement(affected_row, w("tc"))
+        affected_paragraphs.append(_paragraph(cell, text))
+
+    unaffected_row = etree.SubElement(table, w("tr"))
+    unaffected_cell = etree.SubElement(unaffected_row, w("tc"))
+    unaffected_paragraph = _paragraph(unaffected_cell, "unaffected sibling")
+    flow = canonical_body_flow_v1(body)
+    assert flow.container_policy["excluded_subtree_count"] == 0
+
+    for paragraph in affected_paragraphs:
+        projection = build_paragraph_projection_v1(paragraph, flow)
+        assert projection["projection_status"] == "unavailable"
+        assert projection["unavailable_reasons"] == [
+            "existence_affecting_revision"
+        ]
+
+    sibling_projection = build_paragraph_projection_v1(unaffected_paragraph, flow)
+    assert sibling_projection["projection_status"] == "complete"
+    assert sibling_projection["unavailable_reasons"] == []
+
+
+@pytest.mark.parametrize("orphan_kind", ["deleted_text", "unknown_container"])
+def test_projection_builder_refuses_orphan_text_bearing_context(
+    orphan_kind: str,
+) -> None:
+    body, paragraph, _ = _single_paragraph_flow("current")
+    if orphan_kind == "deleted_text":
+        etree.SubElement(body, w("delText")).text = "orphan deleted text"
+    else:
+        unknown = etree.SubElement(body, w("unknownTextContainer"))
+        _run(unknown, "orphan text")
+    flow = canonical_body_flow_v1(body)
+
+    with pytest.raises(ArchiveValidationError) as error:
+        build_paragraph_projection_v1(paragraph, flow)
+
+    assert error.value.code == "file_unextractable"
+
+
 def test_projection_builder_attributes_structural_revisions_to_owners_only() -> None:
     document = etree.Element(w("document"), nsmap={"w": W_NS})
     body = etree.SubElement(document, w("body"))
