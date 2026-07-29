@@ -3,7 +3,7 @@ name: code-orchestrator
 description: Run one lightweight, bounded Codex Desktop developer/reviewer workflow with managed worktrees and exact-SHA evidence. Use only when explicitly invoked; never apply it to ordinary coding or review.
 ---
 
-# Code Orchestrator V1.3
+# Code Orchestrator V1.3.1
 
 ## Purpose and authority
 
@@ -28,8 +28,9 @@ its own inspection for canonical review.
 - Developer alone may edit, create commit objects, and advance only its assigned
   writer ref through authorized commits or a permitted base merge. It must not
   modify any other shared refs, remotes, config, hooks, or worktrees, push, or
-  manage PRs. Reviewer may inspect/test only and may not stage, commit, fetch,
-  move refs, or push.
+  manage PRs. Reviewer may inspect/test and change only its private `HEAD`,
+  index, and files through authorized `git checkout --detach <exact-H>`. It
+  must not author/stage changes, commit, fetch, move shared refs, or push.
 - Orchestrator may manage tasks/evidence and, when authorized, push exact H and
   manage draft/ready PR state, but creates no commits. Merge,
   release/publication, force-push, history rewrite, remote deletion, and model
@@ -65,8 +66,10 @@ matching result plus independently verified identity proves acceptance. For
 write lifecycle records. Before redispatch, search tasks and Git for the same
 `RUN/STEP`; ambiguity is `NEEDS_RECOVERY`. Apply this to every top-level role
 dispatch. Publish checkpoints only at start, freeze, verdict, pause/recovery,
-and final. Wait for events without polling or unchanged progress narration; a
-normal run has three to five substantive updates.
+and final. Wait for events without polling. Never relay percentages, partial
+counts, unchanged waits, or narration that only says work continues. A normal
+run has three to five substantive updates; use a sparse heartbeat only if the
+environment requires one.
 
 ## Workers and orders
 
@@ -86,13 +89,55 @@ observable environment/identity change.
 Recreate a mismatched worker once through the exact local project; recurrence
 is `NEEDS_USER`. An Orchestrator profile mismatch is immediately `NEEDS_USER`.
 
-Initial orders are 60–120 words; fix/closure orders normally 40–100. Include
-only identity, objective, essential scope/authority, targeted checks, and
-return fields. Neither worker creates top-level roles or invokes repository
-workflow skills. Reviewer may use bounded internal read-only helpers for leads,
-but must reproduce material evidence and owns the verdict. A fix order carries
-a compact canonical packet: ID, severity, invariant/root class when required,
-evidence/reproduction, and closure criterion—not a narrative report.
+Every worker order begins exactly:
+
+```text
+This is a role task. Execute this order directly; do not invoke or read
+repository workflow skills, inspect orchestration history, or create top-level
+tasks.
+```
+
+Every Reviewer order also states:
+
+```text
+You may run git checkout --detach <exact H> in your private worktree; changing
+only its private HEAD/index/checked-out files is permitted, while shared refs
+remain forbidden.
+```
+
+Every initial Developer order also states:
+
+```text
+Before semantic acceptance run only targeted tests and fast lint. Defer the
+full suite and package/artifact/Desktop gates to final gates unless repository
+policy explicitly requires earlier execution. A packaging change may get one
+targeted package probe.
+```
+
+Keep routing envelopes short: initial 60–120 words and fix/closure 40–100.
+Canonical packets and user-named scope are excluded from those limits. Include
+identity, objective, authority, targeted checks, and return fields. Reviewer
+may use bounded read-only helpers for leads, but reproduces material evidence
+and owns the verdict.
+
+When discovery finds P0–P2, the Discovery Reviewer—not Orchestrator—authors the
+`CANONICAL_FINDING_PACKET`. Set `PACKET_SOURCE=RUN/STEP@H/T`; separately name
+each fix/closure input H/T. Each root finding contains a stable ID, P0/P1/P2
+severity, violated invariant or guarantee, reproducible steps or independently
+observed evidence, and one or more run-unique criterion IDs with falsifiable closure
+conditions; suffix independently verifiable surfaces, for example
+`DOC-1.a`–`DOC-1.c`. Reviewer emits `PACKET_CRITERIA` as the exact set of every
+criterion ID in that packet. Run-level `REQUIRED_CRITERIA` is the immutable exact
+union of `PACKET_CRITERIA` from all validated packets; later packets may add IDs
+but never delete or rename prior IDs. Orchestrator only validates these fields,
+source, ID uniqueness, verdict coverage, and set equality, then routes the
+packet verbatim to Developer and closure; it never authors, reconstructs,
+paraphrases, merges, renames, or omits packet content.
+Both echo exact `PACKET_SOURCE`. Developer returns evidence and exactly one
+disposition per criterion: `FIXED`, `ALREADY_SATISFIED`, or `BLOCKED`. Closure
+returns `PASS` or `OPEN` with current-H evidence for the same IDs. A
+verdict/packet or source mismatch, invalid disposition, or missing, duplicate,
+or unknown ID is `INCOMPLETE`.
 
 For ordinary replacement, act only on persistent profile mismatch, lost
 worktree, hang, authority breach, or anchoring on rejected architecture. Never
@@ -108,18 +153,34 @@ mutating Developer work in flight.
 DEVELOP -> FREEZE -> (DISCOVERY || DRAFT_CI) -> JOIN
 -> FIX if needed -> FREEZE
 -> ((DISCOVERY if INCOMPLETE else CLOSURE) || CI) -> JOIN
--> BASE_CHECK/SYNC -> (CURRENT_CI || FULL_LOCAL) -> ARTIFACT
+-> BASE_CHECK/SYNC -> (CURRENT_CI || INVALIDATED_FULL_LOCAL)
+-> ARTIFACT_IF_NEW_INPUT_IDENTITY
 -> DESKTOP if required -> DONE_LOCAL | READY_TO_MERGE_PR
 ```
 
-1. Developer chooses the implementation, runs targeted tests/fast lint, and
-   returns a DCO commit, H/T, changed surface, checks, and risks.
+1. Developer runs targeted tests/fast lint and returns a DCO commit, H/T,
+   changed surface, checks, and risks. Before semantic acceptance, prohibit the
+   full suite and final package/artifact ceremony unless policy explicitly
+   requires their earlier execution; packaging changes may get a targeted
+   package probe.
 2. Orchestrator freezes H/T, ancestry, cleanliness, branch, and commit policy.
 3. With push/PR authority, push to a draft PR and run hosted CI in parallel
    with discovery. Early CI is platform evidence, not acceptance.
-4. At each `JOIN`, wait for terminal review/closure and CI on the same H. Return
-   one non-P0 package to Developer. A confirmed P0 rejects H and may interrupt
-   only to contain risk. If it interrupts discovery, record
+4. At each `JOIN`, wait for terminal review/closure and CI on the same H. Route
+   `FIX` only from validated Reviewer-authored packets. A candidate semantic
+   P0–P2 first surfaced by CI or external review without a compatible packet is
+   evidence only: before `FIX`, the bound canonical Reviewer independently
+   validates it at exact H/T and emits a compatible packet; Orchestrator never
+   converts source narrative into packet content. `CI_RECOVERY` is allowed only
+   when logs prove a runner, network, hosted-service, or tool-startup outage
+   outside repository code/tests on exact H+B@M. A repository assertion,
+   product/test-path timeout or error, or product-returned failure remains
+   semantic evidence even if a rerun passes. For a proven external outage,
+   rerun only the failed job once on unchanged H+B@M. Success returns to `JOIN`;
+   another external failure is `BLOCKED_EXTERNAL`. Changed H, B, or M invalidates
+   recovery and follows normal flow. A confirmed P0 rejects H and may interrupt
+   only to contain risk, but requires its packet before a code fix. If it
+   interrupts discovery, record
    `DISCOVERY=INCOMPLETE @ H/T`. After the fix, complete the entire original
    broad scope on new H/T; narrow P0 closure cannot replace it. Use the same
    Reviewer unless the fix is a material pivot, in which case the mandatory
@@ -127,8 +188,9 @@ DEVELOP -> FREEZE -> (DISCOVERY || DRAFT_CI) -> JOIN
    after broad scope completion and closure of its findings. Except for P0, do
    not start another fix while review or CI for H runs.
 5. After semantic acceptance, resolve required base drift. Run current CI and
-   full local in parallel unless already current. Build package/artifact only
-   after stable inputs and passing required gates; run Desktop last.
+   any invalidated full-local evidence in parallel. Build package/artifact only
+   after stable inputs and passing required gates, once per stable package-input
+   identity; run Desktop last.
 
 For `DONE_LOCAL`, omit remote, CI, artifact, or Desktop gates not required by
 the target or repository policy.
@@ -136,19 +198,30 @@ the target or repository policy.
 ## Review, fixes, and architecture
 
 Discovery receives frozen specification and exact `B0..H/T`, but no Developer
-narrative, expected problems, or suggested solution. It covers the relevant
-surface, tries to falsify guarantees, and returns `PASS` or reproducible P0–P2
-using inspection and targeted adversarial checks. It does not run
-package/artifact/Desktop ceremony, but applicable full-suite evidence already
-produced at exact H/T may be reused.
+narrative, expected problems, or suggested solution. Repeat every user-named
+file, surface, invariant, and acceptance condition in `REQUIRED_NAMED_SCOPE`.
+Reviewer echoes each in `COVERED_NAMED_SCOPE` with independently observed
+current-H evidence and, when applicable, its criterion ID. An ID alone is not
+evidence. Missing, duplicate, unknown, or set-mismatched items make it
+`INCOMPLETE`; `docs checked` is not coverage. Do not enumerate unnamed
+repository/specification prose. Discovery covers the
+relevant surface, tries to falsify guarantees, and returns `PASS` or
+reproducible P0–P2 using inspection and targeted adversarial checks. It does
+not run package/artifact/Desktop ceremony, but applicable full-suite evidence
+already produced at exact H/T may be reused.
 
 Before final gates, a user-named external review of current H/T may replace
 canonical discovery only if task evidence proves exact `B0..H/T`, clean
 before/after state, full frozen-specification/relevant-surface scope, read-only
-operation, no Developer narrative, `Ultra`, and a broad verdict. Verify its
+operation, no Developer narrative, `Ultra`, and a broad verdict. A qualifying
+external `PASS` needs no packet. A findings verdict is adoptable only with a
+compatible Reviewer-authored packet; otherwise it remains evidence only until
+that Reviewer, or one validation/closure-only replacement if unavailable,
+independently validates it at exact H/T and emits the packet. Verify its
 reproductions; `PASS` has none. Make the prior Reviewer idle/non-canonical,
-preserve findings, and bind the external Reviewer for closure without adding
-another broad review. Older-H/T or narrow review is evidence only. If that
+preserve findings, and bind the Reviewer that authored the adopted packet for
+closure without adding another broad review; an external `PASS` needs no
+closure. Older-H/T or narrow review is evidence only. If that
 Reviewer is confirmed idle/completed but unavailable because it is archived or
 its worktree is gone, create one closure-only task with the original finding
 packet and current exact H/T; this is not discovery. Use `NEEDS_RECOVERY` only
@@ -156,8 +229,13 @@ for ambiguous provenance, unknown old-task activity, or identity mismatch.
 
 Closure is narrow by scope but deep by risk: verify the invariant, complete
 affected call path, adjacent failure modes, regressions, and assertion strength.
-Do not reread the branch; ordinary fixes stay with the canonical Reviewer. If a
-fix changes source of truth, linearization, persistence/rollback,
+Text criteria require approved wording present and stale/contradictory wording
+absent. A named file expected to change appears in the delta or has independent
+`ALREADY_SATISFIED` evidence. Ordinary fixes stay with the canonical Reviewer.
+If later evidence disproves `PASS`, reopen only that criterion, invalidate
+readiness, and make that Reviewer non-canonical for it. After the fix use one
+fresh closure-only Reviewer; repeat discovery only for a material pivot.
+If a fix changes source of truth, linearization, persistence/rollback,
 trust/authority boundary, or public contract, create exactly one fresh
 independent Ultra Reviewer for broad affected-surface review at new H/T. Its
 verdict covers related closure and the pivot; do not duplicate that work in the
@@ -203,6 +281,11 @@ H1..H2 @ H2/T2`, `CI PASS H+B@M`, `ARTIFACT PASS @ inputs/digest`, and
 `DESKTOP PASS @ digest/runtime`. Keep immutable `REVIEW_BASE=B0` separate from
 current `PR_BASE=B`; never rerun current evidence ceremonially.
 
+Full-local evidence becomes stale only when relevant product/test inputs
+change. If policy permits, a narrow docs test plus current hosted full CI is
+sufficient. Reuse an artifact cycle while package-input identity and accepted
+digest are unchanged.
+
 At `BASE_CHECK`, require feature-base integration when repository policy demands
 an up-to-date branch, targeted drift analysis finds semantic overlap, or the
 changed base affects package/test/runtime inputs. Assigned Developer performs
@@ -220,8 +303,9 @@ worktree; `HEAD == H`; `HEAD^{tree} == T`; `merge-base(B0,H) == B0`; assigned
 writer branch ref `== H`; and DCO for every commit in current `PR_BASE..H`,
 including feature merge commits. After base integration also verify
 `merge-base(PR_BASE,H) == PR_BASE`. Untracked/ignored files must be absent or
-listed and proven not to be test/build inputs. Reviewer checks out H detached,
-verifies H/T/clean before and after, and never fetches or moves shared refs.
+listed and proven not to be test/build inputs. Reviewer may check out exact H
+detached in its private worktree, verifies H/T/clean before and after, and never
+fetches or moves shared refs.
 Missing objects or identity failure is `NEEDS_RECOVERY`; only Orchestrator
 performs inspected recovery.
 
@@ -237,9 +321,14 @@ Pause as `NEEDS_USER`, `NEEDS_RECOVERY`, or `BLOCKED_EXTERNAL`; terminate as
 `SUPERSEDED` or `ABORTED`. Do not start another run until the prior active or
 paused run is resumed, superseded, or aborted.
 
-Complete only with no open P0/P1; every P2 fixed or explicitly accepted by an
-authorized party; practical regressions for confirmed defects;
-`DISCOVERY=PASS`; and all current target gates. `READY_TO_MERGE_PR` is a
+Semantic acceptance requires
+`REQUIRED_CRITERIA == PASS_CRITERIA union AUTHORIZED_ACCEPTED_CRITERIA`, no
+missing/duplicate/unknown IDs, and empty `OPEN`; before then, `OPEN` lists every
+still-open criterion ID. Complete only with no open P0/P1, every P2 fixed or
+authorized-accepted, practical
+regressions, `DISCOVERY=PASS`, and current target gates. Any reopened P0–P2
+invalidates `READY_TO_MERGE_PR`; when authorized, return the PR to draft first.
+`READY_TO_MERGE_PR` is a
 timestamped snapshot requiring current PR head H/base B, required checks on
 current synthetic M, mergeability, resolved review threads, repository/DCO
 policy, and `isDraft=false` after Orchestrator actually marks the PR ready. It
