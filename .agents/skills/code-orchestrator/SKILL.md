@@ -105,20 +105,34 @@ only its private HEAD/index/checked-out files is permitted, while shared refs
 remain forbidden.
 ```
 
+Every initial Developer order also states:
+
+```text
+Before semantic acceptance run only targeted tests and fast lint. Defer the
+full suite and package/artifact/Desktop gates to final gates unless repository
+policy explicitly requires earlier execution. A packaging change may get one
+targeted package probe.
+```
+
 Keep routing envelopes short: initial 60–120 words and fix/closure 40–100.
 Canonical packets and user-named scope are excluded from those limits. Include
 identity, objective, authority, targeted checks, and return fields. Reviewer
 may use bounded read-only helpers for leads, but reproduces material evidence
 and owns the verdict.
 
-Canonical findings are immutable. Set `PACKET_SOURCE=RUN/STEP@H/T`; separately
-name each fix/closure input H/T. Give every root finding a stable ID and at
-least one criterion; suffix each independently verifiable named surface,
-invariant, or regression, for example `DOC-1.a`–`DOC-1.c`. Copy the packet
-verbatim to Developer and closure—never paraphrase, merge, rename, or omit it.
-Both echo exact `PACKET_SOURCE`. Developer returns disposition/evidence per
-criterion; closure returns `PASS` or `OPEN` with current-H evidence for the
-same IDs. Source mismatch or missing, duplicate, or unknown IDs is `INCOMPLETE`.
+When discovery finds P0–P2, the Discovery Reviewer—not Orchestrator—authors the
+`CANONICAL_FINDING_PACKET`. Set `PACKET_SOURCE=RUN/STEP@H/T`; separately name
+each fix/closure input H/T. Give every root finding a stable ID and at least one
+criterion; suffix each independently verifiable named surface, invariant, or
+regression, for example `DOC-1.a`–`DOC-1.c`. Orchestrator only validates required
+fields/source and that every P0–P2 in the verdict is in the packet, then routes
+it verbatim to Developer and closure; it never authors, reconstructs,
+paraphrases, merges, renames, or omits packet content.
+Both echo exact `PACKET_SOURCE`. Developer returns evidence and exactly one
+disposition per criterion: `FIXED`, `ALREADY_SATISFIED`, or `BLOCKED`. Closure
+returns `PASS` or `OPEN` with current-H evidence for the same IDs. A
+verdict/packet or source mismatch, invalid disposition, or missing, duplicate,
+or unknown ID is `INCOMPLETE`.
 
 For ordinary replacement, act only on persistent profile mismatch, lost
 worktree, hang, authority breach, or anchoring on rejected architecture. Never
@@ -141,8 +155,9 @@ DEVELOP -> FREEZE -> (DISCOVERY || DRAFT_CI) -> JOIN
 
 1. Developer runs targeted tests/fast lint and returns a DCO commit, H/T,
    changed surface, checks, and risks. Before semantic acceptance, prohibit the
-   full suite and final package/artifact ceremony unless policy requires them;
-   packaging changes may get a targeted package probe.
+   full suite and final package/artifact ceremony unless policy explicitly
+   requires their earlier execution; packaging changes may get a targeted
+   package probe.
 2. Orchestrator freezes H/T, ancestry, cleanliness, branch, and commit policy.
 3. With push/PR authority, push to a draft PR and run hosted CI in parallel
    with discovery. Early CI is platform evidence, not acceptance.
@@ -168,8 +183,9 @@ the target or repository policy.
 Discovery receives frozen specification and exact `B0..H/T`, but no Developer
 narrative, expected problems, or suggested solution. Repeat every user-named
 file, surface, invariant, and acceptance condition in `REQUIRED_NAMED_SCOPE`.
-Reviewer echoes each in `COVERED_NAMED_SCOPE` with current-H evidence or a
-criterion ID. Missing, duplicate, unknown, or set-mismatched items make it
+Reviewer echoes each in `COVERED_NAMED_SCOPE` with independently observed
+current-H evidence and, when applicable, its criterion ID. An ID alone is not
+evidence. Missing, duplicate, unknown, or set-mismatched items make it
 `INCOMPLETE`; `docs checked` is not coverage. Do not enumerate unnamed
 repository/specification prose. Discovery covers the
 relevant surface, tries to falsify guarantees, and returns `PASS` or
