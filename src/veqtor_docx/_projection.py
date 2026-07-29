@@ -60,8 +60,8 @@ _PROPERTY_SUBTREE_TAGS = frozenset(
 
 
 def _is_descendant_of(element: etree._Element, ancestor: etree._Element) -> bool:
-    return element is ancestor or any(
-        parent is ancestor for parent in element.iterancestors()
+    return element == ancestor or any(
+        parent == ancestor for parent in element.iterancestors()
     )
 
 
@@ -70,7 +70,7 @@ def _require_selected_paragraph(
     body_flow: CanonicalBodyFlow,
 ) -> None:
     matches = [
-        item for item in body_flow.paragraphs if item.element is paragraph
+        item for item in body_flow.paragraphs if item.element == paragraph
     ]
     if len(matches) != 1:
         raise ArchiveValidationError(
@@ -103,7 +103,7 @@ def _has_stray_deleted_text(paragraph: etree._Element) -> bool:
             continue
         deletion_like = False
         for ancestor in node.iterancestors():
-            if ancestor is paragraph:
+            if ancestor == paragraph:
                 break
             if ancestor.tag in {w("del"), w("moveFrom")}:
                 deletion_like = True
@@ -223,12 +223,12 @@ def _validate_revision_placements(body_flow: CanonicalBodyFlow) -> None:
     if not body_flow.paragraphs:
         return
     document = body_flow.paragraphs[0].element.getroottree().getroot()
-    canonical_node_ids = {
-        id(node)
+    canonical_nodes = {
+        node
         for item in body_flow.paragraphs
         for node in iter_canonical_paragraph_nodes(item.element)
     }
-    exclusion_roots = {id(item.element) for item in body_flow.excluded_subtrees}
+    exclusion_roots = {item.element for item in body_flow.excluded_subtrees}
     sentinel = _existence_revision_owner
 
     for element in document.iter():
@@ -237,11 +237,11 @@ def _validate_revision_placements(body_flow: CanonicalBodyFlow) -> None:
         owner = _existence_revision_owner(element)
         if owner is not sentinel:
             continue
-        if id(element) in canonical_node_ids:
+        if element in canonical_nodes:
             continue
 
         exclusion_kind = body_flow.exclusion_kind_for(element)
-        if exclusion_kind is None or id(element) in exclusion_roots:
+        if exclusion_kind is None or element in exclusion_roots:
             raise ArchiveValidationError(
                 f"{etree.QName(element).localname} has no valid paragraph placement"
             )
