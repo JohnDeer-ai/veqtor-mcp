@@ -122,11 +122,16 @@ and owns the verdict.
 
 When discovery finds P0–P2, the Discovery Reviewer—not Orchestrator—authors the
 `CANONICAL_FINDING_PACKET`. Set `PACKET_SOURCE=RUN/STEP@H/T`; separately name
-each fix/closure input H/T. Give every root finding a stable ID and at least one
-criterion; suffix each independently verifiable named surface, invariant, or
-regression, for example `DOC-1.a`–`DOC-1.c`. Orchestrator only validates required
-fields/source and that every P0–P2 in the verdict is in the packet, then routes
-it verbatim to Developer and closure; it never authors, reconstructs,
+each fix/closure input H/T. Each root finding contains a stable ID, P0/P1/P2
+severity, violated invariant or guarantee, reproducible steps or independently
+observed evidence, and one or more run-unique criterion IDs with falsifiable closure
+conditions; suffix independently verifiable surfaces, for example
+`DOC-1.a`–`DOC-1.c`. Reviewer emits `PACKET_CRITERIA` as the exact set of every
+criterion ID in that packet. Run-level `REQUIRED_CRITERIA` is the immutable exact
+union of `PACKET_CRITERIA` from all validated packets; later packets may add IDs
+but never delete or rename prior IDs. Orchestrator only validates these fields,
+source, ID uniqueness, verdict coverage, and set equality, then routes the
+packet verbatim to Developer and closure; it never authors, reconstructs,
 paraphrases, merges, renames, or omits packet content.
 Both echo exact `PACKET_SOURCE`. Developer returns evidence and exactly one
 disposition per criterion: `FIXED`, `ALREADY_SATISFIED`, or `BLOCKED`. Closure
@@ -161,9 +166,15 @@ DEVELOP -> FREEZE -> (DISCOVERY || DRAFT_CI) -> JOIN
 2. Orchestrator freezes H/T, ancestry, cleanliness, branch, and commit policy.
 3. With push/PR authority, push to a draft PR and run hosted CI in parallel
    with discovery. Early CI is platform evidence, not acceptance.
-4. At each `JOIN`, wait for terminal review/closure and CI on the same H. Return
-   one non-P0 package to Developer. A confirmed P0 rejects H and may interrupt
-   only to contain risk. If it interrupts discovery, record
+4. At each `JOIN`, wait for terminal review/closure and CI on the same H. Route
+   `FIX` only from validated Reviewer-authored packets. A candidate semantic
+   P0–P2 first surfaced by CI or external review without a compatible packet is
+   evidence only: before `FIX`, the bound canonical Reviewer independently
+   validates it at exact H/T and emits a compatible packet; Orchestrator never
+   converts source narrative into packet content. Non-semantic CI/infra failures
+   use CI recovery instead. A confirmed P0 rejects H and may interrupt only to
+   contain risk, but requires its packet before a code fix. If it interrupts
+   discovery, record
    `DISCOVERY=INCOMPLETE @ H/T`. After the fix, complete the entire original
    broad scope on new H/T; narrow P0 closure cannot replace it. Use the same
    Reviewer unless the fix is a material pivot, in which case the mandatory
@@ -196,10 +207,15 @@ already produced at exact H/T may be reused.
 Before final gates, a user-named external review of current H/T may replace
 canonical discovery only if task evidence proves exact `B0..H/T`, clean
 before/after state, full frozen-specification/relevant-surface scope, read-only
-operation, no Developer narrative, `Ultra`, and a broad verdict. Verify its
+operation, no Developer narrative, `Ultra`, and a broad verdict. A qualifying
+external `PASS` needs no packet. A findings verdict is adoptable only with a
+compatible Reviewer-authored packet; otherwise it remains evidence only until
+that Reviewer, or one validation/closure-only replacement if unavailable,
+independently validates it at exact H/T and emits the packet. Verify its
 reproductions; `PASS` has none. Make the prior Reviewer idle/non-canonical,
-preserve findings, and bind the external Reviewer for closure without adding
-another broad review. Older-H/T or narrow review is evidence only. If that
+preserve findings, and bind the Reviewer that authored the adopted packet for
+closure without adding another broad review; an external `PASS` needs no
+closure. Older-H/T or narrow review is evidence only. If that
 Reviewer is confirmed idle/completed but unavailable because it is archived or
 its worktree is gone, create one closure-only task with the original finding
 packet and current exact H/T; this is not discovery. Use `NEEDS_RECOVERY` only
