@@ -60,8 +60,13 @@ RUNTIME_SOURCE_FILES = (
     "src/veqtor_mcp/server.py",
 )
 
-# Kept as a compatibility alias for release-identity tests and helper imports.
-DEVELOPMENT_RUNTIME_SOURCE_FILES = RUNTIME_SOURCE_FILES
+# Development source may advance without widening the frozen v0.3 artifact
+# inventory.  Release builders continue to consume ``RUNTIME_SOURCE_FILES``;
+# Hatch source-selection ratchets consume this complete development inventory.
+DEVELOPMENT_RUNTIME_SOURCE_FILES = (
+    *RUNTIME_SOURCE_FILES,
+    "src/veqtor_docx/_projection.py",
+)
 
 MCPB_REQUIRED_TOOLS = (
     "list_rounds",

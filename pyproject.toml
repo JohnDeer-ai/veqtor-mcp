@@ -59,6 +59,7 @@ sources = ["src"]
 include = [
   "/src/veqtor_docx/__init__.py",
   "/src/veqtor_docx/_ooxml.py",
+  "/src/veqtor_docx/_projection.py",
   "/src/veqtor_docx/apply.py",
   "/src/veqtor_docx/contracts.py",
   "/src/veqtor_docx/extract.py",
@@ -94,6 +95,7 @@ include = [
   "/pyproject.toml",
   "/src/veqtor_docx/__init__.py",
   "/src/veqtor_docx/_ooxml.py",
+  "/src/veqtor_docx/_projection.py",
   "/src/veqtor_docx/apply.py",
   "/src/veqtor_docx/contracts.py",
   "/src/veqtor_docx/extract.py",
