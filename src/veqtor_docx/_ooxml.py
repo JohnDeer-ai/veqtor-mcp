@@ -1072,6 +1072,12 @@ def resolve_user_path(value: object) -> str:
 # Tracked-change wrapper elements that carry run content.
 TEXT_REVISION_TAGS = frozenset(w(name) for name in TEXT_REVISION_NAMES_V1)
 MOVE_REVISION_TAGS = frozenset(w(name) for name in MOVE_REVISION_NAMES_V1)
+_REJECTED_PENDING_INSERTION_TAGS = frozenset({w("ins"), w("moveTo")})
+_REJECTED_PENDING_DELETION_TAGS = frozenset({w("del"), w("moveFrom")})
+_REJECTED_PENDING_REVISION_TAGS = (
+    _REJECTED_PENDING_INSERTION_TAGS | _REJECTED_PENDING_DELETION_TAGS
+)
+MAX_REJECTED_PENDING_REVISION_NESTING_DEPTH = 2
 
 # Revision markup M1 does not extract as change units. These are counted and
 # reported so the caller knows facts were present but not decoded.
@@ -1117,6 +1123,82 @@ def current_text_atom(
         if ancestor.tag in (w("del"), w("moveFrom")):
             return None
     return contribution
+
+
+def _pending_text_revisions_rejected_atom(
+    node: etree._Element,
+    *,
+    boundary: etree._Element | None = None,
+) -> str | None:
+    """Return one atom in ``pending_text_revisions_rejected_v1``.
+
+    Insertion-like ancestry always hides the atom. Otherwise deletion-like
+    ancestry reveals supported text, while an ordinary atom stays visible.
+    ``w:delText`` is never admitted without a deletion-like ancestor; the
+    future paragraph projection can therefore classify stray deleted text
+    without this literal primitive injecting it into the reading.
+    """
+    contribution = text_atom(node, include_deleted_text=True)
+    if contribution is None:
+        return None
+
+    insertion_like = False
+    deletion_like = False
+    for ancestor in node.iterancestors():
+        if ancestor is boundary:
+            break
+        if ancestor.tag in _REJECTED_PENDING_INSERTION_TAGS:
+            insertion_like = True
+        elif ancestor.tag in _REJECTED_PENDING_DELETION_TAGS:
+            deletion_like = True
+
+    if insertion_like:
+        return None
+    if node.tag == w("delText") and not deletion_like:
+        return None
+    return contribution
+
+
+def pending_text_revisions_rejected_text(paragraph: etree._Element) -> str:
+    """Return the complete bounded rejected-pending literal paragraph text.
+
+    Structural wrapper depth is measured across the complete canonical
+    paragraph before any text atom is materialized. Empty wrappers and wrappers
+    whose descendants are unsupported therefore cannot bypass the limit, and
+    the refusal reports the actual maximum depth rather than the first depth
+    that crossed the cap.
+    """
+    maximum_depth = 0
+    for element in iter_canonical_paragraph_nodes(paragraph):
+        if element.tag not in _REJECTED_PENDING_REVISION_TAGS:
+            continue
+        depth = 1
+        for ancestor in element.iterancestors():
+            if ancestor is paragraph:
+                break
+            if ancestor.tag in _REJECTED_PENDING_REVISION_TAGS:
+                depth += 1
+        maximum_depth = max(maximum_depth, depth)
+
+    if maximum_depth > MAX_REJECTED_PENDING_REVISION_NESTING_DEPTH:
+        raise ResourceLimitError(
+            "revision_nesting_depth",
+            "text and move revisions are nested too deeply",
+            allowed_count=MAX_REJECTED_PENDING_REVISION_NESTING_DEPTH,
+            observed_count=maximum_depth,
+        )
+
+    return "".join(
+        contribution
+        for node in iter_canonical_paragraph_nodes(paragraph)
+        if (
+            contribution := _pending_text_revisions_rejected_atom(
+                node,
+                boundary=paragraph,
+            )
+        )
+        is not None
+    )
 
 
 @dataclass(frozen=True)

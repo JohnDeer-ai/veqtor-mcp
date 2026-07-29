@@ -13,7 +13,7 @@ ROOT = Path(__file__).parents[1]
 
 
 def test_package_versions_match() -> None:
-    assert docx_version == "0.3.0"
+    assert docx_version == "0.4.0.dev0"
     assert mcp_version == docx_version
 
 
@@ -108,9 +108,13 @@ def test_changelog_keeps_timeless_release_copy() -> None:
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
     changelog = (ROOT / "CHANGELOG.md").read_text()
     releasing = (ROOT / "RELEASING.md").read_text()
-    version = project["version"]
-    release_marker = f"## {version}\n"
+    development_marker = f"## {project['version']}\n"
+    release_marker = "## 0.3.0\n"
 
+    assert changelog.count(development_marker) == 1
+    development = changelog.split(development_marker, 1)[1].split("\n## ", 1)[0]
+    assert "Unreleased development line." in development
+    assert "does not advertise MCP v0.4 or a\npublic release" in development
     assert changelog.count(release_marker) == 1
     release = changelog.split(release_marker, 1)[1].split("\n## ", 1)[0]
     assert "Veqtor v0.3.0 Alpha release contents." in release
@@ -156,6 +160,12 @@ def test_release_copy_is_state_neutral_and_site_uses_public_v030() -> None:
     assert "https://pypi.org/project/veqtor-mcp/" in readme
     assert "Both sources expose `0.3.0`" in readme
     assert "| Otherwise | `0.1.2` |" in readme
+    assert (
+        "The descriptions below follow the frozen eight-tool MCP contract\n"
+        "`veqtor.mcp.v0.3` and its examples. The development package identity is\n"
+        "`0.4.0.dev0`; it does not advertise an MCP v0.4 tool surface."
+    ) in readme
+    assert "release candidate source `0.3.0`" not in readme
     assert "current public distribution" not in immutable_docs.lower()
     assert "current public release" not in immutable_docs.lower()
     assert "v0.3.0 is not public yet" not in setup

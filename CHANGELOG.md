@@ -6,6 +6,24 @@ All notable changes to Veqtor MCP are documented here.
 Publication dates are authoritative in each version's immutable GitHub Release
 through its `published_at` timestamp.
 
+## 0.4.0.dev0
+
+Unreleased development line. This identity does not advertise MCP v0.4 or a
+public release.
+
+### Added
+
+- The bounded `pending_text_revisions_rejected_v1` literal projection
+  primitive and deterministic adjacent-round classifier acceptance coverage
+  for the synthetic Stage 3C Fixture 2 corpus.
+- Development sdist packaging for the frozen
+  `CLAUSE_HISTORY_V0.4.md` preimplementation contract.
+
+### Unchanged
+
+- The public v0.3 release contract and artifacts, the eight-tool
+  `veqtor.mcp.v0.3` surface, and the frozen roadmap/specification boundaries.
+
 ## 0.3.0
 
 Veqtor v0.3.0 Alpha release contents. The immutable GitHub Release

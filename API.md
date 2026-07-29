@@ -5,11 +5,11 @@
 This file defines the public tool surface. Output examples are part of the API
 because models use them to decide how to call tools and how to cite results.
 
-The release candidate source is package `0.3.0` and advertises MCP contract
-`veqtor.mcp.v0.3`. Package version, contract and publication status
-are separate identities: only matching entries on public PyPI and the
-immutable GitHub Releases list establish distribution. This file alone does
-not. Every
+The development source is package `0.4.0.dev0` and still advertises the frozen
+eight-tool MCP contract `veqtor.mcp.v0.3`; the v0.3 examples and contracts below
+remain unchanged. Package version, contract and publication status are separate
+identities: only matching entries on public PyPI and the immutable GitHub
+Releases list establish distribution. This file alone does not. Every
 tool exposes `veqtor.pro/contractSchemaVersion: veqtor.mcp.v0.3` in its MCP
 metadata and the same value under `x-veqtor-contract-schema-version` in its
 output schema. Nested anchors, edits and preflight proofs are closed objects;

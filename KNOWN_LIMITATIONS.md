@@ -2,11 +2,11 @@
 
 # Known limitations
 
-This file describes release candidate source `0.3.0` and MCP contract
-`veqtor.mcp.v0.3`. It does not establish that the package, extension or release
-exists publicly. Published installation status comes only from matching entries
-on PyPI and the immutable GitHub Releases list. The release surface remains
-intentionally narrow.
+This file describes development source `0.4.0.dev0` while preserving the
+frozen v0.3 examples and eight-tool MCP contract `veqtor.mcp.v0.3`. It does not
+establish that the package, extension or release exists publicly. Published
+installation status comes only from matching entries on PyPI and the immutable
+GitHub Releases list. The release surface remains intentionally narrow.
 
 The v0.3 MCPB v0.4 extension is macOS-only and is public only when the
 exact artifact is attached to the matching verified release after clean-Mac
