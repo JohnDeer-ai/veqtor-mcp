@@ -171,10 +171,16 @@ DEVELOP -> FREEZE -> (DISCOVERY || DRAFT_CI) -> JOIN
    P0–P2 first surfaced by CI or external review without a compatible packet is
    evidence only: before `FIX`, the bound canonical Reviewer independently
    validates it at exact H/T and emits a compatible packet; Orchestrator never
-   converts source narrative into packet content. Non-semantic CI/infra failures
-   use CI recovery instead. A confirmed P0 rejects H and may interrupt only to
-   contain risk, but requires its packet before a code fix. If it interrupts
-   discovery, record
+   converts source narrative into packet content. `CI_RECOVERY` is allowed only
+   when logs prove a runner, network, hosted-service, or tool-startup outage
+   outside repository code/tests on exact H+B@M. A repository assertion,
+   product/test-path timeout or error, or product-returned failure remains
+   semantic evidence even if a rerun passes. For a proven external outage,
+   rerun only the failed job once on unchanged H+B@M. Success returns to `JOIN`;
+   another external failure is `BLOCKED_EXTERNAL`. Changed H, B, or M invalidates
+   recovery and follows normal flow. A confirmed P0 rejects H and may interrupt
+   only to contain risk, but requires its packet before a code fix. If it
+   interrupts discovery, record
    `DISCOVERY=INCOMPLETE @ H/T`. After the fix, complete the entire original
    broad scope on new H/T; narrow P0 closure cannot replace it. Use the same
    Reviewer unless the fix is a material pivot, in which case the mandatory
