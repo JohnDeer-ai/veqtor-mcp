@@ -657,6 +657,47 @@ def test_projection_builder_scopes_nested_paragraph_exclusion_to_outer() -> None
     assert sibling_projection["unavailable_reasons"] == []
 
 
+def test_projection_builder_combines_nested_stray_and_declared_scope() -> None:
+    document = etree.Element(w("document"), nsmap={"w": W_NS})
+    body = etree.SubElement(document, w("body"))
+    outer = _paragraph(body, "outer current")
+    nested = _paragraph(outer)
+    _run(nested, "nested stray", deleted=True)
+    flow = canonical_body_flow_v1(body)
+    assert flow.container_policy["excluded_by_kind"] == {"nested_paragraph": 1}
+
+    projection = build_paragraph_projection_v1(outer, flow)
+
+    assert projection["projection_status"] == "unavailable"
+    assert projection["unavailable_reasons"] == [
+        "stray_deleted_text",
+        "declared_scope_incomplete",
+    ]
+    assert projection["text_state"] is None
+    assert projection["equals_current"] is None
+    assert projection["has_non_whitespace"] is False
+    assert projection["match_eligible"] is False
+    assert projection["projection_text_sha256"] is None
+    assert projection["text_length"] is None
+    assert projection["text"] is None
+
+
+def test_projection_builder_nested_stray_does_not_poison_sibling() -> None:
+    document = etree.Element(w("document"), nsmap={"w": W_NS})
+    body = etree.SubElement(document, w("body"))
+    outer = _paragraph(body, "outer current")
+    nested = _paragraph(outer)
+    _run(nested, "nested stray", deleted=True)
+    sibling = _paragraph(body, "unrelated sibling")
+    flow = canonical_body_flow_v1(body)
+
+    sibling_projection = build_paragraph_projection_v1(sibling, flow)
+
+    assert sibling_projection["projection_status"] == "complete"
+    assert sibling_projection["unavailable_reasons"] == []
+    assert sibling_projection["text"] == "unrelated sibling"
+
+
 def test_projection_builder_attributes_structural_revisions_to_owners_only() -> None:
     document = etree.Element(w("document"), nsmap={"w": W_NS})
     body = etree.SubElement(document, w("body"))

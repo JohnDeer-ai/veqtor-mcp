@@ -97,9 +97,13 @@ def _enforce_text_limit(text: str, *, limit: str, allowed_count: int) -> None:
         )
 
 
-def _has_stray_deleted_text(paragraph: etree._Element) -> bool:
+def _has_stray_deleted_text(
+    paragraph: etree._Element,
+    body_flow: CanonicalBodyFlow,
+) -> bool:
+    canonical_paragraphs = {item.element for item in body_flow.paragraphs}
     for node in paragraph.iter(w("delText")):
-        if _containing_paragraph(node) != paragraph:
+        if _canonical_containing_paragraph(node, canonical_paragraphs) != paragraph:
             continue
         deletion_like = False
         for ancestor in node.iterancestors():
@@ -130,6 +134,21 @@ def _containing_paragraph(element: etree._Element) -> etree._Element | None:
     )
 
 
+def _canonical_containing_paragraph(
+    element: etree._Element,
+    canonical_paragraphs: set[etree._Element],
+) -> etree._Element | None:
+    """Return the nearest canonical paragraph containing ``element``."""
+    return next(
+        (
+            ancestor
+            for ancestor in element.iterancestors()
+            if ancestor.tag == w("p") and ancestor in canonical_paragraphs
+        ),
+        None,
+    )
+
+
 def _validate_exclusion_attribution(body_flow: CanonicalBodyFlow) -> None:
     canonical_paragraphs = {item.element for item in body_flow.paragraphs}
     for excluded in body_flow.excluded_subtrees:
@@ -155,7 +174,7 @@ def _validate_stray_deleted_text_attribution(body_flow: CanonicalBodyFlow) -> No
                 deletion_like = True
         if deletion_like:
             continue
-        if _containing_paragraph(node) not in canonical_paragraphs:
+        if _canonical_containing_paragraph(node, canonical_paragraphs) is None:
             raise ArchiveValidationError(
                 "stray deleted text has no attributable canonical paragraph"
             )
@@ -328,7 +347,7 @@ def build_paragraph_projection_v1(
     )
 
     unavailable = {
-        "stray_deleted_text": _has_stray_deleted_text(paragraph),
+        "stray_deleted_text": _has_stray_deleted_text(paragraph, body_flow),
         "existence_affecting_revision": _has_existence_affecting_revision(
             paragraph,
             body_flow,
