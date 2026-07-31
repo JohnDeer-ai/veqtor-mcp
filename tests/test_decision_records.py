@@ -5645,6 +5645,51 @@ def test_lock_helper_never_retries_flock_after_oversleeping_deadline(
     assert sleeps == [records.JOURNAL_LOCK_POLL_SECONDS]
 
 
+def test_lock_helper_attempts_uncontended_lock_after_inherited_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts: list[int] = []
+
+    def acquire(_fd: int, operation: int) -> None:
+        attempts.append(operation)
+
+    monkeypatch.setattr(records.fcntl, "flock", acquire)
+    records._acquire_journal_lock(
+        7,
+        records.fcntl.LOCK_EX,
+        deadline=1.0,
+        monotonic=lambda: 2.0,
+        sleep=lambda _seconds: pytest.fail("an expired deadline must not sleep"),
+    )
+
+    assert attempts == [records.fcntl.LOCK_EX | records.fcntl.LOCK_NB]
+
+
+def test_lock_helper_does_not_wait_after_expired_first_contention(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts: list[int] = []
+    sleeps: list[float] = []
+
+    def contend(_fd: int, operation: int) -> None:
+        attempts.append(operation)
+        raise OSError(errno.EWOULDBLOCK, "busy")
+
+    monkeypatch.setattr(records.fcntl, "flock", contend)
+    with pytest.raises(records.DecisionRecordError) as error:
+        records._acquire_journal_lock(
+            7,
+            records.fcntl.LOCK_EX,
+            deadline=1.0,
+            monotonic=lambda: 2.0,
+            sleep=sleeps.append,
+        )
+
+    assert error.value.code == "journal_busy"
+    assert attempts == [records.fcntl.LOCK_EX | records.fcntl.LOCK_NB]
+    assert sleeps == []
+
+
 def test_lock_helper_retries_eintr_without_masking_other_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -5702,6 +5747,45 @@ def test_write_reuses_one_deadline_for_root_and_journal_locks(
     assert result["record_status"] == "written"
     assert len(deadlines) == 2
     assert deadlines[0] == deadlines[1]
+
+
+def test_write_attempts_journal_lock_after_initialization_consumes_deadline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matter = tmp_path / "matter"
+    matter.mkdir()
+    moments = iter([0.0, 2.0])
+    original_acquire = records._acquire_journal_lock
+
+    def acquire_with_slow_initialization(
+        fd: int,
+        operation: int,
+        *,
+        deadline: float,
+    ) -> None:
+        original_acquire(
+            fd,
+            operation,
+            deadline=deadline,
+            monotonic=lambda: next(moments),
+            sleep=lambda _seconds: pytest.fail("uncontended locks must not sleep"),
+        )
+
+    monkeypatch.setattr(records, "_journal_lock_deadline", lambda: 1.0)
+    monkeypatch.setattr(records, "_acquire_journal_lock", acquire_with_slow_initialization)
+    result = records.write_record(
+        workspace=matter,
+        tool_name="list_rounds",
+        input_payload={},
+        result={"status": "ok"},
+        provenance={},
+    )
+    monkeypatch.setattr(records, "_acquire_journal_lock", original_acquire)
+
+    assert result["record_status"] == "written"
+    journal = records.read_records(str(matter), max_records=10, include_payload=True)
+    assert [item["record_id"] for item in journal["records"]] == ["dr_001"]
 
 
 def test_streaming_scan_retains_only_page_and_validates_older_records(
