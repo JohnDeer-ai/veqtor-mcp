@@ -136,15 +136,17 @@ def _acquire_journal_lock(
     monotonic: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
 ) -> None:
-    """Acquire one advisory lock within an absolute monotonic deadline."""
+    """Attempt once immediately, then wait within an absolute monotonic deadline."""
     last_error: OSError | None = None
+    attempted = False
     while True:
         remaining = deadline - monotonic()
-        if remaining <= 0:
+        if attempted and remaining <= 0:
             raise DecisionRecordError(
                 "journal_busy",
                 "decision-record journal is busy",
             ) from last_error
+        attempted = True
         try:
             fcntl.flock(fd, operation | fcntl.LOCK_NB)
             return
@@ -152,7 +154,7 @@ def _acquire_journal_lock(
             if exc.errno != errno.EINTR and exc.errno not in _LOCK_CONTENTION_ERRNOS:
                 raise
             last_error = exc
-            if exc.errno != errno.EINTR:
+            if exc.errno != errno.EINTR and remaining > 0:
                 sleep(min(JOURNAL_LOCK_POLL_SECONDS, remaining))
 
 
