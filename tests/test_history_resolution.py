@@ -266,6 +266,68 @@ def test_duplicate_exclusions_headings_remain_navigation_only() -> None:
     )
 
 
+def test_post_capture_navigation_mapping_is_immutable_and_stable() -> None:
+    lower = _observation(
+        "lower",
+        [
+            _ParagraphSpec("Exclusions", heading=True),
+            _ParagraphSpec("Candidate A"),
+            _ParagraphSpec("Exclusions", heading=True),
+            _ParagraphSpec("Candidate B"),
+        ],
+    )
+    higher = _observation(
+        "higher",
+        [
+            _ParagraphSpec("Exclusions", heading=True),
+            _ParagraphSpec("Selected clause"),
+        ],
+    )
+    mutable_source = dict(higher.snapshot.section_by_paragraph)
+    higher = replace(
+        higher,
+        snapshot=replace(
+            higher.snapshot,
+            section_by_paragraph=mutable_source,
+        ),
+    )
+
+    before = resolve_paragraph_history([lower, higher], _seed(higher, 1))
+    mutable_source.clear()
+    with pytest.raises(AttributeError):
+        getattr(higher.snapshot.section_by_paragraph, "clear")()
+    after = resolve_paragraph_history([lower, higher], _seed(higher, 1))
+
+    assert before == after
+    step = after.steps[1]
+    assert step.resolution is not None
+    assert (step.resolution.state, step.resolution.reason) == (
+        "unresolved",
+        "navigation_only",
+    )
+    assert len(step.navigation_candidates) == 2
+
+
+def test_malformed_cached_navigation_mapping_fails_before_resolution() -> None:
+    lower = _observation("lower", [_ParagraphSpec("Different")])
+    higher = _observation(
+        "higher",
+        [
+            _ParagraphSpec("Exclusions", heading=True),
+            _ParagraphSpec("Selected clause"),
+        ],
+    )
+    higher = replace(
+        higher,
+        snapshot=replace(higher.snapshot, section_by_paragraph={}),
+    )
+
+    with pytest.raises(HistoryResolutionError) as error:
+        resolve_paragraph_history([lower, higher], _seed(higher, 1))
+
+    assert error.value.code == "snapshot_integrity_error"
+
+
 @pytest.mark.parametrize(
     ("middle_specs", "latest_text", "expected_middle", "expected_lowest"),
     [
@@ -304,6 +366,45 @@ def test_lower_positions_have_the_correct_blocked_reason_and_no_gap_transition(
     assert lowest_step.selected_paragraph is None
     assert lowest_step.candidates == ()
     assert lowest_step.resolution.higher_rejected_projection_complete is None
+
+
+def test_blocked_reason_follows_the_immediately_higher_step(monkeypatch) -> None:
+    oldest = _observation("oldest", [_ParagraphSpec("Target")])
+    lower = _observation("lower", [_ParagraphSpec("Target")])
+    ambiguous = _observation(
+        "ambiguous",
+        [_ParagraphSpec("Target"), _ParagraphSpec("Target")],
+    )
+    latest = _observation("latest", [_ParagraphSpec("Target")])
+    exact_positions: list[int] = []
+    exact_candidates = history._exact_candidates
+
+    def tracked_exact_candidates(*args, **kwargs):
+        exact_positions.append(args[1])
+        return exact_candidates(*args, **kwargs)
+
+    monkeypatch.setattr(history, "_exact_candidates", tracked_exact_candidates)
+
+    trace = resolve_paragraph_history(
+        [oldest, lower, ambiguous, latest],
+        _seed(latest),
+    )
+
+    assert exact_positions == [2]
+    assert [
+        (step.resolution.state, step.resolution.reason)
+        for step in trace.steps[1:]
+        if step.resolution is not None
+    ] == [
+        ("ambiguous", "multiple_exact_candidates"),
+        ("unresolved", "blocked_by_higher_ambiguity"),
+        ("unresolved", "blocked_by_higher_unresolved"),
+    ]
+    for step in trace.steps[2:]:
+        assert step.selected_paragraph is None
+        assert step.candidates == ()
+        assert step.resolution is not None
+        assert step.resolution.higher_rejected_projection_complete is None
 
 
 def test_flattened_revision_stops_the_chain_honestly() -> None:

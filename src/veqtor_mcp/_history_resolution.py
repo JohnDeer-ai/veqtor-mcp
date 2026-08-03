@@ -37,6 +37,7 @@ MAX_HISTORY_OBSERVATIONS = 500
 MAX_HISTORY_NAVIGATION_CANDIDATES = 10_000
 _DOCUMENT_PART = "word/document.xml"
 _XSD_WHITESPACE_V1 = frozenset("\t\n\r ")
+_MAPPING_PROXY_TYPE = type(MappingProxyType({}))
 _EVIDENCE_ORDER = {
     "exact_content_equality": 0,
     "rejected_projection_equality": 1,
@@ -99,8 +100,81 @@ def _containing_body(element: etree._Element) -> etree._Element:
     return bodies[0]
 
 
+def _validate_section_navigation(snapshot: _Snapshot) -> None:
+    if not isinstance(snapshot.sections, tuple) or not isinstance(
+        snapshot.section_by_paragraph,
+        _MAPPING_PROXY_TYPE,
+    ):
+        raise _snapshot_integrity_error()
+
+    paragraph_by_index = {
+        paragraph.paragraph_index: paragraph for paragraph in snapshot.paragraphs
+    }
+    if len(paragraph_by_index) != len(snapshot.paragraphs):
+        raise _snapshot_integrity_error()
+
+    previous_heading_index = -1
+    for section_index, section in enumerate(snapshot.sections):
+        if not isinstance(section, _Section) or not isinstance(
+            section.heading,
+            _Paragraph,
+        ):
+            raise _snapshot_integrity_error()
+        heading_index = section.heading.paragraph_index
+        if (
+            paragraph_by_index.get(heading_index) is not section.heading
+            or heading_index <= previous_heading_index
+            or type(section.level) is not int
+            or not 0 <= section.level <= 8
+            or (section.label is not None and not isinstance(section.label, str))
+            or (section.title is not None and not isinstance(section.title, str))
+            or section.label_basis not in {
+                None,
+                "word_numbering_v1",
+                "explicit_heading_text_v1",
+            }
+            or type(section.end_paragraph_index_exclusive) is not int
+        ):
+            raise _snapshot_integrity_error()
+        expected_end = len(snapshot.paragraphs)
+        for candidate in snapshot.sections[section_index + 1 :]:
+            if candidate.level <= section.level:
+                expected_end = candidate.heading.paragraph_index
+                break
+        if section.end_paragraph_index_exclusive != expected_end:
+            raise _snapshot_integrity_error()
+        previous_heading_index = heading_index
+
+    expected_by_paragraph: dict[int, _Section] = {}
+    stack: list[_Section] = []
+    section_index = 0
+    for paragraph in snapshot.paragraphs:
+        while (
+            section_index < len(snapshot.sections)
+            and snapshot.sections[section_index].heading.paragraph_index
+            == paragraph.paragraph_index
+        ):
+            section = snapshot.sections[section_index]
+            while stack and stack[-1].level >= section.level:
+                stack.pop()
+            stack.append(section)
+            section_index += 1
+        if stack:
+            expected_by_paragraph[paragraph.paragraph_index] = stack[-1]
+    if section_index != len(snapshot.sections) or len(
+        snapshot.section_by_paragraph
+    ) != len(expected_by_paragraph):
+        raise _snapshot_integrity_error()
+    for paragraph_index, section in snapshot.section_by_paragraph.items():
+        if (
+            type(paragraph_index) is not int
+            or expected_by_paragraph.get(paragraph_index) is not section
+        ):
+            raise _snapshot_integrity_error()
+
+
 def _validate_snapshot_integrity(snapshot: _Snapshot) -> None:
-    """Refuse unless every cached current fact is coherent with captured bytes."""
+    """Refuse unless cached current and navigation facts remain coherent."""
     try:
         if (
             not isinstance(snapshot.file_sha256, str)
@@ -158,6 +232,7 @@ def _validate_snapshot_integrity(snapshot: _Snapshot) -> None:
                 or cached.has_tracked_text_revisions != has_tracked
             ):
                 raise _snapshot_integrity_error()
+        _validate_section_navigation(snapshot)
         if live_body is not None and etree.tostring(
             live_body,
             with_tail=False,
@@ -807,17 +882,19 @@ def resolve_paragraph_history(
         )
         navigation_candidate_count += len(navigation)
         if blocked_by is not None:
+            blocked_resolution = _blocked_resolution(blocked_by)
             steps.append(
                 ParagraphHistoryStep(
                     observation_id=lower.observation_id,
                     position=lower_position,
                     entry_role="trace_step",
                     selected_paragraph=None,
-                    resolution=_blocked_resolution(blocked_by),
+                    resolution=blocked_resolution,
                     candidates=(),
                     navigation_candidates=navigation,
                 )
             )
+            blocked_by = blocked_resolution.state
             continue
 
         candidates, candidate_work, current_count, rejected_count = _exact_candidates(

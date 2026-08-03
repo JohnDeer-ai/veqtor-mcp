@@ -21,7 +21,9 @@ import hashlib
 import json
 import posixpath
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any
 from urllib.parse import unquote_to_bytes, urlsplit
 
@@ -186,10 +188,17 @@ class _Snapshot:
     body_xml: bytes
     paragraphs: tuple[_Paragraph, ...]
     sections: tuple[_Section, ...]
-    section_by_paragraph: dict[int, _Section]
+    section_by_paragraph: Mapping[int, _Section]
     container_coverage: dict[str, Any]
     revision_inventory: dict[str, Any]
     excluded_parts: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "section_by_paragraph",
+            MappingProxyType(dict(self.section_by_paragraph)),
+        )
 
 
 def _sha256_text(text: str) -> str:
