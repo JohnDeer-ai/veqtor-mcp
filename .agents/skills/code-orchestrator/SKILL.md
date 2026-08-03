@@ -3,7 +3,7 @@ name: code-orchestrator
 description: Run lean Codex Desktop developer/reviewer workflow with managed worktrees and exact-SHA review. Explicit activation only.
 ---
 
-# Code Orchestrator V1.3.2
+# Code Orchestrator V1.3.3
 
 ## Purpose and authority
 
@@ -46,9 +46,19 @@ writer. Create workers from that local project, never a snapshot or unrelated
 directory.
 
 Each first order reports observed root, origin, common-dir, `HEAD`, and tracked
-cleanliness. Developer confirms `BASE` and non-interactive execution. Mismatch
-stops before changes and permits one correctly targeted replacement. Repeat only
-after replacement, recovery, or environment change.
+and untracked cleanliness. Developer confirms its authorized input SHA and
+non-interactive execution. Mismatch stops before changes and permits one
+correctly targeted replacement. Repeat only after replacement, recovery, or
+environment change.
+
+Each Developer's first order names its assigned ref and authorized input SHA
+(`BASE` initially; the latest independently frozen fix base for a replacement)
+and grants one-time bootstrap. Developer may proceed only when its current
+worktree has no tracked or untracked changes and owns the assigned ref at that
+SHA. If initially detached at that SHA and the ref is absent and unowned, it must
+create and switch to the ref, then reverify the ref, `HEAD`, and cleanliness
+before tests, installs, or edits. Otherwise stop. A commentary update is not an
+authorization barrier.
 
 Use repository commands with locked dependencies; never fall back to system
 Python, an ambient environment, or unlocked installs. Include the project-test
@@ -78,13 +88,20 @@ machine.
 1. Developer implements scope, runs targeted tests/fast lint, DCO-commits, and
    returns commit `H`, tree `T`, changed files, checks, and risks. Defer full,
    package, artifact, and Desktop gates unless policy requires them earlier.
+   If scope is already satisfied at `BASE`, return unchanged `H/T` with
+   `ALREADY_SATISFIED` evidence and no empty commit. A fresh broad Reviewer then
+   validates the current H tree against the full scope, not the empty
+   `BASE..H` diff.
 
 2. Orchestrator freezes `H/T`: verify HEAD/tree, tracked cleanliness, ancestry,
-   assigned writer ref, DCO, and that extra outputs are not test/build inputs.
+   assigned writer ref, DCO for Developer-created commits and any policy-covered
+   authorized base-sync merge, excluding upstream commits already present in
+   authorized `B`, and that extra outputs are not test/build inputs.
 
-3. A fresh Reviewer checks exact `BASE..H/T` detached. Give it objective,
-   specification, named scope, and acceptance conditions, but no Developer
-   narrative or expected solution. It returns `PASS` or numbered P0-P2 findings.
+3. A fresh Reviewer checks exact `H/T` detached against `BASE` and full scope.
+   Give it objective, specification, named scope, and acceptance conditions, but
+   no Developer narrative or expected solution. It returns `PASS` or numbered
+   P0-P2 findings.
 
 4. Orchestrator forwards the complete Reviewer-authored Findings block verbatim
    to Developer, adding only identity and authority—never summarizing, merging,
@@ -105,6 +122,11 @@ unexpected change requires recovery and cannot support PASS.
 7. Repeat steps 4-6 until Reviewer reports `PASS` with no open P0-P2. Reuse the
    same Developer and Reviewer and keep both idle rather than archived between
    rounds.
+
+Developer normally runs affected checks; Reviewer independently selects
+targeted or adversarial checks. Do not repeat a passing full suite on unchanged
+`H` and unchanged inputs solely to duplicate another role's evidence. Reviewer
+may run it when repository policy, scope, or failure investigation requires.
 
 If Reviewer stops discovery early for a P0, discovery remains incomplete. After
 the fix it must finish the entire original broad scope on new H; narrow closure
@@ -157,10 +179,12 @@ evidence for the canonical Reviewer. Do not duplicate qualifying broad review.
 
 ## Final gates and failures
 
-After PASS, run on H only target/policy-required gates. Changed inputs invalidate
-an already-required gate's evidence; they never activate package, artifact, or
-Desktop gates. Parallelize independent gates; Reviewer
-skips package/artifact ceremony.
+After PASS, run on H only target/policy-required gates. Ensure one current-H
+result for each required local full-suite command; run it if absent or reuse it
+when inputs are unchanged. Hosted CI remains separate evidence. Changed inputs
+invalidate an already-required gate's evidence; they never activate package,
+artifact, or Desktop gates. Parallelize independent gates; Reviewer skips
+package/artifact ceremony.
 Orchestrator may run non-authoring gates directly when it can preserve the
 frozen candidate; otherwise give Developer a gate-only order that forbids edits,
 staging, commits, checkout, and ref movement. Verify H/T and tracked cleanliness
@@ -230,6 +254,12 @@ current PR head H and base B, required checks on current synthetic M,
 mergeability, resolved required review threads and repository/DCO policy, and
 an actual non-Draft PR. It is a timestamped snapshot and grants no merge
 authority.
+
+Initial `ALREADY_SATISFIED` removes the need for a new commit, not the recorded
+target. `DONE_LOCAL` retains its applicable local gates. For
+`READY_TO_MERGE_PR`, apply the normal target gates to H against current B. If H
+has no authorized PR-effective delta against B, report a verified no-op without
+`READY_TO_MERGE_PR`. Otherwise continue the ordinary PR flow.
 
 Final report gives task IDs, base/H/T, verdicts, risks, exact gate/PR identities,
 and next action; keep local, CI, artifact, Desktop, merge, release, and
