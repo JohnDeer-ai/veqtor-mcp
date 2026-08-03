@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 
 import pytest
@@ -92,6 +93,7 @@ def _observation(
         path=f"/descriptor-captured/{name}.docx",
         file_sha256=file_sha256,
         body_flow=flow,
+        body_xml=etree.tostring(body, with_tail=False),
         paragraphs=frozen_paragraphs,
         sections=sections,
         section_by_paragraph=section_by_paragraph,
@@ -322,14 +324,12 @@ def test_flattened_revision_stops_the_chain_honestly() -> None:
     assert _resolution(trace, 0).reason == "no_match_in_declared_scope"
 
 
-def test_hash_prefilter_never_creates_a_current_match_without_full_string_equality() -> None:
-    collision = "a" * 64
+def test_hash_prefilter_never_creates_a_current_match_without_full_string_equality(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     lower = _observation("lower", [_ParagraphSpec("Different lower text")])
     higher = _observation("higher", [_ParagraphSpec("Selected higher text")])
-    lower_paragraph = replace(lower.snapshot.paragraphs[0], text_sha256=collision)
-    higher_paragraph = replace(higher.snapshot.paragraphs[0], text_sha256=collision)
-    lower = replace(lower, snapshot=replace(lower.snapshot, paragraphs=(lower_paragraph,)))
-    higher = replace(higher, snapshot=replace(higher.snapshot, paragraphs=(higher_paragraph,)))
+    monkeypatch.setattr(history, "_hash_prefilter_hit", lambda left, right: True)
 
     trace = resolve_paragraph_history([lower, higher], _seed(higher))
 
@@ -337,19 +337,16 @@ def test_hash_prefilter_never_creates_a_current_match_without_full_string_equali
     assert trace.steps[1].candidates == ()
 
 
-def test_hash_prefilter_never_creates_a_rejected_match_without_full_string_equality() -> None:
+def test_hash_prefilter_never_creates_a_rejected_match_without_full_string_equality(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     rejected = "Rejected text A"
-    rejected_sha256 = _sha256_text(rejected)
     lower = _observation("lower", [_ParagraphSpec("Rejected text B")])
     higher = _observation(
         "higher",
         [_ParagraphSpec("Current text", rejected=rejected)],
     )
-    lower_paragraph = replace(
-        lower.snapshot.paragraphs[0],
-        text_sha256=rejected_sha256,
-    )
-    lower = replace(lower, snapshot=replace(lower.snapshot, paragraphs=(lower_paragraph,)))
+    monkeypatch.setattr(history, "_hash_prefilter_hit", lambda left, right: True)
 
     trace = resolve_paragraph_history([lower, higher], _seed(higher))
 
@@ -403,10 +400,11 @@ def test_projection_is_lazy_and_uses_each_selected_paragraphs_own_snapshot(
         [_ParagraphSpec("Version C", rejected="Version B")],
     )
     real_builder = history.build_paragraph_projection_v1
-    calls: list[etree._Element] = []
+    calls: list[str] = []
 
     def checked_builder(paragraph: etree._Element, body_flow):
-        calls.append(paragraph)
+        text, _ = _accepted_current_text(paragraph)
+        calls.append(text)
         assert any(item.element is paragraph for item in body_flow.paragraphs)
         return real_builder(paragraph, body_flow)
 
@@ -414,10 +412,7 @@ def test_projection_is_lazy_and_uses_each_selected_paragraphs_own_snapshot(
 
     trace = resolve_paragraph_history([lowest, middle, latest], _seed(latest))
 
-    assert calls == [
-        latest.snapshot.paragraphs[0].element,
-        middle.snapshot.paragraphs[0].element,
-    ]
+    assert calls == ["Version C", "Version B"]
     assert _resolution(trace, 1).reason == "rejected_projection_unique"
     assert _resolution(trace, 0).reason == "no_match_in_declared_scope"
 
@@ -492,3 +487,76 @@ def test_seed_must_name_the_latest_declared_observation() -> None:
         resolve_paragraph_history([lower, higher], _seed(lower))
 
     assert error.value.code == "seed_not_last_declared_position"
+
+
+def test_post_capture_xml_mutation_fails_before_a_trace_is_returned() -> None:
+    lower = _observation("lower", [_ParagraphSpec("Captured text")])
+    higher = _observation("higher", [_ParagraphSpec("Captured text")])
+    text_node = next(higher.snapshot.paragraphs[0].element.iter(w("t")))
+    text_node.text = "Mutated after capture"
+
+    with pytest.raises(HistoryResolutionError) as error:
+        resolve_paragraph_history([lower, higher], _seed(higher))
+
+    assert error.value.code == "snapshot_integrity_error"
+    assert error.value.detail == "captured snapshot integrity check failed"
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        {"text": "Malformed cached text"},
+        {"text_sha256": None},
+    ],
+)
+def test_malformed_cached_current_facts_fail_before_resolution(
+    corruption: dict[str, object],
+) -> None:
+    lower = _observation("lower", [_ParagraphSpec("Captured text")])
+    higher = _observation("higher", [_ParagraphSpec("Captured text")])
+    malformed = replace(lower.snapshot.paragraphs[0], **corruption)
+    lower = replace(
+        lower,
+        snapshot=replace(lower.snapshot, paragraphs=(malformed,)),
+    )
+
+    with pytest.raises(HistoryResolutionError) as error:
+        resolve_paragraph_history([lower, higher], _seed(higher))
+
+    assert error.value.code == "snapshot_integrity_error"
+
+
+class _OversizedIndexTrap(Sequence[ParagraphHistoryObservation]):
+    def __len__(self) -> int:
+        return history.MAX_HISTORY_OBSERVATIONS + 1
+
+    def __getitem__(self, index):
+        raise AssertionError(f"unexpected observation access at {index}")
+
+
+def test_observation_limit_refuses_from_length_before_any_indexing() -> None:
+    seed_observation = _observation("seed", [_ParagraphSpec("Seed")])
+
+    with pytest.raises(HistoryResolutionError) as error:
+        resolve_paragraph_history(_OversizedIndexTrap(), _seed(seed_observation))
+
+    assert error.value.code == "resource_limit_exceeded"
+
+
+def test_exactly_maximum_observations_remain_accepted() -> None:
+    owner = _observation("owner", [_ParagraphSpec("Same exact paragraph")])
+    observations = [
+        ParagraphHistoryObservation(
+            observation_id=f"rm_obs_v1:{index:064x}",
+            snapshot=owner.snapshot,
+        )
+        for index in range(history.MAX_HISTORY_OBSERVATIONS)
+    ]
+
+    trace = resolve_paragraph_history(observations, _seed(observations[-1]))
+
+    assert len(trace.steps) == history.MAX_HISTORY_OBSERVATIONS
+    assert all(
+        step.resolution is None or step.resolution.state == "exact_unique"
+        for step in trace.steps
+    )

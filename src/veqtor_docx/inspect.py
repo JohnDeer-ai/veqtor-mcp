@@ -183,6 +183,7 @@ class _Snapshot:
     path: str
     file_sha256: str
     body_flow: CanonicalBodyFlow
+    body_xml: bytes
     paragraphs: tuple[_Paragraph, ...]
     sections: tuple[_Section, ...]
     section_by_paragraph: dict[int, _Section]
@@ -535,6 +536,7 @@ def _load_snapshot_from_payload(
         path=path,
         file_sha256=file_sha256,
         body_flow=flow,
+        body_xml=etree.tostring(body, with_tail=False),
         paragraphs=paragraphs,
         sections=sections,
         section_by_paragraph=section_by_paragraph,

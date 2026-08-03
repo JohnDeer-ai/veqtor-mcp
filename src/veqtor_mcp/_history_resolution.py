@@ -16,11 +16,15 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
 
+from lxml import etree
+
+from veqtor_docx._ooxml import CanonicalBodyFlow, canonical_body_flow_v1, parse_xml, w
 from veqtor_docx._projection import build_paragraph_projection_v1
 from veqtor_docx.inspect import (
     _Paragraph,
     _Section,
     _Snapshot,
+    _accepted_current_text,
     _paragraph_ref,
     _resolve_paragraph,
     _section_ref,
@@ -74,6 +78,141 @@ def _derived_id(prefix: str, identity: Mapping[str, Any]) -> str:
 
 def _has_non_whitespace(value: str) -> bool:
     return any(character not in _XSD_WHITESPACE_V1 for character in value)
+
+
+def _hash_prefilter_hit(left: object, right: object) -> bool:
+    """Keep the full-string comparison independently regression-testable."""
+    return isinstance(left, str) and isinstance(right, str) and left == right
+
+
+def _snapshot_integrity_error() -> HistoryResolutionError:
+    return HistoryResolutionError(
+        "snapshot_integrity_error",
+        "captured snapshot integrity check failed",
+    )
+
+
+def _containing_body(element: etree._Element) -> etree._Element:
+    bodies = [ancestor for ancestor in element.iterancestors() if ancestor.tag == w("body")]
+    if len(bodies) != 1:
+        raise _snapshot_integrity_error()
+    return bodies[0]
+
+
+def _validate_snapshot_integrity(snapshot: _Snapshot) -> None:
+    """Refuse unless every cached current fact is coherent with captured bytes."""
+    try:
+        if (
+            not isinstance(snapshot.file_sha256, str)
+            or len(snapshot.file_sha256) != 64
+            or any(character not in "0123456789abcdef" for character in snapshot.file_sha256)
+            or not isinstance(snapshot.body_xml, bytes)
+            or not isinstance(snapshot.paragraphs, tuple)
+        ):
+            raise _snapshot_integrity_error()
+        immutable_body = parse_xml(snapshot.body_xml)
+        if immutable_body.tag != w("body"):
+            raise _snapshot_integrity_error()
+        immutable_flow = canonical_body_flow_v1(immutable_body)
+        cached_flow = snapshot.body_flow
+        if (
+            not isinstance(cached_flow, CanonicalBodyFlow)
+            or len(cached_flow.paragraphs) != len(snapshot.paragraphs)
+            or len(immutable_flow.paragraphs) != len(snapshot.paragraphs)
+            or cached_flow.container_policy != immutable_flow.container_policy
+        ):
+            raise _snapshot_integrity_error()
+
+        live_body = None
+        for cached, live_item, immutable_item in zip(
+            snapshot.paragraphs,
+            cached_flow.paragraphs,
+            immutable_flow.paragraphs,
+            strict=True,
+        ):
+            if (
+                not isinstance(cached, _Paragraph)
+                or live_item.element is not cached.element
+                or live_item.paragraph_index != cached.paragraph_index
+                or live_item.container_kind != cached.container_kind
+                or immutable_item.paragraph_index != cached.paragraph_index
+                or immutable_item.container_kind != cached.container_kind
+                or not isinstance(cached.text, str)
+                or not isinstance(cached.text_sha256, str)
+                or not isinstance(cached.has_tracked_text_revisions, bool)
+            ):
+                raise _snapshot_integrity_error()
+            item_body = _containing_body(cached.element)
+            if live_body is None:
+                live_body = item_body
+            elif item_body is not live_body:
+                raise _snapshot_integrity_error()
+            current_text, has_tracked = _accepted_current_text(
+                immutable_item.element
+            )
+            if (
+                cached.text != current_text
+                or cached.text_sha256
+                != hashlib.sha256(current_text.encode("utf-8")).hexdigest()
+                or cached.has_tracked_text_revisions != has_tracked
+            ):
+                raise _snapshot_integrity_error()
+        if live_body is not None and etree.tostring(
+            live_body,
+            with_tail=False,
+        ) != snapshot.body_xml:
+            raise _snapshot_integrity_error()
+        return None
+    except HistoryResolutionError:
+        raise
+    except Exception as exc:
+        raise _snapshot_integrity_error() from exc
+
+
+def _immutable_body_flow(snapshot: _Snapshot) -> CanonicalBodyFlow:
+    """Rebuild one projection authority from the retained immutable bytes."""
+    try:
+        body = parse_xml(snapshot.body_xml)
+        if body.tag != w("body"):
+            raise _snapshot_integrity_error()
+        return canonical_body_flow_v1(body)
+    except HistoryResolutionError:
+        raise
+    except Exception as exc:
+        raise _snapshot_integrity_error() from exc
+
+
+def _bounded_observations(
+    observations: Sequence[ParagraphHistoryObservation],
+) -> tuple[ParagraphHistoryObservation, ...]:
+    if isinstance(observations, (str, bytes)) or not isinstance(
+        observations,
+        Sequence,
+    ):
+        raise HistoryResolutionError(
+            "invalid_observation_sequence", "observations must be a finite sequence"
+        )
+    try:
+        observation_count = len(observations)
+    except Exception as exc:
+        raise HistoryResolutionError(
+            "invalid_observation_sequence", "observation count cannot be established"
+        ) from exc
+    if observation_count > MAX_HISTORY_OBSERVATIONS:
+        raise HistoryResolutionError(
+            "resource_limit_exceeded",
+            "observation count exceeds its fixed limit",
+        )
+    if observation_count == 0:
+        raise HistoryResolutionError(
+            "invalid_observation_sequence", "at least one observation is required"
+        )
+    try:
+        return tuple(observations[index] for index in range(observation_count))
+    except Exception as exc:
+        raise HistoryResolutionError(
+            "invalid_observation_sequence", "observation sequence cannot be indexed"
+        ) from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -361,9 +500,10 @@ def _selected_work(
         observation,
         paragraph,
     )
+    immutable_flow = _immutable_body_flow(observation.snapshot)
     projection = build_paragraph_projection_v1(
-        paragraph.element,
-        observation.snapshot.body_flow,
+        immutable_flow.paragraphs[paragraph.paragraph_index].element,
+        immutable_flow,
     )
     selected = ParagraphHistorySelectedParagraph(
         paragraph_observation_id=paragraph_observation_id,
@@ -506,7 +646,10 @@ def _exact_candidates(
         if not _has_non_whitespace(paragraph.text):
             continue
         if (
-            paragraph.text_sha256 == higher.selected.current_text_sha256
+            _hash_prefilter_hit(
+                paragraph.text_sha256,
+                higher.selected.current_text_sha256,
+            )
             and paragraph.text == higher.selected.current_text
         ):
             candidate = _candidate_work(by_id, lower, paragraph)
@@ -521,7 +664,7 @@ def _exact_candidates(
             current_ids.add(candidate.paragraph_observation_id)
         if (
             rejected_eligible
-            and paragraph.text_sha256 == rejected_sha256
+            and _hash_prefilter_hit(paragraph.text_sha256, rejected_sha256)
             and paragraph.text == rejected_text
         ):
             candidate = _candidate_work(by_id, lower, paragraph)
@@ -584,16 +727,7 @@ def resolve_paragraph_history(
         raise HistoryResolutionError(
             "invalid_seed", "seed must use the immutable internal carrier"
         )
-    ordered = tuple(observations)
-    if not ordered:
-        raise HistoryResolutionError(
-            "invalid_observation_sequence", "at least one observation is required"
-        )
-    if len(ordered) > MAX_HISTORY_OBSERVATIONS:
-        raise HistoryResolutionError(
-            "resource_limit_exceeded",
-            "observation count exceeds its fixed limit",
-        )
+    ordered = _bounded_observations(observations)
     if any(
         not isinstance(item, ParagraphHistoryObservation)
         or not isinstance(item.snapshot, _Snapshot)
@@ -612,6 +746,14 @@ def resolve_paragraph_history(
             "observation identifiers must be non-empty and unique",
         )
 
+    validated_snapshot_ids: set[int] = set()
+    for observation in ordered:
+        snapshot_key = id(observation.snapshot)
+        if snapshot_key in validated_snapshot_ids:
+            continue
+        _validate_snapshot_integrity(observation.snapshot)
+        validated_snapshot_ids.add(snapshot_key)
+
     latest = ordered[-1]
     if seed.observation_id != latest.observation_id:
         raise HistoryResolutionError(
@@ -626,7 +768,12 @@ def resolve_paragraph_history(
         )
 
     latest_position = len(ordered) - 1
-    selected = _selected_work(latest, latest_position, seed_paragraph, ())
+    selected = _selected_work(
+        latest,
+        latest_position,
+        seed_paragraph,
+        (),
+    )
     seed_section = latest.snapshot.section_by_paragraph.get(
         seed_paragraph.paragraph_index
     )
