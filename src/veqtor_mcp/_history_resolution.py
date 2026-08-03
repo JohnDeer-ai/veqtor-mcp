@@ -137,6 +137,7 @@ def _validate_snapshot_integrity(snapshot: _Snapshot) -> None:
                 or live_item.container_kind != cached.container_kind
                 or immutable_item.paragraph_index != cached.paragraph_index
                 or immutable_item.container_kind != cached.container_kind
+                or type(cached.paragraph_index) is not int
                 or not isinstance(cached.text, str)
                 or not isinstance(cached.text_sha256, str)
                 or not isinstance(cached.has_tracked_text_revisions, bool)

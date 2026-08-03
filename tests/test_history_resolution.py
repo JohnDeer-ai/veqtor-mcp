@@ -560,3 +560,42 @@ def test_exactly_maximum_observations_remain_accepted() -> None:
         step.resolution is None or step.resolution.state == "exact_unique"
         for step in trace.steps
     )
+
+
+@pytest.mark.parametrize("malformed_index", [0.0, False])
+def test_malformed_cached_paragraph_index_fails_before_resolution(
+    malformed_index: object,
+) -> None:
+    lower = _observation("lower", [_ParagraphSpec("Same text")])
+    higher = _observation("higher", [_ParagraphSpec("Same text")])
+    malformed = replace(
+        lower.snapshot.paragraphs[0],
+        paragraph_index=malformed_index,
+    )
+    lower = replace(
+        lower,
+        snapshot=replace(lower.snapshot, paragraphs=(malformed,)),
+    )
+
+    with pytest.raises(HistoryResolutionError) as error:
+        resolve_paragraph_history([lower, higher], _seed(higher))
+
+    assert error.value.code == "snapshot_integrity_error"
+    assert error.value.detail == "captured snapshot integrity check failed"
+
+
+def test_exact_non_boolean_integer_paragraph_index_remains_accepted() -> None:
+    lower = _observation("lower", [_ParagraphSpec("Same text")])
+    higher = _observation("higher", [_ParagraphSpec("Same text")])
+
+    trace = resolve_paragraph_history([lower, higher], _seed(higher))
+    step = trace.steps[1]
+
+    assert step.resolution is not None
+    assert (step.resolution.state, step.resolution.reason) == (
+        "exact_unique",
+        "exact_current_unique",
+    )
+    assert step.selected_paragraph is not None
+    assert step.selected_paragraph.paragraph_ref["paragraph_index"] == 0
+    assert type(step.selected_paragraph.paragraph_ref["paragraph_index"]) is int
