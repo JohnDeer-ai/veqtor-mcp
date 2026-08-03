@@ -186,6 +186,8 @@ class _Snapshot:
     file_sha256: str
     body_flow: CanonicalBodyFlow
     body_xml: bytes
+    styles_xml: bytes | None
+    numbering_xml: bytes | None
     paragraphs: tuple[_Paragraph, ...]
     sections: tuple[_Section, ...]
     section_by_paragraph: Mapping[int, _Section]
@@ -509,11 +511,13 @@ def _load_snapshot_from_payload(
                 )
             )
         paragraphs = tuple(built_paragraphs)
-        styles = _resolve_styles(_parse_styles(package.parts.get("word/styles.xml")))
+        styles_xml = package.parts.get("word/styles.xml")
+        numbering_xml = package.parts.get("word/numbering.xml")
+        styles = _resolve_styles(_parse_styles(styles_xml))
         sections, section_by_paragraph = _sections(
             paragraphs,
             styles,
-            package.parts.get("word/numbering.xml"),
+            numbering_xml,
         )
         container_coverage = dict(flow.container_policy)
         revision_inventory = dict(
@@ -546,6 +550,8 @@ def _load_snapshot_from_payload(
         file_sha256=file_sha256,
         body_flow=flow,
         body_xml=etree.tostring(body, with_tail=False),
+        styles_xml=styles_xml,
+        numbering_xml=numbering_xml,
         paragraphs=paragraphs,
         sections=sections,
         section_by_paragraph=section_by_paragraph,

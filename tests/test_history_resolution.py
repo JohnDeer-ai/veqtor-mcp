@@ -94,6 +94,8 @@ def _observation(
         file_sha256=file_sha256,
         body_flow=flow,
         body_xml=etree.tostring(body, with_tail=False),
+        styles_xml=None,
+        numbering_xml=None,
         paragraphs=frozen_paragraphs,
         sections=sections,
         section_by_paragraph=section_by_paragraph,
@@ -321,6 +323,31 @@ def test_malformed_cached_navigation_mapping_fails_before_resolution() -> None:
         higher,
         snapshot=replace(higher.snapshot, section_by_paragraph={}),
     )
+
+    with pytest.raises(HistoryResolutionError) as error:
+        resolve_paragraph_history([lower, higher], _seed(higher, 1))
+
+    assert error.value.code == "snapshot_integrity_error"
+
+
+def test_post_capture_section_semantic_mutation_fails_before_resolution() -> None:
+    lower = _observation(
+        "lower",
+        [
+            _ParagraphSpec("Other", heading=True),
+            _ParagraphSpec("Candidate"),
+        ],
+    )
+    higher = _observation(
+        "higher",
+        [
+            _ParagraphSpec("Exclusions", heading=True),
+            _ParagraphSpec("Selected clause"),
+        ],
+    )
+    section = higher.snapshot.sections[0]
+    assert section.title == "Exclusions"
+    object.__setattr__(section, "title", "Other")
 
     with pytest.raises(HistoryResolutionError) as error:
         resolve_paragraph_history([lower, higher], _seed(higher, 1))

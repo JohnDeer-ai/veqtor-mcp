@@ -20,6 +20,7 @@ from lxml import etree
 
 from veqtor_docx._ooxml import CanonicalBodyFlow, canonical_body_flow_v1, parse_xml, w
 from veqtor_docx._projection import build_paragraph_projection_v1
+from veqtor_docx.extract import _parse_styles, _resolve_styles
 from veqtor_docx.inspect import (
     _Paragraph,
     _Section,
@@ -28,6 +29,7 @@ from veqtor_docx.inspect import (
     _paragraph_ref,
     _resolve_paragraph,
     _section_ref,
+    _sections,
 )
 
 from . import records
@@ -100,7 +102,10 @@ def _containing_body(element: etree._Element) -> etree._Element:
     return bodies[0]
 
 
-def _validate_section_navigation(snapshot: _Snapshot) -> None:
+def _validate_section_navigation(
+    snapshot: _Snapshot,
+    immutable_paragraphs: tuple[_Paragraph, ...],
+) -> None:
     if not isinstance(snapshot.sections, tuple) or not isinstance(
         snapshot.section_by_paragraph,
         _MAPPING_PROXY_TYPE,
@@ -145,6 +150,25 @@ def _validate_section_navigation(snapshot: _Snapshot) -> None:
             raise _snapshot_integrity_error()
         previous_heading_index = heading_index
 
+    derived_sections, _ = _sections(
+        immutable_paragraphs,
+        _resolve_styles(_parse_styles(snapshot.styles_xml)),
+        snapshot.numbering_xml,
+    )
+    if len(derived_sections) != len(snapshot.sections):
+        raise _snapshot_integrity_error()
+    for cached, derived in zip(snapshot.sections, derived_sections, strict=True):
+        if (
+            cached.heading.paragraph_index != derived.heading.paragraph_index
+            or cached.level != derived.level
+            or cached.label != derived.label
+            or cached.title != derived.title
+            or cached.label_basis != derived.label_basis
+            or cached.end_paragraph_index_exclusive
+            != derived.end_paragraph_index_exclusive
+        ):
+            raise _snapshot_integrity_error()
+
     expected_by_paragraph: dict[int, _Section] = {}
     stack: list[_Section] = []
     section_index = 0
@@ -181,6 +205,14 @@ def _validate_snapshot_integrity(snapshot: _Snapshot) -> None:
             or len(snapshot.file_sha256) != 64
             or any(character not in "0123456789abcdef" for character in snapshot.file_sha256)
             or not isinstance(snapshot.body_xml, bytes)
+            or (
+                snapshot.styles_xml is not None
+                and not isinstance(snapshot.styles_xml, bytes)
+            )
+            or (
+                snapshot.numbering_xml is not None
+                and not isinstance(snapshot.numbering_xml, bytes)
+            )
             or not isinstance(snapshot.paragraphs, tuple)
         ):
             raise _snapshot_integrity_error()
@@ -198,6 +230,7 @@ def _validate_snapshot_integrity(snapshot: _Snapshot) -> None:
             raise _snapshot_integrity_error()
 
         live_body = None
+        immutable_paragraphs = []
         for cached, live_item, immutable_item in zip(
             snapshot.paragraphs,
             cached_flow.paragraphs,
@@ -232,7 +265,17 @@ def _validate_snapshot_integrity(snapshot: _Snapshot) -> None:
                 or cached.has_tracked_text_revisions != has_tracked
             ):
                 raise _snapshot_integrity_error()
-        _validate_section_navigation(snapshot)
+            immutable_paragraphs.append(
+                _Paragraph(
+                    element=immutable_item.element,
+                    paragraph_index=immutable_item.paragraph_index,
+                    container_kind=immutable_item.container_kind,
+                    text=current_text,
+                    text_sha256=hashlib.sha256(current_text.encode("utf-8")).hexdigest(),
+                    has_tracked_text_revisions=has_tracked,
+                )
+            )
+        _validate_section_navigation(snapshot, tuple(immutable_paragraphs))
         if live_body is not None and etree.tostring(
             live_body,
             with_tail=False,
