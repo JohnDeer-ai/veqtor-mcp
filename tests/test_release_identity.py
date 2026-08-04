@@ -188,6 +188,7 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
         "/src/veqtor_docx/_projection.py",
         "/src/veqtor_mcp/_history_io.py",
         "/src/veqtor_mcp/_history_resolution.py",
+        "/src/veqtor_mcp/_verification_v2.py",
     }
     assert config["project"]["version"] != VERSION
     assert VERSION == "0.3.0"

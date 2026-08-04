@@ -246,52 +246,62 @@ class _RecordSchemaError(ValueError):
 
 
 @dataclass(frozen=True)
-class _V1ToolSpec:
+class _RecordSpec:
     record_type: str
     projection_kind: str
 
 
-V1_HISTORICAL_TOOL_SPECS: Mapping[str, _V1ToolSpec] = MappingProxyType(
+V1_HISTORICAL_TOOL_SPECS: Mapping[str, _RecordSpec] = MappingProxyType(
     {
-        "list_rounds": _V1ToolSpec("tool_observation.v1", "list_rounds"),
-        "extract_redlines": _V1ToolSpec("tool_observation.v1", "extract_redlines"),
-        "inspect_document": _V1ToolSpec("inspection.v1", "inspect_document"),
-        "verify_quote": _V1ToolSpec("verification.v1", "verify_quote"),
-        "preflight_edits": _V1ToolSpec("verification.v1", "preflight_edits"),
-        "apply_edits": _V1ToolSpec("decision.v1", "apply_edits"),
-        "map_rounds": _V1ToolSpec("round_map.v1", "map_rounds"),
-        "export_decision_record": _V1ToolSpec(
+        "list_rounds": _RecordSpec("tool_observation.v1", "list_rounds"),
+        "extract_redlines": _RecordSpec("tool_observation.v1", "extract_redlines"),
+        "inspect_document": _RecordSpec("inspection.v1", "inspect_document"),
+        "verify_quote": _RecordSpec("verification.v1", "verify_quote"),
+        "preflight_edits": _RecordSpec("verification.v1", "preflight_edits"),
+        "apply_edits": _RecordSpec("decision.v1", "apply_edits"),
+        "map_rounds": _RecordSpec("round_map.v1", "map_rounds"),
+        "export_decision_record": _RecordSpec(
             ACCESS_RECORD_TYPE, "export_decision_record"
         ),
     }
 )
-WRITABLE_TOOL_NAMES = frozenset(
+HISTORICAL_RECORD_SPECS: Mapping[tuple[str, str], _RecordSpec] = MappingProxyType(
     {
-        "list_rounds",
-        "extract_redlines",
-        "inspect_document",
-        "verify_quote",
-        "preflight_edits",
-        "apply_edits",
-        "map_rounds",
-        "export_decision_record",
+        (tool_name, spec.record_type): spec
+        for tool_name, spec in V1_HISTORICAL_TOOL_SPECS.items()
     }
 )
+WRITABLE_TOOL_SPECS: Mapping[str, _RecordSpec] = MappingProxyType(
+    dict(V1_HISTORICAL_TOOL_SPECS)
+)
+WRITABLE_TOOL_NAMES = frozenset(WRITABLE_TOOL_SPECS)
+HISTORICAL_TOOL_NAMES = frozenset(
+    tool_name for tool_name, _record_type in HISTORICAL_RECORD_SPECS
+)
 KNOWN_RECORD_TYPES = frozenset(
-    spec.record_type for spec in V1_HISTORICAL_TOOL_SPECS.values()
+    record_type for _tool_name, record_type in HISTORICAL_RECORD_SPECS
 )
 
 
-def _historical_tool_spec(tool_name: Any) -> _V1ToolSpec:
-    if not isinstance(tool_name, str) or tool_name not in V1_HISTORICAL_TOOL_SPECS:
+def _historical_record_spec(tool_name: Any, record_type: Any) -> _RecordSpec:
+    if not isinstance(tool_name, str) or tool_name not in HISTORICAL_TOOL_NAMES:
         raise _RecordSchemaError("invalid tool_name")
-    return V1_HISTORICAL_TOOL_SPECS[tool_name]
+    if not isinstance(record_type, str) or record_type not in KNOWN_RECORD_TYPES:
+        raise _RecordSchemaError("invalid record_type")
+    spec = HISTORICAL_RECORD_SPECS.get((tool_name, record_type))
+    if spec is None:
+        raise _RecordSchemaError("record_type does not match tool_name")
+    return spec
 
 
-def _writable_tool_spec(tool_name: Any) -> _V1ToolSpec:
-    if not isinstance(tool_name, str) or tool_name not in WRITABLE_TOOL_NAMES:
+def _writable_tool_spec(tool_name: Any) -> _RecordSpec:
+    if (
+        not isinstance(tool_name, str)
+        or tool_name not in WRITABLE_TOOL_NAMES
+        or tool_name not in WRITABLE_TOOL_SPECS
+    ):
         raise _RecordSchemaError("invalid tool_name")
-    return _historical_tool_spec(tool_name)
+    return WRITABLE_TOOL_SPECS[tool_name]
 
 
 def utc_now() -> datetime:
@@ -1204,8 +1214,7 @@ def _check_record_schema(record: Any) -> int:
     for key in ("created_at", "tool_name", "workspace"):
         if not isinstance(record.get(key), str) or not record[key]:
             fail(f"{key} missing")
-    if record_type != _historical_tool_spec(record["tool_name"]).record_type:
-        fail("record_type does not match tool_name")
+    record_spec = _historical_record_spec(record["tool_name"], record_type)
     if not _is_sha256(record.get("result_sha256")):
         fail("invalid result_sha256")
     if record["result_sha256"] != _stable_digest(record.get("result", {})):
@@ -1215,7 +1224,7 @@ def _check_record_schema(record: Any) -> int:
     for key in ("input", "result", "provenance", "producer"):
         if not isinstance(record.get(key), dict):
             fail(f"{key} missing")
-    if record["tool_name"] == "map_rounds" and not _round_map_record_shape_is_valid(
+    if record_spec.projection_kind == "map_rounds" and not _round_map_record_shape_is_valid(
         record["result"], record["provenance"]
     ):
         fail("invalid round_map projection")
@@ -3527,7 +3536,9 @@ def _inspection_limits_summary(value: Any) -> dict[str, Any] | None:
 
 def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
     result = record["result"]
-    projection_kind = _historical_tool_spec(record["tool_name"]).projection_kind
+    projection_kind = _historical_record_spec(
+        record["tool_name"], record["record_type"]
+    ).projection_kind
     if result.get("status") == RESULT_STATUS_ERROR:
         summary: dict[str, Any] = {"status": RESULT_STATUS_ERROR}
         error_code = _error_code(result.get("error_code"))
@@ -3734,7 +3745,9 @@ def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
 
 def _summary_provenance(record: dict[str, Any]) -> dict[str, Any]:
     provenance = record["provenance"]
-    projection_kind = _historical_tool_spec(record["tool_name"]).projection_kind
+    projection_kind = _historical_record_spec(
+        record["tool_name"], record["record_type"]
+    ).projection_kind
     if projection_kind == "map_rounds":
         from veqtor_mcp.round_map_contract import ROUND_MAP_RECORD_PROVENANCE_SCHEMA
 
