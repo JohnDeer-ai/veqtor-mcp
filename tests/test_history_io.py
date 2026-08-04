@@ -196,6 +196,31 @@ def _write_nested_revision_docx(
     _replace_document_body(path, body_builder)
 
 
+def _write_combined_maxima_docx(path: Path, template: Path) -> None:
+    shutil.copyfile(template, path)
+
+    def body_builder(body: etree._Element) -> None:
+        for _ in range(20):
+            heading = etree.SubElement(body, w("p"))
+            properties = etree.SubElement(heading, w("pPr"))
+            outline = etree.SubElement(properties, w("outlineLvl"))
+            outline.set(w("val"), "0")
+            _text_run(heading, "Match")
+
+        selected = etree.SubElement(body, w("p"))
+        _text_run(selected, "Current")
+        for index in range(20):
+            deletion = etree.SubElement(selected, w("del"))
+            deletion.set(w("id"), str(index + 1))
+            deletion.set(w("author"), "A")
+            deleted_run = etree.SubElement(deletion, w("r"))
+            deleted_text = etree.SubElement(deleted_run, w("delText"))
+            deleted_text.text = "D"
+            _text_run(selected, "|")
+
+    _replace_document_body(path, body_builder)
+
+
 def test_liability_history_is_closed_hash_bound_and_uses_selected_change_units(
     demo_dir: Path,
 ) -> None:
@@ -297,6 +322,90 @@ def test_candidate_streaming_digest_matches_canonical_json_v1() -> None:
             "candidates": candidates,
         }
     )
+
+
+def test_result_set_streaming_digest_matches_canonical_json_v1() -> None:
+    observations = [
+        {"position": 1, "text": "Ответ"},
+        {"position": 0, "text": "東京 😀"},
+    ]
+    assert history_io._result_set_digest(observations) == history_io._digest(
+        {
+            "schema_version": "paragraph_history_result_set.v1",
+            "result_order": "seed_then_descending_position_v1",
+            "observations": observations,
+        }
+    )
+
+
+def test_combined_maxima_result_is_digestible_and_stably_pageable(
+    demo_dir: Path,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "combined-maxima-source.docx"
+    _write_combined_maxima_docx(
+        source,
+        demo_dir / "round-1-outgoing-draft.docx",
+    )
+    payload = source.read_bytes()
+    matter = tmp_path / "combined-maxima"
+    matter.mkdir()
+    paths = []
+    for index in range(500):
+        path = matter / f"{index:03d}.docx"
+        path.write_bytes(payload)
+        paths.append(path)
+
+    seed = _seed(paths[-1], text="Current")
+    cursor = None
+    positions: list[int] = []
+    complete_observations: list[dict] = []
+    observation_ids: set[str] = set()
+    full_digests: set[str] = set()
+    selected_change_units = 0
+    page_count = 0
+    while True:
+        result = build_paragraph_history(
+            str(matter),
+            seed,
+            _lexicographic_order(),
+            cursor=cursor,
+            max_items=100,
+        ).result
+        assert result["status"] == "ok"
+        assert result["coverage"]["eligible_observation_count"] == 500
+        assert result["coverage"]["selected_paragraph_count"] == 500
+        assert result["coverage"]["navigation_candidate_count"] == 9_980
+        assert result["coverage"]["relationship_counts"] == {
+            "exact_content_equality": 499,
+            "rejected_projection_equality": 0,
+        }
+        full_digests.add(result["snapshot"]["full_result_set_sha256"])
+        complete_observations.extend(result["observations"])
+        for observation in result["observations"]:
+            positions.append(observation["position"])
+            observation_ids.add(observation["observation_id"])
+            selected_change_units += len(
+                observation["selected_paragraph"]["change_units"]
+            )
+        page_count += 1
+        cursor = result["next_cursor"]
+        if cursor is None:
+            break
+        assert page_count < 500
+
+    assert positions == list(range(499, -1, -1))
+    assert len(observation_ids) == 500
+    assert selected_change_units == 10_000
+    assert len(full_digests) == 1
+    with pytest.raises(ValueError, match="maximum node count"):
+        history_io._digest(
+            {
+                "schema_version": "paragraph_history_result_set.v1",
+                "result_order": "seed_then_descending_position_v1",
+                "observations": complete_observations,
+            }
+        )
 
 
 def test_ten_thousand_positive_candidates_succeed_and_plus_one_refuses(

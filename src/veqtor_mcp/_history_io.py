@@ -719,6 +719,27 @@ def _candidate_set_digest(candidates: Sequence[dict[str, Any]]) -> str:
     return digest.hexdigest()
 
 
+def _result_set_digest(observations: Sequence[dict[str, Any]]) -> str:
+    """Stream the complete canonical result set under its history limits.
+
+    One observation is independently bounded by the selected-paragraph,
+    sample, navigation and verbatim limits.  Streaming the permitted
+    500-observation sequence avoids applying the decision journal's unrelated
+    aggregate node guard while preserving the exact canonical_json_v1 bytes.
+    """
+    digest = hashlib.sha256()
+    digest.update(b'{"observations":[')
+    for index, observation in enumerate(observations):
+        if index:
+            digest.update(b",")
+        digest.update(records._canonical_json_bytes(observation))
+    digest.update(
+        b'],"result_order":"seed_then_descending_position_v1",'
+        b'"schema_version":"paragraph_history_result_set.v1"}'
+    )
+    return digest.hexdigest()
+
+
 def _navigation_result(
     candidate: ParagraphHistoryNavigationCandidate,
 ) -> dict[str, Any]:
@@ -1145,13 +1166,7 @@ def _snapshot_digests(
         (candidate.filename for candidate in captured),
         key=lambda value: (value.casefold(), value),
     )
-    full_result_set_sha256 = _digest(
-        {
-            "schema_version": "paragraph_history_result_set.v1",
-            "result_order": "seed_then_descending_position_v1",
-            "observations": full_observations,
-        }
-    )
+    full_result_set_sha256 = _result_set_digest(full_observations)
     return {
         "schema_version": "paragraph_history_snapshot.v1",
         "filesystem_snapshot_sha256": _digest(
@@ -1376,13 +1391,7 @@ def _validate_result(
         or result["limits"] != HISTORY_LIMITS
     ):
         raise HistoryIOError("output_contract_error", "result identity is inconsistent")
-    expected_full_digest = _digest(
-        {
-            "schema_version": "paragraph_history_result_set.v1",
-            "result_order": "seed_then_descending_position_v1",
-            "observations": full_observations,
-        }
-    )
+    expected_full_digest = _result_set_digest(full_observations)
     if snapshot["full_result_set_sha256"] != expected_full_digest:
         raise HistoryIOError(
             "output_contract_error", "complete result-set digest is inconsistent"
