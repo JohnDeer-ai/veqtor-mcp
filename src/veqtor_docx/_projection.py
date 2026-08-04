@@ -323,8 +323,8 @@ def _metadata_occurrence_affects_paragraph(
     paragraph: etree._Element,
 ) -> bool:
     containing = _containing_paragraph(element)
-    if containing is paragraph:
-        return True
+    if containing is not None:
+        return containing is paragraph
     for ancestor in element.iterancestors():
         if ancestor.tag not in {w("tr"), w("tc"), w("tbl")}:
             continue

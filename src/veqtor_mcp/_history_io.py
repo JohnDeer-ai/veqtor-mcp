@@ -527,10 +527,15 @@ def _parse_candidates(
                 invalid_ooxml_value_code="file_unextractable",
             )
         except ResourceLimitError as exc:
+            metadata = dict(getattr(exc, "metadata", {}))
+            metadata["limit"] = {
+                "inspect_paragraph_count": "indexed_paragraphs_per_docx",
+                "inspect_aggregate_text_chars": "accepted_current_chars_per_docx",
+            }.get(metadata.get("limit"), metadata.get("limit"))
             raise HistoryIOError(
                 "resource_limit_exceeded",
                 "candidate exceeds a processing limit",
-                **getattr(exc, "metadata", {}),
+                **metadata,
             ) from exc
         except ArchiveValidationError as exc:
             raise HistoryIOError(
@@ -689,15 +694,29 @@ def _candidate_summary(
     return {
         "schema_version": "paragraph_history_candidate_summary.v1",
         "count": len(complete),
-        "sha256": _digest(
-            {
-                "schema_version": "paragraph_history_candidates.v1",
-                "candidates": complete,
-            }
-        ),
+        "sha256": _candidate_set_digest(complete),
         "sample": sample,
         "truncated": len(complete) > len(sample),
     }
+
+
+def _candidate_set_digest(candidates: Sequence[dict[str, Any]]) -> str:
+    """Stream the canonical candidate wrapper without a whole-list node cap.
+
+    Each complete candidate remains independently bounded and validated by the
+    shared canonical encoder.  The emitted bytes are exactly canonical_json_v1
+    for ``paragraph_history_candidates.v1``; only the list is streamed so the
+    permitted 10,000-candidate population does not collide with the journal's
+    unrelated one-million-node aggregate guard.
+    """
+    digest = hashlib.sha256()
+    digest.update(b'{"candidates":[')
+    for index, candidate in enumerate(candidates):
+        if index:
+            digest.update(b",")
+        digest.update(records._canonical_json_bytes(candidate))
+    digest.update(b'],"schema_version":"paragraph_history_candidates.v1"}')
+    return digest.hexdigest()
 
 
 def _navigation_result(
@@ -832,6 +851,12 @@ def _selected_paragraph_result(
             "output_contract_error", "selected projection is malformed"
         )
     rejected_decoded_chars = len(pending_text_revisions_rejected_text(paragraph))
+    _limit(
+        rejected_decoded_chars,
+        "rejected_projection_chars_per_paragraph",
+        "selected projection exceeds the per-paragraph character limit",
+        unit="chars",
+    )
     _limit(
         rejected_decoded_chars,
         "rejected_projection_chars_per_docx",
@@ -1012,6 +1037,7 @@ def _observation_verbatim_chars(observation: dict[str, Any]) -> int:
                 if isinstance(value, str):
                     count += len(value)
             count += sum(len(value) for value in unit["reference"]["revision_ids"])
+            count += sum(len(value) for value in unit["countered_by"])
     for candidate in observation["navigation_candidates"]["sample"]:
         for key in ("label", "heading"):
             value = candidate[key]

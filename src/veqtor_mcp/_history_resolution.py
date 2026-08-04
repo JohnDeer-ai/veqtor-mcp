@@ -700,6 +700,9 @@ def _navigation_candidates(
             raise HistoryResolutionError(
                 "resource_limit_exceeded",
                 "navigation candidate count exceeds its fixed limit",
+                limit="navigation_candidates",
+                allowed_count=MAX_HISTORY_NAVIGATION_CANDIDATES,
+                observed_count=MAX_HISTORY_NAVIGATION_CANDIDATES + 1,
             )
         reference = _section_ref(observation.snapshot, section)
         candidate_section_id = _derived_id("rm_sec_v1", reference)
