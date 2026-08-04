@@ -128,6 +128,10 @@ def _journal_lock_deadline() -> float:
     return time.monotonic() + JOURNAL_LOCK_TIMEOUT_SECONDS
 
 
+def _journal_lock_handoff_moment() -> float:
+    return time.monotonic()
+
+
 def _acquire_journal_lock(
     fd: int,
     operation: int,
@@ -628,9 +632,11 @@ def _journal_for_write(
     sidecar = root / SIDECAR_DIR
     deadline = _journal_lock_deadline() if lock_deadline is None else lock_deadline
     journal_handle: Any | None = None
+    root_lock_acquired_at: float | None = None
     try:
         try:
             with _bounded_journal_lock(root_fd, fcntl.LOCK_EX, deadline=deadline):
+                root_lock_acquired_at = _journal_lock_handoff_moment()
                 try:
                     os.mkdir(SIDECAR_DIR, mode=0o700, dir_fd=root_fd)
                     try:
@@ -661,8 +667,14 @@ def _journal_for_write(
             journal_handle.close()
         raise
     assert journal_handle is not None
+    assert root_lock_acquired_at is not None
+    # Keep root contention in the shared budget without charging time spent
+    # holding that lock for initialization against the journal acquisition.
+    journal_lock_deadline = deadline + (
+        _journal_lock_handoff_moment() - root_lock_acquired_at
+    )
     try:
-        yield sidecar / JOURNAL_NAME, journal_handle
+        yield sidecar / JOURNAL_NAME, journal_handle, journal_lock_deadline
     finally:
         journal_handle.close()
 
@@ -2460,12 +2472,12 @@ def _write_record(
                 root,
                 expected_identity=expected_identity,
                 lock_deadline=lock_deadline,
-            ) as (journal_path, journal_handle):
+            ) as (journal_path, journal_handle, journal_lock_deadline):
                 record_id = _append_locked(
                     journal_handle,
                     journal_path,
                     record,
-                    lock_deadline=lock_deadline,
+                    lock_deadline=journal_lock_deadline,
                 )
     except Exception as exc:
         return {
