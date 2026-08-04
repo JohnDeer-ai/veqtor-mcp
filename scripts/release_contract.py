@@ -66,6 +66,7 @@ RUNTIME_SOURCE_FILES = (
 DEVELOPMENT_RUNTIME_SOURCE_FILES = (
     *RUNTIME_SOURCE_FILES,
     "src/veqtor_docx/_projection.py",
+    "src/veqtor_mcp/_history_io.py",
     "src/veqtor_mcp/_history_resolution.py",
 )
 

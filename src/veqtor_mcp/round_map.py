@@ -301,6 +301,17 @@ class _EnumeratedCandidate:
 
 
 @dataclass(frozen=True)
+class _CapturedDescriptor:
+    device: int
+    inode: int
+    mode: int
+    link_count: int
+    size: int
+    mtime_ns: int
+    ctime_ns: int
+
+
+@dataclass(frozen=True)
 class _CapturedCandidate:
     filename: str
     path: str
@@ -636,10 +647,10 @@ def _canonical_seed_path(seed_path: str) -> str:
     return str(parent / path.name)
 
 
-def _read_candidate(
+def _read_candidate_with_descriptor(
     root_fd: int,
     candidate: _EnumeratedCandidate,
-) -> bytes:
+) -> tuple[bytes, _CapturedDescriptor]:
     flags = os.O_RDONLY | records.O_NOFOLLOW | records.O_NONBLOCK
     try:
         fd = os.open(candidate.filename, flags, dir_fd=root_fd)
@@ -721,13 +732,33 @@ def _read_candidate(
         current.st_ino,
         current.st_mode,
         current.st_nlink,
+        current.st_size,
+        current.st_mtime_ns,
+        current.st_ctime_ns,
     )
     if not stat.S_ISREG(current.st_mode) or current.st_nlink != 1:
         raise RoundMapError("workspace_changed", "candidate changed after read")
-    if current_identity != candidate.identity:
+    if current_identity != before_tuple:
         raise RoundMapError(
             "workspace_changed", "candidate identity changed after read"
         )
+    return payload, _CapturedDescriptor(
+        device=before.st_dev,
+        inode=before.st_ino,
+        mode=before.st_mode,
+        link_count=before.st_nlink,
+        size=before.st_size,
+        mtime_ns=before.st_mtime_ns,
+        ctime_ns=before.st_ctime_ns,
+    )
+
+
+def _read_candidate(
+    root_fd: int,
+    candidate: _EnumeratedCandidate,
+) -> bytes:
+    """Retain the frozen Round Map byte-only helper contract."""
+    payload, _ = _read_candidate_with_descriptor(root_fd, candidate)
     return payload
 
 

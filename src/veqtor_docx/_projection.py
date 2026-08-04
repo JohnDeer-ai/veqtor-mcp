@@ -16,6 +16,7 @@ from lxml import etree
 from ._ooxml import (
     MOVE_REVISION_TAGS,
     TEXT_REVISION_TAGS,
+    UNSUPPORTED_REVISION_TAGS,
     ArchiveValidationError,
     CanonicalBodyFlow,
     ResourceLimitError,
@@ -315,6 +316,79 @@ def _move_wrapper_present(paragraph: etree._Element) -> bool:
         node.tag in MOVE_REVISION_TAGS
         for node in iter_canonical_paragraph_nodes(paragraph)
     )
+
+
+def _metadata_occurrence_affects_paragraph(
+    element: etree._Element,
+    paragraph: etree._Element,
+) -> bool:
+    containing = _containing_paragraph(element)
+    if containing is not None:
+        return containing is paragraph
+    for ancestor in element.iterancestors():
+        if ancestor.tag not in {w("tr"), w("tc"), w("tbl")}:
+            continue
+        return _is_descendant_of(paragraph, ancestor)
+    return False
+
+
+def build_paragraph_projection_coverage_v1(
+    paragraph: etree._Element,
+    body_flow: CanonicalBodyFlow,
+    *,
+    projection_status: str,
+) -> dict[str, object]:
+    """Count the closed selected-paragraph projection evidence surface."""
+    _require_selected_paragraph(paragraph, body_flow)
+    if projection_status not in {"complete", "unavailable"}:
+        raise ArchiveValidationError("projection status is invalid")
+
+    canonical_paragraphs = {item.element for item in body_flow.paragraphs}
+    document = paragraph.getroottree().getroot()
+    existence_count = 0
+    inline_text_count = 0
+    move_count = 0
+    sentinel = _existence_revision_owner
+    for element in document.iter():
+        if element.tag in TEXT_REVISION_TAGS | _CELL_EXISTENCE_TAGS:
+            owner = _existence_revision_owner(element)
+            if owner is not sentinel and owner is not None:
+                if _is_descendant_of(paragraph, owner):
+                    existence_count += 1
+                continue
+            if (
+                element.tag in TEXT_REVISION_TAGS
+                and _canonical_containing_paragraph(element, canonical_paragraphs)
+                is paragraph
+            ):
+                inline_text_count += 1
+            continue
+        if (
+            element.tag in MOVE_REVISION_TAGS
+            and _canonical_containing_paragraph(element, canonical_paragraphs)
+            is paragraph
+        ):
+            move_count += 1
+
+    neutral_count = sum(
+        1
+        for element in document.iter()
+        if element.tag in UNSUPPORTED_REVISION_TAGS - _CELL_EXISTENCE_TAGS
+        and _metadata_occurrence_affects_paragraph(element, paragraph)
+    )
+    excluded_count = sum(
+        _containing_paragraph(excluded.element) is paragraph
+        for excluded in body_flow.excluded_subtrees
+    )
+    return {
+        "schema_version": "paragraph_projection_coverage.v1",
+        "text_revision_wrapper_count": inline_text_count,
+        "move_wrapper_count": move_count,
+        "text_neutral_property_revision_count": neutral_count,
+        "existence_affecting_revision_count": existence_count,
+        "excluded_text_bearing_subtree_count": excluded_count,
+        "projection_complete": projection_status == "complete",
+    }
 
 
 def build_paragraph_projection_v1(

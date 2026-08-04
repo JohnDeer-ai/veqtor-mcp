@@ -37,6 +37,7 @@ from . import records
 
 MAX_HISTORY_OBSERVATIONS = 500
 MAX_HISTORY_NAVIGATION_CANDIDATES = 10_000
+MAX_HISTORY_EXACT_CANDIDATE_RELATIONSHIPS = 50_000
 _DOCUMENT_PART = "word/document.xml"
 _XSD_WHITESPACE_V1 = frozenset("\t\n\r ")
 _MAPPING_PROXY_TYPE = type(MappingProxyType({}))
@@ -49,9 +50,15 @@ _EVIDENCE_ORDER = {
 class HistoryResolutionError(ValueError):
     """One fail-closed refusal at the internal resolver boundary."""
 
-    def __init__(self, code: str, detail: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        detail: str,
+        **metadata: object,
+    ) -> None:
         self.code = code
         self.detail = detail
+        self.metadata = metadata
         super().__init__(f"{code}: {detail}")
 
 
@@ -467,6 +474,23 @@ class _CandidateWork:
     relationships: dict[str, ParagraphHistoryRelationship]
 
 
+@dataclass(slots=True)
+class _ExactCandidateRelationshipBudget:
+    count: int = 0
+
+    def reserve(self) -> None:
+        observed_count = self.count + 1
+        if observed_count > MAX_HISTORY_EXACT_CANDIDATE_RELATIONSHIPS:
+            raise HistoryResolutionError(
+                "resource_limit_exceeded",
+                "exact candidate relationship count exceeds its fixed limit",
+                limit="exact_candidate_relationships",
+                allowed_count=MAX_HISTORY_EXACT_CANDIDATE_RELATIONSHIPS,
+                observed_count=observed_count,
+            )
+        self.count = observed_count
+
+
 def _paragraph_identities(
     observation: ParagraphHistoryObservation,
     paragraph: _Paragraph,
@@ -676,6 +700,9 @@ def _navigation_candidates(
             raise HistoryResolutionError(
                 "resource_limit_exceeded",
                 "navigation candidate count exceeds its fixed limit",
+                limit="navigation_candidates",
+                allowed_count=MAX_HISTORY_NAVIGATION_CANDIDATES,
+                observed_count=MAX_HISTORY_NAVIGATION_CANDIDATES + 1,
             )
         reference = _section_ref(observation.snapshot, section)
         candidate_section_id = _derived_id("rm_sec_v1", reference)
@@ -737,6 +764,8 @@ def _exact_candidates(
     lower: ParagraphHistoryObservation,
     lower_position: int,
     higher: _SelectedWork,
+    *,
+    relationship_budget: _ExactCandidateRelationshipBudget | None = None,
 ) -> tuple[tuple[ParagraphHistoryCandidate, ...], dict[str, _CandidateWork], int, int]:
     projection = higher.selected.rejected_pending
     projection_status = projection.get("projection_status")
@@ -761,17 +790,28 @@ def _exact_candidates(
     by_id: dict[str, _CandidateWork] = {}
     current_ids: set[str] = set()
     rejected_ids: set[str] = set()
+    if relationship_budget is None:
+        relationship_budget = _ExactCandidateRelationshipBudget()
+
     for paragraph in lower.snapshot.paragraphs:
         if not _has_non_whitespace(paragraph.text):
             continue
+        current_prefilter_hit = _hash_prefilter_hit(
+            paragraph.text_sha256,
+            higher.selected.current_text_sha256,
+        )
         if (
-            _hash_prefilter_hit(
-                paragraph.text_sha256,
-                higher.selected.current_text_sha256,
-            )
-            and paragraph.text == higher.selected.current_text
+            current_prefilter_hit
+            and paragraph.text_sha256 == higher.selected.current_text_sha256
+            and paragraph.text != higher.selected.current_text
         ):
+            raise HistoryResolutionError(
+                "evidence_consistency_error",
+                "equal current-text hashes have unequal complete text",
+            )
+        if current_prefilter_hit and paragraph.text == higher.selected.current_text:
             candidate = _candidate_work(by_id, lower, paragraph)
+            relationship_budget.reserve()
             candidate.relationships["exact_content_equality"] = (
                 _current_relationship(
                     lower=lower,
@@ -781,12 +821,21 @@ def _exact_candidates(
                 )
             )
             current_ids.add(candidate.paragraph_observation_id)
+        rejected_prefilter_hit = rejected_eligible and _hash_prefilter_hit(
+            paragraph.text_sha256, rejected_sha256
+        )
         if (
-            rejected_eligible
-            and _hash_prefilter_hit(paragraph.text_sha256, rejected_sha256)
-            and paragraph.text == rejected_text
+            rejected_prefilter_hit
+            and paragraph.text_sha256 == rejected_sha256
+            and paragraph.text != rejected_text
         ):
+            raise HistoryResolutionError(
+                "evidence_consistency_error",
+                "equal rejected-text hashes have unequal complete text",
+            )
+        if rejected_prefilter_hit and paragraph.text == rejected_text:
             candidate = _candidate_work(by_id, lower, paragraph)
+            relationship_budget.reserve()
             candidate.relationships["rejected_projection_equality"] = (
                 _rejected_relationship(
                     lower=lower,
@@ -915,6 +964,7 @@ def resolve_paragraph_history(
 
     blocked_by: str | None = None
     navigation_candidate_count = 0
+    relationship_budget = _ExactCandidateRelationshipBudget()
     for lower_position in range(latest_position - 1, -1, -1):
         lower = ordered[lower_position]
         navigation = _navigation_candidates(
@@ -944,6 +994,7 @@ def resolve_paragraph_history(
             lower,
             lower_position,
             selected,
+            relationship_budget=relationship_budget,
         )
         projection_complete = (
             selected.selected.rejected_pending["projection_status"] == "complete"
