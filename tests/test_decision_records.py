@@ -5741,6 +5741,7 @@ def test_write_handoff_excludes_initialization_from_shared_lock_wait_budget(
         records,
         "_journal_lock_handoff_moment",
         lambda: next(moments),
+        raising=False,
     )
     monkeypatch.setattr(records, "_acquire_journal_lock", capture)
     result = records.write_record(
@@ -5803,6 +5804,7 @@ def test_write_journal_handoff_preserves_wait_after_slow_initialization(
             records,
             "_journal_lock_handoff_moment",
             lambda: next(root_hold_moments),
+            raising=False,
         )
         simulated.setattr(records.fcntl, "flock", contend_once_after_slow_initialization)
         simulated.setattr(
