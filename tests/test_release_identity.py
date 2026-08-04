@@ -186,6 +186,7 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
     assert frozen_runtime < discovered_runtime
     assert discovered_runtime - frozen_runtime == {
         "/src/veqtor_docx/_projection.py",
+        "/src/veqtor_mcp/_history_io.py",
         "/src/veqtor_mcp/_history_resolution.py",
     }
     assert config["project"]["version"] != VERSION
