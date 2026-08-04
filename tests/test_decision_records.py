@@ -5724,17 +5724,25 @@ def test_lock_helper_retries_eintr_without_masking_other_errors(
     assert error.value.errno == errno.EIO
 
 
-def test_write_reuses_one_deadline_for_root_and_journal_locks(
+def test_write_handoff_excludes_initialization_from_shared_lock_wait_budget(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     matter = tmp_path / "matter"
     matter.mkdir()
     deadlines: list[float] = []
+    moments = iter([10.0, 10.25, 12.25])
 
     def capture(_fd: int, _operation: int, *, deadline: float) -> None:
         deadlines.append(deadline)
 
+    monkeypatch.setattr(records, "_journal_lock_deadline", lambda: next(moments) + 1.0)
+    monkeypatch.setattr(
+        records,
+        "_journal_lock_handoff_moment",
+        lambda: next(moments),
+        raising=False,
+    )
     monkeypatch.setattr(records, "_acquire_journal_lock", capture)
     result = records.write_record(
         workspace=matter,
@@ -5745,45 +5753,76 @@ def test_write_reuses_one_deadline_for_root_and_journal_locks(
     )
 
     assert result["record_status"] == "written"
-    assert len(deadlines) == 2
-    assert deadlines[0] == deadlines[1]
+    assert deadlines == [11.0, 13.0]
+    assert deadlines[1] - 12.25 == deadlines[0] - 10.25
 
 
-def test_write_attempts_journal_lock_after_initialization_consumes_deadline(
+def test_write_journal_handoff_preserves_wait_after_slow_initialization(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     matter = tmp_path / "matter"
     matter.mkdir()
-    moments = iter([0.0, 2.0])
+    root_hold_moments = iter([0.0, 2.0])
+    journal_attempt_moments = iter([2.0, 2.5])
+    acquisition_phase = 0
+    lock_attempt = 0
+    sleeps: list[float] = []
     original_acquire = records._acquire_journal_lock
 
-    def acquire_with_slow_initialization(
+    def contend_once_after_slow_initialization(_fd: int, operation: int) -> None:
+        nonlocal lock_attempt
+        if operation == records.fcntl.LOCK_UN:
+            return
+        lock_attempt += 1
+        if lock_attempt == 2:
+            raise OSError(errno.EWOULDBLOCK, "busy")
+
+    def acquire_with_simulated_timing(
         fd: int,
         operation: int,
         *,
         deadline: float,
     ) -> None:
+        nonlocal acquisition_phase
+        acquisition_phase += 1
         original_acquire(
             fd,
             operation,
             deadline=deadline,
-            monotonic=lambda: next(moments),
-            sleep=lambda _seconds: pytest.fail("uncontended locks must not sleep"),
+            monotonic=(
+                (lambda: 0.0)
+                if acquisition_phase == 1
+                else lambda: next(journal_attempt_moments)
+            ),
+            sleep=sleeps.append,
         )
 
-    monkeypatch.setattr(records, "_journal_lock_deadline", lambda: 1.0)
-    monkeypatch.setattr(records, "_acquire_journal_lock", acquire_with_slow_initialization)
-    result = records.write_record(
-        workspace=matter,
-        tool_name="list_rounds",
-        input_payload={},
-        result={"status": "ok"},
-        provenance={},
-    )
-    monkeypatch.setattr(records, "_acquire_journal_lock", original_acquire)
+    with monkeypatch.context() as simulated:
+        simulated.setattr(records, "_journal_lock_deadline", lambda: 1.0)
+        simulated.setattr(
+            records,
+            "_journal_lock_handoff_moment",
+            lambda: next(root_hold_moments),
+            raising=False,
+        )
+        simulated.setattr(records.fcntl, "flock", contend_once_after_slow_initialization)
+        simulated.setattr(
+            records,
+            "_acquire_journal_lock",
+            acquire_with_simulated_timing,
+        )
+        result = records.write_record(
+            workspace=matter,
+            tool_name="list_rounds",
+            input_payload={},
+            result={"status": "ok"},
+            provenance={},
+        )
 
     assert result["record_status"] == "written"
+    assert lock_attempt == 3
+    assert sleeps == [records.JOURNAL_LOCK_POLL_SECONDS]
     journal = records.read_records(str(matter), max_records=10, include_payload=True)
     assert [item["record_id"] for item in journal["records"]] == ["dr_001"]
 
