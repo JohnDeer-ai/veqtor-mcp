@@ -2,11 +2,14 @@
 
 # Known limitations
 
-This file describes development source `0.4.0.dev0` while preserving the
-frozen v0.3 examples and eight-tool MCP contract `veqtor.mcp.v0.3`. It does not
-establish that the package, extension or release exists publicly. Published
-installation status comes only from matching entries on PyPI and the immutable
-GitHub Releases list. The release surface remains intentionally narrow.
+This file describes development source `0.4.0.dev0` and its nine-tool MCP
+contract `veqtor.mcp.v0.4`. All nine tools, including the eight names carried
+forward from v0.3, expose the same contract-wide v0.4 metadata value. It does
+not establish that the package, extension or release exists publicly.
+Published installation status comes only from matching entries on PyPI and the
+immutable GitHub Releases list. The frozen v0.3 release and MCPB remain an
+unchanged eight-tool `veqtor.mcp.v0.3` surface; development v0.4 has no release,
+MCPB, Claude Desktop or publication acceptance claim.
 
 The v0.3 MCPB v0.4 extension is macOS-only and is public only when the
 exact artifact is attached to the matching verified release after clean-Mac
@@ -44,6 +47,24 @@ current user's permissions.
   output, aggregate output and CRC checked: DEFLATED data is streamed in bounded
   chunks with an exact end-of-stream check, while STORED data is a bounded
   direct span.
+- `trace_paragraph_history` adds a closed folder-wide envelope on top of those
+  shared ZIP/XML limits: at most 500 direct DOCX candidates, 500 MiB compressed
+  input, 500 MiB expanded output, 100,000 indexed paragraphs and 50,000,000
+  decoded text characters. It separately caps accepted/current and
+  rejected-projection text, exact candidate relationships (50,000), navigation
+  candidates (10,000), selected change units (10,000 total and 1,000 per
+  selected paragraph), change-unit old/new text, samples, and returned verbatim
+  text. One observation may expose at most 200,000 verbatim characters and one
+  page 1,000,000. Pages default to 50 observations and allow at most 100; an
+  observation is never split or truncated. The complete exact values are
+  returned in `limits` and frozen in `CLAUSE_HISTORY_V0.4.md`.
+- Paragraph history scans the complete direct candidate set and refuses every
+  symlink, hardlink, non-file named `.docx`, unsafe descriptor, replacement or
+  folder drift. This can reject folders that ordinary document software would
+  open. Each candidate is read into one validated byte snapshot and all later
+  calculations use those saved bytes. The folder is not one cross-file atomic
+  filesystem transaction, so a drift check can refuse concurrent changes but
+  cannot turn separate files into an atomic snapshot.
 - The supported DOCX container subset is intentionally narrow: unencrypted,
   non-ZIP64 ZIP packages using only `STORED` or `DEFLATED` members. Standard
   32-bit data descriptors are supported with or without their optional
@@ -123,10 +144,33 @@ current user's permissions.
   `recorded_derivation` edges repeat validated local apply-record assertions
   about document bytes only. They do not prove paragraph lineage, chronology,
   approval, custody, deletion, restoration or first appearance.
+- Paragraph history follows only one exact seed paragraph and only through
+  adjacent declared positions. A unique accepted/current equality or a unique
+  equality with the higher position's
+  `pending_text_revisions_rejected_v1` projection permits propagation;
+  ambiguity or unresolved evidence blocks every lower step. It never fills a
+  gap with fuzzy matching and never treats `unresolved` as deletion or absence
+  from the whole DOCX. Filename and explicit-manifest positions still do not
+  establish chronology or lineage.
+- Only the seed and `exact_unique` selections expose tracked-change units, and
+  those units are filtered to the selected `reference.paragraph_index`.
+  Change units from other paragraphs are excluded. OOXML `author` and `date`
+  values are literal document strings: even a value such as `author: "53"`
+  does not identify a person or verify when the revision was made. Results
+  therefore retain `authorship_verified: false` and `time_verified: false`.
+- A rejected-pending projection is a deterministic mechanical reading of one
+  snapshot, not an original, previous round or legal-effect conclusion. It may
+  be unavailable for unsupported paragraph/structural revisions, and flattened
+  history cannot be recovered. `verify_quote` returns that side only when a
+  caller explicitly selects `pending_text_revisions_rejected_v1`; omission or
+  null continues to verify the accepted/current side.
 - Round Map's permanent `round_map.v1` journal projection is success-only.
   Pre-result Map refusals do not append a failure record or initialize
   `.veqtor`; after a valid map exists, an append failure is reported as
-  `record_status: "write_failed"` without discarding the map. The other seven
+  `record_status: "write_failed"` without discarding the map. Paragraph
+  history's permanent `paragraph_history.v1` projection has the same
+  success-only boundary: pre-result failures write no history record, while a
+  publication failure preserves the valid history result. The other seven
   tools retain their documented controlled-failure journaling behavior. A
   missing or replaced workspace path at publication is reported as
   `record_error: "workspace_changed"`; publication writes neither the captured
@@ -147,7 +191,8 @@ current user's permissions.
   same source bytes, build, configured author and edits. Apply can still fail if
   the source changes, the output exists, or publication encounters permissions,
   storage or filesystem races.
-- Under MCP contracts `veqtor.mcp.v0.2` and `veqtor.mcp.v0.3`,
+- Under MCP contracts `veqtor.mcp.v0.2`, `veqtor.mcp.v0.3`, and
+  `veqtor.mcp.v0.4`,
   `apply_edits` requires the complete `preflight_proof` returned by a successful
   preflight. The proof binds the source SHA-256, canonical edits digest,
   configured author, producer build and candidate SHA-256; it does not bind the
@@ -197,10 +242,11 @@ current user's permissions.
   journal. Append and export also scan the complete file, so they remain
   O(journal bytes); there is no journal index, automatic repair or rotation.
 - Read-only `list_rounds`, `extract_redlines`, `inspect_document`,
-  `verify_quote` and `preflight_edits` calls normally append local provenance
-  too. Decision-record export normally appends an access event after taking its
-  response snapshot, so observation is not side-effect free unless decision
-  records are disabled.
+  `map_rounds`, `trace_paragraph_history`, `verify_quote` and
+  `preflight_edits` calls normally append local provenance too. Map and history
+  use their success-only rules described above. Decision-record export normally
+  appends an access event after taking its response snapshot, so
+  observation is not side-effect free unless decision records are disabled.
 - Development-contract export never initializes a journal in an uninitialized
   supplied folder. If exactly one direct child contains a valid journal it
   refuses with `workspace_mismatch` and a safe relative suggestion; multiple
@@ -213,6 +259,11 @@ current user's permissions.
 - Access-event summaries written by builds before 0.1.1 may undercount prior
   access events when multiple exports ran concurrently. Existing journal
   entries are historical evidence and are not rewritten or migrated.
+- Development v0.4 writes `verification.v2` for new `verify_quote` calls and
+  `paragraph_history.v1` for successful history calls while continuing to read
+  historical `verification.v1`. A v0.3 reader does not know the new record
+  types and may fail closed after the first such frame; downgrade compatibility
+  across that boundary is not guaranteed.
 - Journals containing `preflight_edits` require Veqtor 0.1.0 or newer. Downgrade
   to 0.0.0 is unsupported.
 

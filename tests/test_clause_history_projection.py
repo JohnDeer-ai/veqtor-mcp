@@ -223,7 +223,7 @@ def _classify_adjacent_pair(
     return counts, tuple(rejected_matches)
 
 
-def test_development_identity_packages_the_frozen_spec_without_widening_v03() -> None:
+def test_development_v04_and_frozen_release_v03_boundaries_are_separate() -> None:
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     release = runpy.run_path(str(ROOT / "scripts" / "release_contract.py"))
     sdist_includes = project["tool"]["hatch"]["build"]["targets"]["sdist"]["include"]
@@ -237,25 +237,23 @@ def test_development_identity_packages_the_frozen_spec_without_widening_v03() ->
     assert frozen_version == "0.3.0"
     assert "CLAUSE_HISTORY_V0.4.md" not in release["PUBLIC_DOCUMENT_FILES"]
     assert "CLAUSE_HISTORY_V0.4.md" not in release["SDIST_GIT_FILES"]
-    frozen_mcp_version = ".".join(frozen_version.split(".")[:2])
-    assert MCP_CONTRACT_SCHEMA_VERSION == f"veqtor.mcp.v{frozen_mcp_version}"
-    assert len(records.WRITABLE_TOOL_NAMES) == 8
-    assert "trace_paragraph_history" not in records.WRITABLE_TOOL_NAMES
-    assert re.search(
-        rf"development source is package `{re.escape(source_version)}`.*frozen\s+"
-        rf"eight-tool MCP contract `veqtor\.mcp\.v{re.escape(frozen_mcp_version)}`",
-        api,
-        re.DOTALL,
-    )
-    assert "the v0.3 examples and contracts below\nremain unchanged" in api
+    assert MCP_CONTRACT_SCHEMA_VERSION == "veqtor.mcp.v0.4"
+    assert len(records.WRITABLE_TOOL_NAMES) == 9
+    assert "trace_paragraph_history" in records.WRITABLE_TOOL_NAMES
+    assert len(release["MCPB_REQUIRED_TOOLS"]) == 8
+    assert "trace_paragraph_history" not in release["MCPB_REQUIRED_TOOLS"]
+    assert f"development source is package `{source_version}`" in api
+    assert "nine-tool MCP contract `veqtor.mcp.v0.4`" in api
+    assert "frozen v0.3" in api
     assert f"development source `{source_version}`" in limitations
-    assert "frozen v0.3 examples and eight-tool MCP contract" in limitations
+    assert "veqtor.mcp.v0.4" in limitations
+    assert "frozen v0.3" in limitations
     assert f'"version": "{frozen_version}"' in api
 
 
 def test_frozen_clause_history_spec_has_closed_projection_fixture_contract() -> None:
     spec = _spec()
-    acceptance = spec.split("## Acceptance fixtures for later implementation", 1)[
+    acceptance = spec.split("## Acceptance fixtures and product checks", 1)[
         1
     ].split("\n## ", 1)[0]
     fixture_numbers = [

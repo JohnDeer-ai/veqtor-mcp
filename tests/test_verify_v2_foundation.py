@@ -525,7 +525,9 @@ def test_operation_schema_rejects_variant_and_cardinality_mismatches(
         jsonschema.validate(change, VERIFICATION_RESULT_V2_OPERATION_SCHEMA)
 
 
-def test_public_v03_surface_and_writer_remain_frozen(demo_dir: Path) -> None:
+def test_public_v04_surface_activates_v2_without_changing_python_v1(
+    demo_dir: Path,
+) -> None:
     _payload, path, anchor, _text = _paragraph_fixture(
         demo_dir / "round-4-counterparty-reply.docx", CAP_R4
     )
@@ -535,6 +537,7 @@ def test_public_v03_surface_and_writer_remain_frozen(demo_dir: Path) -> None:
         "path",
         "anchor",
         "quote",
+        "paragraph_projection",
     ]
     assert set(public_result) == {
         "verdict",
@@ -543,16 +546,20 @@ def test_public_v03_surface_and_writer_remain_frozen(demo_dir: Path) -> None:
         "matches",
         "diff",
     }
-    assert MCP_CONTRACT_SCHEMA_VERSION == "veqtor.mcp.v0.3"
-    assert "schema_version" not in VerifyQuoteResult.contract_schema["properties"]
-    assert "checked_projection" not in VerifyQuoteResult.contract_schema["properties"]
-    assert len(records.WRITABLE_TOOL_NAMES) == 8
-    assert "trace_paragraph_history" not in records.WRITABLE_TOOL_NAMES
+    assert MCP_CONTRACT_SCHEMA_VERSION == "veqtor.mcp.v0.4"
+    assert "schema_version" in VerifyQuoteResult.contract_schema["properties"]
+    assert "checked_projection" in VerifyQuoteResult.contract_schema["properties"]
+    assert len(records.WRITABLE_TOOL_NAMES) == 9
+    assert "trace_paragraph_history" in records.WRITABLE_TOOL_NAMES
     assert records.WRITABLE_TOOL_SPECS["verify_quote"].record_type == (
-        "verification.v1"
+        "verification.v2"
     )
     assert set(records.HISTORICAL_RECORD_SPECS) == {
         (tool_name, spec.record_type)
         for tool_name, spec in records.V1_HISTORICAL_TOOL_SPECS.items()
+    } | {
+        ("verify_quote", "verification.v2"),
+        ("trace_paragraph_history", "paragraph_history.v1"),
     }
-    assert "verification.v2" not in records.KNOWN_RECORD_TYPES
+    assert "verification.v2" in records.KNOWN_RECORD_TYPES
+    assert "paragraph_history.v1" in records.KNOWN_RECORD_TYPES

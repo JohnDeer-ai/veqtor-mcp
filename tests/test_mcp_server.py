@@ -40,6 +40,7 @@ from veqtor_mcp.contracts import (
     MCP_CONTRACT_META_KEY,
     MCP_CONTRACT_SCHEMA_EXTENSION,
     MCP_CONTRACT_SCHEMA_VERSION,
+    PARAGRAPH_HISTORY_RECORD_ERROR_CODES,
     RECORD_ERROR_PATTERN,
     RECORD_ID_PATTERN,
 )
@@ -51,6 +52,7 @@ EXPECTED_TOOL_NAMES = (
     "extract_redlines",
     "inspect_document",
     "map_rounds",
+    "trace_paragraph_history",
     "preflight_edits",
     "apply_edits",
     "verify_quote",
@@ -94,6 +96,22 @@ def _dummy_preflight_proof() -> dict[str, str]:
         "producer_build": "test-build",
         "candidate_sha256": "0" * 64,
         "proof_sha256": "0" * 64,
+    }
+
+
+def _verification_v2_not_found_result() -> dict:
+    return {
+        "status": "ok",
+        "schema_version": "verification_result.v2",
+        "verdict": "not_found",
+        "exact": False,
+        "checked_anchor": {
+            "change_unit_id": "cu_001",
+            "file_sha256": "a" * 64,
+        },
+        "checked_projection": None,
+        "matches": [],
+        "diff": ["quote is absent from the anchored change unit"],
     }
 
 
@@ -1186,6 +1204,19 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
             "limits",
             "next_cursor",
         },
+        "trace_paragraph_history": {
+            "schema_version",
+            "status",
+            "seed",
+            "ordering_source",
+            "order_basis",
+            "result_order",
+            "snapshot",
+            "observations",
+            "coverage",
+            "limits",
+            "next_cursor",
+        },
         "preflight_edits": {
             "source_sha256",
             "batch_applicable",
@@ -1203,8 +1234,10 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
             "candidate_output_sha256_match",
         },
         "verify_quote": {
+            "schema_version",
             "verdict",
             "checked_anchor",
+            "checked_projection",
             "matches",
             "diff",
         },
@@ -1251,12 +1284,17 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
                 {"type": "null"},
             ]
         }
-        assert tool.output_schema["properties"]["record_error"] == {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 64,
-            "pattern": RECORD_ERROR_PATTERN,
-        }
+        if name == "trace_paragraph_history":
+            assert tool.output_schema["properties"]["record_error"] == {
+                "enum": list(PARAGRAPH_HISTORY_RECORD_ERROR_CODES)
+            }
+        else:
+            assert tool.output_schema["properties"]["record_error"] == {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": RECORD_ERROR_PATTERN,
+            }
         assert "record_error" not in tool.output_schema["required"]
         metadata_variants = tool.output_schema["allOf"][0]["oneOf"]
         assert [
@@ -1299,6 +1337,49 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
     assert verify_anchor["oneOf"][2]["properties"]["schema_version"] == {
         "const": "paragraph_ref.v1"
     }
+    verify_selector = tools["verify_quote"].input_schema["properties"][
+        "paragraph_projection"
+    ]
+    assert verify_selector["default"] is None
+    assert verify_selector["anyOf"] == [
+        {
+            "enum": [
+                "accepted_current_v1",
+                "pending_text_revisions_rejected_v1",
+            ],
+            "type": "string",
+        },
+        {"type": "null"},
+    ]
+    assert tools["verify_quote"].output_schema["additionalProperties"] is False
+
+    history_input = tools["trace_paragraph_history"].input_schema
+    assert set(history_input["properties"]) == {
+        "folder",
+        "seed",
+        "order_basis",
+        "cursor",
+        "max_items",
+    }
+    assert set(history_input["required"]) == {"folder", "seed", "order_basis"}
+    assert history_input["properties"]["seed"]["additionalProperties"] is False
+    assert history_input["properties"]["order_basis"]["oneOf"][0][
+        "additionalProperties"
+    ] is False
+    assert history_input["properties"]["order_basis"]["oneOf"][1][
+        "additionalProperties"
+    ] is False
+    assert history_input["properties"]["max_items"] == {
+        "default": 50,
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Max Items",
+        "type": "integer",
+    }
+    history_output = tools["trace_paragraph_history"].output_schema
+    assert history_output["additionalProperties"] is False
+    assert history_output["properties"]["observations"]["maxItems"] == 100
+    assert history_output["properties"]["limits"]["additionalProperties"] is False
     inspect_schema = tools["inspect_document"].input_schema
     assert inspect_schema["properties"]["mode"]["enum"] == [
         "outline",
@@ -2227,8 +2308,23 @@ async def test_inspect_document_and_paragraph_verify_are_hash_bound(
     assert inspection["coverage"]["complete_literal_match_count"] == 1
     verification = _payload(verified)
     assert verification["producer"] == server._producer()
+    assert verification["schema_version"] == "verification_result.v2"
     assert verification["verdict"] == "exact"
     assert verification["checked_anchor"] == paragraph_ref
+    checked_projection = verification["checked_projection"]
+    assert {
+        key: value
+        for key, value in checked_projection.items()
+        if key != "text_length"
+    } == {
+        "schema_version": "verified_paragraph_projection.v1",
+        "mode": "accepted_current_v1",
+        "projection_status": "complete",
+        "anchor_reading_mode": "accepted_current_v1",
+        "anchor_paragraph_text_sha256": paragraph_ref["paragraph_text_sha256"],
+        "projection_text_sha256": paragraph_ref["paragraph_text_sha256"],
+    }
+    assert checked_projection["text_length"] >= len(phrase)
     assert verification["matches"] == [
         {
             "path": source,
@@ -2239,6 +2335,8 @@ async def test_inspect_document_and_paragraph_verify_are_hash_bound(
             "paragraph_index": paragraph_ref["paragraph_index"],
             "paragraph_text_sha256": paragraph_ref["paragraph_text_sha256"],
             "reading_mode": "accepted_current_v1",
+            "projection_mode": "accepted_current_v1",
+            "projection_text_sha256": paragraph_ref["paragraph_text_sha256"],
         }
     ]
 
@@ -2403,13 +2501,15 @@ async def test_stale_full_export_argument_never_returns_private_payload(
     matter = tmp_path / "matter"
     matter.mkdir()
     sentinel = "PRIVATE_STALE_FULL_EXPORT_SENTINEL_53"
+    record_result = _verification_v2_not_found_result()
     assert (
         records.write_record(
             workspace=matter,
             tool_name="verify_quote",
             input_payload={"quote": sentinel},
-            result={"status": "ok", "verdict": "not_found"},
+            result=record_result,
             provenance={},
+            tool_result={**deepcopy(record_result), "producer": server._producer()},
         )["record_status"]
         == "written"
     )
@@ -2845,7 +2945,7 @@ async def test_round_scan_budget_overrun_is_a_stable_protocol_error(
         ("inspect_document", veqtor_docx, {"path": None, "mode": "browse"}),
         (
             "verify_quote",
-            veqtor_docx,
+            server,
             {
                 "path": None,
                 "anchor": {"change_unit_id": "cu_001", "file_sha256": "0" * 64},
@@ -2891,7 +2991,11 @@ async def test_every_unexpected_tool_failure_is_sanitized_and_journaled(
         resolved_arguments["preflight_proof"] = _dummy_preflight_proof()
     sentinel = f"PRIVATE_IMPLEMENTATION_SENTINEL_{tool_name}"
     core_name = (
-        tool_name if core_owner is veqtor_docx else "export_records_with_access_event"
+        "verify_quote_v2"
+        if core_owner is server
+        else tool_name
+        if core_owner is veqtor_docx
+        else "export_records_with_access_event"
     )
     original = getattr(core_owner, core_name)
 

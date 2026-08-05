@@ -27,7 +27,7 @@ def test_round_map_spec_is_packaged_and_runtime_registers_the_permanent_pair() -
     sdist_includes = project["tool"]["hatch"]["build"]["targets"]["sdist"]["include"]
 
     assert "/ROUND_MAP_V0.3.md" in sdist_includes
-    assert len(records.WRITABLE_TOOL_NAMES) == 8
+    assert len(records.WRITABLE_TOOL_NAMES) == 9
     assert "map_rounds" in records.WRITABLE_TOOL_NAMES
     assert records.V1_HISTORICAL_TOOL_SPECS["map_rounds"].record_type == (
         "round_map.v1"

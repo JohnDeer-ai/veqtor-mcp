@@ -1,20 +1,18 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Internal verification v2 foundation over one caller-owned DOCX snapshot.
+"""Verification v2 implementation over one caller-owned DOCX snapshot.
 
-This module deliberately does not register or change an MCP tool.  The public
-``verify_quote`` surface remains the frozen v0.3 operation until the later
-atomic v0.4 cutover.  The builder here closes the future operation result and
-ensures that paragraph anchors and selected projections are reconstructed from
-the same immutable byte string.
+The public v0.4 ``verify_quote`` tool delegates here.  The builder closes the
+operation result and ensures that paragraph anchors and selected projections
+are reconstructed from the same immutable byte string.
 """
 
 from __future__ import annotations
 
-from copy import deepcopy
 from typing import Any, Callable, NoReturn
 
 from jsonschema import Draft202012Validator, ValidationError
 
+from veqtor_docx._ooxml import UserPathError, read_docx_payload, resolve_user_path
 from veqtor_docx._projection import build_paragraph_projection_v1
 from veqtor_docx.contracts import (
     INSPECT_READING_MODE_V1,
@@ -42,7 +40,7 @@ from veqtor_docx.verify import (
     _section_clause,
 )
 
-from .contracts import MCP_CONTRACT_SCHEMA_EXTENSION, VERIFY_ANCHOR_INPUT_SCHEMA
+from .contracts import VERIFICATION_RESULT_V2_OPERATION_SCHEMA
 
 
 VERIFICATION_RESULT_SCHEMA_VERSION = "verification_result.v2"
@@ -95,199 +93,6 @@ _PARAGRAPH_MATCH_KEYS = frozenset(
     }
 )
 _HEX = frozenset("0123456789abcdef")
-
-
-def _without_contract_extension(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {
-            key: _without_contract_extension(item)
-            for key, item in value.items()
-            if key != MCP_CONTRACT_SCHEMA_EXTENSION
-        }
-    if isinstance(value, list):
-        return [_without_contract_extension(item) for item in value]
-    return deepcopy(value)
-
-
-_INTERNAL_VERIFY_ANCHOR_SCHEMA = _without_contract_extension(
-    VERIFY_ANCHOR_INPUT_SCHEMA
-)
-_SHA256_SCHEMA = {
-    "type": "string",
-    "minLength": 64,
-    "maxLength": 64,
-    "pattern": r"^[0-9a-f]{64}(?![\s\S])",
-}
-_CHANGE_UNIT_MATCH_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "path": {"type": "string", "minLength": 1},
-        "part_name": {"type": "string", "minLength": 1},
-        "revision_ids": {"type": "array", "items": {"type": "string"}},
-        "clause": {"type": ["string", "null"]},
-        "side": {"enum": [MATCH_SIDE_NEW, MATCH_SIDE_OLD]},
-    },
-    "required": ["path", "part_name", "revision_ids", "clause", "side"],
-    "additionalProperties": False,
-}
-
-
-def _checked_projection_schema(mode: str) -> dict[str, Any]:
-    return {
-        "type": "object",
-        "properties": {
-            "schema_version": {
-                "const": VERIFIED_PARAGRAPH_PROJECTION_SCHEMA_VERSION
-            },
-            "mode": {"const": mode},
-            "projection_status": {"const": "complete"},
-            "anchor_reading_mode": {"const": ACCEPTED_CURRENT_MODE},
-            "anchor_paragraph_text_sha256": _SHA256_SCHEMA,
-            "projection_text_sha256": _SHA256_SCHEMA,
-            "text_length": {"type": "integer", "minimum": 0},
-        },
-        "required": sorted(_CHECKED_PROJECTION_KEYS),
-        "additionalProperties": False,
-    }
-
-
-def _paragraph_match_schema(mode: str, side: str) -> dict[str, Any]:
-    return {
-        "type": "object",
-        "properties": {
-            "path": {"type": "string", "minLength": 1},
-            "part_name": {"const": "word/document.xml"},
-            "revision_ids": {"type": "array", "maxItems": 0},
-            "clause": {"type": ["string", "null"]},
-            "side": {"const": side},
-            "paragraph_index": {"type": "integer", "minimum": 0},
-            "paragraph_text_sha256": _SHA256_SCHEMA,
-            "reading_mode": {"const": ACCEPTED_CURRENT_MODE},
-            "projection_mode": {"const": mode},
-            "projection_text_sha256": _SHA256_SCHEMA,
-        },
-        "required": sorted(_PARAGRAPH_MATCH_KEYS),
-        "additionalProperties": False,
-    }
-
-
-_CURRENT_PROJECTION_SCHEMA = _checked_projection_schema(ACCEPTED_CURRENT_MODE)
-_REJECTED_PROJECTION_SCHEMA = _checked_projection_schema(PENDING_REJECTED_MODE)
-_CURRENT_PARAGRAPH_MATCH_SCHEMA = _paragraph_match_schema(
-    ACCEPTED_CURRENT_MODE, PARAGRAPH_CURRENT_SIDE
-)
-_REJECTED_PARAGRAPH_MATCH_SCHEMA = _paragraph_match_schema(
-    PENDING_REJECTED_MODE, PARAGRAPH_REJECTED_SIDE
-)
-_CHANGE_UNIT_ANCHOR_SCHEMA = {
-    "oneOf": _INTERNAL_VERIFY_ANCHOR_SCHEMA["oneOf"][:2]
-}
-_PARAGRAPH_ANCHOR_SCHEMA = _INTERNAL_VERIFY_ANCHOR_SCHEMA["oneOf"][2]
-
-VERIFICATION_RESULT_V2_OPERATION_SCHEMA: dict[str, Any] = {
-    "title": "Internal verification v2 operation result",
-    "type": "object",
-    "properties": {
-        "schema_version": {"const": VERIFICATION_RESULT_SCHEMA_VERSION},
-        "verdict": {
-            "enum": [
-                VERIFY_VERDICT_EXACT,
-                VERIFY_VERDICT_NORMALIZED,
-                VERIFY_VERDICT_NOT_FOUND,
-            ]
-        },
-        "exact": {"type": "boolean"},
-        "checked_anchor": _INTERNAL_VERIFY_ANCHOR_SCHEMA,
-        "checked_projection": {
-            "oneOf": [
-                {"type": "null"},
-                _CURRENT_PROJECTION_SCHEMA,
-                _REJECTED_PROJECTION_SCHEMA,
-            ]
-        },
-        "matches": {
-            "type": "array",
-            "maxItems": 1,
-            "items": {
-                "oneOf": [
-                    _CHANGE_UNIT_MATCH_SCHEMA,
-                    _CURRENT_PARAGRAPH_MATCH_SCHEMA,
-                    _REJECTED_PARAGRAPH_MATCH_SCHEMA,
-                ]
-            },
-        },
-        "diff": {"type": "array", "items": {"type": "string"}},
-    },
-    "required": sorted(_RESULT_KEYS),
-    "additionalProperties": False,
-    "allOf": [
-        {
-            "oneOf": [
-                {
-                    "properties": {
-                        "checked_anchor": _CHANGE_UNIT_ANCHOR_SCHEMA,
-                        "checked_projection": {"type": "null"},
-                        "matches": {
-                            "type": "array",
-                            "maxItems": 1,
-                            "items": _CHANGE_UNIT_MATCH_SCHEMA,
-                        },
-                    }
-                },
-                {
-                    "properties": {
-                        "checked_anchor": _PARAGRAPH_ANCHOR_SCHEMA,
-                        "checked_projection": _CURRENT_PROJECTION_SCHEMA,
-                        "matches": {
-                            "type": "array",
-                            "maxItems": 1,
-                            "items": _CURRENT_PARAGRAPH_MATCH_SCHEMA,
-                        },
-                    }
-                },
-                {
-                    "properties": {
-                        "checked_anchor": _PARAGRAPH_ANCHOR_SCHEMA,
-                        "checked_projection": _REJECTED_PROJECTION_SCHEMA,
-                        "matches": {
-                            "type": "array",
-                            "maxItems": 1,
-                            "items": _REJECTED_PARAGRAPH_MATCH_SCHEMA,
-                        },
-                    }
-                },
-            ]
-        },
-        {
-            "oneOf": [
-                {
-                    "properties": {
-                        "verdict": {"const": VERIFY_VERDICT_EXACT},
-                        "exact": {"const": True},
-                        "matches": {"type": "array", "minItems": 1, "maxItems": 1},
-                        "diff": {"type": "array", "maxItems": 0},
-                    }
-                },
-                {
-                    "properties": {
-                        "verdict": {"const": VERIFY_VERDICT_NORMALIZED},
-                        "exact": {"const": False},
-                        "matches": {"type": "array", "minItems": 1, "maxItems": 1},
-                        "diff": {"type": "array", "minItems": 1},
-                    }
-                },
-                {
-                    "properties": {
-                        "verdict": {"const": VERIFY_VERDICT_NOT_FOUND},
-                        "exact": {"const": False},
-                        "matches": {"type": "array", "maxItems": 0},
-                        "diff": {"type": "array", "minItems": 1},
-                    }
-                },
-            ]
-        },
-    ],
-}
 _VERIFICATION_RESULT_V2_VALIDATOR = Draft202012Validator(
     VERIFICATION_RESULT_V2_OPERATION_SCHEMA
 )
@@ -670,7 +475,7 @@ def build_verification_result_v2(
     quote: str,
     paragraph_projection: str | None = None,
 ) -> dict[str, Any]:
-    """Build the future v2 operation result from one immutable byte snapshot."""
+    """Build the v2 operation result from one immutable byte snapshot."""
     anchor_kind, projection_mode = _validated_input(
         payload, path, anchor, quote, paragraph_projection
     )
@@ -689,6 +494,46 @@ def build_verification_result_v2(
     return result
 
 
+def verify_quote_v2(
+    path: str,
+    anchor: dict[str, Any],
+    quote: str,
+    paragraph_projection: str | None = None,
+) -> dict[str, Any]:
+    """Capture one bounded path snapshot and build the public v2 operation."""
+    # Reject malformed input and invalid selector/anchor combinations before
+    # touching the filesystem. The byte builder repeats the same closed check
+    # over the captured authority before decoding it.
+    _validated_input(b"", path, anchor, quote, paragraph_projection)
+    try:
+        resolved = resolve_user_path(path)
+    except UserPathError as exc:
+        raise VerifyError(exc.code, exc.detail) from exc
+    claimed_sha = anchor.get("file_sha256")
+    try:
+        payload = read_docx_payload(resolved)
+    except DocxError as exc:
+        _raise_docx_error(exc, claimed_sha=claimed_sha)
+    except OSError as exc:
+        metadata = (
+            {"claimed_source_sha256": claimed_sha}
+            if isinstance(claimed_sha, str)
+            else {}
+        )
+        raise VerifyError(
+            "file_unreadable",
+            "DOCX file cannot be read",
+            **metadata,
+        ) from exc
+    return build_verification_result_v2(
+        payload,
+        path=resolved,
+        anchor=anchor,
+        quote=quote,
+        paragraph_projection=paragraph_projection,
+    )
+
+
 __all__ = [
     "ACCEPTED_CURRENT_MODE",
     "PARAGRAPH_PROJECTION_MODES",
@@ -698,4 +543,5 @@ __all__ = [
     "VERIFIED_PARAGRAPH_PROJECTION_SCHEMA_VERSION",
     "build_verification_result_v2",
     "validate_verification_result_v2",
+    "verify_quote_v2",
 ]

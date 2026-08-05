@@ -32,8 +32,14 @@ from .round_map_contract import (
     ROUND_MAP_RESULT_REQUIRED,
     ROUND_MAP_SEED_SCHEMA,
 )
+from ._history_contract import (
+    PARAGRAPH_HISTORY_NULLABLE_CURSOR_SCHEMA,
+    PARAGRAPH_HISTORY_OPERATION_RESULT_SCHEMA,
+    PARAGRAPH_HISTORY_ORDER_SCHEMA,
+    PARAGRAPH_HISTORY_SEED_SCHEMA,
+)
 
-MCP_CONTRACT_SCHEMA_VERSION = "veqtor.mcp.v0.3"
+MCP_CONTRACT_SCHEMA_VERSION = "veqtor.mcp.v0.4"
 MCP_CONTRACT_META_KEY = "veqtor.pro/contractSchemaVersion"
 MCP_CONTRACT_SCHEMA_EXTENSION = "x-veqtor-contract-schema-version"
 RECORD_ID_PATTERN = r"^dr_[0-9]+(?![\s\S])"
@@ -336,6 +342,15 @@ InspectSelectionInput = Annotated[
     dict[str, Any], WithJsonSchema(INSPECT_SELECTION_SCHEMA)
 ]
 RoundMapSeedInput = Annotated[dict[str, Any], WithJsonSchema(ROUND_MAP_SEED_SCHEMA)]
+ParagraphHistorySeedInput = Annotated[
+    dict[str, Any], WithJsonSchema(PARAGRAPH_HISTORY_SEED_SCHEMA)
+]
+ParagraphHistoryOrderInput = Annotated[
+    dict[str, Any], WithJsonSchema(PARAGRAPH_HISTORY_ORDER_SCHEMA)
+]
+ParagraphHistoryCursorInput = Annotated[
+    str | None, WithJsonSchema(PARAGRAPH_HISTORY_NULLABLE_CURSOR_SCHEMA)
+]
 
 
 _RECORD_METADATA_PROPERTIES: dict[str, Any] = {
@@ -353,6 +368,26 @@ _RECORD_METADATA_PROPERTIES: dict[str, Any] = {
         "pattern": RECORD_ERROR_PATTERN,
     },
 }
+
+PARAGRAPH_HISTORY_RECORD_ERROR_CODES = (
+    "journal_busy",
+    "journal_corrupt",
+    "journal_oversize",
+    "sidecar_symlink",
+    "sidecar_not_directory",
+    "journal_symlink",
+    "journal_not_file",
+    "journal_hardlink",
+    "gitignore_symlink",
+    "gitignore_not_file",
+    "gitignore_hardlink",
+    "gitignore_invalid",
+    "workspace_changed",
+    "workspace_not_directory",
+    "workspace_unreadable",
+    "record_invalid",
+    "internal_error",
+)
 
 _RECORD_METADATA_TUPLE_SCHEMA: dict[str, Any] = {
     "oneOf": [
@@ -482,11 +517,46 @@ def _output_schema(
     }
 
 
+def _closed_output_schema(
+    title: str,
+    operation_schema: dict[str, Any],
+) -> dict[str, Any]:
+    """Add common server-owned fields without reopening a closed operation."""
+    schema = deepcopy(operation_schema)
+    schema["title"] = title
+    schema[MCP_CONTRACT_SCHEMA_EXTENSION] = MCP_CONTRACT_SCHEMA_VERSION
+    schema["properties"] = {
+        **schema["properties"],
+        "producer": _PRODUCER_SCHEMA,
+        **_RECORD_METADATA_PROPERTIES,
+    }
+    schema["required"] = [
+        *schema["required"],
+        "producer",
+        "record_id",
+        "record_status",
+    ]
+    schema["allOf"] = [
+        _RECORD_METADATA_TUPLE_SCHEMA,
+        *schema.get("allOf", []),
+    ]
+    schema["additionalProperties"] = False
+    return schema
+
+
 ROUND_MAP_RESULT_SCHEMA = _output_schema(
     "map_rounds result",
     ROUND_MAP_RESULT_PROPERTIES,
     ROUND_MAP_RESULT_REQUIRED,
 )
+
+PARAGRAPH_HISTORY_RESULT_SCHEMA = _closed_output_schema(
+    "trace_paragraph_history result",
+    PARAGRAPH_HISTORY_OPERATION_RESULT_SCHEMA,
+)
+PARAGRAPH_HISTORY_RESULT_SCHEMA["properties"]["record_error"] = {
+    "enum": list(PARAGRAPH_HISTORY_RECORD_ERROR_CODES)
+}
 
 
 LIST_ROUNDS_RESULT_SCHEMA = _output_schema(
@@ -1155,6 +1225,20 @@ APPLY_EDITS_RESULT_SCHEMA = _output_schema(
     ],
 )
 
+def _without_contract_extension(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _without_contract_extension(item)
+            for key, item in value.items()
+            if key != MCP_CONTRACT_SCHEMA_EXTENSION
+        }
+    if isinstance(value, list):
+        return [_without_contract_extension(item) for item in value]
+    return deepcopy(value)
+
+
+_VERIFY_V2_ANCHOR_SCHEMA = _without_contract_extension(VERIFY_ANCHOR_INPUT_SCHEMA)
+
 _VERIFY_CHANGE_UNIT_MATCH_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -1168,48 +1252,202 @@ _VERIFY_CHANGE_UNIT_MATCH_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
-_VERIFY_PARAGRAPH_MATCH_SCHEMA: dict[str, Any] = {
+_VERIFIED_PARAGRAPH_PROJECTION_KEYS = [
+    "anchor_paragraph_text_sha256",
+    "anchor_reading_mode",
+    "mode",
+    "projection_status",
+    "projection_text_sha256",
+    "schema_version",
+    "text_length",
+]
+
+
+def _verified_paragraph_projection_schema(mode: str) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "schema_version": {"const": "verified_paragraph_projection.v1"},
+            "mode": {"const": mode},
+            "projection_status": {"const": "complete"},
+            "anchor_reading_mode": {"const": INSPECT_READING_MODE_V1},
+            "anchor_paragraph_text_sha256": _SHA256,
+            "projection_text_sha256": _SHA256,
+            "text_length": _NONNEGATIVE_INTEGER,
+        },
+        "required": _VERIFIED_PARAGRAPH_PROJECTION_KEYS,
+        "additionalProperties": False,
+    }
+
+
+def _verify_paragraph_match_schema(mode: str, side: str) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "path": _NONEMPTY_STRING,
+            "part_name": {"const": "word/document.xml"},
+            "revision_ids": {"type": "array", "maxItems": 0},
+            "clause": _NULLABLE_STRING,
+            "side": {"const": side},
+            "paragraph_index": _NONNEGATIVE_INTEGER,
+            "paragraph_text_sha256": _SHA256,
+            "reading_mode": {"const": INSPECT_READING_MODE_V1},
+            "projection_mode": {"const": mode},
+            "projection_text_sha256": _SHA256,
+        },
+        "required": [
+            "clause",
+            "paragraph_index",
+            "paragraph_text_sha256",
+            "part_name",
+            "path",
+            "projection_mode",
+            "projection_text_sha256",
+            "reading_mode",
+            "revision_ids",
+            "side",
+        ],
+        "additionalProperties": False,
+    }
+
+
+_VERIFY_CURRENT_PROJECTION_SCHEMA = _verified_paragraph_projection_schema(
+    INSPECT_READING_MODE_V1
+)
+_VERIFY_REJECTED_PROJECTION_SCHEMA = _verified_paragraph_projection_schema(
+    "pending_text_revisions_rejected_v1"
+)
+_VERIFY_CURRENT_PARAGRAPH_MATCH_SCHEMA = _verify_paragraph_match_schema(
+    INSPECT_READING_MODE_V1,
+    "paragraph_current",
+)
+_VERIFY_REJECTED_PARAGRAPH_MATCH_SCHEMA = _verify_paragraph_match_schema(
+    "pending_text_revisions_rejected_v1",
+    "paragraph_rejected_pending",
+)
+_VERIFY_CHANGE_UNIT_ANCHOR_SCHEMA = {
+    "oneOf": _VERIFY_V2_ANCHOR_SCHEMA["oneOf"][:2]
+}
+_VERIFY_PARAGRAPH_ANCHOR_SCHEMA = _VERIFY_V2_ANCHOR_SCHEMA["oneOf"][2]
+
+VERIFICATION_RESULT_V2_OPERATION_SCHEMA: dict[str, Any] = {
+    "title": "verify_quote v2 operation result",
     "type": "object",
     "properties": {
-        "path": _NONEMPTY_STRING,
-        "part_name": {"const": "word/document.xml"},
-        "revision_ids": {"type": "array", "maxItems": 0},
-        "clause": _NULLABLE_STRING,
-        "side": {"const": "paragraph_current"},
-        "paragraph_index": _NONNEGATIVE_INTEGER,
-        "paragraph_text_sha256": _SHA256,
-        "reading_mode": {"const": INSPECT_READING_MODE_V1},
-    },
-    "required": [
-        "path",
-        "part_name",
-        "revision_ids",
-        "clause",
-        "side",
-        "paragraph_index",
-        "paragraph_text_sha256",
-        "reading_mode",
-    ],
-    "additionalProperties": False,
-}
-
-_VERIFY_MATCH_SCHEMA: dict[str, Any] = {
-    "oneOf": [
-        _VERIFY_CHANGE_UNIT_MATCH_SCHEMA,
-        _VERIFY_PARAGRAPH_MATCH_SCHEMA,
-    ]
-}
-
-VERIFY_QUOTE_RESULT_SCHEMA = _output_schema(
-    "verify_quote result",
-    {
+        "schema_version": {"const": "verification_result.v2"},
         "verdict": {"enum": ["exact", "normalized", "not_found"]},
         "exact": {"type": "boolean"},
-        "checked_anchor": VERIFY_ANCHOR_INPUT_SCHEMA,
-        "matches": {"type": "array", "items": _VERIFY_MATCH_SCHEMA},
+        "checked_anchor": _VERIFY_V2_ANCHOR_SCHEMA,
+        "checked_projection": {
+            "oneOf": [
+                {"type": "null"},
+                _VERIFY_CURRENT_PROJECTION_SCHEMA,
+                _VERIFY_REJECTED_PROJECTION_SCHEMA,
+            ]
+        },
+        "matches": {
+            "type": "array",
+            "maxItems": 1,
+            "items": {
+                "oneOf": [
+                    _VERIFY_CHANGE_UNIT_MATCH_SCHEMA,
+                    _VERIFY_CURRENT_PARAGRAPH_MATCH_SCHEMA,
+                    _VERIFY_REJECTED_PARAGRAPH_MATCH_SCHEMA,
+                ]
+            },
+        },
         "diff": {"type": "array", "items": _STRING},
     },
-    ["verdict", "exact", "checked_anchor", "matches", "diff"],
+    "required": [
+        "checked_anchor",
+        "checked_projection",
+        "diff",
+        "exact",
+        "matches",
+        "schema_version",
+        "verdict",
+    ],
+    "additionalProperties": False,
+    "allOf": [
+        {
+            "oneOf": [
+                {
+                    "properties": {
+                        "checked_anchor": _VERIFY_CHANGE_UNIT_ANCHOR_SCHEMA,
+                        "checked_projection": {"type": "null"},
+                        "matches": {
+                            "type": "array",
+                            "maxItems": 1,
+                            "items": _VERIFY_CHANGE_UNIT_MATCH_SCHEMA,
+                        },
+                    }
+                },
+                {
+                    "properties": {
+                        "checked_anchor": _VERIFY_PARAGRAPH_ANCHOR_SCHEMA,
+                        "checked_projection": _VERIFY_CURRENT_PROJECTION_SCHEMA,
+                        "matches": {
+                            "type": "array",
+                            "maxItems": 1,
+                            "items": _VERIFY_CURRENT_PARAGRAPH_MATCH_SCHEMA,
+                        },
+                    }
+                },
+                {
+                    "properties": {
+                        "checked_anchor": _VERIFY_PARAGRAPH_ANCHOR_SCHEMA,
+                        "checked_projection": _VERIFY_REJECTED_PROJECTION_SCHEMA,
+                        "matches": {
+                            "type": "array",
+                            "maxItems": 1,
+                            "items": _VERIFY_REJECTED_PARAGRAPH_MATCH_SCHEMA,
+                        },
+                    }
+                },
+            ]
+        },
+        {
+            "oneOf": [
+                {
+                    "properties": {
+                        "verdict": {"const": "exact"},
+                        "exact": {"const": True},
+                        "matches": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": 1,
+                        },
+                        "diff": {"type": "array", "maxItems": 0},
+                    }
+                },
+                {
+                    "properties": {
+                        "verdict": {"const": "normalized"},
+                        "exact": {"const": False},
+                        "matches": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": 1,
+                        },
+                        "diff": {"type": "array", "minItems": 1},
+                    }
+                },
+                {
+                    "properties": {
+                        "verdict": {"const": "not_found"},
+                        "exact": {"const": False},
+                        "matches": {"type": "array", "maxItems": 0},
+                        "diff": {"type": "array", "minItems": 1},
+                    }
+                },
+            ]
+        },
+    ],
+}
+
+VERIFY_QUOTE_RESULT_SCHEMA = _closed_output_schema(
+    "verify_quote result",
+    VERIFICATION_RESULT_V2_OPERATION_SCHEMA,
 )
 
 _PATH_DIGEST_SCHEMA: dict[str, Any] = {
@@ -1419,6 +1657,23 @@ class RoundMapResult(_ContractResult):
     next_cursor: str | None
 
 
+class ParagraphHistoryResult(_ContractResult):
+    contract_schema = PARAGRAPH_HISTORY_RESULT_SCHEMA
+    schema_version: Literal["paragraph_history.v1"]
+    status: Literal["ok"]
+    seed: dict[str, Any]
+    ordering_source: Literal[
+        "filename_lexicographic_v1", "explicit_filename_sequence_v1"
+    ]
+    order_basis: dict[str, Any]
+    result_order: Literal["seed_then_descending_position_v1"]
+    snapshot: dict[str, Any]
+    observations: list[dict[str, Any]]
+    coverage: dict[str, Any]
+    limits: dict[str, Any]
+    next_cursor: str | None
+
+
 class PreflightEditsResult(_ContractResult):
     contract_schema = PREFLIGHT_EDITS_RESULT_SCHEMA
     status: Literal["ok"]
@@ -1453,9 +1708,11 @@ class ApplyEditsResult(_ContractResult):
 
 class VerifyQuoteResult(_ContractResult):
     contract_schema = VERIFY_QUOTE_RESULT_SCHEMA
+    schema_version: Literal["verification_result.v2"]
     verdict: Literal["exact", "normalized", "not_found"]
     exact: bool
     checked_anchor: dict[str, Any]
+    checked_projection: dict[str, Any] | None
     matches: list[dict[str, Any]]
     diff: list[str]
 

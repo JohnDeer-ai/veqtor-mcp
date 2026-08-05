@@ -17,6 +17,7 @@ from mcp.client import Client
 from mcp.client.stdio import stdio_client
 
 from veqtor_docx import generate_demo_rounds
+from veqtor_docx.synthetic import CAP_R3, CAP_R4
 from veqtor_mcp import __version__
 from veqtor_mcp._inspection_live import CheckedInspectionResult
 from veqtor_mcp.records import SOURCE_SNAPSHOT_IDENTITY
@@ -28,6 +29,7 @@ EXPECTED_TOOL_NAMES = (
     "extract_redlines",
     "inspect_document",
     "map_rounds",
+    "trace_paragraph_history",
     "preflight_edits",
     "apply_edits",
     "verify_quote",
@@ -50,6 +52,65 @@ def _assert_producer(payload: dict) -> None:
         "version": __version__,
         "build": SOURCE_SNAPSHOT_IDENTITY,
     }
+
+
+async def _exercise_public_v04(client: Client, matter: Path, listed: dict) -> None:
+    latest = listed["rounds"][-1]["path"]
+    located = _payload(
+        await client.call_tool(
+            "inspect_document",
+            {
+                "path": latest,
+                "mode": "literal_search",
+                "phrases": [CAP_R4],
+                "match_basis": "exact_literal",
+                "max_items": 1,
+            },
+        )
+    )
+    _assert_producer(located)
+    paragraph_ref = located["matches"][0]["paragraph_ref"]
+    verified = _payload(
+        await client.call_tool(
+            "verify_quote",
+            {
+                "path": latest,
+                "anchor": paragraph_ref,
+                "quote": CAP_R3,
+                "paragraph_projection": "pending_text_revisions_rejected_v1",
+            },
+        )
+    )
+    _assert_producer(verified)
+    assert verified["schema_version"] == "verification_result.v2"
+    assert verified["verdict"] == "exact"
+    assert verified["checked_projection"]["mode"] == (
+        "pending_text_revisions_rejected_v1"
+    )
+    history = _payload(
+        await client.call_tool(
+            "trace_paragraph_history",
+            {
+                "folder": str(matter),
+                "seed": {
+                    "schema_version": "paragraph_history_seed.v1",
+                    "path": latest,
+                    "paragraph_ref": paragraph_ref,
+                },
+                "order_basis": {
+                    "schema_version": "paragraph_history_order.v1",
+                    "kind": "filename_lexicographic_v1",
+                },
+                "max_items": 100,
+            },
+        )
+    )
+    _assert_producer(history)
+    assert history["schema_version"] == "paragraph_history.v1"
+    assert [
+        observation["resolution"]["reason"]
+        for observation in history["observations"][1:]
+    ] == ["rejected_projection_unique"] * 3
 
 
 async def _dual_era_stdio_smoke() -> dict[str, str]:
@@ -80,6 +141,7 @@ async def _dual_era_stdio_smoke() -> dict[str, str]:
                 )
                 _assert_producer(listed)
                 assert listed["ordering_source"] == "filename_lexicographic_v1"
+                await _exercise_public_v04(client, matter, listed)
             assert negotiated[mode] == expected_protocol_version
         return negotiated
 
@@ -111,6 +173,7 @@ async def smoke() -> dict:
                 await session.call_tool("list_rounds", {"folder": str(matter)})
             )
             _assert_producer(listed)
+            await _exercise_public_v04(session, matter, listed)
             source = listed["rounds"][1]["path"]
             inspected = _payload(
                 await session.call_tool(
@@ -149,6 +212,8 @@ async def smoke() -> dict:
                 )
             )
             _assert_producer(verified)
+            assert verified["schema_version"] == "verification_result.v2"
+            assert verified["checked_projection"] is None
             assert verified["verdict"] == "exact"
             edits = [
                 {

@@ -114,7 +114,8 @@ def test_changelog_keeps_timeless_release_copy() -> None:
     assert changelog.count(development_marker) == 1
     development = changelog.split(development_marker, 1)[1].split("\n## ", 1)[0]
     assert "Unreleased development line." in development
-    assert "does not advertise MCP v0.4 or a\npublic release" in development
+    assert "nine-tool development contract\n`veqtor.mcp.v0.4`" in development
+    assert "this is not a public release" in development
     assert changelog.count(release_marker) == 1
     release = changelog.split(release_marker, 1)[1].split("\n## ", 1)[0]
     assert "Veqtor v0.3.0 Alpha release contents." in release
@@ -161,9 +162,10 @@ def test_release_copy_is_state_neutral_and_site_uses_public_v030() -> None:
     assert "Both sources expose `0.3.0`" in readme
     assert "| Otherwise | `0.1.2` |" in readme
     assert (
-        "The descriptions below follow the frozen eight-tool MCP contract\n"
-        "`veqtor.mcp.v0.3` and its examples. The development package identity is\n"
-        "`0.4.0.dev0`; it does not advertise an MCP v0.4 tool surface."
+        "The descriptions below follow the development package `0.4.0.dev0` and its\n"
+        "nine-tool MCP contract `veqtor.mcp.v0.4`. They are not an installation promise\n"
+        "until both public verifiers expose the version. The frozen v0.3 release/MCPB\n"
+        "continues to contain only its eight `veqtor.mcp.v0.3` tools."
     ) in readme
     assert "release candidate source `0.3.0`" not in readme
     assert "current public distribution" not in immutable_docs.lower()

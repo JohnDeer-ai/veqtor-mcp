@@ -114,7 +114,8 @@ and is not a published v0.3 commitment or release claim.
 
 The frozen preimplementation first-slice acceptance contract is specified in
 [`ROUND_MAP_V0.3.md`](ROUND_MAP_V0.3.md). Current development source now
-registers `map_rounds` and `(map_rounds, round_map.v1)` as the eighth tool and
+retains `map_rounds` and `(map_rounds, round_map.v1)`, which entered the surface
+as the eighth tool and
 permanent success-only record pair. The frozen specification retains its
 historical future/seven-tool wording; implementation, independent review,
 installed-artifact testing and user-owned Desktop acceptance remain separate
@@ -130,22 +131,33 @@ gates.
 
 ### Stage 3C — evidence-preserving paragraph history
 
-The frozen preimplementation first-slice acceptance contract is specified in
-[`CLAUSE_HISTORY_V0.4.md`](CLAUSE_HISTORY_V0.4.md). It defines a future
-contract only; implementation, package, CI, installed-artifact, Desktop and
-publication acceptance remain separate gates.
+The closed first-slice contract is specified in
+[`CLAUSE_HISTORY_V0.4.md`](CLAUSE_HISTORY_V0.4.md). Development source
+`0.4.0.dev0` implements it as the ninth tool under the contract-wide
+`veqtor.mcp.v0.4` surface, together with paragraph-side `verify_quote` v2.
+The frozen public v0.3 release and MCPB remain eight-tool v0.3; development
+implementation, release, Desktop/MCPB and publication acceptance are separate
+gates.
 
-- Add one bounded `trace_paragraph_history` contract for following one exact
-  `paragraph_ref.v1` across the complete declared document set using only
+- Implemented one bounded `trace_paragraph_history` contract for following one
+  exact `paragraph_ref.v1` across the complete declared document set using only
   reproducible document facts and explicit `exact_unique`, `ambiguous` or
   `unresolved` outcomes.
-- Treat equality between a document's rejected-pending text projection and
-  another snapshot's accepted/current text as an exact text relationship only,
-  not proof of chronology, authorship, semantic clause identity or lineage.
-  Filename and manifest order remain position-only.
-- Keep the first slice read-only relative to source DOCX files and return
+- Implemented the equality rule between a document's rejected-pending text
+  projection and another snapshot's accepted/current text as an exact text
+  relationship only, not proof of chronology, authorship, semantic clause
+  identity or lineage. Filename and manifest order remain position-only.
+- The first slice remains read-only relative to source DOCX files and returns
   structured JSON for host formatting. It does not create a sendable redline
   or reconstruct whole-contract history.
+- Immutable candidate capture, seed-last ordering, paragraph-scoped change
+  units, complete fixed limits and `ph1` pagination are implemented as one
+  closed envelope. Pre-result failures write no `paragraph_history.v1` record;
+  post-result journal failure preserves the valid result.
+- `verify_quote` now accepts the optional current/rejected paragraph projection
+  selector and writes `verification.v2`; historical `verification.v1` remains
+  readable. Neither literal OOXML author/date metadata nor position establishes
+  a verified person or time.
 
 ### Stage 3D — clean sendable redline
 
