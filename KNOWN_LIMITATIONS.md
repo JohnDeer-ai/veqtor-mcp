@@ -2,26 +2,27 @@
 
 # Known limitations
 
-This file describes development source `0.4.0.dev0` and its nine-tool MCP
+This file describes release-candidate source `0.4.0` and its nine-tool MCP
 contract `veqtor.mcp.v0.4`. All nine tools, including the eight names carried
 forward from v0.3, expose the same contract-wide v0.4 metadata value. It does
 not establish that the package, extension or release exists publicly.
 Published installation status comes only from matching entries on PyPI and the
-immutable GitHub Releases list. The frozen v0.3 release and MCPB remain an
-unchanged eight-tool `veqtor.mcp.v0.3` surface; development v0.4 has no release,
-MCPB, Claude Desktop or publication acceptance claim.
+immutable GitHub Releases list. The current v0.3 release and MCPB remain an
+unchanged eight-tool `veqtor.mcp.v0.3` surface until v0.4 promotion completes;
+the v0.4 candidate has no publication acceptance claim.
 
-The v0.3 MCPB v0.4 extension is macOS-only and is public only when the
-exact artifact is attached to the matching verified release after clean-Mac
-acceptance. Linux keeps the CLI setup. There is no Windows extension, catalog
-listing, automatic update promise, silent installation or guaranteed in-app
-rollback. If
-published, `0.3.0` is the first public MCPB and has no older public extension to
-restore; real upgrade and rollback testing starts with the next extension
-release. The first UV activation may download a compatible Python runtime and
-locked dependencies, so it is not guaranteed to work offline. MCPB installation
-does not add an operating-system filesystem sandbox; Veqtor runs with the
-current user's permissions.
+The v0.4 MCPB release candidate is macOS-only and is public only when the exact
+artifact passes fresh isolated-user acceptance on the maintainer's Mac and is
+attached to the matching verified release. That test does not claim a separate
+physical clean Mac without a system toolchain. Linux keeps the CLI setup. There
+is no Windows extension, catalog listing, automatic update promise, silent
+installation or guaranteed in-app rollback. If published, `0.3.0` remains the
+first public MCPB. The v0.4 release gate requires a real upgrade from v0.3.0,
+rollback to that immutable release, and candidate reinstallation. The first UV
+activation may download a compatible Python runtime and locked dependencies, so
+it is not guaranteed to work offline. MCPB installation does not add an
+operating-system filesystem sandbox; Veqtor runs with the current user's
+permissions.
 
 ## Documents and revisions
 
@@ -210,6 +211,12 @@ current user's permissions.
   A 14-operation regression of that shape now reaches a terminal structured
   `edits_overlap` result, but Veqtor does not yet promise a general planner
   timeout, cancellation API or hard wall-clock completion bound.
+- MCP client request abandonment sends the protocol cancellation notification,
+  leaves the stdio session usable and reaps the server process at transport
+  teardown in release smoke. Veqtor's synchronous tool work may nevertheless
+  finish after the caller abandons it and may write its normal local provenance
+  record. Cancellation is not a guarantee that work stopped or that no local
+  side effect occurred.
 - Preflight does not create an output DOCX, but normally writes a local
   provenance record under `.veqtor`.
 - Author identity is fixed at server start. If it matches a counterparty's
@@ -259,7 +266,7 @@ current user's permissions.
 - Access-event summaries written by builds before 0.1.1 may undercount prior
   access events when multiple exports ran concurrently. Existing journal
   entries are historical evidence and are not rewritten or migrated.
-- Development v0.4 writes `verification.v2` for new `verify_quote` calls and
+- Version 0.4 writes `verification.v2` for new `verify_quote` calls and
   `paragraph_history.v1` for successful history calls while continuing to read
   historical `verification.v1`. A v0.3 reader does not know the new record
   types and may fail closed after the first such frame; downgrade compatibility

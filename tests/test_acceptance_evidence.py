@@ -28,6 +28,9 @@ from check_acceptance_evidence import (  # noqa: E402
 from release_contract import (  # noqa: E402
     FIVE_EDIT_OUTPUT_SHA256,
     MCPB_REQUIRED_TOOLS,
+    PREVIOUS_PUBLIC_MCPB_SHA256,
+    PREVIOUS_PUBLIC_MCPB_TOOLS,
+    PREVIOUS_PUBLIC_VERSION,
     VERSION,
 )
 
@@ -89,8 +92,8 @@ def _packet() -> dict:
         },
         "desktop_rehearsal": {
             "verdict": "passed",
-            "client": "claude_desktop_fresh_copy",
-            "fresh_copy": True,
+            "client": "claude_desktop_fresh_user_profile",
+            "fresh_user_profile": True,
             "event_omitted_from_records": True,
             "current_event_not_in_access_count": True,
             "raw_vs_compact_explained": True,
@@ -101,17 +104,27 @@ def _packet() -> dict:
         },
         "desktop_extension": {
             "artifact_sha256": "1" * 64,
+            "artifact_origin": "successful_main_ci_artifact",
             "installation_channel": "direct_download_mcpb",
             "platform": "darwin",
-            "client": "claude_desktop_fresh_copy",
+            "client": "claude_desktop_fresh_user_profile",
             "client_version": "1.0.0",
             "platform_version": "15.5",
-            "manual_uv_install_absent": True,
-            "manual_python_install_absent": True,
+            "environment": {
+                "kind": "fresh_isolated_standard_macos_user_v1",
+                "physical_host": "maintainer_mac",
+                "clean_physical_mac_claimed": False,
+                "fresh_user_profile": True,
+                "preexisting_veqtor_user_state_absent": True,
+                "repository_checkout_absent": True,
+                "manual_server_configuration_absent": True,
+                "developer_runtime_used": False,
+            },
             "host_managed_uv_runtime_confirmed": True,
             "tracked_change_author_confirmed": True,
             "extension_enabled_confirmed": True,
             "server_connected_confirmed": True,
+            "english_scenario_completed": True,
             "visible_tools": list(MCPB_REQUIRED_TOOLS),
             "called_tools": list(MCPB_REQUIRED_TOOLS),
             "runtime_producer_build": PRODUCER_BUILD,
@@ -139,6 +152,64 @@ def _packet() -> dict:
                 "supporting_record_count": 1,
                 "supporting_current_count": 1,
             },
+            "history_trace": {
+                "schema_version": "paragraph_history.v1",
+                "status": "ok",
+                "record_status": "written",
+                "ordering_source": "filename_lexicographic_v1",
+                "result_order": "seed_then_descending_position_v1",
+                "candidate_document_count": 4,
+                "returned_observation_count": 4,
+                "selected_paragraph_count": 4,
+                "exact_unique_count": 3,
+                "ambiguous_count": 0,
+                "unresolved_count": 0,
+                "rejected_projection_equality_count": 3,
+                "next_cursor_absent": True,
+                "seed_deletion_change_unit_present": True,
+                "seed_deletion_author_literal_is_53": True,
+                "change_units_restricted_to_selected_paragraph": True,
+                "authorship_verified": False,
+                "time_verified": False,
+                "selected_relationships_lineage_verified": False,
+                "chronology_verified": False,
+                "semantic_identity_verified": False,
+            },
+            "verify_quote_v2": {
+                "schema_version": "verification_result.v2",
+                "verdict": "exact",
+                "exact": True,
+                "record_status": "written",
+                "checked_projection_schema_version": "verified_paragraph_projection.v1",
+                "checked_projection_mode": "pending_text_revisions_rejected_v1",
+                "checked_projection_status": "complete",
+                "match_count": 1,
+                "match_side": "paragraph_rejected_pending",
+                "diff_count": 0,
+                "checked_anchor_matches_history_seed": True,
+                "projection_sha256_matches_history": True,
+            },
+            "compact_privacy": {
+                "export_record_status": "written",
+                "export_payloads": "compact",
+                "history_record_type": "paragraph_history.v1",
+                "verification_record_type": "verification.v2",
+                "history_record_present": True,
+                "verification_record_present": True,
+                "history_raw_path_text_author_absent": True,
+                "history_compact_path_text_author_absent": True,
+                "verification_compact_path_text_clause_absent": True,
+                "history_snapshot_digests_match_live": True,
+                "verification_projection_hashes_match_live": True,
+            },
+            "stdio_lifecycle": {
+                "client_request_abandonment_status": "passed",
+                "cancellation_notification_status": "passed",
+                "post_cancellation_session_recovery_status": "passed",
+                "server_work_cancellation_verified": False,
+                "cancelled_request_side_effect_absence_verified": False,
+                "process_teardown_status": "passed",
+            },
             "post_apply_list_rounds_status": "passed",
             "post_apply_round_count": 5,
             "source_sha256_unchanged": True,
@@ -146,13 +217,37 @@ def _packet() -> dict:
             "output_sha256_matches_reextract": True,
             "session_transcript_sha256": "2" * 64,
             "demo_journal_sha256": "3" * 64,
-            "lifecycle_scenario": "first_public_mcpb",
-            "fresh_install_status": "passed",
-            "upgrade_status": "not_applicable_first_public_mcpb",
-            "rollback_status": "not_applicable_no_prior_public_mcpb",
-            "reinstall_same_artifact_status": "passed",
-            "uninstall_status": "passed",
-            "post_uninstall_tools_absent": True,
+            "lifecycle": {
+                "scenario": "v0.3.0_to_v0.4.0_upgrade_rollback_v1",
+                "previous_artifact_source": "immutable_github_release_v0.3.0",
+                "previous_artifact_version": PREVIOUS_PUBLIC_VERSION,
+                "initial_artifact_sha256": PREVIOUS_PUBLIC_MCPB_SHA256,
+                "initial_checksum_status": "passed",
+                "previous_install_status": "passed",
+                "previous_visible_tools": list(PREVIOUS_PUBLIC_MCPB_TOOLS),
+                "upgrade_status": "passed",
+                "post_upgrade_artifact_sha256": "1" * 64,
+                "post_upgrade_checksum_status": "passed",
+                "post_upgrade_runtime_version": RUNTIME_VERSION,
+                "post_upgrade_visible_tools": list(MCPB_REQUIRED_TOOLS),
+                "rollback_status": "passed",
+                "post_rollback_artifact_sha256": PREVIOUS_PUBLIC_MCPB_SHA256,
+                "post_rollback_checksum_status": "passed",
+                "post_rollback_runtime_version": PREVIOUS_PUBLIC_VERSION,
+                "post_rollback_visible_tools": list(PREVIOUS_PUBLIC_MCPB_TOOLS),
+                "post_rollback_smoke_status": "passed",
+                "post_rollback_workspace_kind": ("fresh_v03_compatible_workspace_v1"),
+                "rollback_scope": "extension_runtime_and_tool_surface_only",
+                "v04_workspace_presented_to_v03": False,
+                "v04_journal_downgrade_claimed": False,
+                "candidate_reinstall_status": "passed",
+                "post_reinstall_artifact_sha256": "1" * 64,
+                "post_reinstall_checksum_status": "passed",
+                "post_reinstall_runtime_version": RUNTIME_VERSION,
+                "post_reinstall_visible_tools": list(MCPB_REQUIRED_TOOLS),
+                "uninstall_status": "passed",
+                "post_uninstall_tools_absent": True,
+            },
         },
     }
 
@@ -170,11 +265,13 @@ def test_complete_exact_candidate_evidence_passes() -> None:
     _validate(_packet())
 
 
-def test_documented_working_template_matches_executable_v5_schema() -> None:
+def test_documented_working_template_matches_executable_v6_schema() -> None:
     releasing = (ROOT / "RELEASING.md").read_text()
-    template = releasing.split("<!-- acceptance-v5-template-begin -->", 1)[1]
-    template = template.split("<!-- acceptance-v5-template-end -->", 1)[0]
-    packet = json.loads(template.split("```json\n", 1)[1].split("\n```", 1)[0])
+    template = releasing.split("<!-- acceptance-v6-template-begin -->", 1)[1]
+    template = template.split("<!-- acceptance-v6-template-end -->", 1)[0]
+    packet = _parse_packet(
+        template.split("```json\n", 1)[1].split("\n```", 1)[0].encode()
+    )
 
     validate_evidence(
         packet,
@@ -202,9 +299,7 @@ def test_documented_working_template_matches_executable_v5_schema() -> None:
             "modified the source corpus",
         ),
         (
-            lambda packet: packet["payment_preflight"].update(
-                {"match_count": 0}
-            ),
+            lambda packet: packet["payment_preflight"].update({"match_count": 0}),
             "payment_preflight.match_count does not equal",
         ),
         (
@@ -224,9 +319,7 @@ def test_documented_working_template_matches_executable_v5_schema() -> None:
             "fields differ",
         ),
         (
-            lambda packet: packet["desktop_rehearsal"].update(
-                {"verdict": "failed"}
-            ),
+            lambda packet: packet["desktop_rehearsal"].update({"verdict": "failed"}),
             "Desktop rehearsal did not pass",
         ),
         (
@@ -237,11 +330,7 @@ def test_documented_working_template_matches_executable_v5_schema() -> None:
         ),
         (
             lambda packet: packet["desktop_rehearsal"].update(
-                {
-                    "runtime_producer_build": (
-                        "source-snapshot-v1-sha256:" + "0" * 64
-                    )
-                }
+                {"runtime_producer_build": ("source-snapshot-v1-sha256:" + "0" * 64)}
             ),
             "Desktop runtime build does not equal",
         ),
@@ -252,22 +341,22 @@ def test_documented_working_template_matches_executable_v5_schema() -> None:
             "desktop_extension.artifact_sha256 is not",
         ),
         (
-            lambda packet: packet["desktop_extension"].update(
-                {"manual_uv_install_absent": False}
+            lambda packet: packet["desktop_extension"]["environment"].update(
+                {"fresh_user_profile": False}
             ),
-            "extension activation did not pass",
+            "fresh_user_profile does not equal True",
         ),
         (
             lambda packet: packet["desktop_extension"].update(
                 {"extension_enabled_confirmed": False}
             ),
-            "extension activation did not pass",
+            "extension_enabled_confirmed does not equal True",
         ),
         (
             lambda packet: packet["desktop_extension"].update(
                 {"server_connected_confirmed": False}
             ),
-            "extension activation did not pass",
+            "server_connected_confirmed does not equal True",
         ),
         (
             lambda packet: packet["desktop_extension"].update(
@@ -294,6 +383,60 @@ def test_documented_working_template_matches_executable_v5_schema() -> None:
             "inspection and Round Map acceptance differs",
         ),
         (
+            lambda packet: packet["desktop_extension"]["history_trace"].update(
+                {"authorship_verified": True}
+            ),
+            "authorship_verified does not equal False",
+        ),
+        (
+            lambda packet: packet["desktop_extension"]["lifecycle"].update(
+                {"post_rollback_visible_tools": list(MCPB_REQUIRED_TOOLS)}
+            ),
+            "lifecycle tool inventory differs",
+        ),
+        (
+            lambda packet: packet["desktop_extension"]["verify_quote_v2"].update(
+                {"match_count": 1.0}
+            ),
+            "match_count is not an integer count",
+        ),
+        (
+            lambda packet: packet["desktop_extension"]["history_trace"].update(
+                {"candidate_document_count": 4.0}
+            ),
+            "candidate_document_count is not an integer count",
+        ),
+        (
+            lambda packet: packet["desktop_extension"]["compact_privacy"].update(
+                {"history_compact_path_text_author_absent": False}
+            ),
+            "history_compact_path_text_author_absent does not equal True",
+        ),
+        (
+            lambda packet: packet["desktop_extension"]["stdio_lifecycle"].update(
+                {"cancellation_notification_status": "failed"}
+            ),
+            "cancellation_notification_status did not pass",
+        ),
+        (
+            lambda packet: packet["desktop_extension"]["stdio_lifecycle"].update(
+                {"server_work_cancellation_verified": True}
+            ),
+            "server_work_cancellation_verified does not equal False",
+        ),
+        (
+            lambda packet: packet["desktop_extension"]["lifecycle"].update(
+                {"v04_workspace_presented_to_v03": True}
+            ),
+            "v04_workspace_presented_to_v03 does not equal False",
+        ),
+        (
+            lambda packet: packet["desktop_extension"]["lifecycle"].update(
+                {"v04_journal_downgrade_claimed": True}
+            ),
+            "v04_journal_downgrade_claimed does not equal False",
+        ),
+        (
             lambda packet: packet["desktop_extension"].update(
                 {"post_apply_round_count": 4}
             ),
@@ -318,16 +461,16 @@ def test_documented_working_template_matches_executable_v5_schema() -> None:
             "post-apply readback failed",
         ),
         (
-            lambda packet: packet["desktop_extension"].update(
+            lambda packet: packet["desktop_extension"]["lifecycle"].update(
                 {"uninstall_status": "failed"}
             ),
             "uninstall_status did not pass",
         ),
         (
-            lambda packet: packet["desktop_extension"].update(
-                {"upgrade_status": "passed"}
+            lambda packet: packet["desktop_extension"]["lifecycle"].update(
+                {"upgrade_status": "failed"}
             ),
-            "extension activation did not pass",
+            "upgrade_status did not pass",
         ),
     ],
     ids=[
@@ -342,19 +485,28 @@ def test_documented_working_template_matches_executable_v5_schema() -> None:
         "two_export_failed",
         "desktop_wrong_build",
         "mcpb_digest",
-        "mcpb_clean_host",
+        "mcpb_fresh_user",
         "mcpb_enabled",
         "mcpb_connected",
         "mcpb_tools",
         "mcpb_tool_calls",
         "mcpb_post_apply_list",
         "mcpb_round_map_lineage",
+        "mcpb_stage3c_assurance",
+        "mcpb_lifecycle_tools",
+        "mcpb_verify_integer_count",
+        "mcpb_history_integer_count",
+        "mcpb_compact_privacy",
+        "mcpb_cancellation_notification",
+        "mcpb_no_server_cancellation_claim",
+        "mcpb_v04_workspace_not_presented_to_v03",
+        "mcpb_no_journal_downgrade_claim",
         "mcpb_post_apply_count",
         "mcpb_source_unchanged",
         "mcpb_output_list_hash",
         "mcpb_output_reextract_hash",
         "mcpb_uninstall",
-        "mcpb_first_release_lifecycle",
+        "mcpb_upgrade_lifecycle",
     ],
 )
 def test_incomplete_or_non_private_shape_fails(mutate, message: str) -> None:
@@ -365,11 +517,52 @@ def test_incomplete_or_non_private_shape_fails(mutate, message: str) -> None:
 
 
 @pytest.mark.parametrize(
+    "field",
+    [
+        "initial_artifact_sha256",
+        "post_upgrade_artifact_sha256",
+        "post_rollback_artifact_sha256",
+        "post_reinstall_artifact_sha256",
+    ],
+)
+def test_lifecycle_rejects_artifact_bytes_from_another_transition(field: str) -> None:
+    packet = _packet()
+    packet["desktop_extension"]["lifecycle"][field] = "0" * 64
+
+    with pytest.raises(
+        EvidenceError,
+        match=rf"desktop_extension\.lifecycle\.{field} does not equal",
+    ):
+        _validate(packet)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "initial_checksum_status",
+        "post_upgrade_checksum_status",
+        "post_rollback_checksum_status",
+        "post_reinstall_checksum_status",
+    ],
+)
+def test_lifecycle_requires_checksum_at_every_transition(field: str) -> None:
+    packet = _packet()
+    packet["desktop_extension"]["lifecycle"][field] = "failed"
+
+    with pytest.raises(
+        EvidenceError,
+        match=rf"desktop_extension\.lifecycle\.{field} did not pass",
+    ):
+        _validate(packet)
+
+
+@pytest.mark.parametrize(
     "schema_version",
     [
         "veqtor_release_acceptance.v2",
         "veqtor_release_acceptance.v3",
         "veqtor_release_acceptance.v4",
+        "veqtor_release_acceptance.v5",
     ],
 )
 def test_older_packet_is_rejected_before_shape_validation(
@@ -510,12 +703,8 @@ def test_evidence_loader_is_bounded_and_rejects_duplicate_keys(tmp_path: Path) -
 
 def test_evidence_json_integer_digit_limit_is_sign_independent() -> None:
     assert MAX_PACKET_INTEGER_DIGITS == 128
-    positive = _parse_packet(
-        b'{"value":' + b"9" * MAX_PACKET_INTEGER_DIGITS + b"}"
-    )
-    negative = _parse_packet(
-        b'{"value":-' + b"9" * MAX_PACKET_INTEGER_DIGITS + b"}"
-    )
+    positive = _parse_packet(b'{"value":' + b"9" * MAX_PACKET_INTEGER_DIGITS + b"}")
+    negative = _parse_packet(b'{"value":-' + b"9" * MAX_PACKET_INTEGER_DIGITS + b"}")
 
     assert positive["value"] > 0
     assert negative["value"] < 0
@@ -550,5 +739,8 @@ def test_evidence_cli_rejects_huge_integer_without_traceback(
 
     assert evidence_module.main([str(evidence), "--source-root", str(ROOT)]) == 1
     stderr = capsys.readouterr().err
-    assert "acceptance evidence failed: evidence packet integer exceeds 128 digits" in stderr
+    assert (
+        "acceptance evidence failed: evidence packet integer exceeds 128 digits"
+        in stderr
+    )
     assert "Traceback" not in stderr

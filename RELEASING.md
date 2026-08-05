@@ -52,7 +52,7 @@ signing and trusted-builder design.
 - The MCPB member set equals its separate allowlist. Reviewed source members
   equal the exact candidate git blobs, the four DOCX members equal the
   deterministic synthetic generator, and the manifest, locked UV project,
-  required author configuration, eight-tool list and macOS-only compatibility
+  required author configuration, nine-tool list and macOS-only compatibility
   equal the extension contract.
 - Every source-derived member is byte-identical to its approved git blob.
 - Complete raw Core Metadata bytes (headers, separator and README body), wheel
@@ -242,54 +242,54 @@ and rolls back the complete batch after an expected publication failure.
 - Public tests pass on Python 3.12, 3.13 and 3.14, including minimum direct
   dependencies.
 - Private dogfood passes against both the maintained used corpus and its clean
-  copy without modifying either source corpus. Each run must report at least
-  four passing private tests; record the observed pass/skip counts and the same
-  retained corpus-manifest digest before and after each run.
-- The maintained private `payment_preflight` scenario is refused as
+  copy without modifying either source corpus. Each run reports at least four
+  passing private tests, the observed skip count, and the same retained
+  corpus-manifest digest before and after.
+- The maintained `payment_preflight` scenario is refused as
   `counter_position_unsupported` with one match. The maintained
   `five_edit_batch` scenario passes preflight and apply for all five edits,
   reports a passing round trip and zero collateral changes, and produces the
   exact output SHA-256 pinned in `scripts/release_contract.py`.
-- The installed wheel completes the eight-tool synthetic smoke. Its two compact
+- The installed wheel completes the nine-tool synthetic smoke. Its two compact
   exports report access counts 0 then 1, omit the first access event from both
-  returned record windows, and keep each current event outside its own
-  snapshot.
-- A fresh-copy Claude Desktop rehearsal exercises read, verify, preflight,
-  apply, re-extract and export against the exact installed candidate. It must
-  also explain the difference between the private raw journal and compact
-  projection, including both access-event exclusions above.
-- The exact macOS MCPB passes on a clean Mac without manually installed uv,
-  Python or a developer toolchain, using Claude Desktop's host-managed UV
-  runtime. Acceptance explicitly confirms the extension is enabled and its
-  server is connected, confirms the tracked-change author, exposes exactly the
-  eight public tools, calls each tool and completes the bundled four-round
-  read-only demo prompt. The write workflow runs only on a fresh writable copy
-  of those four DOCX files outside the immutable installed extension. After
-  apply, a second `list_rounds` must report five files, retain the exact source
-  SHA-256 and report the output SHA-256 returned by apply; re-extraction of that
-  output must report the same SHA-256. The packet records the tested client and
-  macOS versions plus private transcript and copied-workspace journal digests.
-  For the first public MCPB, uninstall, post-uninstall tool absence and
-  same-artifact reinstall are exercised; upgrade and rollback are explicitly
-  not applicable because no older public MCPB exists. Starting with the next
-  MCPB release, its acceptance schema must require a real upgrade from and
-  rollback to the previous immutable public extension. The packet binds this
-  rehearsal to the exact MCPB SHA-256 later reproduced by CI.
+  returned record windows, and keep each current event outside its own snapshot.
+- A Claude Desktop rehearsal runs under a fresh isolated standard macOS user
+  profile on the maintainer's Mac. This is not a claim that a separate clean
+  physical Mac was used. The user profile has no pre-existing Veqtor state,
+  repository checkout or manual server configuration, and the rehearsal does
+  not use a developer runtime.
+- The exact macOS MCPB is downloaded from the successful `main` CI artifact for
+  the accepted commit and runs through Claude Desktop's host-managed UV runtime.
+  Acceptance confirms that the extension is enabled and connected, exposes and
+  calls exactly nine tools, completes the English bundled prompt, and exercises
+  paragraph history, rejected-pending `verify_quote` v2, compact privacy,
+  client request abandonment, the MCP cancellation notification, post-abandonment
+  session recovery and forced transport-owner process teardown. This does not
+  claim that synchronous server work stopped or that an abandoned call produced
+  no local side effect.
+- The write workflow uses a fresh writable copy of the four bundled DOCX files
+  outside the immutable extension. It proves the source hash is unchanged and
+  that apply, `list_rounds` and re-extraction agree on the output hash.
+- The same fresh user profile performs a real immutable-extension lifecycle:
+  public v0.3.0 (eight tools) → candidate v0.4.0 (nine) → public v0.3.0
+  (eight) → the same candidate v0.4.0 (nine), with checksum and runtime-version
+  checks at every transition. Rollback covers only extension runtime and tool
+  surface; the packet must not claim that v0.3 can read or downgrade v0.4
+  journal records.
 - Any maintainer-only corpus, transcript and journal evidence stays outside the
   repository. Only the canonical path-free acceptance packet may enter the
   workflow input; it contains digests, counts, stable status codes and runtime
   identity, never filenames, local paths, quotations or document text.
 
 The acceptance packet has one canonical byte representation and is exact-SHA,
-tree and build bound. Its executable schema remains in
+tree, runtime-build and MCPB-byte bound. Its executable schema is
 `scripts/check_acceptance_evidence.py`.
 
-### Construct the v5 acceptance packet
+### Construct the v6 acceptance packet
 
-Freeze one clean candidate before collecting evidence. These three values must
-come from that checkout and the same `producer_build` value must be copied into
-the packet root, `installed_two_export`, `desktop_rehearsal` and
-`desktop_extension`:
+Freeze one clean candidate before collecting evidence. These values must come
+from that checkout, and the same `producer_build` must appear at the packet
+root and in all three runtime sections:
 
 ```bash
 test -z "$(git status --porcelain --untracked-files=all)"
@@ -300,21 +300,22 @@ uv run --frozen python -c \
 ```
 
 The Desktop candidate must come from CI, not from an unrecorded local rebuild.
-After that exact commit is on `main` and its required CI jobs are green, open
-the CI run for the commit and download the Actions artifact named
+After that exact commit is on `main` and its required CI jobs are green,
+download the Actions artifact named
 `veqtor-mcp-dist-<run_id>-<run_attempt>`. Extract it outside the repository,
 confirm that it contains the exact four-file release set, and compare:
 
 ```bash
-shasum -a 256 veqtor-mcp-0.3.0-macos.mcpb
-grep ' veqtor-mcp-0.3.0-macos.mcpb$' SHA256SUMS.txt
+shasum -a 256 veqtor-mcp-0.4.0-macos.mcpb
+grep ' veqtor-mcp-0.4.0-macos.mcpb$' SHA256SUMS.txt
 ```
 
-The two digests must match. Install that exact MCPB on the clean acceptance Mac
-and copy its digest into `desktop_extension.artifact_sha256`. Retain the CI run
-ID and attempt number with the private acceptance evidence. The later release
-dispatch passes that accepted digest back into CI and refuses any independently
-rebuilt MCPB whose bytes differ.
+The two digests must match. Install that exact MCPB in the fresh isolated
+standard-user profile and copy its digest into
+`desktop_extension.artifact_sha256`. Retain the CI run ID and attempt number
+with the private evidence. The later release dispatch passes that accepted
+digest back into CI and refuses any independently rebuilt MCPB whose bytes
+differ.
 
 Collect every section below against that exact candidate. Do not infer or
 pre-fill a passing result: copy observed counts, identities and digests from the
@@ -324,31 +325,66 @@ retained evidence.
 | --- | --- |
 | `public_matrix` | Required CI lanes for Python 3.12, 3.13, 3.14 and minimum direct dependencies all completed as `passed` for the candidate SHA. |
 | `private_dogfood.used` and `.clean` | Run `VEQTOR_PRIVATE_FIXTURE_DIR=... uv run --frozen pytest -m private tests/test_private_dogfood.py` separately for the maintained used corpus and clean copy. Record each pytest pass/skip count and a retained private corpus-manifest SHA-256 before and after; each pair must match. |
-| `payment_preflight` | From the maintained private acceptance scenario: `batch_applicable: false`, `refusal_code: "counter_position_unsupported"`, `match_count: 1`. |
-| `five_edit_batch` | From the maintained five-edit scenario: applicable preflight, successful apply of five edits, passing round trip, zero collateral changes and the fixed output digest shown below. |
-| `installed_two_export` | Copy the JSON fields printed by `scripts/installed_wheel_smoke.py` when run from the installed candidate wheel: access counts 0 then 1, both exclusion booleans `true`, and the installed version/build. |
-| `desktop_rehearsal` | Record the exact literals and booleans shown below plus the installed version/build and SHA-256 digests of the retained private transcript and raw journal. |
-| `desktop_extension` | On a clean Mac without manually installed uv or Python, install the exact candidate `.mcpb` downloaded from the final commit's successful CI artifact on a fresh-copy Claude Desktop for macOS and confirm its host-managed UV runtime. Explicitly confirm that the extension is enabled and its server is connected. Record the MCPB SHA-256, tested client/OS labels, author confirmation, exact eight-tool visible and called lists, version/build and four-round bundled read-only demo result. For the write check, copy only the four synthetic DOCX files to a fresh writable folder outside the installed extension. Record the pre-apply source hash, create the output in that copied folder, call `list_rounds` again and require five rounds, an unchanged source hash and an output hash equal to apply; re-extract the output and require the same hash. Call `inspect_document` in browse mode on the source and pass its verbatim paragraph reference to `map_rounds`; require the exact path-free `inspection_map` matrix below, including one current recorded derivation and explicit false lineage/chronology verification. Retain only path-free booleans/counts plus private session transcript and copied-workspace journal digests in the packet. Also record fresh install, uninstall, post-uninstall absence and same-artifact reinstall. For this first public MCPB only, record the two closed not-applicable lifecycle values shown below. |
+| `payment_preflight` | The maintained private scenario is refused with `batch_applicable: false`, `refusal_code: "counter_position_unsupported"` and `match_count: 1`. |
+| `five_edit_batch` | Applicable preflight, successful apply of five edits, passing round trip, zero collateral changes and the fixed output digest below. |
+| `installed_two_export` | Copy the fields printed by `scripts/installed_wheel_smoke.py` from the installed candidate wheel, including the nine-tool modern/legacy stdio result and compact-export counters. |
+| `desktop_rehearsal` | Record the fixed client/fresh-profile values, runtime identity and SHA-256 digests of the retained private transcript and raw journal. |
+| `desktop_extension` | Record exact CI artifact provenance; fresh isolated-user conditions; client/OS versions; the nine visible and called tools; history, verify-v2 and privacy results; client abandonment/cancellation-notification/session-recovery status; explicit false server-cancellation and side-effect-absence claims; forced transport-owner process teardown; post-apply hashes; private evidence digests; and the real v0.3→v0.4→v0.3→v0.4 lifecycle. |
+
+### Same-Mac isolated-user rehearsal
+
+The accepted v0.4 rehearsal may use the maintainer's existing physical Mac,
+but it must run under a newly created standard macOS user. Record this as a
+fresh isolated standard-user profile on `maintainer_mac`; never describe it as
+a separate clean physical Mac.
+
+1. After the exact candidate commit reaches `main` and its required CI is
+   green, create a standard macOS user through System Settings. Do not copy the
+   repository, prior Veqtor state, a manual MCP server configuration or a
+   developer runtime into that profile. Record the numeric Claude Desktop and
+   macOS versions.
+2. In that profile, verify and install the immutable public v0.3.0 MCPB using
+   its published checksum. Confirm runtime `0.3.0`, exactly eight tools and a
+   passing read-only smoke on a fresh v0.3-compatible workspace. Record the
+   checked bytes as `initial_artifact_sha256`.
+3. Download the exact v0.4.0 MCPB from the successful `main` CI artifact,
+   verify it against that artifact's checksum manifest, upgrade in place and
+   confirm runtime `0.4.0` plus exactly nine tools. Record the installed bytes
+   as `post_upgrade_artifact_sha256`; they must equal
+   `desktop_extension.artifact_sha256`.
+4. Run the English bundled demo and collect the required paragraph-history,
+   `verify_quote` v2, compact-privacy, abandonment/cancellation-notification,
+   session-recovery, teardown and writable-copy results. Keep transcripts,
+   journals, filenames, paths and document content outside the repository.
+5. Roll back to the immutable v0.3.0 MCPB and test it only against a different
+   fresh v0.3-compatible workspace. Do not present a v0.4 `.veqtor` journal or
+   claim journal downgrade compatibility. Recheck and record the v0.3 bytes as
+   `post_rollback_artifact_sha256`.
+6. Reinstall the same exact v0.4.0 candidate, confirm runtime `0.4.0` and all
+   nine tools again, recheck and record the bytes as
+   `post_reinstall_artifact_sha256`, then uninstall and confirm that its tools
+   are absent.
+7. Build the canonical v6 packet from the observed values and retained digests,
+   validate it against the exact candidate, and preserve the private supporting
+   evidence outside git.
 
 `desktop_extension.client_version` must be a public numeric
 `MAJOR.MINOR.PATCH[.BUILD]` value, and `platform_version` must be
-`MAJOR.MINOR[.PATCH]`. Record only those public version numbers: product names,
-paths, build labels and free-form OS text are rejected by the packet validator.
+`MAJOR.MINOR[.PATCH]`. Product names, paths, build labels and free-form OS text
+are rejected by the packet validator.
 
-The following is the complete, type-correct v5 working template. Its repeated
-sample digests are deliberately not candidate values and will fail exact-SHA
-validation. Replace the candidate SHA/tree/build, all private evidence digests,
-and the observed private pass/skip counts. Keep the fixed statuses, booleans,
-version and five-edit output digest exactly as shown unless the executable
-schema changes in a later release.
+The complete, type-correct v6 working template follows. Its sample SHA/tree,
+runtime-build and private digests are placeholders; replace them with observed
+values. Fixed statuses, booleans, versions, previous-public MCPB identity and
+tool inventories are release-contract values.
 
-<!-- acceptance-v5-template-begin -->
+<!-- acceptance-v6-template-begin -->
 ```json
 {
-  "schema_version": "veqtor_release_acceptance.v5",
-  "candidate_sha": "0000000000000000000000000000000000000000",
-  "candidate_tree": "1111111111111111111111111111111111111111",
-  "producer_build": "source-snapshot-v1-sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "schema_version": "veqtor_release_acceptance.v6",
+  "candidate_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "candidate_tree": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "producer_build": "source-snapshot-v1-sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
   "public_matrix": {
     "python_3_12": "passed",
     "python_3_13": "passed",
@@ -358,15 +394,15 @@ schema changes in a later release.
   "private_dogfood": {
     "used": {
       "passed": 4,
-      "skipped": 0,
-      "corpus_before_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
-      "corpus_after_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+      "skipped": 1,
+      "corpus_before_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "corpus_after_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
     },
     "clean": {
       "passed": 4,
-      "skipped": 0,
-      "corpus_before_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
-      "corpus_after_sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+      "skipped": 1,
+      "corpus_before_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "corpus_after_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
     }
   },
   "payment_preflight": {
@@ -387,42 +423,53 @@ schema changes in a later release.
     "second_access_count": 1,
     "first_event_absent_from_windows": true,
     "current_event_outside_own_snapshot": true,
-    "runtime_producer_build": "source-snapshot-v1-sha256:2222222222222222222222222222222222222222222222222222222222222222",
-    "runtime_version": "0.3.0"
+    "runtime_producer_build": "source-snapshot-v1-sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "runtime_version": "0.4.0"
   },
   "desktop_rehearsal": {
     "verdict": "passed",
-    "client": "claude_desktop_fresh_copy",
-    "fresh_copy": true,
+    "client": "claude_desktop_fresh_user_profile",
+    "fresh_user_profile": true,
     "event_omitted_from_records": true,
     "current_event_not_in_access_count": true,
     "raw_vs_compact_explained": true,
-    "runtime_producer_build": "source-snapshot-v1-sha256:2222222222222222222222222222222222222222222222222222222222222222",
-    "runtime_version": "0.3.0",
-    "transcript_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
-    "raw_journal_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+    "runtime_producer_build": "source-snapshot-v1-sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "runtime_version": "0.4.0",
+    "transcript_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "raw_journal_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
   },
   "desktop_extension": {
-    "artifact_sha256": "7777777777777777777777777777777777777777777777777777777777777777",
+    "artifact_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "artifact_origin": "successful_main_ci_artifact",
     "installation_channel": "direct_download_mcpb",
     "platform": "darwin",
-    "client": "claude_desktop_fresh_copy",
+    "client": "claude_desktop_fresh_user_profile",
     "client_version": "1.0.0",
     "platform_version": "15.5",
-    "manual_uv_install_absent": true,
-    "manual_python_install_absent": true,
+    "environment": {
+      "kind": "fresh_isolated_standard_macos_user_v1",
+      "physical_host": "maintainer_mac",
+      "clean_physical_mac_claimed": false,
+      "fresh_user_profile": true,
+      "preexisting_veqtor_user_state_absent": true,
+      "repository_checkout_absent": true,
+      "manual_server_configuration_absent": true,
+      "developer_runtime_used": false
+    },
     "host_managed_uv_runtime_confirmed": true,
     "tracked_change_author_confirmed": true,
     "extension_enabled_confirmed": true,
     "server_connected_confirmed": true,
+    "english_scenario_completed": true,
     "visible_tools": [
       "list_rounds",
       "extract_redlines",
       "inspect_document",
       "map_rounds",
-      "verify_quote",
+      "trace_paragraph_history",
       "preflight_edits",
       "apply_edits",
+      "verify_quote",
       "export_decision_record"
     ],
     "called_tools": [
@@ -430,13 +477,14 @@ schema changes in a later release.
       "extract_redlines",
       "inspect_document",
       "map_rounds",
-      "verify_quote",
+      "trace_paragraph_history",
       "preflight_edits",
       "apply_edits",
+      "verify_quote",
       "export_decision_record"
     ],
-    "runtime_producer_build": "source-snapshot-v1-sha256:2222222222222222222222222222222222222222222222222222222222222222",
-    "runtime_version": "0.3.0",
+    "runtime_producer_build": "source-snapshot-v1-sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "runtime_version": "0.4.0",
     "demo_round_count": 4,
     "bundled_demo_prompt_completed": true,
     "inspection_map": {
@@ -460,35 +508,155 @@ schema changes in a later release.
       "supporting_record_count": 1,
       "supporting_current_count": 1
     },
+    "history_trace": {
+      "schema_version": "paragraph_history.v1",
+      "status": "ok",
+      "record_status": "written",
+      "ordering_source": "filename_lexicographic_v1",
+      "result_order": "seed_then_descending_position_v1",
+      "candidate_document_count": 4,
+      "returned_observation_count": 4,
+      "selected_paragraph_count": 4,
+      "exact_unique_count": 3,
+      "ambiguous_count": 0,
+      "unresolved_count": 0,
+      "rejected_projection_equality_count": 3,
+      "next_cursor_absent": true,
+      "seed_deletion_change_unit_present": true,
+      "seed_deletion_author_literal_is_53": true,
+      "change_units_restricted_to_selected_paragraph": true,
+      "authorship_verified": false,
+      "time_verified": false,
+      "selected_relationships_lineage_verified": false,
+      "chronology_verified": false,
+      "semantic_identity_verified": false
+    },
+    "verify_quote_v2": {
+      "schema_version": "verification_result.v2",
+      "verdict": "exact",
+      "exact": true,
+      "record_status": "written",
+      "checked_projection_schema_version": "verified_paragraph_projection.v1",
+      "checked_projection_mode": "pending_text_revisions_rejected_v1",
+      "checked_projection_status": "complete",
+      "match_count": 1,
+      "match_side": "paragraph_rejected_pending",
+      "diff_count": 0,
+      "checked_anchor_matches_history_seed": true,
+      "projection_sha256_matches_history": true
+    },
+    "compact_privacy": {
+      "export_record_status": "written",
+      "export_payloads": "compact",
+      "history_record_type": "paragraph_history.v1",
+      "verification_record_type": "verification.v2",
+      "history_record_present": true,
+      "verification_record_present": true,
+      "history_raw_path_text_author_absent": true,
+      "history_compact_path_text_author_absent": true,
+      "verification_compact_path_text_clause_absent": true,
+      "history_snapshot_digests_match_live": true,
+      "verification_projection_hashes_match_live": true
+    },
+    "stdio_lifecycle": {
+      "client_request_abandonment_status": "passed",
+      "cancellation_notification_status": "passed",
+      "post_cancellation_session_recovery_status": "passed",
+      "server_work_cancellation_verified": false,
+      "cancelled_request_side_effect_absence_verified": false,
+      "process_teardown_status": "passed"
+    },
     "post_apply_list_rounds_status": "passed",
     "post_apply_round_count": 5,
     "source_sha256_unchanged": true,
     "output_sha256_matches_list_rounds": true,
     "output_sha256_matches_reextract": true,
-    "session_transcript_sha256": "8888888888888888888888888888888888888888888888888888888888888888",
-    "demo_journal_sha256": "9999999999999999999999999999999999999999999999999999999999999999",
-    "lifecycle_scenario": "first_public_mcpb",
-    "fresh_install_status": "passed",
-    "upgrade_status": "not_applicable_first_public_mcpb",
-    "rollback_status": "not_applicable_no_prior_public_mcpb",
-    "reinstall_same_artifact_status": "passed",
-    "uninstall_status": "passed",
-    "post_uninstall_tools_absent": true
+    "session_transcript_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "demo_journal_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+    "lifecycle": {
+      "scenario": "v0.3.0_to_v0.4.0_upgrade_rollback_v1",
+      "previous_artifact_source": "immutable_github_release_v0.3.0",
+      "previous_artifact_version": "0.3.0",
+      "initial_artifact_sha256": "43e939a60c7f13d8d31b61f090b1520cab951732395e078cfb590622ece0c596",
+      "initial_checksum_status": "passed",
+      "previous_install_status": "passed",
+      "previous_visible_tools": [
+        "list_rounds",
+        "extract_redlines",
+        "inspect_document",
+        "map_rounds",
+        "verify_quote",
+        "preflight_edits",
+        "apply_edits",
+        "export_decision_record"
+      ],
+      "upgrade_status": "passed",
+      "post_upgrade_artifact_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "post_upgrade_checksum_status": "passed",
+      "post_upgrade_runtime_version": "0.4.0",
+      "post_upgrade_visible_tools": [
+        "list_rounds",
+        "extract_redlines",
+        "inspect_document",
+        "map_rounds",
+        "trace_paragraph_history",
+        "preflight_edits",
+        "apply_edits",
+        "verify_quote",
+        "export_decision_record"
+      ],
+      "rollback_status": "passed",
+      "post_rollback_artifact_sha256": "43e939a60c7f13d8d31b61f090b1520cab951732395e078cfb590622ece0c596",
+      "post_rollback_checksum_status": "passed",
+      "post_rollback_runtime_version": "0.3.0",
+      "post_rollback_visible_tools": [
+        "list_rounds",
+        "extract_redlines",
+        "inspect_document",
+        "map_rounds",
+        "verify_quote",
+        "preflight_edits",
+        "apply_edits",
+        "export_decision_record"
+      ],
+      "post_rollback_smoke_status": "passed",
+      "post_rollback_workspace_kind": "fresh_v03_compatible_workspace_v1",
+      "rollback_scope": "extension_runtime_and_tool_surface_only",
+      "v04_workspace_presented_to_v03": false,
+      "v04_journal_downgrade_claimed": false,
+      "candidate_reinstall_status": "passed",
+      "post_reinstall_artifact_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "post_reinstall_checksum_status": "passed",
+      "post_reinstall_runtime_version": "0.4.0",
+      "post_reinstall_visible_tools": [
+        "list_rounds",
+        "extract_redlines",
+        "inspect_document",
+        "map_rounds",
+        "trace_paragraph_history",
+        "preflight_edits",
+        "apply_edits",
+        "verify_quote",
+        "export_decision_record"
+      ],
+      "uninstall_status": "passed",
+      "post_uninstall_tools_absent": true
+    }
   }
 }
 ```
-<!-- acceptance-v5-template-end -->
+<!-- acceptance-v6-template-end -->
 
-Every field is required and exact; v1, v2, v3 and v4 packets are rejected. No
-filenames, local paths, quotes or document text are allowed by the packet schema. The
-packet has one accepted byte representation: UTF-8 JSON produced with sorted
-keys, `ensure_ascii=False`, `allow_nan=False`, separators `(",", ":")`, and no
-trailing newline or whitespace. After replacing the sample values in a private
-working copy of the template, create the canonical compact file with:
+Every field is required and exact; v1 through v5 packets are rejected. No
+filenames, local paths, quotes or document text are allowed by the packet
+schema. The packet has one accepted byte representation: UTF-8 JSON produced
+with sorted keys, `ensure_ascii=False`, `allow_nan=False`, separators
+`(",", ":")`, and no trailing newline or whitespace. After replacing the
+sample values in a private working copy, create the canonical compact file with:
 
 ```bash
-WORKING_PACKET=/secure/external/veqtor-v0.3.0-acceptance.working.json
-EVIDENCE_PACKET=/secure/external/veqtor-v0.3.0-acceptance.json
+WORKING_PACKET=/secure/external/veqtor-v0.4.0-acceptance.working.json
+EVIDENCE_PACKET=/secure/external/veqtor-v0.4.0-acceptance.json
 uv run --frozen python - "$WORKING_PACKET" "$EVIDENCE_PACKET" <<'PY'
 import json
 import sys
@@ -512,39 +680,36 @@ the canonical file against that exact candidate:
 
 ```bash
 uv run --frozen python scripts/check_acceptance_evidence.py \
-  --source-root . /secure/external/veqtor-v0.3.0-acceptance.json
+  --source-root . /secure/external/veqtor-v0.4.0-acceptance.json
 ```
 
 The validator rejects every non-canonical representation and prints the SHA-256
 of the exact packet bytes. Retain supporting private material outside git.
-Before dispatch, capture the same digest from the canonical file:
+Before dispatch, capture the same digest:
 
 ```bash
-EVIDENCE_PACKET=/secure/external/veqtor-v0.3.0-acceptance.json
+EVIDENCE_PACKET=/secure/external/veqtor-v0.4.0-acceptance.json
 EVIDENCE_SHA256=$(shasum -a 256 "$EVIDENCE_PACKET" | awk '{print $1}')
 ```
 
 Dispatch the release with the same path-free packet. After trust, tag and
 ancestry checks, the read-only root `guard` detached-checks out the exact
-candidate and runs that candidate's validator with its locked dependencies.
-This validation completes before reusable CI and any write-scoped publication
-job; it is not a boundary that runs before candidate code:
+candidate and runs that candidate's validator with locked dependencies:
 
 ```bash
 gh workflow run release.yml \
-  -f version=0.3.0 \
+  -f version=0.4.0 \
   -f commit_sha="$(git rev-parse HEAD)" \
   -f acceptance_evidence="$(<"$EVIDENCE_PACKET")" \
   -f acceptance_evidence_sha256="$EVIDENCE_SHA256"
 ```
 
-The workflow materializes the string input and verifies this expected digest
-before installing candidate dependencies. The candidate validator independently
-checks the same digest, canonical bytes, closed schema, exact commit/tree and
-runtime source identity before reusable CI begins. No public distribution is
-mutated until that CI graph and the current-attempt verifier both pass. The
-workflow then reserves the durable exact tag, publishes and verifies PyPI, and
-only then publishes the immutable GitHub Release.
+The workflow verifies the packet digest before candidate execution, then checks
+canonical bytes, closed schema, exact commit/tree and runtime-source identity.
+No public distribution is mutated until the full current-attempt CI graph and
+verifier pass. The workflow then reserves the durable exact tag, publishes and
+verifies PyPI, and only then publishes the immutable GitHub Release.
+
 
 ## Promotion order
 
@@ -562,20 +727,20 @@ test implementation tip
 → publish and verify PyPI
 → publish and verify the immutable GitHub Release
 → install the exact public PyPI release for the demo
-→ activate the website's v0.3.0 release copy in a separate docs/site change
+→ activate the website's v0.4.0 release copy in a separate docs/site change
 → verify the deployed setup page and every public download/install link
 ```
 
 Public installation copy follows that external state; it never predicts it.
 The immutable README and package metadata use a state-neutral version-selection
-rule: `0.3.0` is selected only when both public verifiers expose it; otherwise
-the explicit fallback is `0.1.2`. Before those verifiers pass, website install
-commands remain pinned to public PyPI `0.1.2`, matching download links remain on
-the immutable GitHub `v0.1.2` release, and the Desktop Extension is labelled a
-`v0.3.0` candidate or preview. After both pass, a separate docs/site change
-must activate the public `v0.3.0` links and release wording, deploy them, and
-smoke the live setup page. That required copy activation does not amend the tag,
-replace clean-Mac acceptance, or waive any gate above.
+rule: `0.4.0` is selected only when both public verifiers expose it; otherwise
+the explicit fallback is public `0.3.0`. Before those verifiers pass, website
+install commands and download links remain pinned to public v0.3.0, and the
+Desktop Extension is labelled a v0.4.0 candidate or preview. After both pass,
+a separate docs/site change must activate the public v0.4.0 links and release
+wording, deploy them, and smoke the live setup page. That required copy
+activation does not amend the tag, replace isolated fresh-user acceptance, or
+waive any gate above.
 
 If promotion stops after reservation, the protected tag remains the only
 permitted recovery anchor. If it stops during or after PyPI publication, a full

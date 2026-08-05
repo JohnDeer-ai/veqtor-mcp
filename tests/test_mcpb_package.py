@@ -25,6 +25,9 @@ from release_contract import (  # noqa: E402
     MCPB_MANIFEST_VERSION,
     MCPB_MEMBERS,
     MCPB_REQUIRED_TOOLS,
+    PREVIOUS_PUBLIC_MCPB_SHA256,
+    PREVIOUS_PUBLIC_MCPB_TOOLS,
+    PREVIOUS_PUBLIC_VERSION,
     VERSION,
 )
 
@@ -32,8 +35,25 @@ from release_contract import (  # noqa: E402
 release_contract_source_only = pytest.mark.skipif(
     tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
     != VERSION,
-    reason="closed v0.2 MCPB builds require the exact v0.2 source identity",
+    reason="closed MCPB builds require the exact release-contract source identity",
 )
+
+
+def test_previous_public_mcpb_identity_is_pinned_for_lifecycle_acceptance() -> None:
+    assert PREVIOUS_PUBLIC_VERSION == "0.3.0"
+    assert PREVIOUS_PUBLIC_MCPB_SHA256 == (
+        "43e939a60c7f13d8d31b61f090b1520cab951732395e078cfb590622ece0c596"
+    )
+    assert PREVIOUS_PUBLIC_MCPB_TOOLS == (
+        "list_rounds",
+        "extract_redlines",
+        "inspect_document",
+        "map_rounds",
+        "verify_quote",
+        "preflight_edits",
+        "apply_edits",
+        "export_decision_record",
+    )
 
 
 def test_manifest_declares_uv_author_tools_and_macos_only() -> None:

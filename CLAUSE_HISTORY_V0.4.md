@@ -4,19 +4,19 @@
 
 ## Status and implementation boundary
 
-This document is the frozen contract implemented by development source
-`0.4.0.dev0` for the first Stage 3C product slice. The filename uses the broader
+This document is the frozen contract implemented by release-candidate source
+`0.4.0` for the first Stage 3C product slice. The filename uses the broader
 product phrase "clause history", but the slice traces exactly one paragraph. It
 does not identify or join a semantic or multi-paragraph clause.
 
 The MCP tool is `trace_paragraph_history`; its permanent success-record pair is
-`(trace_paragraph_history, paragraph_history.v1)`. Development source advertises
+`(trace_paragraph_history, paragraph_history.v1)`. The v0.4 source advertises
 the nine-tool contract `veqtor.mcp.v0.4` together with the companion
 quote-verification contract described below. The contract-wide version is
 reported by all nine tools, including the eight names carried forward from
 v0.3.
 
-Implementation in development source does not change the frozen public v0.3
+Implementation in candidate source does not change the immutable public v0.3
 release or its eight-tool `veqtor.mcp.v0.3` MCPB. Package, contract and
 publication identities remain separate: no statement in this specification is
 a v0.4 release, MCPB, Claude Desktop or publication acceptance claim.
@@ -1749,10 +1749,9 @@ validation remains the gate between the two stages.
 
 ## Implementation status and remaining product gates
 
-Development source `0.4.0.dev0` implements the closed history and verification
+Release-candidate source `0.4.0` implements the closed history and verification
 surfaces described above as MCP contract `veqtor.mcp.v0.4`. Deterministic source
-and installed-wheel checks remain evidence for the development artifact only.
-The frozen public v0.3 release/MCPB is still eight-tool v0.3, and a future v0.4
-release requires its own exact-artifact, compact-privacy, English Claude
-Desktop, MCPB and publication acceptance. Those release gates are not claimed
-by implementation or by this specification.
+and installed-wheel checks remain evidence for the candidate artifact only.
+The public v0.3 release/MCPB is still eight-tool v0.3. Public v0.4 requires its
+own exact-artifact, compact-privacy, English Claude Desktop, MCPB and publication
+acceptance; implementation and this specification do not claim those gates.

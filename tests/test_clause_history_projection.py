@@ -223,7 +223,7 @@ def _classify_adjacent_pair(
     return counts, tuple(rejected_matches)
 
 
-def test_development_v04_and_frozen_release_v03_boundaries_are_separate() -> None:
+def test_v04_release_candidate_promotes_the_complete_stage3c_surface() -> None:
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     release = runpy.run_path(str(ROOT / "scripts" / "release_contract.py"))
     sdist_includes = project["tool"]["hatch"]["build"]["targets"]["sdist"]["include"]
@@ -232,22 +232,22 @@ def test_development_v04_and_frozen_release_v03_boundaries_are_separate() -> Non
 
     source_version = project["project"]["version"]
     frozen_version = release["VERSION"]
-    assert source_version == development_version
+    assert source_version == development_version == "0.4.0"
     assert "/CLAUSE_HISTORY_V0.4.md" in sdist_includes
-    assert frozen_version == "0.3.0"
-    assert "CLAUSE_HISTORY_V0.4.md" not in release["PUBLIC_DOCUMENT_FILES"]
-    assert "CLAUSE_HISTORY_V0.4.md" not in release["SDIST_GIT_FILES"]
+    assert frozen_version == source_version
+    assert "CLAUSE_HISTORY_V0.4.md" in release["PUBLIC_DOCUMENT_FILES"]
+    assert "CLAUSE_HISTORY_V0.4.md" in release["SDIST_GIT_FILES"]
     assert MCP_CONTRACT_SCHEMA_VERSION == "veqtor.mcp.v0.4"
     assert len(records.WRITABLE_TOOL_NAMES) == 9
     assert "trace_paragraph_history" in records.WRITABLE_TOOL_NAMES
-    assert len(release["MCPB_REQUIRED_TOOLS"]) == 8
-    assert "trace_paragraph_history" not in release["MCPB_REQUIRED_TOOLS"]
-    assert f"development source is package `{source_version}`" in api
+    assert len(release["MCPB_REQUIRED_TOOLS"]) == 9
+    assert "trace_paragraph_history" in release["MCPB_REQUIRED_TOOLS"]
+    assert f"release-candidate source is package `{source_version}`" in api
     assert "nine-tool MCP contract `veqtor.mcp.v0.4`" in api
-    assert "frozen v0.3" in api
-    assert f"development source `{source_version}`" in limitations
+    assert "current v0.3 public release" in api
+    assert f"release-candidate source `{source_version}`" in limitations
     assert "veqtor.mcp.v0.4" in limitations
-    assert "frozen v0.3" in limitations
+    assert "current v0.3 release" in limitations
     assert f'"version": "{frozen_version}"' in api
 
 

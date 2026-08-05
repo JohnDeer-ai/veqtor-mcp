@@ -5,12 +5,12 @@
 This file defines the public tool surface. Output examples are part of the API
 because models use them to decide how to call tools and how to cite results.
 
-The development source is package `0.4.0.dev0` and advertises the
+The release-candidate source is package `0.4.0` and advertises the
 nine-tool MCP contract `veqtor.mcp.v0.4`. Package version, contract and
 publication status are separate identities: only matching entries on public
 PyPI and the immutable GitHub Releases list establish distribution. This file
 alone does not. Every
-development tool exposes
+candidate tool exposes
 `veqtor.pro/contractSchemaVersion: veqtor.mcp.v0.4` in its MCP metadata and the
 same value under `x-veqtor-contract-schema-version` in its output schema. The
 contract version covers the complete tool surface, so all eight tool names
@@ -20,14 +20,17 @@ preflight proofs are closed objects; top-level results remain additive where
 the advertised schema says so. `trace_paragraph_history` and the v2
 `verify_quote` result are closed at the top level as well.
 
-The frozen v0.3 public release and its MCPB remain a separate eight-tool
-`veqtor.mcp.v0.3` surface. Development v0.4 does not widen that artifact or
-establish v0.4 release, Claude Desktop, MCPB or publication acceptance. Frozen
-v0.3 examples may therefore still contain `"version": "0.3.0"`; live examples
-in this development API use `0.4.0.dev0`.
+The current v0.3 public release and its MCPB remain a separate eight-tool
+`veqtor.mcp.v0.3` surface. The v0.4 candidate does not modify that immutable
+artifact or establish v0.4 Desktop or publication acceptance. Historical v0.3
+examples may therefore still contain `"version": "0.3.0"`; current candidate
+examples use `0.4.0`.
 The MCP wire revision is a separate identity: the server negotiates modern
 `2026-07-28` and legacy revisions through `2025-11-25` without changing this
-Veqtor tool contract.
+Veqtor tool contract. Client request abandonment sends the MCP cancellation
+notification, but synchronous tool work may still finish and write its normal
+local provenance record. Cancellation is not a no-side-effect guarantee;
+transport teardown separately reaps the stdio server process.
 
 Every successful live tool response includes the same bounded `producer`
 object with `name`, package `version`, and the process-start Python source
@@ -291,7 +294,7 @@ the folder before retrying:
   "skipped": [],
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.4.0.dev0",
+    "version": "0.4.0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "record_id": "dr_001",
@@ -349,8 +352,8 @@ limits fail the whole call rather than returning a selected subset. The exact
 closed schemas, fixed limits and failure precedence are frozen in
 `ROUND_MAP_V0.3.md`. That file is the preimplementation acceptance contract and
 therefore preserves its historical seven-tool/future-implementation wording;
-the current development source implements the resulting permanent eighth tool
-without rewriting the frozen specification.
+the resulting v0.3 release implements the permanent eighth tool without
+rewriting the frozen specification.
 
 ## `trace_paragraph_history`
 
@@ -637,7 +640,7 @@ guessed:
   },
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.4.0.dev0",
+    "version": "0.4.0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "record_id": "dr_002",
@@ -855,7 +858,7 @@ inventory abbreviated):
   "next_cursor": null,
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.4.0.dev0",
+    "version": "0.4.0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "record_id": "dr_003",
@@ -970,7 +973,7 @@ Output:
   "diff": [],
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.4.0.dev0",
+    "version": "0.4.0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "record_id": "dr_003",
@@ -1055,7 +1058,7 @@ Output:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.4.0.dev0",
+    "version": "0.4.0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "batch_applicable": true,
@@ -1106,7 +1109,7 @@ for example:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.4.0.dev0",
+    "version": "0.4.0",
     "build": "source-snapshot-v1-sha256:example"
   },
   "batch_applicable": false,
@@ -1346,7 +1349,7 @@ Output:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.4.0.dev0",
+    "version": "0.4.0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "applied": [
@@ -1522,7 +1525,7 @@ Output:
 {
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.4.0.dev0",
+    "version": "0.4.0",
     "build": "source-snapshot-v1-sha256:..."
   },
   "workspace": {"sha256": "example-workspace-digest", "omitted": true},

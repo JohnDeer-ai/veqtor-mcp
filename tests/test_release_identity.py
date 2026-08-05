@@ -183,16 +183,9 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
     assert "/src" not in sdist["include"]
     assert len(DEVELOPMENT_RUNTIME_SOURCE_FILES) == len(development_runtime)
     assert development_runtime == discovered_runtime
-    assert frozen_runtime < discovered_runtime
-    assert discovered_runtime - frozen_runtime == {
-        "/src/veqtor_docx/_projection.py",
-        "/src/veqtor_mcp/_history_contract.py",
-        "/src/veqtor_mcp/_history_io.py",
-        "/src/veqtor_mcp/_history_resolution.py",
-        "/src/veqtor_mcp/_verification_v2.py",
-    }
-    assert config["project"]["version"] != VERSION
-    assert VERSION == "0.3.0"
+    assert frozen_runtime == discovered_runtime
+    assert config["project"]["version"] == VERSION
+    assert VERSION == "0.4.0"
     assert wheel_includes == discovered_runtime
     assert discovered_runtime <= sdist_includes
     assert "/src/veqtor_mcp/_inspection_live.py" in wheel_includes
@@ -200,13 +193,13 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
     assert "/INSPECT_DOCUMENT_V0.3.md" in sdist_includes
     assert "/ROUND_MAP_V0.3.md" in sdist_includes
     assert "/CLAUSE_HISTORY_V0.4.md" in sdist_includes
-    assert "CLAUSE_HISTORY_V0.4.md" not in SDIST_GIT_FILES
+    assert "CLAUSE_HISTORY_V0.4.md" in SDIST_GIT_FILES
 
 
 release_contract_only = pytest.mark.skipif(
     tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
     != VERSION,
-    reason="closed v0.3 artifact ratchets apply only to source version 0.3.0",
+    reason="closed v0.4 artifact ratchets apply only to source version 0.4.0",
 )
 
 

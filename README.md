@@ -23,16 +23,16 @@ tamper-evident audit system. Review the
 [known limitations](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/KNOWN_LIMITATIONS.md)
 before using it on a real matter.
 
-This source tree is the development line for package `0.4.0.dev0` and
-advertises the nine-tool MCP contract `veqtor.mcp.v0.4`. All nine development
+This source tree is the release candidate for package `0.4.0` and advertises
+the nine-tool MCP contract `veqtor.mcp.v0.4`. All nine candidate
 tools, including the eight names carried forward from v0.3, report that one
 contract-wide version; unchanged individual tool schemas do not retain a v0.3
 metadata flag. Source, CI, or a development artifact is not publication; only
 matching public PyPI and immutable GitHub Release entries establish that a
-version is installable. The frozen public v0.3 release and its MCPB remain the
-separate eight-tool `veqtor.mcp.v0.3` surface. Development v0.4 has not passed
-release, MCPB, Claude Desktop or publication acceptance. The frozen
-`MCPB_REQUIRED_TOOLS` inventory remains eight tools and deliberately excludes
+version is installable. The immutable public v0.3 release and its MCPB remain a
+separate eight-tool `veqtor.mcp.v0.3` surface. This source tree, CI and candidate
+artifacts do not themselves establish Desktop or publication acceptance. The
+closed v0.4 `MCPB_REQUIRED_TOOLS` inventory contains all nine tools, including
 `trace_paragraph_history`.
 
 Before installing, check both the generic
@@ -42,18 +42,19 @@ select one exact version for every command below:
 
 | Official state | Replace `X.Y.Z` with |
 |---|---|
-| Both sources expose `0.3.0`, and the GitHub release contains the complete verified asset set | `0.3.0` |
-| Otherwise | `0.1.2` |
+| Both sources expose `0.4.0`, and the GitHub release contains the complete verified asset set | `0.4.0` |
+| Otherwise | `0.3.0` |
 
 Do not run the placeholder literally or mix versions within one installation.
 
 ## Claude Desktop Extension status
 
-`veqtor-mcp-0.3.0-macos.mcpb` is an official public download only if it appears
-inside the verified immutable `v0.3.0` entry in the live GitHub Releases list.
-Its presence in source, CI, a branch, chat or issue is not publication. If that
-release entry or its checksum manifest is absent, use the non-extension setup
-below with the fallback selected above; never guess a release-asset URL.
+`veqtor-mcp-X.Y.Z-macos.mcpb` is an official public download only when the
+chosen version appears inside the matching verified immutable `vX.Y.Z` entry
+in the live GitHub Releases list with its checksum manifest. Replace the
+placeholder using the table above. Presence in source, CI, a branch, chat or
+issue is not publication; if either public verifier is missing v0.4.0, keep
+using the verified public v0.3.0 extension and never guess a release-asset URL.
 
 Opening an official MCPB requests installation approval and the tracked-change
 author name. Its first activation may download a compatible Python runtime and
@@ -186,10 +187,10 @@ or environment.
 
 ## Tool surface
 
-The descriptions below follow the development package `0.4.0.dev0` and its
+The descriptions below follow release-candidate package `0.4.0` and its
 nine-tool MCP contract `veqtor.mcp.v0.4`. They are not an installation promise
-until both public verifiers expose the version. The frozen v0.3 release/MCPB
-continues to contain only its eight `veqtor.mcp.v0.3` tools. For an installed
+until both public verifiers expose the version. The current public v0.3
+release/MCPB continues to contain only its eight `veqtor.mcp.v0.3` tools. For an installed
 version, use the API file carried by that exact artifact or its matching
 immutable tag.
 
@@ -276,9 +277,9 @@ for hostile same-user processes.
 
 Windows, hosted MCP, comments/headers/footnotes, accept/reject, semantic
 cross-round lineage and cryptographic audit guarantees are outside the Alpha.
-The client row describes the frozen published Alpha path; the development v0.4
-ninth tool has stdio/installed-wheel coverage but no separate Claude Desktop or
-MCPB acceptance claim.
+The client row applies only to an exact version whose release artifacts passed
+the documented client gate; source and CI coverage alone do not establish that
+status.
 
 ## Support
 
@@ -295,8 +296,8 @@ No response-time, compatibility, uptime, or fix-time SLA is provided.
 
 ### Development checks
 
-Run these checks for ordinary development changes, including development-only
-versions such as `0.4.0.dev0`:
+Run these checks for ordinary development changes, including development
+versions such as `X.Y.Z.devN`:
 
 ```bash
 uv lock --check

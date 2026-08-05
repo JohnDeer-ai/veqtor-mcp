@@ -1,8 +1,8 @@
 # Veqtor for Claude Desktop
 
 > **Release-candidate packaging notes:** there is no official public
-> `v0.3.0` MCPB merely because this directory can build one. These installation
-> steps apply only after the exact candidate passes clean-Mac acceptance and is
+> `v0.4.0` MCPB merely because this directory can build one. These installation
+> steps apply only after the exact candidate passes fresh isolated-user acceptance and is
 > attached to the immutable GitHub Release by the promotion workflow.
 
 Veqtor is a local MCP server for reviewing DOCX redlines with Claude. It reads
@@ -55,14 +55,12 @@ file's hashes from `apply_edits`, `list_rounds` and `extract_redlines` agree.
 
 ## Update, rollback and uninstall
 
-- After the first public MCPB exists, update by downloading and approving a
-  newer versioned `.mcpb`; verify its checksum first. Do not assume automatic
-  updates.
-- Starting with the release after the first public MCPB, rollback means a
-  manual uninstall and reinstall of the previous immutable extension where
-  Claude Desktop permits it. The first MCPB has no older public extension to
-  restore, so its release gate tests uninstall and same-artifact reinstall
-  instead. Veqtor does not promise an in-app rollback mechanism.
+- The v0.4 release gate starts from public v0.3.0, installs the exact v0.4.0
+  candidate, manually rolls back to immutable v0.3.0, and reinstalls the same
+  v0.4.0 candidate. Verify every checksum; do not assume automatic updates.
+- Rollback means uninstalling the candidate and reinstalling the previous
+  immutable extension where Claude Desktop permits it. Veqtor does not promise
+  an in-app rollback mechanism.
 - Uninstall from Claude Desktop's extension settings. Remove any output DOCX or
   `.veqtor` sidecar you chose to keep outside the extension separately.
 
