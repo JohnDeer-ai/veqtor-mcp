@@ -5,22 +5,33 @@
 This file defines the public tool surface. Output examples are part of the API
 because models use them to decide how to call tools and how to cite results.
 
-The development source is package `0.4.0.dev0` and still advertises the frozen
-eight-tool MCP contract `veqtor.mcp.v0.3`; the v0.3 examples and contracts below
-remain unchanged. Package version, contract and publication status are separate
-identities: only matching entries on public PyPI and the immutable GitHub
-Releases list establish distribution. This file alone does not. Every
-tool exposes `veqtor.pro/contractSchemaVersion: veqtor.mcp.v0.3` in its MCP
-metadata and the same value under `x-veqtor-contract-schema-version` in its
-output schema. Nested anchors, edits and preflight proofs are closed objects;
-top-level results remain additive where the advertised schema says so.
+The development source is package `0.4.0.dev0` and advertises the
+nine-tool MCP contract `veqtor.mcp.v0.4`. Package version, contract and
+publication status are separate identities: only matching entries on public
+PyPI and the immutable GitHub Releases list establish distribution. This file
+alone does not. Every
+development tool exposes
+`veqtor.pro/contractSchemaVersion: veqtor.mcp.v0.4` in its MCP metadata and the
+same value under `x-veqtor-contract-schema-version` in its output schema. The
+contract version covers the complete tool surface, so all eight tool names
+carried forward from v0.3 also advertise v0.4, even where an individual tool's
+schema and behavior are otherwise unchanged. Nested anchors, edits and
+preflight proofs are closed objects; top-level results remain additive where
+the advertised schema says so. `trace_paragraph_history` and the v2
+`verify_quote` result are closed at the top level as well.
+
+The frozen v0.3 public release and its MCPB remain a separate eight-tool
+`veqtor.mcp.v0.3` surface. Development v0.4 does not widen that artifact or
+establish v0.4 release, Claude Desktop, MCPB or publication acceptance. Frozen
+v0.3 examples may therefore still contain `"version": "0.3.0"`; live examples
+in this development API use `0.4.0.dev0`.
 The MCP wire revision is a separate identity: the server negotiates modern
 `2026-07-28` and legacy revisions through `2025-11-25` without changing this
 Veqtor tool contract.
 
 Every successful live tool response includes the same bounded `producer`
 object with `name`, package `version`, and the process-start Python source
-snapshot `build`. This applies to all eight tools, including read-only results
+snapshot `build`. This applies to all nine tools, including read-only results
 and decision-record export. Error envelopes are not successful tool results.
 `producer`, `record_id`, `record_status`, and `record_error` are server-owned;
 core tool results cannot supply them. `record_error` is present only with
@@ -87,9 +98,9 @@ existing matter folder, unless disabled by
 `0600` files). Before every append the server validates or restores
 `.veqtor/.gitignore`; symlink, hardlink, non-regular, or unexpected ignore
 targets are refused before the journal is touched.
-Read-only document operations — list, extract, inspect, Round Map, verify and
-preflight — and decision-record export also normally attempt to append
-provenance, with the outcome reported in
+Read-only document operations — list, extract, inspect, Round Map, paragraph
+history, verify and preflight — and decision-record export also normally
+attempt to append provenance, with the outcome reported in
 `record_status`. In particular, export is a read of the document history but
 normally writes its own local `access_event.v1` after the response snapshot.
 Export requires an existing journal in the exact supplied workspace; it never
@@ -115,19 +126,21 @@ the journal file fsync succeeded. Operations that create `.veqtor`, its
 not an absolute hardware power-loss guarantee. After low-level storage
 failures, `write_failed` means the commit is unknown even if a partial frame
 later appears on disk. Controlled fail-closed `DocxError` refusals from the
-seven tools other than `map_rounds` attempt to record and are then re-raised;
-MCPServer error responses cannot echo their `record_id` in v1. Round Map has a
-frozen success-only `round_map.v1` record: a pre-result refusal, including
-sanitized `internal_error`, neither appends a Map failure record nor initializes
-`.veqtor`. Only a fully validated successful map attempts that record; a
-post-result publication failure returns the valid map with
-`record_status: "write_failed"`. Publication is bound to the captured workspace
-device/inode: if that path is missing or names a replacement after validation,
-the returned map has `record_id: null`, `record_status: "write_failed"`, and
-`record_error: "workspace_changed"`, and neither workspace is written.
-Transport/type validation errors never reach
-the tool wrapper and are not recorded. Unexpected failures from the other
-seven tools are journaled as a generic `internal_error` when a safe workspace
+seven tools other than `map_rounds` and `trace_paragraph_history` attempt to
+record and are then re-raised; MCPServer error responses cannot echo their
+`record_id` in v1. Round Map and paragraph history both use success-only
+records: a pre-result refusal, including sanitized `internal_error`, appends no
+record of that type and does not initialize `.veqtor`. Only a fully validated
+successful result attempts its record; a post-result publication failure
+returns the valid result with `record_status: "write_failed"`. Publication is
+bound to the captured workspace device/inode: if that path is missing or names
+a replacement after validation, the returned result has `record_id: null`,
+`record_status: "write_failed"`, and `record_error: "workspace_changed"`, and
+neither workspace is written. The success-only `round_map.v1` record and the
+success-only `paragraph_history.v1` record remain distinct permanent pairs.
+Transport/type validation errors never reach the tool wrapper and are not
+recorded. Unexpected failures from the other seven tools are journaled as a
+generic `internal_error` when a safe workspace
 exists, then replaced with a context-free MCP error. Exception types, messages,
 document content and local paths are never returned to the client. A corrupt journal
 (`journal_corrupt`) or aggregate-oversized journal (`journal_oversize`) fails
@@ -150,10 +163,10 @@ would reject returns `record_status: "write_failed"` without failing the tool
 or changing the journal. Callers must not mutate payload structures during
 `write_record`; if they do, the selected snapshot is unspecified, but any
 `written` frame remains internally consistent and readable. The current writer
-admits only the MCP names in its writable allowlist and derives each
+admits only the nine MCP names in its writable allowlist and derives each
 `record_type` from the permanent `decision_record.v1` tool spec. An
 unknown tool or mismatched pair is `record_invalid` on write and
-`journal_corrupt` on read. The eight permanent `(tool_name, record_type)` pairs
+`journal_corrupt` on read. The ten permanent `(tool_name, record_type)` pairs
 documented by this source contract, together with their compact
 projection rules, are
 append-only v1 format commitments: a retired tool may leave the writable and
@@ -174,11 +187,17 @@ The permanent pairs registered by this source contract are:
 - `list_rounds` → `tool_observation.v1`;
 - `extract_redlines` → `tool_observation.v1`;
 - `inspect_document` → `inspection.v1`;
+- `map_rounds` → `round_map.v1`;
+- `trace_paragraph_history` → `paragraph_history.v1`;
 - `verify_quote` → `verification.v1`;
+- `verify_quote` → `verification.v2`;
 - `preflight_edits` → `verification.v1`;
 - `apply_edits` → `decision.v1`;
-- `map_rounds` → `round_map.v1`;
 - `export_decision_record` → `access_event.v1`.
+
+New v0.4 `verify_quote` calls write `verification.v2`; the v1 pair remains
+readable as permanent historical data. Nine current tool names therefore map
+to ten historical pairs.
 
 Each existing pair remains forward-compatible for readers that know it. Once a
 journal contains a tool unknown to an older reader, downgrade to that reader is
@@ -272,7 +291,7 @@ the folder before retrying:
   "skipped": [],
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.3.0",
+    "version": "0.4.0.dev0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "record_id": "dr_001",
@@ -332,6 +351,138 @@ closed schemas, fixed limits and failure precedence are frozen in
 therefore preserves its historical seven-tool/future-implementation wording;
 the current development source implements the resulting permanent eighth tool
 without rewriting the frozen specification.
+
+## `trace_paragraph_history`
+
+Call this with a direct folder of DOCX snapshots and one complete
+`paragraph_ref.v1` for the paragraph selected in the last declared file. The
+tool captures every direct DOCX candidate as immutable authority, then walks
+the declared positions backward. It reports only complete accepted/current
+text equality and equality between a higher position's mechanically rejected
+pending-text projection and a lower position's accepted/current paragraph.
+Those are exact text relationships, not proof of chronology, semantic clause
+identity, lineage, authorship, approval, deletion or restoration.
+
+The named input surface contains exactly `folder`, `seed`, `order_basis`,
+`cursor` and `max_items`. `order_basis` is required. `cursor` defaults to null;
+`max_items` defaults to 50 and accepts integers from 1 through 100. The explicit
+order must name every direct DOCX exactly once, without duplicate, missing or
+extra filenames. Under either order mode, the seed path must identify the last
+declared file and its reference must re-resolve against that file's captured
+bytes.
+
+Input using the disclosed lexicographic order:
+
+```json
+{
+  "folder": "/Users/example/Deals/AcmeDistribution",
+  "seed": {
+    "schema_version": "paragraph_history_seed.v1",
+    "path": "/Users/example/Deals/AcmeDistribution/04-current.docx",
+    "paragraph_ref": {
+      "schema_version": "paragraph_ref.v1",
+      "ref_type": "paragraph",
+      "file_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "part_name": "word/document.xml",
+      "paragraph_index": 61,
+      "paragraph_text_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "reading_mode": "accepted_current_v1",
+      "container_policy": "canonical_body_flow_v1"
+    }
+  },
+  "order_basis": {
+    "schema_version": "paragraph_history_order.v1",
+    "kind": "filename_lexicographic_v1"
+  },
+  "cursor": null,
+  "max_items": 50
+}
+```
+
+For caller-declared positions, replace `order_basis` with the closed
+`explicit_filename_sequence_v1` variant and its complete
+`ordered_filenames` array. Both variants return `chronology_verified: false`.
+
+The closed successful `paragraph_history.v1` response contains exactly the
+operation fields `schema_version`, `status`, `seed`, `ordering_source`,
+`order_basis`, `result_order`, `snapshot`, `observations`, `coverage`, `limits`
+and `next_cursor`, followed by the common server-owned `producer`, `record_id`,
+`record_status` and conditional `record_error`. Observations are ordered
+seed-first and then by descending declared position. Every observation is
+returned whole and has one explicit `exact_unique`, `ambiguous` or `unresolved`
+resolution, except the seed whose resolution is null. A selected paragraph is
+present only for the seed and `exact_unique` steps. It includes complete bounded
+current and rejected-pending projections, the supporting exact relationship,
+and only tracked-change units whose `reference.paragraph_index` is that selected
+paragraph. Change-unit references are path-free. Literal OOXML author/date
+strings are preserved, but every selected paragraph reports
+`authorship_verified: false` and `time_verified: false`.
+
+The result snapshot exposes `filesystem_snapshot_sha256`,
+`candidate_manifest_sha256`, `seed_binding_sha256`, `order_binding_sha256`,
+`projection_policy_sha256`, `limits_sha256` and `full_result_set_sha256`, binding
+the candidate files, their exact bytes, seed, order, policies, limits and
+complete ordered result set. Direct DOCX symlinks,
+hardlinks, non-files (including directories named `.docx`), unsafe descriptors,
+replacement and folder drift fail closed. Every computation uses the one saved
+byte snapshot for each candidate; no later path re-read becomes evidence.
+Byte-identical files with different filenames remain distinct observations.
+
+Pagination uses an opaque `ph1` cursor. A later page recaptures and recomputes
+the same complete authority; file, seed, order, policy or result drift refuses
+the cursor, with a seed-specific error taking precedence over general
+`cursor_mismatch`. Page size may change between calls. Consecutive pages neither
+repeat nor omit an observation, and an observation is never split or
+text-truncated.
+
+The response exposes this complete closed limits object; all numeric ratchets
+are inclusive:
+
+```json
+{
+  "candidate_docx_files": 500,
+  "candidate_compressed_input_bytes": 524288000,
+  "candidate_expanded_bytes": 524288000,
+  "compressed_bytes_per_docx": 52428800,
+  "indexed_paragraphs_per_docx": 10000,
+  "indexed_paragraphs_per_folder": 100000,
+  "accepted_current_chars_per_paragraph": 50000,
+  "accepted_current_chars_per_docx": 2000000,
+  "accepted_current_chars_per_folder": 20000000,
+  "rejected_projection_chars_per_paragraph": 50000,
+  "rejected_projection_chars_per_docx": 50000,
+  "rejected_projection_chars_per_folder": 20000000,
+  "decoded_text_chars_per_folder": 50000000,
+  "exact_candidate_relationships": 50000,
+  "navigation_candidates": 10000,
+  "selected_change_units_per_result": 10000,
+  "change_units_per_selected_paragraph": 1000,
+  "change_unit_text_chars_per_selected_observation": 100000,
+  "change_unit_text_chars_per_result": 10000000,
+  "sample_items": 20,
+  "returned_verbatim_chars_per_observation": 200000,
+  "returned_verbatim_chars_per_page": 1000000,
+  "default_page_items": 50,
+  "maximum_page_items": 100,
+  "revision_nesting_depth": 2,
+  "journal_bytes": 67108864,
+  "wall_clock_partial_results": false,
+  "semantic_or_vector_search": false
+}
+```
+
+The tool never modifies a candidate DOCX, but a valid result normally attempts
+the success-only pair
+`(trace_paragraph_history, paragraph_history.v1)`. A pre-result refusal writes
+no history record and does not initialize a sidecar. Once a valid result exists,
+journal failure returns that result with `record_status: "write_failed"` and a
+controlled `record_error`. The raw stored result and compact export are
+path-free, text-free summaries; the live response may contain bounded paths,
+filenames, paragraph/change-unit text, navigation strings and literal OOXML
+metadata. The journal is not history evidence or cursor input, so the tool's
+own successful append does not invalidate the next page. The exact nested
+schemas, digest preimages, controlled-error
+precedence and privacy projection are specified in `CLAUSE_HISTORY_V0.4.md`.
 
 ## `extract_redlines`
 
@@ -486,7 +637,7 @@ guessed:
   },
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.3.0",
+    "version": "0.4.0.dev0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "record_id": "dr_002",
@@ -704,7 +855,7 @@ inventory abbreviated):
   "next_cursor": null,
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.3.0",
+    "version": "0.4.0.dev0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "record_id": "dr_003",
@@ -749,10 +900,22 @@ Use a legacy/v2 change-unit anchor returned by `extract_redlines`, or a
 `paragraph_ref.v1` returned by `inspect_document`.
 `verdict` is one of `exact`, `normalized`, or `not_found`; `diff` explains any
 non-exact result. A change-unit anchor checks `new_text` then `old_text`
-(`matches[].side` is `new` or `old`). A paragraph reference checks the complete
-`accepted_current_v1` paragraph and reports `side: paragraph_current`, an empty
-`revision_ids` list, the paragraph index/text hash and reading mode. Matching
-is case-sensitive; `normalized` collapses whitespace runs and typographic
+(`matches[].side` is `new` or `old`) and requires
+`paragraph_projection` to be omitted or null. A paragraph reference accepts an
+optional projection selector: omission, null, or `accepted_current_v1` checks
+the complete current paragraph and reports `side: paragraph_current`;
+`pending_text_revisions_rejected_v1` checks the bounded text obtained by
+mechanically rejecting supported pending text revisions and reports
+`side: paragraph_rejected_pending`. A non-null selector with a change-unit
+anchor is `invalid_projection_selector`. An unavailable rejected projection is
+`paragraph_projection_unavailable`, not a `not_found` verdict.
+
+All successful calls return the closed `verification_result.v2` operation
+shape: `schema_version`, `verdict`, `exact`, `checked_anchor`,
+`checked_projection`, `matches`, and `diff`, plus common server-owned metadata.
+`checked_projection` is null for change-unit anchors and a closed
+`verified_paragraph_projection.v1` for paragraph anchors. Matching is
+case-sensitive; `normalized` collapses whitespace runs and typographic
 quotes/dashes. A hash, policy, fingerprint or reference mismatch is an error,
 never a verdict. Whole-document search without an anchor remains unsupported.
 
@@ -778,7 +941,8 @@ Input:
     "change_unit_id": "cu_017",
     "file_sha256": "example"
   },
-  "quote": "USD 50,000"
+  "quote": "USD 50,000",
+  "paragraph_projection": null
 }
 ```
 
@@ -786,12 +950,14 @@ Output:
 
 ```json
 {
+  "schema_version": "verification_result.v2",
   "verdict": "exact",
   "exact": true,
   "checked_anchor": {
     "change_unit_id": "cu_017",
     "file_sha256": "example"
   },
+  "checked_projection": null,
   "matches": [
     {
       "path": "/Users/example/Deals/AcmeDistribution/02-counterparty.docx",
@@ -804,7 +970,7 @@ Output:
   "diff": [],
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.3.0",
+    "version": "0.4.0.dev0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "record_id": "dr_003",
@@ -831,6 +997,25 @@ label-based anchor:
   "quote": "Except as set out in Clause 14.3"
 }
 ```
+
+To verify the other bounded paragraph projection independently, use the same
+accepted/current-bound reference and add:
+
+```json
+{
+  "paragraph_projection": "pending_text_revisions_rejected_v1"
+}
+```
+
+The paragraph result's `checked_projection` then binds the anchor's current
+text hash separately from the selected projection text hash and length. A
+paragraph match repeats both hashes, `reading_mode: accepted_current_v1`, the
+selected `projection_mode`, and the corresponding closed side. `matches`
+contains exactly one entry for `exact` or `normalized` and none for
+`not_found`. New calls write the permanent `(verify_quote, verification.v2)`
+record pair. Historical `(verify_quote, verification.v1)` records remain
+readable and are never rewritten; an older v0.3 reader may fail closed after a
+v2 frame, which is the documented downgrade boundary.
 
 ## `preflight_edits`
 
@@ -870,7 +1055,7 @@ Output:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.3.0",
+    "version": "0.4.0.dev0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "batch_applicable": true,
@@ -921,7 +1106,7 @@ for example:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.3.0",
+    "version": "0.4.0.dev0",
     "build": "source-snapshot-v1-sha256:example"
   },
   "batch_applicable": false,
@@ -988,8 +1173,9 @@ API.
 ## `apply_edits`
 
 Call this only after the user asks to prepare or apply counter wording and only
-with an anchor produced by `extract_redlines`. Under MCP contract
-`veqtor.mcp.v0.3`, the complete `preflight_proof` returned by the successful
+with an anchor produced by `extract_redlines`. Under MCP contracts
+`veqtor.mcp.v0.2`, `veqtor.mcp.v0.3`, and `veqtor.mcp.v0.4`, the complete
+`preflight_proof` returned by the successful
 preflight is a required input. Missing or malformed proof objects are rejected
 by the advertised MCP schema or as `preflight_proof_invalid`; a well-formed
 proof that does not match the recomputed source, edits, author, build or
@@ -1160,7 +1346,7 @@ Output:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.3.0",
+    "version": "0.4.0.dev0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "applied": [
@@ -1308,11 +1494,17 @@ the requested cursor/page, while retaining at most the bounded response window
 in memory. Append still performs one complete validating scan to allocate the
 next monotonic id; the aggregate cap bounds that work, but there is no index.
 
-Every valid compact verification match contains `part_name`, `revision_ids`,
-`side` and `clause_sha256`. When a matched clause label/heading exists,
-`clause_sha256` is its canonical-JSON digest after that value is omitted for
-privacy. When no label or heading exists, the key is still present with value
-`null`. It is never a digest of the clause body or the verified quotation.
+Every historical v1 or v2 change-unit compact verification match contains
+`part_name`, `revision_ids`, `side` and `clause_sha256`. When a matched clause
+label/heading exists, `clause_sha256` is its canonical-JSON digest after that
+value is omitted for privacy. When no label or heading exists, the key is still
+present with value `null`. It is never a digest of the clause body or the
+verified quotation. A v2 paragraph match instead contains the path-free
+paragraph and projection modes, indexes and text hashes defined by
+`verification_v2_compact_matches.v1`; it contains no paragraph text or clause
+string. A compact `paragraph_history.v1` record retains only the exact
+minimized result and provenance summaries described above, never the live
+paragraph/change-unit text or paths.
 
 Input:
 
@@ -1330,7 +1522,7 @@ Output:
 {
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.3.0",
+    "version": "0.4.0.dev0",
     "build": "source-snapshot-v1-sha256:..."
   },
   "workspace": {"sha256": "example-workspace-digest", "omitted": true},

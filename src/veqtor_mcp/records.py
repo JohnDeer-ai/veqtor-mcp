@@ -265,14 +265,38 @@ V1_HISTORICAL_TOOL_SPECS: Mapping[str, _RecordSpec] = MappingProxyType(
         ),
     }
 )
+_V04_ADDITIONAL_HISTORICAL_RECORD_SPECS: Mapping[
+    tuple[str, str], _RecordSpec
+] = MappingProxyType(
+    {
+        ("verify_quote", "verification.v2"): _RecordSpec(
+            "verification.v2", "verify_quote_v2"
+        ),
+        (
+            "trace_paragraph_history",
+            "paragraph_history.v1",
+        ): _RecordSpec("paragraph_history.v1", "paragraph_history"),
+    }
+)
 HISTORICAL_RECORD_SPECS: Mapping[tuple[str, str], _RecordSpec] = MappingProxyType(
     {
-        (tool_name, spec.record_type): spec
-        for tool_name, spec in V1_HISTORICAL_TOOL_SPECS.items()
+        **{
+            (tool_name, spec.record_type): spec
+            for tool_name, spec in V1_HISTORICAL_TOOL_SPECS.items()
+        },
+        **_V04_ADDITIONAL_HISTORICAL_RECORD_SPECS,
     }
 )
 WRITABLE_TOOL_SPECS: Mapping[str, _RecordSpec] = MappingProxyType(
-    dict(V1_HISTORICAL_TOOL_SPECS)
+    {
+        **V1_HISTORICAL_TOOL_SPECS,
+        "verify_quote": _V04_ADDITIONAL_HISTORICAL_RECORD_SPECS[
+            ("verify_quote", "verification.v2")
+        ],
+        "trace_paragraph_history": _V04_ADDITIONAL_HISTORICAL_RECORD_SPECS[
+            ("trace_paragraph_history", "paragraph_history.v1")
+        ],
+    }
 )
 WRITABLE_TOOL_NAMES = frozenset(WRITABLE_TOOL_SPECS)
 HISTORICAL_TOOL_NAMES = frozenset(
@@ -1224,10 +1248,27 @@ def _check_record_schema(record: Any) -> int:
     for key in ("input", "result", "provenance", "producer"):
         if not isinstance(record.get(key), dict):
             fail(f"{key} missing")
-    if record_spec.projection_kind == "map_rounds" and not _round_map_record_shape_is_valid(
-        record["result"], record["provenance"]
+    if (
+        record_spec.projection_kind == "map_rounds"
+        and not _round_map_record_shape_is_valid(
+            record["result"], record["provenance"]
+        )
     ):
         fail("invalid round_map projection")
+    if (
+        record_spec.projection_kind == "verify_quote_v2"
+        and not _verification_v2_record_shape_is_valid(
+            record["result"], record["provenance"]
+        )
+    ):
+        fail("invalid verification.v2 projection")
+    if (
+        record_spec.projection_kind == "paragraph_history"
+        and not _paragraph_history_record_shape_is_valid(
+            record["result"], record["provenance"]
+        )
+    ):
+        fail("invalid paragraph_history projection")
     producer = record["producer"]
     if not isinstance(producer.get("name"), str) or not producer["name"]:
         fail("producer.name missing")
@@ -2393,6 +2434,520 @@ def _round_map_write_is_valid(
         return False
 
 
+_VERIFICATION_V2_OPERATION_KEYS = frozenset(
+    {
+        "schema_version",
+        "verdict",
+        "exact",
+        "checked_anchor",
+        "checked_projection",
+        "matches",
+        "diff",
+    }
+)
+_VERIFICATION_V2_SUCCESS_RECORD_KEYS = frozenset(
+    {"status", *_VERIFICATION_V2_OPERATION_KEYS}
+)
+_ERROR_RECORD_KEYS = frozenset({"status", "error_code", "error"})
+_PARAGRAPH_HISTORY_OPERATION_KEYS = frozenset(
+    {
+        "schema_version",
+        "status",
+        "seed",
+        "ordering_source",
+        "order_basis",
+        "result_order",
+        "snapshot",
+        "observations",
+        "coverage",
+        "limits",
+        "next_cursor",
+    }
+)
+_PARAGRAPH_HISTORY_RECORD_RESULT_KEYS = frozenset(
+    {
+        "status",
+        "seed",
+        "ordering_source",
+        "result_order",
+        "filename_manifest_sha256",
+        "snapshot",
+        "coverage",
+        "limits",
+        "next_cursor_sha256",
+        "observations_summary",
+    }
+)
+_PARAGRAPH_HISTORY_RECORD_PROVENANCE_KEYS = frozenset(
+    {
+        "filesystem_snapshot_sha256",
+        "full_result_set_sha256",
+        "projection_policy_sha256",
+        "current_reading_mode",
+        "rejected_reading_mode",
+        "container_policy",
+        "result_order",
+    }
+)
+_PARAGRAPH_HISTORY_OBSERVATION_SUMMARY_KEYS = frozenset(
+    {
+        "observation_id",
+        "position",
+        "entry_role",
+        "resolution_state",
+        "resolution_reason",
+        "observation_sha256",
+    }
+)
+
+
+def _strict_live_producer_is_valid(value: object) -> bool:
+    return (
+        isinstance(value, dict)
+        and set(value) == {"name", "version", "build"}
+        and value.get("name") == "veqtor-mcp"
+        and isinstance(value.get("version"), str)
+        and bool(value["version"])
+        and isinstance(value.get("build"), str)
+        and bool(value["build"])
+    )
+
+
+def _verification_v2_operation_from_record(
+    result: object,
+) -> dict[str, Any] | None:
+    if (
+        not isinstance(result, dict)
+        or set(result) != _VERIFICATION_V2_SUCCESS_RECORD_KEYS
+        or result.get("status") != RESULT_STATUS_OK
+    ):
+        return None
+    operation = {
+        key: deepcopy(result[key]) for key in _VERIFICATION_V2_OPERATION_KEYS
+    }
+    try:
+        from veqtor_mcp._verification_v2 import validate_verification_result_v2
+    except (ImportError, AttributeError):
+        return None
+    try:
+        validate_verification_result_v2(operation)
+    except ValueError:
+        return None
+    return operation
+
+
+def _verification_v2_record_shape_is_valid(
+    result: object,
+    provenance: object,
+) -> bool:
+    if not isinstance(provenance, dict) or not isinstance(result, dict):
+        return False
+    if result.get("status") == RESULT_STATUS_ERROR:
+        return (
+            set(result) == _ERROR_RECORD_KEYS
+            and _error_code(result.get("error_code")) is not None
+            and isinstance(result.get("error"), str)
+        )
+    return _verification_v2_operation_from_record(result) is not None
+
+
+def _verification_v2_write_is_valid(
+    result: object,
+    provenance: object,
+    tool_result: object,
+) -> bool:
+    if not _verification_v2_record_shape_is_valid(result, provenance):
+        return False
+    if not isinstance(result, dict) or not isinstance(tool_result, dict):
+        return False
+    if result.get("status") == RESULT_STATUS_ERROR:
+        return tool_result == result
+    if (
+        set(tool_result) != set(result) | {"producer"}
+        or not _strict_live_producer_is_valid(tool_result.get("producer"))
+    ):
+        return False
+    without_producer = {
+        key: value for key, value in tool_result.items() if key != "producer"
+    }
+    return without_producer == result
+
+
+def _paragraph_history_operation_from_live_result(
+    tool_result: object,
+) -> dict[str, Any] | None:
+    if not isinstance(tool_result, dict):
+        return None
+    try:
+        from veqtor_mcp._history_contract import (
+            PARAGRAPH_HISTORY_OPERATION_RESULT_SCHEMA,
+        )
+    except (ImportError, AttributeError):
+        return None
+    if (
+        set(tool_result) != _PARAGRAPH_HISTORY_OPERATION_KEYS | {"producer"}
+        or not _strict_live_producer_is_valid(tool_result.get("producer"))
+    ):
+        return None
+    operation = {
+        key: deepcopy(tool_result[key]) for key in _PARAGRAPH_HISTORY_OPERATION_KEYS
+    }
+    try:
+        jsonschema.validate(operation, PARAGRAPH_HISTORY_OPERATION_RESULT_SCHEMA)
+    except (jsonschema.SchemaError, jsonschema.ValidationError):
+        return None
+    return operation
+
+
+def _paragraph_history_record_schemas() -> tuple[dict[str, Any], dict[str, Any]]:
+    from veqtor_mcp._history_contract import (
+        PARAGRAPH_HISTORY_OPERATION_RESULT_SCHEMA,
+    )
+
+    operation_schema = PARAGRAPH_HISTORY_OPERATION_RESULT_SCHEMA
+    operation_properties = operation_schema.get("properties")
+    if not isinstance(operation_properties, dict) or any(
+        key not in operation_properties
+        for key in ("seed", "ordering_source", "snapshot", "coverage", "limits")
+    ):
+        raise _RecordSchemaError("paragraph history operation schema is incomplete")
+    shared = {
+        key: deepcopy(operation_schema[key])
+        for key in ("$schema", "$defs", "definitions")
+        if key in operation_schema
+    }
+    sha256_schema = {
+        "type": "string",
+        "minLength": 64,
+        "maxLength": 64,
+        "pattern": r"^[0-9a-f]{64}(?![\s\S])",
+    }
+    observation_summary_entry = {
+        "type": "object",
+        "properties": {
+            "observation_id": {
+                "type": "string",
+                "pattern": r"^rm_obs_v1:[0-9a-f]{64}(?![\s\S])",
+            },
+            "position": {"type": "integer", "minimum": 0, "maximum": 499},
+            "entry_role": {"enum": ["seed", "trace_step"]},
+            "resolution_state": {
+                "anyOf": [
+                    {"enum": ["exact_unique", "ambiguous", "unresolved"]},
+                    {"type": "null"},
+                ]
+            },
+            "resolution_reason": {
+                "anyOf": [
+                    {
+                        "enum": [
+                            "exact_current_unique",
+                            "rejected_projection_unique",
+                            "multiple_exact_candidates",
+                            "rejected_projection_unavailable",
+                            "navigation_only",
+                            "no_match_in_declared_scope",
+                            "blocked_by_higher_ambiguity",
+                            "blocked_by_higher_unresolved",
+                        ]
+                    },
+                    {"type": "null"},
+                ]
+            },
+            "observation_sha256": sha256_schema,
+        },
+        "required": sorted(_PARAGRAPH_HISTORY_OBSERVATION_SUMMARY_KEYS),
+        "additionalProperties": False,
+        "allOf": [
+            {
+                "oneOf": [
+                    {
+                        "properties": {
+                            "entry_role": {"const": "seed"},
+                            "resolution_state": {"type": "null"},
+                            "resolution_reason": {"type": "null"},
+                        }
+                    },
+                    {
+                        "properties": {
+                            "entry_role": {"const": "trace_step"},
+                        },
+                        "oneOf": [
+                            {
+                                "properties": {
+                                    "resolution_state": {"const": "exact_unique"},
+                                    "resolution_reason": {
+                                        "enum": [
+                                            "exact_current_unique",
+                                            "rejected_projection_unique",
+                                        ]
+                                    },
+                                }
+                            },
+                            {
+                                "properties": {
+                                    "resolution_state": {"const": "ambiguous"},
+                                    "resolution_reason": {
+                                        "const": "multiple_exact_candidates"
+                                    },
+                                }
+                            },
+                            {
+                                "properties": {
+                                    "resolution_state": {"const": "unresolved"},
+                                    "resolution_reason": {
+                                        "enum": [
+                                            "rejected_projection_unavailable",
+                                            "navigation_only",
+                                            "no_match_in_declared_scope",
+                                            "blocked_by_higher_ambiguity",
+                                            "blocked_by_higher_unresolved",
+                                        ]
+                                    },
+                                }
+                            },
+                        ],
+                    },
+                ]
+            }
+        ],
+    }
+    result_schema = {
+        **shared,
+        "type": "object",
+        "properties": {
+            "status": {"const": RESULT_STATUS_OK},
+            "seed": deepcopy(operation_properties["seed"]),
+            "ordering_source": deepcopy(operation_properties["ordering_source"]),
+            "result_order": {"const": "seed_then_descending_position_v1"},
+            "filename_manifest_sha256": sha256_schema,
+            "snapshot": deepcopy(operation_properties["snapshot"]),
+            "coverage": deepcopy(operation_properties["coverage"]),
+            "limits": deepcopy(operation_properties["limits"]),
+            "next_cursor_sha256": {
+                "anyOf": [sha256_schema, {"type": "null"}]
+            },
+            "observations_summary": {
+                "type": "object",
+                "properties": {
+                    "count": {"type": "integer", "minimum": 1, "maximum": 100},
+                    "sha256": sha256_schema,
+                    "sample": {
+                        "type": "array",
+                        "items": observation_summary_entry,
+                        "maxItems": COMPACT_SAMPLE_LIMIT,
+                    },
+                    "truncated": {"type": "boolean"},
+                },
+                "required": ["count", "sha256", "sample", "truncated"],
+                "additionalProperties": False,
+            },
+        },
+        "required": sorted(_PARAGRAPH_HISTORY_RECORD_RESULT_KEYS),
+        "additionalProperties": False,
+    }
+    provenance_schema = {
+        "type": "object",
+        "properties": {
+            "filesystem_snapshot_sha256": sha256_schema,
+            "full_result_set_sha256": sha256_schema,
+            "projection_policy_sha256": sha256_schema,
+            "current_reading_mode": {"const": "accepted_current_v1"},
+            "rejected_reading_mode": {
+                "const": "pending_text_revisions_rejected_v1"
+            },
+            "container_policy": {"const": "canonical_body_flow_v1"},
+            "result_order": {"const": "seed_then_descending_position_v1"},
+        },
+        "required": sorted(_PARAGRAPH_HISTORY_RECORD_PROVENANCE_KEYS),
+        "additionalProperties": False,
+    }
+    return result_schema, provenance_schema
+
+
+def _paragraph_history_record_shape_is_valid(
+    result: object,
+    provenance: object,
+) -> bool:
+    if not isinstance(result, dict) or not isinstance(provenance, dict):
+        return False
+    try:
+        result_schema, provenance_schema = _paragraph_history_record_schemas()
+        jsonschema.validate(result, result_schema)
+        jsonschema.validate(provenance, provenance_schema)
+    except (
+        ImportError,
+        AttributeError,
+        _RecordSchemaError,
+        jsonschema.SchemaError,
+        jsonschema.ValidationError,
+    ):
+        return False
+    observations_summary = result.get("observations_summary")
+    coverage = result.get("coverage")
+    snapshot = result.get("snapshot")
+    if not all(
+        isinstance(value, dict)
+        for value in (observations_summary, coverage, snapshot)
+    ):
+        return False
+    count = observations_summary.get("count")
+    sample = observations_summary.get("sample")
+    candidate_count = coverage.get("candidate_document_count")
+    cursor_offset = coverage.get("cursor_offset")
+    if (
+        not isinstance(count, int)
+        or isinstance(count, bool)
+        or not isinstance(sample, list)
+        or not isinstance(candidate_count, int)
+        or isinstance(candidate_count, bool)
+        or not isinstance(cursor_offset, int)
+        or isinstance(cursor_offset, bool)
+    ):
+        return False
+    expected_sample_count = min(count, COMPACT_SAMPLE_LIMIT)
+    page_end = cursor_offset + count
+    expected_page_truncated = page_end < candidate_count
+    for index, item in enumerate(sample):
+        if not isinstance(item, dict):
+            return False
+        result_index = cursor_offset + index
+        expected_role = "seed" if result_index == 0 else "trace_step"
+        if (
+            item.get("position") != candidate_count - result_index - 1
+            or item.get("entry_role") != expected_role
+            or (
+                expected_role == "seed"
+                and item.get("observation_id") != result.get("seed", {}).get(
+                    "observation_id"
+                )
+            )
+        ):
+            return False
+    return not (
+        len(sample) != expected_sample_count
+        or observations_summary.get("truncated") is not (count > len(sample))
+        or coverage.get("returned_observation_count") != count
+        or not 0 <= cursor_offset < candidate_count
+        or page_end > candidate_count
+        or coverage.get("output_truncated") is not expected_page_truncated
+        or (result.get("next_cursor_sha256") is not None)
+        is not expected_page_truncated
+        or provenance.get("filesystem_snapshot_sha256")
+        != snapshot.get("filesystem_snapshot_sha256")
+        or provenance.get("full_result_set_sha256")
+        != snapshot.get("full_result_set_sha256")
+        or provenance.get("projection_policy_sha256")
+        != snapshot.get("projection_policy_sha256")
+        or provenance.get("current_reading_mode")
+        != coverage.get("current_reading_mode")
+        or provenance.get("rejected_reading_mode")
+        != coverage.get("rejected_reading_mode")
+        or provenance.get("container_policy") != coverage.get("container_policy")
+        or provenance.get("result_order") != result.get("result_order")
+    )
+
+
+def build_paragraph_history_record_projection(
+    tool_result: object,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Build the exact minimized history record projection from a live result."""
+    operation = _paragraph_history_operation_from_live_result(tool_result)
+    if operation is None:
+        raise _RecordSchemaError("invalid paragraph history live result")
+    observations = operation["observations"]
+    if not isinstance(observations, list):
+        raise _RecordSchemaError("invalid paragraph history observations")
+    sample: list[dict[str, Any]] = []
+    for observation in observations[:COMPACT_SAMPLE_LIMIT]:
+        if not isinstance(observation, dict):
+            raise _RecordSchemaError("invalid paragraph history observation")
+        resolution = observation.get("resolution")
+        if resolution is not None and not isinstance(resolution, dict):
+            raise _RecordSchemaError("invalid paragraph history resolution")
+        sample.append(
+            {
+                "observation_id": observation["observation_id"],
+                "position": observation["position"],
+                "entry_role": observation["entry_role"],
+                "resolution_state": (
+                    None if resolution is None else resolution["state"]
+                ),
+                "resolution_reason": (
+                    None if resolution is None else resolution["reason"]
+                ),
+                "observation_sha256": _stable_digest(observation),
+            }
+        )
+    snapshot = operation["snapshot"]
+    coverage = operation["coverage"]
+    order_basis = operation["order_basis"]
+    next_cursor = operation["next_cursor"]
+    result = {
+        "status": RESULT_STATUS_OK,
+        "seed": deepcopy(operation["seed"]),
+        "ordering_source": operation["ordering_source"],
+        "result_order": operation["result_order"],
+        "filename_manifest_sha256": order_basis["filename_manifest_sha256"],
+        "snapshot": deepcopy(snapshot),
+        "coverage": deepcopy(coverage),
+        "limits": deepcopy(operation["limits"]),
+        "next_cursor_sha256": (
+            None
+            if next_cursor is None
+            else _stable_digest({"next_cursor": next_cursor})
+        ),
+        "observations_summary": {
+            "count": len(observations),
+            "sha256": _stable_digest(
+                {
+                    "schema_version": "paragraph_history_returned_observations.v1",
+                    "observations": observations,
+                }
+            ),
+            "sample": sample,
+            "truncated": len(observations) > len(sample),
+        },
+    }
+    provenance = {
+        "filesystem_snapshot_sha256": snapshot["filesystem_snapshot_sha256"],
+        "full_result_set_sha256": snapshot["full_result_set_sha256"],
+        "projection_policy_sha256": snapshot["projection_policy_sha256"],
+        "current_reading_mode": coverage["current_reading_mode"],
+        "rejected_reading_mode": coverage["rejected_reading_mode"],
+        "container_policy": coverage["container_policy"],
+        "result_order": operation["result_order"],
+    }
+    if not _paragraph_history_record_shape_is_valid(result, provenance):
+        raise _RecordSchemaError("invalid paragraph history record projection")
+    return result, provenance
+
+
+def _paragraph_history_write_is_valid(
+    result: object,
+    provenance: object,
+    tool_result: object,
+) -> bool:
+    if not _paragraph_history_record_shape_is_valid(result, provenance):
+        return False
+    try:
+        expected_result, expected_provenance = (
+            build_paragraph_history_record_projection(tool_result)
+        )
+    except (
+        ImportError,
+        AttributeError,
+        KeyError,
+        RecursionError,
+        TypeError,
+        UnicodeError,
+        ValueError,
+        _RecordSchemaError,
+    ):
+        return False
+    return result == expected_result and provenance == expected_provenance
+
+
 def _write_record(
     *,
     workspace: Path,
@@ -2416,6 +2971,22 @@ def _write_record(
         }
     if tool_name == "map_rounds" and not _round_map_write_is_valid(
         result, provenance, tool_result
+    ):
+        return {
+            "record_id": None,
+            "record_status": "write_failed",
+            "record_error": "record_invalid",
+        }
+    if tool_name == "verify_quote" and not _verification_v2_write_is_valid(
+        result, provenance, tool_result
+    ):
+        return {
+            "record_id": None,
+            "record_status": "write_failed",
+            "record_error": "record_invalid",
+        }
+    if tool_name == "trace_paragraph_history" and not (
+        _paragraph_history_write_is_valid(result, provenance, tool_result)
     ):
         return {
             "record_id": None,
@@ -3378,6 +3949,80 @@ def _observed_match_summary(value: Any) -> dict[str, Any] | None:
     return summary
 
 
+def _verification_v2_paragraph_match_summary(
+    value: Any,
+) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    paragraph_index = _nonnegative_int(value.get("paragraph_index"))
+    side = _known_value(
+        value.get("side"),
+        {"paragraph_current", "paragraph_rejected_pending"},
+    )
+    projection_mode = _known_value(
+        value.get("projection_mode"),
+        {"accepted_current_v1", "pending_text_revisions_rejected_v1"},
+    )
+    expected = (
+        ("paragraph_current", "accepted_current_v1")
+        if side == "paragraph_current"
+        else (
+            "paragraph_rejected_pending",
+            "pending_text_revisions_rejected_v1",
+        )
+    )
+    if (
+        side is None
+        or projection_mode is None
+        or (side, projection_mode) != expected
+        or _part_name(value.get("part_name")) != DOCUMENT_PART_V1
+        or paragraph_index is None
+        or not _is_sha256(value.get("paragraph_text_sha256"))
+        or value.get("reading_mode") != INSPECT_READING_MODE_V1
+        or not _is_sha256(value.get("projection_text_sha256"))
+        or value.get("revision_ids") != []
+    ):
+        return None
+    return {
+        "side": side,
+        "part_name": DOCUMENT_PART_V1,
+        "paragraph_index": paragraph_index,
+        "paragraph_text_sha256": value["paragraph_text_sha256"],
+        "reading_mode": INSPECT_READING_MODE_V1,
+        "projection_mode": projection_mode,
+        "projection_text_sha256": value["projection_text_sha256"],
+    }
+
+
+def _verification_v2_matches_summary(result: dict[str, Any]) -> dict[str, Any]:
+    matches = result.get("matches")
+    if not isinstance(matches, list):
+        raise _RecordSchemaError("invalid verification.v2 matches")
+    if result.get("checked_projection") is None:
+        return _bounded_collection(matches, _observed_match_summary)
+    projected = [
+        _verification_v2_paragraph_match_summary(match) for match in matches
+    ]
+    if any(match is None for match in projected):
+        raise _RecordSchemaError("invalid verification.v2 paragraph match")
+    complete = sorted(
+        (match for match in projected if match is not None),
+        key=_canonical_json_bytes,
+    )
+    sample = deepcopy(complete[:COMPACT_SAMPLE_LIMIT])
+    return {
+        "count": len(complete),
+        "sha256": _stable_digest(
+            {
+                "schema_version": "verification_v2_compact_matches.v1",
+                "matches": complete,
+            }
+        ),
+        "sample": sample,
+        "truncated": len(complete) > len(sample),
+    }
+
+
 def _round_trip_summary(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         return {}
@@ -3548,6 +4193,30 @@ def _summary_result(record: dict[str, Any]) -> dict[str, Any]:
             summary["error_sha256"] = _stable_digest(result["error"])
             summary["error_omitted"] = True
         return summary
+    if projection_kind == "verify_quote_v2":
+        if not _verification_v2_record_shape_is_valid(
+            result, record.get("provenance")
+        ):
+            raise _RecordSchemaError("invalid verification.v2 result")
+        checked_anchor = _observed_anchor_summary(result.get("checked_anchor"))
+        if checked_anchor is None:
+            raise _RecordSchemaError("invalid verification.v2 checked anchor")
+        return {
+            "status": RESULT_STATUS_OK,
+            "schema_version": result["schema_version"],
+            "verdict": result["verdict"],
+            "exact": result["exact"],
+            "checked_anchor": checked_anchor,
+            "checked_projection": deepcopy(result["checked_projection"]),
+            "matches": _verification_v2_matches_summary(result),
+            "diff_count": len(result["diff"]),
+        }
+    if projection_kind == "paragraph_history":
+        if not _paragraph_history_record_shape_is_valid(
+            result, record.get("provenance")
+        ):
+            raise _RecordSchemaError("invalid paragraph_history result")
+        return deepcopy(result)
     if projection_kind == "list_rounds":
         rounds = result.get("rounds")
         summary = {
@@ -3748,6 +4417,10 @@ def _summary_provenance(record: dict[str, Any]) -> dict[str, Any]:
     projection_kind = _historical_record_spec(
         record["tool_name"], record["record_type"]
     ).projection_kind
+    if projection_kind == "paragraph_history":
+        if not _paragraph_history_record_shape_is_valid(record["result"], provenance):
+            raise _RecordSchemaError("invalid paragraph_history provenance")
+        return deepcopy(provenance)
     if projection_kind == "map_rounds":
         from veqtor_mcp.round_map_contract import ROUND_MAP_RECORD_PROVENANCE_SCHEMA
 

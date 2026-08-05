@@ -1618,3 +1618,24 @@ def build_paragraph_history(
         raise HistoryIOError(
             "internal_error", "paragraph history computation failed"
         ) from None
+
+
+def validate_computation_result(
+    computation: ParagraphHistoryComputation,
+    normalized_result: dict[str, Any],
+) -> None:
+    """Bind the MCP-normalized success to the captured internal authority."""
+    try:
+        if not isinstance(computation, ParagraphHistoryComputation) or not isinstance(
+            normalized_result, dict
+        ):
+            raise TypeError
+        operation = deepcopy(normalized_result)
+        operation.pop("producer", None)
+        if operation != computation.result:
+            raise ValueError
+    except Exception:
+        raise HistoryIOError(
+            "output_contract_error",
+            "paragraph history result differs from immutable authority",
+        ) from None

@@ -23,11 +23,17 @@ tamper-evident audit system. Review the
 [known limitations](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/KNOWN_LIMITATIONS.md)
 before using it on a real matter.
 
-This source tree is the development line for package `0.4.0.dev0`. It still
-advertises the frozen eight-tool MCP contract `veqtor.mcp.v0.3`; the Stage 3C
-history tool and MCP v0.4 surface are not implemented. Source, CI, or a
-development artifact is not publication; only matching public PyPI and
-immutable GitHub Release entries establish that a version is installable.
+This source tree is the development line for package `0.4.0.dev0` and
+advertises the nine-tool MCP contract `veqtor.mcp.v0.4`. All nine development
+tools, including the eight names carried forward from v0.3, report that one
+contract-wide version; unchanged individual tool schemas do not retain a v0.3
+metadata flag. Source, CI, or a development artifact is not publication; only
+matching public PyPI and immutable GitHub Release entries establish that a
+version is installable. The frozen public v0.3 release and its MCPB remain the
+separate eight-tool `veqtor.mcp.v0.3` surface. Development v0.4 has not passed
+release, MCPB, Claude Desktop or publication acceptance. The frozen
+`MCPB_REQUIRED_TOOLS` inventory remains eight tools and deliberately excludes
+`trace_paragraph_history`.
 
 Before installing, check both the generic
 [PyPI project](https://pypi.org/project/veqtor-mcp/) and the
@@ -138,12 +144,14 @@ The expected trust sequence is:
 2. verify every quotation used as evidence;
 3. preflight the complete atomic batch;
 4. apply only when `batch_applicable` is true — version `0.1.2` reuses the exact
-   edit payload, while contracts `veqtor.mcp.v0.2` and `veqtor.mcp.v0.3`
+   edit payload, while contracts `veqtor.mcp.v0.2`, `veqtor.mcp.v0.3`, and
+   `veqtor.mcp.v0.4`
    also pass the complete `preflight_proof` returned by that successful
    preflight;
 5. re-extract the output and export the decision record.
 
-In MCP contracts `veqtor.mcp.v0.2` and `veqtor.mcp.v0.3`, the proof binds
+In MCP contracts `veqtor.mcp.v0.2`, `veqtor.mcp.v0.3`, and
+`veqtor.mcp.v0.4`, the proof binds
 the source bytes, canonical edit payload, configured author, producer build and
 predicted candidate hash so apply can detect drift. It is an unkeyed content
 binding, not authentication or a digital signature. Version `0.1.2` does not
@@ -178,12 +186,12 @@ or environment.
 
 ## Tool surface
 
-The descriptions below follow the frozen eight-tool MCP contract
-`veqtor.mcp.v0.3` and its examples. The development package identity is
-`0.4.0.dev0`; it does not advertise an MCP v0.4 tool surface. They are not an
-installation promise until both public verifiers expose the version. For an
-installed version, use the API file carried by that exact artifact or its
-matching immutable tag.
+The descriptions below follow the development package `0.4.0.dev0` and its
+nine-tool MCP contract `veqtor.mcp.v0.4`. They are not an installation promise
+until both public verifiers expose the version. The frozen v0.3 release/MCPB
+continues to contain only its eight `veqtor.mcp.v0.3` tools. For an installed
+version, use the API file carried by that exact artifact or its matching
+immutable tag.
 
 - `list_rounds`: disclosed lexicographic filename order or a complete explicit
   `ordered_filenames` positional manifest; neither is lineage proof.
@@ -198,13 +206,22 @@ matching immutable tag.
   derivation, complete exact paragraph equality, navigation candidates and
   explicit unresolved/ambiguous states. It does not infer chronology, lineage,
   deletion or restoration.
-- `verify_quote`: anchored `exact`, `normalized`, or `not_found` verification.
+- `trace_paragraph_history`: immutable capture of a complete direct-DOCX set
+  and a seed-first, paginated backward trace of one selected paragraph using
+  only exact current or rejected-pending projection equality. Selected rows
+  include paragraph-scoped change units; literal author/date metadata remains
+  explicitly unverified.
 - `preflight_edits`: the complete apply pipeline as an in-memory dry-run, with
   closed position/failure diagnostics and a successful drift-binding proof.
 - `apply_edits`: atomic tracked replace, delete, counter and reinstate writes;
-  MCP contracts `veqtor.mcp.v0.2` and `veqtor.mcp.v0.3` require the
+  MCP contracts `veqtor.mcp.v0.2`, `veqtor.mcp.v0.3`, and `veqtor.mcp.v0.4`
+  require the
   complete successful preflight proof; version `0.1.2` reuses the exact edit
   payload without that new field.
+- `verify_quote`: anchored `exact`, `normalized`, or `not_found` verification,
+  with an optional paragraph selector for `accepted_current_v1` or
+  `pending_text_revisions_rejected_v1` and a closed
+  `verification_result.v2` result.
 - `export_decision_record`: compact privacy-aware local provenance.
 
 The complete request, response and error contract is in the versioned
@@ -224,6 +241,14 @@ there. The path- and search-phrase-omission guarantee applies only to the
 compact `export_decision_record` response. The raw journal retains the
 workspace and caller-supplied paths, and may retain search phrases and other
 verbatim matter text; do not commit or share it.
+
+`trace_paragraph_history` is success-only for journaling: a refusal before a
+valid result writes no history record or sidecar. A later journal-publication
+failure returns the complete valid result with `record_status: write_failed`.
+Its live result may contain bounded paragraph/change-unit text, paths,
+filenames, headings and literal OOXML author/date strings. Its minimized raw
+record and compact export omit those values. Numeric or named author metadata
+does not verify who made a revision, and an OOXML date is not a trusted time.
 
 Decision-record export requires the exact initialized workspace. In the v0.2
 contract a wrong parent is refused without creating a second
@@ -251,6 +276,9 @@ for hostile same-user processes.
 
 Windows, hosted MCP, comments/headers/footnotes, accept/reject, semantic
 cross-round lineage and cryptographic audit guarantees are outside the Alpha.
+The client row describes the frozen published Alpha path; the development v0.4
+ninth tool has stdio/installed-wheel coverage but no separate Claude Desktop or
+MCPB acceptance claim.
 
 ## Support
 

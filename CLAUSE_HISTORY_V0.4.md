@@ -2,25 +2,24 @@
 
 # Stage 3C evidence-bound paragraph history v0.4 specification
 
-## Status and non-implementation boundary
+## Status and implementation boundary
 
-This document freezes the preimplementation contract for the first Stage 3C
-product slice. The filename uses the broader product phrase "clause history",
-but the first slice traces exactly one paragraph. It does not identify or join
-a semantic or multi-paragraph clause.
+This document is the frozen contract implemented by development source
+`0.4.0.dev0` for the first Stage 3C product slice. The filename uses the broader
+product phrase "clause history", but the slice traces exactly one paragraph. It
+does not identify or join a semantic or multi-paragraph clause.
 
-The future MCP tool name is `trace_paragraph_history`; its permanent
-success-record pair will be
-`(trace_paragraph_history, paragraph_history.v1)`. The implementation will
-advertise MCP contract `veqtor.mcp.v0.4` only after that new surface and the
-companion quote-verification contract described below are complete.
+The MCP tool is `trace_paragraph_history`; its permanent success-record pair is
+`(trace_paragraph_history, paragraph_history.v1)`. Development source advertises
+the nine-tool contract `veqtor.mcp.v0.4` together with the companion
+quote-verification contract described below. The contract-wide version is
+reported by all nine tools, including the eight names carried forward from
+v0.3.
 
-This specification changes no runtime behavior. Source version `0.3.0` remains
-an eight-tool `veqtor.mcp.v0.3` implementation. Writing this document does not
-register a ninth tool, change `verify_quote`, create a journal record type,
-accept an installed artifact, or publish a release. Code, package, CI,
-installed-wheel, Claude Desktop and publication acceptance remain separate
-gates.
+Implementation in development source does not change the frozen public v0.3
+release or its eight-tool `veqtor.mcp.v0.3` MCPB. Package, contract and
+publication identities remain separate: no statement in this specification is
+a v0.4 release, MCPB, Claude Desktop or publication acceptance claim.
 
 "Read-only" here means that the tool never changes a candidate DOCX and never
 produces a new DOCX. A successful MCP call may append one private local
@@ -48,7 +47,7 @@ For each file observation, Veqtor may report:
 - no unique answer is available because the relationship is absent,
   incomplete or blocked by an earlier ambiguity.
 
-The planned slice addresses the main product gap left by Stage 3B. Round Map
+The implemented slice addresses the main product gap left by Stage 3B. Round Map
 can prove exact accepted/current equality, but a heavily negotiated paragraph
 normally changes in every file and therefore remains unresolved. Stage 3C can
 additionally use the change markup preserved inside a higher-position file to
@@ -110,7 +109,7 @@ undo. With stacked or nested pending revisions, the projection may expose
 wording older than the immediately adjacent declared file. Only exact equality
 with that adjacent captured observation creates a relationship.
 
-The implementation must define a new ancestor-aware projection. The existing
+The implementation defines a new ancestor-aware projection. The existing
 `text_atom(..., include_deleted_text=True)` primitive is not this projection
 and cannot be used as one without the validation and visibility rules below.
 
@@ -406,9 +405,9 @@ candidate is selected.
 `unresolved` never means deleted, inserted, new, rejected, restored, conceded
 or absent from the whole DOCX.
 
-## Future MCP input
+## MCP input
 
-The future named arguments are:
+The named arguments are:
 
 ```json
 {
@@ -1146,11 +1145,11 @@ right-hand paragraph; it is not the live tool's computation or coverage model.
 
 ## Fixed resource limits
 
-These Stage 3C limits are additive to the shared v0.3 DOCX/ZIP/member/XML and
-decision-record JSON limits. Those existing safeguards remain unchanged unless
-an expressly versioned v0.4 replacement is specified.
+These Stage 3C limits are additive to the shared DOCX/ZIP/member/XML and
+decision-record JSON limits inherited from v0.3. Those existing safeguards
+remain unchanged unless an expressly versioned replacement is specified.
 
-The first implementation must expose these exact inclusive ratchets:
+The implementation exposes these exact inclusive ratchets:
 
 | Limit | Value |
 | --- | ---: |
@@ -1447,7 +1446,7 @@ verification of a quoted current or rejected-pending string.
 
 ## Journal and privacy boundary
 
-The future history pair is success-only. A failure before a valid result writes
+The history pair is success-only. A failure before a valid result writes
 no `paragraph_history.v1` record or sidecar. After a valid result exists, record
 publication failure returns that result with `record_status: write_failed` and
 a controlled `record_error`; it never changes machine facts.
@@ -1614,10 +1613,12 @@ unexpected pre-result exception normalizes to `internal_error`. Exception class
 names, paths and document text are not part of either public error. Refusals are
 MCP tool errors rather than successful result-union objects.
 
-## Acceptance fixtures for later implementation
+## Acceptance fixtures and product checks
 
-All initial fixtures are synthetic and redistributable. The first
-implementation is not accepted until at least these cases pass.
+All initial mechanical fixtures are synthetic and redistributable. The
+implementation and its deterministic suite cover items 1–20 below. The later
+product checks and non-claims remain explicit rather than being inferred from
+that mechanical evidence.
 
 1. The shipped four-round liability-cap paragraph traces from the last-position
    seed through all four observations using exactly three adjacent
@@ -1639,8 +1640,8 @@ implementation is not accepted until at least these cases pass.
    | R3 → R4 | 65 | 2 | 1 | 0 |
 
    The arrows denote adjacent declared positions only, not verified time.
-   These are classifier fixtures, not a claim that source version 0.3.0
-   already implements the history tool.
+   These are classifier fixtures, not chronology claims or whole-contract
+   history reconstruction.
 3. Two of the R2 → R3 rejected matches exercise literal `moveTo`/`moveFrom`
    visibility. The result exposes wrapper visibility but no move pairing,
    move event, chronology or lineage.
@@ -1691,16 +1692,18 @@ implementation is not accepted until at least these cases pass.
     rejected side only when explicitly selected, returns that side's own hash,
     and refuses an unavailable projection. Historical `verification.v1`
     records remain readable after v2 writes begin.
-21. English product acceptance gives a lawyer who did not run the tool enough
+### Deferred product acceptance and non-claims
+
+21. English host-formatted product acceptance has not been performed. A future
+    rehearsal must show that a lawyer who did not run the tool receives enough
     evidence to identify a candidate file for further whole-document baseline
-    review and list open questions. The brief does not establish that the file
-    is a suitable baseline for the agreement as a whole.
-    The lawyer must not mistake positional order, projection equality, a Word
-    author/date string or host prose for chronology, actor identity, approval
-    or clause lineage.
-22. Russian and other Unicode text is mechanically preserved, but semantic
-    discovery, morphology, translation and localized legal interpretation are
-    not product-acceptance claims.
+    review and to list open questions. It must not suggest that the file is a
+    suitable baseline for the agreement as a whole or upgrade positional order,
+    projection equality, OOXML author/date strings or host prose into chronology,
+    actor identity, approval or clause lineage.
+22. Mechanical Unicode preservation is covered by deterministic tests.
+    Semantic discovery, morphology, translation and localized legal
+    interpretation remain non-claims and are not product-acceptance evidence.
 
 External or sanitized real-matter validation may follow, but it does not
 replace the deterministic synthetic acceptance suite and must never introduce
@@ -1744,13 +1747,12 @@ silently flatten, overwrite or reinterpret the negotiation evidence that Stage
 Completing Stage 3C does not automatically approve Stage 3D. External-user
 validation remains the gate between the two stages.
 
-## Definition of done for the later core
+## Implementation status and remaining product gates
 
-Stage 3C core is ready for an exact-build product gate only when the future
-implementation matches every closed schema, algorithm, claim and failure
-boundary above; all acceptance fixtures and complete local quality gates pass;
-an installed artifact advertises the intended v0.4 tool and verification
-surfaces; compact privacy is independently checked; and the exact artifact
-passes a separate English Claude Desktop acceptance.
-
-None of those gates is satisfied merely by merging this specification.
+Development source `0.4.0.dev0` implements the closed history and verification
+surfaces described above as MCP contract `veqtor.mcp.v0.4`. Deterministic source
+and installed-wheel checks remain evidence for the development artifact only.
+The frozen public v0.3 release/MCPB is still eight-tool v0.3, and a future v0.4
+release requires its own exact-artifact, compact-privacy, English Claude
+Desktop, MCPB and publication acceptance. Those release gates are not claimed
+by implementation or by this specification.

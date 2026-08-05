@@ -56,6 +56,33 @@ def _cap_from_tool(path: Path) -> tuple[dict, dict]:
     }
 
 
+def _verification_v2_record_result() -> dict:
+    return {
+        "status": "ok",
+        "schema_version": "verification_result.v2",
+        "verdict": "not_found",
+        "exact": False,
+        "checked_anchor": {
+            "change_unit_id": "cu_001",
+            "file_sha256": "a" * 64,
+        },
+        "checked_projection": None,
+        "matches": [],
+        "diff": ["quote is absent from the anchored change unit"],
+    }
+
+
+def _verification_v2_tool_result(record_result: dict) -> dict:
+    return {
+        **copy.deepcopy(record_result),
+        "producer": {
+            "name": "veqtor-mcp",
+            "version": veqtor_mcp.__version__,
+            "build": records.SOURCE_SNAPSHOT_IDENTITY,
+        },
+    }
+
+
 def _server_apply_edits(source_path: str, output_path: str, edits) -> dict:
     """Call the v0.2 server apply surface with a proof when preflight passes."""
     preflight = veqtor_docx.preflight_edits(
@@ -3814,12 +3841,14 @@ def test_read_records_defaults_to_compact_but_full_history_remains_available(
     matter = tmp_path / "matter"
     matter.mkdir()
     sentinel = "PRIVATE_LOCAL_FULL_HISTORY_SENTINEL_47"
+    result = _verification_v2_record_result()
     assert (
         records.write_record(
             workspace=matter,
             tool_name="verify_quote",
             input_payload={"quote": sentinel},
-            result={"status": "ok", "verdict": "not_found"},
+            result=result,
+            tool_result=_verification_v2_tool_result(result),
             provenance={},
         )["record_status"]
         == "written"
@@ -5194,15 +5223,16 @@ def test_compact_export_summarizes_large_provenance(tmp_path: Path) -> None:
     matter = tmp_path / "matter"
     matter.mkdir()
     large_text_size = 200_000
+    result = {
+        **_verification_v2_record_result(),
+        "diff": ["D" * large_text_size],
+    }
     meta = records.write_record(
         workspace=matter,
         tool_name="verify_quote",
         input_payload={"quote": "Q" * large_text_size},
-        result={
-            "status": "ok",
-            "verdict": "not_found",
-            "diff": ["D" * large_text_size],
-        },
+        result=result,
+        tool_result=_verification_v2_tool_result(result),
         provenance={
             "path": "P" * large_text_size,
             "anchors": [
@@ -5536,9 +5566,15 @@ def test_invalid_record_schema_fails_before_sidecar_and_recovers(
 @pytest.mark.parametrize(
     ("tool_name", "record_type"),
     sorted(
-        (tool_name, records.V1_HISTORICAL_TOOL_SPECS[tool_name].record_type)
+        (tool_name, records.WRITABLE_TOOL_SPECS[tool_name].record_type)
         for tool_name in records.WRITABLE_TOOL_NAMES
-        if tool_name not in {"inspect_document", "map_rounds"}
+        if tool_name
+        not in {
+            "inspect_document",
+            "map_rounds",
+            "trace_paragraph_history",
+            "verify_quote",
+        }
     ),
 )
 def test_generic_writer_derives_record_type_for_each_authorized_success_tool(
@@ -5594,7 +5630,7 @@ def test_generic_round_map_writer_rejects_noncontract_projection(
     assert not (matter / records.SIDECAR_DIR).exists()
 
 
-def test_v1_historical_tool_specs_are_frozen_and_cover_writable_tools() -> None:
+def test_v1_historical_specs_are_frozen_beside_v04_current_writers() -> None:
     expected = {
         "list_rounds": ("tool_observation.v1", "list_rounds"),
         "extract_redlines": ("tool_observation.v1", "extract_redlines"),
@@ -5614,13 +5650,20 @@ def test_v1_historical_tool_specs_are_frozen_and_cover_writable_tools() -> None:
     }
 
     assert actual == expected
-    assert dict(records.WRITABLE_TOOL_SPECS) == dict(
-        records.V1_HISTORICAL_TOOL_SPECS
+    assert len(records.WRITABLE_TOOL_SPECS) == 9
+    assert records.WRITABLE_TOOL_NAMES == records.WRITABLE_TOOL_SPECS.keys()
+    assert records.WRITABLE_TOOL_SPECS["verify_quote"].record_type == (
+        "verification.v2"
     )
-    assert records.WRITABLE_TOOL_NAMES == records.V1_HISTORICAL_TOOL_SPECS.keys()
+    assert records.WRITABLE_TOOL_SPECS["trace_paragraph_history"].record_type == (
+        "paragraph_history.v1"
+    )
     assert set(records.HISTORICAL_RECORD_SPECS) == {
         (tool_name, record_type)
         for tool_name, (record_type, _projection_kind) in expected.items()
+    } | {
+        ("verify_quote", "verification.v2"),
+        ("trace_paragraph_history", "paragraph_history.v1"),
     }
     assert records._historical_record_spec(
         "verify_quote", "verification.v1"
@@ -5629,22 +5672,23 @@ def test_v1_historical_tool_specs_are_frozen_and_cover_writable_tools() -> None:
         "preflight_edits", "verification.v1"
     ).projection_kind == "preflight_edits"
 
-    with pytest.raises(records._RecordSchemaError, match="^invalid record_type$"):
-        records._historical_record_spec("verify_quote", "verification.v2")
+    assert records._historical_record_spec(
+        "verify_quote", "verification.v2"
+    ).projection_kind == "verify_quote_v2"
+    assert records._historical_record_spec(
+        "trace_paragraph_history", "paragraph_history.v1"
+    ).projection_kind == "paragraph_history"
 
 
-def test_api_historical_pair_list_matches_v1_registry() -> None:
+def test_api_historical_pair_list_matches_permanent_registry() -> None:
     api = (Path(__file__).parents[1] / "API.md").read_text(encoding="utf-8")
     section = api.split(
         "The permanent pairs registered by this source contract are:", 1
     )[1].split("Each existing pair remains forward-compatible", 1)[0]
-    documented = dict(re.findall(r"- `([^`]+)` → `([^`]+)`[.;]", section))
-    expected = {
-        tool_name: spec.record_type
-        for tool_name, spec in records.V1_HISTORICAL_TOOL_SPECS.items()
-    }
+    documented = set(re.findall(r"- `([^`]+)` → `([^`]+)`[.;]", section))
+    expected = set(records.HISTORICAL_RECORD_SPECS)
 
-    assert "The eight permanent `(tool_name, record_type)` pairs" in api
+    assert "ten permanent `(tool_name, record_type)` pairs" in api
     assert documented == expected
 
 
@@ -6214,12 +6258,14 @@ def test_retired_tool_history_remains_readable_but_is_not_writable(
 ) -> None:
     matter = tmp_path / "matter"
     matter.mkdir()
+    result = _verification_v2_record_result()
     assert (
         records.write_record(
             workspace=matter,
             tool_name="verify_quote",
             input_payload={},
-            result={"status": "ok", "verdict": "exact"},
+            result=result,
+            tool_result=_verification_v2_tool_result(result),
             provenance={},
         )["record_status"]
         == "written"
@@ -6236,7 +6282,8 @@ def test_retired_tool_history_remains_readable_but_is_not_writable(
         workspace=matter,
         tool_name="verify_quote",
         input_payload={},
-        result={"status": "ok", "verdict": "exact"},
+        result=result,
+        tool_result=_verification_v2_tool_result(result),
         provenance={},
     )
     compact = records.read_records(
@@ -6257,15 +6304,25 @@ def test_retired_tool_history_remains_readable_but_is_not_writable(
     assert compact["records"][0]["tool_name"] == "verify_quote"
     assert compact["records"][0]["result"] == {
         "status": "ok",
-        "verdict": "exact",
-        "exact": None,
-        "checked_anchor": None,
-        "matches": None,
-        "diff_count": None,
+        "schema_version": "verification_result.v2",
+        "verdict": "not_found",
+        "exact": False,
+        "checked_anchor": {
+            "change_unit_id": "cu_001",
+            "file_sha256": "a" * 64,
+        },
+        "checked_projection": None,
+        "matches": {
+            "count": 0,
+            "sha256": records._stable_digest([]),
+            "sample": [],
+            "truncated": False,
+        },
+        "diff_count": 1,
     }
     assert compact["records"][0]["provenance"] == {}
     assert full["payloads"] == "full"
-    assert full["records"][0]["record_type"] == "verification.v1"
+    assert full["records"][0]["record_type"] == "verification.v2"
 
 
 def test_golden_v1_journal_stays_readable_and_appendable(tmp_path: Path) -> None:
@@ -6414,12 +6471,22 @@ def test_semantically_invalid_tool_type_pair_is_corrupt_and_blocks_append(
 ) -> None:
     matter = tmp_path / "matter"
     matter.mkdir()
+    result = (
+        _verification_v2_record_result()
+        if seed_tool == "verify_quote"
+        else {"status": "ok"}
+    )
     assert (
         records.write_record(
             workspace=matter,
             tool_name=seed_tool,
             input_payload={},
-            result={"status": "ok"},
+            result=result,
+            tool_result=(
+                _verification_v2_tool_result(result)
+                if seed_tool == "verify_quote"
+                else None
+            ),
             provenance={},
         )["record_status"]
         == "written"

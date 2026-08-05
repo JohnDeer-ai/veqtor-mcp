@@ -24,8 +24,10 @@ from veqtor_docx.apply import DEFAULT_AUTHOR
 from veqtor_docx.contracts import INSPECT_FIXED_LIMITS_V1, InspectionContractV1
 from veqtor_docx.inspect import DEFAULT_MAX_ITEMS as DEFAULT_INSPECT_MAX_ITEMS
 from veqtor_mcp import __version__
+from veqtor_mcp import _history_io as paragraph_history
 from veqtor_mcp import records
 from veqtor_mcp import round_map
+from veqtor_mcp._verification_v2 import verify_quote_v2
 from veqtor_mcp._inspection_live import (
     CheckedInspectionError,
     CheckedInspectionResult,
@@ -40,6 +42,11 @@ from veqtor_mcp.contracts import (
     InspectDocumentResult,
     InspectSelectionInput,
     ListRoundsResult,
+    ParagraphHistoryOrderInput,
+    ParagraphHistoryResult,
+    ParagraphHistorySeedInput,
+    ParagraphHistoryCursorInput,
+    PARAGRAPH_HISTORY_RECORD_ERROR_CODES,
     RoundMapResult,
     RoundMapSeedInput,
     PreflightEditsResult,
@@ -77,6 +84,7 @@ _RESULT_MODELS = {
     "extract_redlines": ExtractRedlinesResult,
     "inspect_document": InspectDocumentResult,
     "map_rounds": RoundMapResult,
+    "trace_paragraph_history": ParagraphHistoryResult,
     "preflight_edits": PreflightEditsResult,
     "apply_edits": ApplyEditsResult,
     "verify_quote": VerifyQuoteResult,
@@ -146,6 +154,17 @@ def _validated_record_metadata(meta: dict[str, Any]) -> dict[str, Any]:
     if not valid:
         raise _OutputContractError
     return dict(meta)
+
+
+def _validated_history_record_metadata(meta: dict[str, Any]) -> dict[str, Any]:
+    """Restrict post-result history failures to their closed public domain."""
+    validated = _validated_record_metadata(meta)
+    if (
+        validated["record_status"] == "write_failed"
+        and validated["record_error"] not in PARAGRAPH_HISTORY_RECORD_ERROR_CODES
+    ):
+        raise _OutputContractError
+    return validated
 
 
 def _validated_success_result(
@@ -546,6 +565,23 @@ def _verify_provenance(
             for match in result["matches"]
         ],
         "verdict": result["verdict"],
+    }
+
+
+def _verify_record_result_v2(result: dict[str, Any]) -> dict[str, Any]:
+    """Strip server-owned fields from the closed raw verification.v2 result."""
+    operation_keys = (
+        "schema_version",
+        "verdict",
+        "exact",
+        "checked_anchor",
+        "checked_projection",
+        "matches",
+        "diff",
+    )
+    return {
+        "status": records.RESULT_STATUS_OK,
+        **{key: result[key] for key in operation_keys},
     }
 
 
@@ -986,6 +1022,83 @@ def map_rounds(
 
 
 @mcp.tool(
+    annotations=local_journaling_annotations("Trace DOCX paragraph history"),
+    meta=contract_meta(),
+    structured_output=True,
+)
+def trace_paragraph_history(
+    folder: str,
+    seed: ParagraphHistorySeedInput,
+    order_basis: ParagraphHistoryOrderInput,
+    cursor: ParagraphHistoryCursorInput = None,
+    max_items: Annotated[StrictInt, Field(ge=1, le=100)] = (
+        paragraph_history.DEFAULT_MAX_ITEMS
+    ),
+) -> ParagraphHistoryResult:
+    """Trace one exact paragraph backward through a declared DOCX sequence.
+
+    The result reports only reproducible exact accepted/current equality or
+    equality with the mechanically rejected pending-text projection. File
+    positions are caller-declared navigation, never verified chronology or
+    lineage. Every fact comes from one immutable capture of each direct DOCX;
+    the complete bounded result is paginated without splitting observations.
+    """
+    input_payload = {
+        "folder": folder,
+        "seed": seed,
+        "order_basis": order_basis,
+        "cursor": cursor,
+        "max_items": max_items,
+    }
+    try:
+        computation = paragraph_history.build_paragraph_history(
+            folder,
+            seed,
+            order_basis,
+            cursor=cursor,
+            max_items=max_items,
+        )
+        normalized = _validated_success_result(
+            "trace_paragraph_history",
+            computation.result,
+        )
+        if not isinstance(normalized, dict):
+            raise _OutputContractError
+        paragraph_history.validate_computation_result(computation, normalized)
+    except (veqtor_docx.DocxError, _OutputContractError):
+        # History is success-only in the journal: no pre-result refusal may
+        # create a record or sidecar.
+        raise
+    except Exception:
+        raise _McpBoundaryError("internal_error", "unexpected tool failure") from None
+
+    try:
+        stored_result, provenance = (
+            records.build_paragraph_history_record_projection(normalized)
+        )
+        meta = _validated_history_record_metadata(
+            records.write_record(
+                workspace=computation.workspace,
+                tool_name="trace_paragraph_history",
+                input_payload=input_payload,
+                result=stored_result,
+                tool_result=normalized,
+                provenance=provenance,
+                expected_workspace_identity=computation.workspace_identity,
+            )
+        )
+    except Exception:
+        # Once a complete validated DOCX result exists, journal publication is
+        # best effort and cannot replace those facts with a tool failure.
+        meta = {
+            "record_id": None,
+            "record_status": "write_failed",
+            "record_error": "internal_error",
+        }
+    return {**normalized, **meta}
+
+
+@mcp.tool(
     annotations=local_journaling_annotations("Preflight tracked edits"),
     meta=contract_meta(),
     structured_output=True,
@@ -1174,12 +1287,21 @@ def verify_quote(
     path: str,
     anchor: VerifyAnchorInput,
     quote: str,
+    paragraph_projection: Literal[
+        "accepted_current_v1",
+        "pending_text_revisions_rejected_v1",
+    ]
+    | None = None,
 ) -> VerifyQuoteResult:
     """Check a quotation against the document before relying on it.
 
     Call this before using a quote in a memo, email, or negotiation summary.
     ``anchor`` is either a legacy/v2 change-unit anchor from
     ``extract_redlines`` or a ``paragraph_ref.v1`` from ``inspect_document``.
+    Paragraph verification defaults to its accepted/current reading. Set
+    ``paragraph_projection`` to ``pending_text_revisions_rejected_v1`` to
+    independently verify the bounded projection obtained by mechanically
+    rejecting supported pending text revisions in that same paragraph.
     The verdict is ``exact`` (verbatim in the anchored old/new change text or
     accepted/current paragraph), ``normalized`` (matches after collapsing
     whitespace and typographic quotes/dashes — ``diff`` says so), or
@@ -1198,7 +1320,12 @@ def verify_quote(
 
     def operation(workspace, input_payload):
         try:
-            result = veqtor_docx.verify_quote(path, anchor, quote)
+            result = verify_quote_v2(
+                path,
+                anchor,
+                quote,
+                paragraph_projection,
+            )
         except veqtor_docx.DocxError as exc:
             _record_error(
                 tool_name="verify_quote",
@@ -1214,6 +1341,7 @@ def verify_quote(
             input_payload=input_payload,
             result=result,
             provenance=_verify_provenance(result, anchor),
+            record_result=_verify_record_result_v2,
         )
 
     return _run_tool_boundary(
@@ -1225,6 +1353,7 @@ def verify_quote(
             if isinstance(anchor, dict)
             else anchor,
             "quote": quote,
+            "paragraph_projection": paragraph_projection,
         },
         internal_provenance_factory=internal_provenance,
         operation=operation,

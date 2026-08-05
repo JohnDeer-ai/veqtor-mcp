@@ -8,26 +8,40 @@ through its `published_at` timestamp.
 
 ## 0.4.0.dev0
 
-Unreleased development line. This identity does not advertise MCP v0.4 or a
-public release.
+Unreleased development line. It advertises the nine-tool development contract
+`veqtor.mcp.v0.4`; this is not a public release, MCPB, Claude Desktop or
+publication acceptance claim.
 
 ### Added
 
 - The bounded `pending_text_revisions_rejected_v1` literal projection
   primitive and deterministic adjacent-round classifier acceptance coverage
   for the synthetic Stage 3C Fixture 2 corpus.
-- Development sdist packaging for the frozen
-  `CLAUSE_HISTORY_V0.4.md` preimplementation contract.
+- The bounded `trace_paragraph_history` tool with immutable direct-DOCX
+  capture, exact current/rejected-pending paragraph relationships,
+  paragraph-scoped change units, snapshot-bound `ph1` pagination, complete
+  Stage 3C limits, and success-only privacy-minimized
+  `paragraph_history.v1` provenance.
+- Paragraph-side `verify_quote` projection selection and the closed
+  `verification_result.v2` result/`verification.v2` journal pair, while keeping
+  historical `verification.v1` records readable.
+- Development sdist packaging for the implemented
+  `CLAUSE_HISTORY_V0.4.md` contract.
 
 ### Changed
 
 - The development server now uses MCP Python SDK v2 and negotiates both the
   modern `2026-07-28` and legacy `2025-11-25` wire revisions over local stdio.
+- The contract-wide schema marker is `veqtor.mcp.v0.4` on all nine tools,
+  including all eight names carried forward from v0.3. Existing tools whose
+  own schemas and behavior did not change still report the new surface-wide
+  contract version.
 
 ### Unchanged
 
-- The public v0.3 release contract and artifacts, the eight-tool
-  `veqtor.mcp.v0.3` surface, and the frozen roadmap/specification boundaries.
+- The public v0.3 release contract, artifacts and MCPB remain the frozen
+  eight-tool `veqtor.mcp.v0.3` surface. `release_contract.VERSION` and the MCPB
+  tool inventory are not widened by this development cutover.
 
 ## 0.3.0
 
