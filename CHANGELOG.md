@@ -19,6 +19,11 @@ public release.
 - Development sdist packaging for the frozen
   `CLAUSE_HISTORY_V0.4.md` preimplementation contract.
 
+### Changed
+
+- The development server now uses MCP Python SDK v2 and negotiates both the
+  modern `2026-07-28` and legacy `2025-11-25` wire revisions over local stdio.
+
 ### Unchanged
 
 - The public v0.3 release contract and artifacts, the eight-tool

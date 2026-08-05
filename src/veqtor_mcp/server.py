@@ -15,7 +15,7 @@ from functools import cache
 from typing import Annotated, Any, Callable, Literal
 
 import jsonschema
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 from pydantic import Field, StrictInt
 
 import veqtor_docx
@@ -69,11 +69,7 @@ def _tracked_change_author() -> str:
     return _tracked_change_author_from_environment()
 
 
-mcp = FastMCP("veqtor")
-# FastMCP does not expose the low-level server's product-version argument.
-# Without setting it explicitly, MCP initialization reports the installed SDK
-# version instead of the Veqtor release version.
-mcp._mcp_server.version = __version__
+mcp = MCPServer("veqtor", version=__version__)
 
 
 _RESULT_MODELS = {
@@ -162,9 +158,9 @@ def _validated_success_result(
 ) -> dict[str, Any] | CheckedInspectionResult:
     """Validate and normalize one live result exactly as the MCP boundary does.
 
-    The Pydantic result model is the same return model FastMCP uses.  Its
+    The Pydantic result model is the same return model MCPServer uses.  Its
     advertised JSON Schema is then applied to the normalized model dump, which
-    mirrors FastMCP's conversion followed by the low-level MCP output-schema
+    mirrors MCPServer's conversion followed by the low-level MCP output-schema
     gate.  Temporary disabled record metadata makes validation possible before
     a decision-record id exists.
     """
@@ -301,7 +297,7 @@ class _InternalOperationError(veqtor_docx.DocxError):
 
 
 class _McpBoundaryError(veqtor_docx.DocxError):
-    """A context-free error safe to expose through FastMCP."""
+    """A context-free error safe to expose through MCPServer."""
 
     def __init__(self, code: str, detail: str) -> None:
         super().__init__(f"{code}: {detail}")

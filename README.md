@@ -243,7 +243,7 @@ for hostile same-user processes.
 |---|---|
 | Operating systems | macOS, Linux |
 | Python | 3.12, 3.13, 3.14 |
-| Transport | local stdio MCP |
+| Transport | local stdio MCP; modern `2026-07-28` and legacy through `2025-11-25` |
 | Validated clients | Claude Code, Claude Desktop |
 | DOCX part | `word/document.xml` |
 | Writes | tracked replace, delete, counter, reinstate |

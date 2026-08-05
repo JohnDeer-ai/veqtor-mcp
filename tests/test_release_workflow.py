@@ -396,7 +396,7 @@ def test_development_wheel_smoke_binds_metadata_and_eight_tool_surface() -> None
     assert 'session.call_tool(\n                    "map_rounds"' in smoke
     assert 'inspected["revision_inventory"]["schema_version"]' in smoke
     assert "def _assert_producer(payload: dict)" in smoke
-    assert smoke.count("_assert_producer(") == 11
+    assert smoke.count("_assert_producer(") == 12
     assert 'payload["record_status"] == "written"' in smoke
     assert '"installed_metadata_version": installed.version' in smoke
     assert '"tool_count": len(names)' in smoke

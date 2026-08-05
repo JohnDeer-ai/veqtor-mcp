@@ -2,6 +2,7 @@
 """End-to-end smoke test of the MCP tool surface over an in-memory session."""
 
 from copy import deepcopy
+import asyncio
 import hashlib
 import json
 import os
@@ -13,8 +14,9 @@ from pathlib import Path
 
 import jsonschema
 import pytest
-from mcp.client.session import ClientSession
-from mcp.shared.memory import create_connected_server_and_client_session
+from mcp import StdioServerParameters
+from mcp.client import Client
+from mcp.client.stdio import stdio_client
 from pydantic import ValidationError
 
 import veqtor_docx
@@ -44,14 +46,26 @@ from veqtor_mcp.contracts import (
 from veqtor_mcp.server import mcp
 
 
+EXPECTED_TOOL_NAMES = (
+    "list_rounds",
+    "extract_redlines",
+    "inspect_document",
+    "map_rounds",
+    "preflight_edits",
+    "apply_edits",
+    "verify_quote",
+    "export_decision_record",
+)
+
+
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
 
 
 def _payload(result) -> dict:
-    if isinstance(result.structuredContent, dict):
-        data = result.structuredContent
+    if isinstance(result.structured_content, dict):
+        data = result.structured_content
         return data.get("result", data)
     return json.loads(result.content[0].text)
 
@@ -1030,23 +1044,106 @@ def test_inspect_contract_accepts_normalized_sorted_dynamic_excluded_scope(
 
 
 @pytest.mark.anyio
-async def test_protocol_initialization_reports_veqtor_version(monkeypatch) -> None:
-    initialize = ClientSession.initialize
-    observed_results = []
+@pytest.mark.parametrize(
+    ("mode", "expected_protocol_version"),
+    [("auto", "2026-07-28"), ("legacy", "2025-11-25")],
+)
+async def test_protocol_negotiation_reports_veqtor_version(
+    mode: str,
+    expected_protocol_version: str,
+) -> None:
+    async with Client(mcp, mode=mode) as client:
+        assert client.protocol_version == expected_protocol_version
+        assert client.server_info is not None
+        assert client.server_info.name == "veqtor"
+        assert client.server_info.version == __version__
 
-    async def capture_initialize(session):
-        result = await initialize(session)
-        observed_results.append(result)
-        return result
 
-    monkeypatch.setattr(ClientSession, "initialize", capture_initialize)
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("mode", "expected_protocol_version"),
+    [("auto", "2026-07-28"), ("legacy", "2025-11-25")],
+)
+async def test_stdio_supports_modern_and_legacy_protocols(
+    tmp_path: Path,
+    mode: str,
+    expected_protocol_version: str,
+) -> None:
+    matter = tmp_path / "matter"
+    generate_demo_rounds(matter)
+    parameters = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "veqtor_mcp.server"],
+        env={
+            "VEQTOR_TRACKED_CHANGE_AUTHOR": "Veqtor dual-era stdio test",
+        },
+    )
 
-    async with create_connected_server_and_client_session(mcp._mcp_server):
-        pass
+    async with Client(stdio_client(parameters), mode=mode) as client:
+        assert client.protocol_version == expected_protocol_version
+        tools = await client.list_tools()
+        listed = _payload(
+            await client.call_tool("list_rounds", {"folder": str(matter)})
+        )
 
-    assert len(observed_results) == 1
-    assert observed_results[0].serverInfo.name == "veqtor"
-    assert observed_results[0].serverInfo.version == __version__
+    assert tuple(tool.name for tool in tools.tools) == EXPECTED_TOOL_NAMES
+    assert listed["ordering_source"] == "filename_lexicographic_v1"
+    assert [round_["filename"] for round_ in listed["rounds"]] == sorted(
+        round_["filename"] for round_ in listed["rounds"]
+    )
+
+
+@pytest.mark.anyio
+async def test_modern_concurrent_calls_preserve_journal_identity(
+    tmp_path: Path,
+) -> None:
+    matter = tmp_path / "matter"
+    generate_demo_rounds(matter)
+
+    async with Client(mcp) as client:
+        results = await asyncio.gather(
+            *(
+                client.call_tool("list_rounds", {"folder": str(matter)})
+                for _ in range(8)
+            )
+        )
+
+    payloads = [_payload(result) for result in results]
+    written_ids = sorted(
+        payload["record_id"]
+        for payload in payloads
+        if payload["record_status"] == "written"
+    )
+    failures = [
+        {
+            "record_id": payload["record_id"],
+            "record_status": payload["record_status"],
+            "record_error": payload.get("record_error"),
+        }
+        for payload in payloads
+        if payload["record_status"] != "written"
+    ]
+    assert written_ids
+    assert all(
+        failure
+        == {
+            "record_id": None,
+            "record_status": "write_failed",
+            "record_error": "journal_busy",
+        }
+        for failure in failures
+    )
+
+    journal = records.read_records(
+        str(matter),
+        max_records=len(results),
+        include_payload=True,
+    )
+    expected_ids = [f"dr_{index:03d}" for index in range(1, len(written_ids) + 1)]
+    assert written_ids == expected_ids
+    assert journal["total_count"] == len(written_ids)
+    assert [record["record_id"] for record in journal["records"]] == expected_ids
+    assert all(record["tool_name"] == "list_rounds" for record in journal["records"])
 
 
 @pytest.mark.anyio
@@ -1119,7 +1216,7 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
         },
     }
 
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         tools = {tool.name: tool for tool in (await session.list_tools()).tools}
 
     assert set(tools) == records.WRITABLE_TOOL_NAMES
@@ -1129,15 +1226,15 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
         registered_tool = mcp._tool_manager.get_tool(name)
         assert registered_tool is not None
         assert registered_tool.fn_metadata.output_model is server._RESULT_MODELS[name]
-        assert server._RESULT_MODELS[name].contract_schema == tool.outputSchema
+        assert server._RESULT_MODELS[name].contract_schema == tool.output_schema
         assert tool.meta == {MCP_CONTRACT_META_KEY: MCP_CONTRACT_SCHEMA_VERSION}
-        assert tool.outputSchema is not None
-        assert tool.outputSchema[MCP_CONTRACT_SCHEMA_EXTENSION] == (
+        assert tool.output_schema is not None
+        assert tool.output_schema[MCP_CONTRACT_SCHEMA_EXTENSION] == (
             MCP_CONTRACT_SCHEMA_VERSION
         )
-        assert tool.outputSchema["type"] == "object"
-        assert expected_output_core[name] <= set(tool.outputSchema["properties"])
-        assert tool.outputSchema["properties"]["producer"] == {
+        assert tool.output_schema["type"] == "object"
+        assert expected_output_core[name] <= set(tool.output_schema["properties"])
+        assert tool.output_schema["properties"]["producer"] == {
             "type": "object",
             "properties": {
                 "name": {"const": "veqtor-mcp"},
@@ -1147,21 +1244,21 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
             "required": ["name", "version", "build"],
             "additionalProperties": False,
         }
-        assert "producer" in tool.outputSchema["required"]
-        assert tool.outputSchema["properties"]["record_id"] == {
+        assert "producer" in tool.output_schema["required"]
+        assert tool.output_schema["properties"]["record_id"] == {
             "anyOf": [
                 {"type": "string", "pattern": RECORD_ID_PATTERN},
                 {"type": "null"},
             ]
         }
-        assert tool.outputSchema["properties"]["record_error"] == {
+        assert tool.output_schema["properties"]["record_error"] == {
             "type": "string",
             "minLength": 1,
             "maxLength": 64,
             "pattern": RECORD_ERROR_PATTERN,
         }
-        assert "record_error" not in tool.outputSchema["required"]
-        metadata_variants = tool.outputSchema["allOf"][0]["oneOf"]
+        assert "record_error" not in tool.output_schema["required"]
+        metadata_variants = tool.output_schema["allOf"][0]["oneOf"]
         assert [
             item["properties"]["record_status"]["const"] for item in metadata_variants
         ] == ["written", "disabled", "write_failed"]
@@ -1173,13 +1270,13 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
         assert tool.annotations is not None
         # Every tool can append local provenance (export appends an access
         # event), so complete calls are neither read-only nor idempotent.
-        assert tool.annotations.readOnlyHint is False
-        assert tool.annotations.destructiveHint is False
-        assert tool.annotations.idempotentHint is False
-        assert tool.annotations.openWorldHint is False
+        assert tool.annotations.read_only_hint is False
+        assert tool.annotations.destructive_hint is False
+        assert tool.annotations.idempotent_hint is False
+        assert tool.annotations.open_world_hint is False
 
     for name in ("preflight_edits", "apply_edits"):
-        edit_schema = tools[name].inputSchema["properties"]["edits"]["items"]
+        edit_schema = tools[name].input_schema["properties"]["edits"]["items"]
         assert edit_schema["additionalProperties"] is False
         anchor_variants = edit_schema["properties"]["anchor"]["oneOf"]
         assert len(anchor_variants) == 2
@@ -1196,13 +1293,13 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
             "unit_fingerprint_sha256",
         }
 
-    verify_anchor = tools["verify_quote"].inputSchema["properties"]["anchor"]
+    verify_anchor = tools["verify_quote"].input_schema["properties"]["anchor"]
     assert len(verify_anchor["oneOf"]) == 3
     assert all(item["additionalProperties"] is False for item in verify_anchor["oneOf"])
     assert verify_anchor["oneOf"][2]["properties"]["schema_version"] == {
         "const": "paragraph_ref.v1"
     }
-    inspect_schema = tools["inspect_document"].inputSchema
+    inspect_schema = tools["inspect_document"].input_schema
     assert inspect_schema["properties"]["mode"]["enum"] == [
         "outline",
         "literal_search",
@@ -1214,7 +1311,7 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
     assert max_items_schema["minimum"] == 1
     assert max_items_schema["maximum"] == INSPECT_FIXED_LIMITS_V1["max_items"]
     assert max_items_schema["default"] == server.DEFAULT_INSPECT_MAX_ITEMS
-    assert tools["export_decision_record"].inputSchema["properties"]["max_records"][
+    assert tools["export_decision_record"].input_schema["properties"]["max_records"][
         "anyOf"
     ] == [
         {
@@ -1230,7 +1327,7 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
         "paragraph_ref",
         "section_ref",
     }
-    inspect_output = tools["inspect_document"].outputSchema
+    inspect_output = tools["inspect_document"].output_schema
     assert inspect_output["additionalProperties"] is True
     assert set(inspect_output["required"]) == {
         "mode",
@@ -1295,9 +1392,9 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
         "maximum": 100,
     }
     assert inspect_limits["properties"]["max_items"] == {"const": 100}
-    apply_schema = tools["apply_edits"].inputSchema
+    apply_schema = tools["apply_edits"].input_schema
     assert "preflight_proof" in apply_schema["required"]
-    assert "preflight_proof" in tools["preflight_edits"].outputSchema["required"]
+    assert "preflight_proof" in tools["preflight_edits"].output_schema["required"]
     proof_schema = apply_schema["properties"]["preflight_proof"]
     assert proof_schema["additionalProperties"] is False
     assert set(proof_schema["required"]) == {
@@ -1309,7 +1406,7 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
         "candidate_sha256",
         "proof_sha256",
     }
-    diagnostic_schema = tools["preflight_edits"].outputSchema["properties"]["edits"][
+    diagnostic_schema = tools["preflight_edits"].output_schema["properties"]["edits"][
         "items"
     ]
     assert diagnostic_schema["properties"]["position_status"]["enum"] == [
@@ -1318,7 +1415,7 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
         "not_evaluated",
     ]
     assert "position_supported" not in diagnostic_schema["properties"]
-    assert tools["preflight_edits"].outputSchema["properties"]["failure_phase"][
+    assert tools["preflight_edits"].output_schema["properties"]["failure_phase"][
         "anyOf"
     ][0]["enum"] == [
         "validation",
@@ -1331,15 +1428,15 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
         "preflight_binding",
         "publication",
     ]
-    ordered_filenames = tools["list_rounds"].inputSchema["properties"][
+    ordered_filenames = tools["list_rounds"].input_schema["properties"][
         "ordered_filenames"
     ]
     ordered_sequence_schema = next(
         branch for branch in ordered_filenames["anyOf"] if branch.get("type") == "array"
     )
     assert ordered_sequence_schema["items"] == {"type": "string"}
-    assert "ordered_filenames" not in tools["list_rounds"].inputSchema["required"]
-    assert tools["export_decision_record"].outputSchema["properties"][
+    assert "ordered_filenames" not in tools["list_rounds"].input_schema["required"]
+    assert tools["export_decision_record"].output_schema["properties"][
         "current_export_event"
     ]["properties"]["record_status"]["enum"] == [
         "written",
@@ -1347,7 +1444,7 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
         "write_failed",
     ]
     for tool_name in ("list_rounds", "extract_redlines"):
-        output_schema = tools[tool_name].outputSchema
+        output_schema = tools[tool_name].output_schema
         assert output_schema["properties"]["revision_count_basis"] == {
             "const": REVISION_COUNT_BASIS_V1
         }
@@ -1396,10 +1493,10 @@ async def test_mcp_rejects_coercible_non_integer_limits_before_execution(
         else {"workspace": str(matter), limit_name: malformed}
     )
 
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         response = await session.call_tool(tool_name, arguments)
 
-    assert response.isError is True
+    assert response.is_error is True
     assert "validation error" in _error_text(response).casefold()
     assert not (matter / records.SIDECAR_DIR / records.JOURNAL_NAME).exists()
 
@@ -1413,7 +1510,7 @@ async def test_mcp_strict_integer_limits_accept_real_integers(
     matter = tmp_path / "matter"
     generate_demo_rounds(matter)
 
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         inspected = await session.call_tool(
             "inspect_document",
             {
@@ -1430,14 +1527,14 @@ async def test_mcp_strict_integer_limits_accept_real_integers(
             },
         )
 
-    assert inspected.isError is False
+    assert inspected.is_error is False
     inspected_payload = _payload(inspected)
     assert inspected_payload["limits"]["requested_max_items"] == max_items
     assert inspected_payload["coverage"]["returned_item_count"] == min(
         max_items,
         inspected_payload["coverage"]["eligible_item_count"],
     )
-    assert exported.isError is False
+    assert exported.is_error is False
     assert _payload(exported)["returned_count"] == 1
 
 
@@ -1450,7 +1547,7 @@ async def test_mcp_rejects_out_of_range_max_items_before_execution(
     matter = tmp_path / "matter"
     generate_demo_rounds(matter)
 
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         response = await session.call_tool(
             "inspect_document",
             {
@@ -1460,7 +1557,7 @@ async def test_mcp_rejects_out_of_range_max_items_before_execution(
             },
         )
 
-    assert response.isError is True
+    assert response.is_error is True
     assert "validation error" in _error_text(response).casefold()
     assert not (matter / records.SIDECAR_DIR / records.JOURNAL_NAME).exists()
 
@@ -1477,13 +1574,13 @@ async def test_mcp_rejects_max_records_above_advertised_bound_before_execution(
     matter = tmp_path / "matter"
     generate_demo_rounds(matter)
 
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         response = await session.call_tool(
             "export_decision_record",
             {"workspace": str(matter), "max_records": invalid},
         )
 
-    assert response.isError is True
+    assert response.is_error is True
     assert "validation error" in _error_text(response).casefold()
     assert not (matter / records.SIDECAR_DIR / records.JOURNAL_NAME).exists()
 
@@ -1535,7 +1632,7 @@ async def test_inspect_transport_rejects_sha256_with_terminal_lf_before_success(
         return result
 
     monkeypatch.setattr(server.veqtor_docx, "inspect_document", invalid_hash_result)
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         response = await session.call_tool(
             "inspect_document",
             {
@@ -1544,7 +1641,7 @@ async def test_inspect_transport_rejects_sha256_with_terminal_lf_before_success(
             },
         )
 
-    assert response.isError is True
+    assert response.is_error is True
     assert "output_contract_error" in _error_text(response)
     raw = records.read_records(str(matter), max_records=10, include_payload=True)
     inspection_records = [
@@ -1579,7 +1676,7 @@ async def test_inspect_transport_rejects_schema_invalid_nested_output(
         "inspect_document",
         invalid_nested_result,
     )
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         response = await session.call_tool(
             "inspect_document",
             {
@@ -1592,7 +1689,7 @@ async def test_inspect_transport_rejects_schema_invalid_nested_output(
             {"workspace": str(demo_dir), "max_records": 10},
         )
 
-    assert response.isError is True
+    assert response.is_error is True
     error_text = _error_text(response)
     assert "output_contract_error" in error_text
     assert "tool output failed contract validation" in error_text
@@ -1615,7 +1712,7 @@ async def test_inspect_transport_rejects_schema_invalid_nested_output(
     assert sentinel not in json.dumps(inspection_records[0], ensure_ascii=False)
     assert nested_sentinel not in json.dumps(inspection_records[0], ensure_ascii=False)
 
-    assert exported_response.isError is False
+    assert exported_response.is_error is False
     exported = _payload(exported_response)
     compact_inspection = next(
         item for item in exported["records"] if item["tool_name"] == "inspect_document"
@@ -1654,13 +1751,13 @@ async def test_inspect_transport_rejects_producer_error_authority_without_succes
         return result
 
     monkeypatch.setattr(server.veqtor_docx, "inspect_document", spoofed_result)
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         response = await session.call_tool(
             "inspect_document",
             {"path": str(source), "mode": "browse", "max_items": 1},
         )
 
-    assert response.isError is True
+    assert response.is_error is True
     error_text = _error_text(response)
     assert "output_contract_error" in error_text
     assert private_text not in error_text
@@ -1734,10 +1831,10 @@ async def test_inspect_transport_rejects_semantic_mismatch_before_success_record
             phrases=["Except as set out in Clause 14.3"],
             match_basis="normalized_literal",
         )
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         response = await session.call_tool("inspect_document", arguments)
 
-    assert response.isError is True
+    assert response.is_error is True
     error_text = _error_text(response)
     assert "output_contract_error" in error_text
     assert "tool output failed contract validation" in error_text
@@ -1973,10 +2070,10 @@ async def test_invalid_trusted_record_error_is_sanitized_at_transport(
         },
     )
 
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         response = await session.call_tool("list_rounds", {"folder": str(demo_dir)})
 
-    assert response.isError is True
+    assert response.is_error is True
     error_text = _error_text(response)
     assert "output_contract_error" in error_text
     assert sentinel not in error_text
@@ -1997,13 +2094,13 @@ async def test_invalid_style_outline_is_error_recorded_before_mcp_validation(
         return styles.replace(marker, b'w:outlineLvl w:val="-1"', 1)
 
     _rewrite_docx_part(source, "word/styles.xml", make_outline_negative)
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         response = await session.call_tool(
             "inspect_document",
             {"path": str(source), "mode": "outline"},
         )
 
-    assert response.isError is True
+    assert response.is_error is True
     assert "file_unextractable" in _error_text(response)
     journal = records.read_records(str(matter), max_records=10, include_payload=True)
     inspection_records = [
@@ -2021,7 +2118,7 @@ async def test_surrogate_literal_phrase_is_a_stable_mcp_error(tmp_path: Path) ->
     generate_demo_rounds(matter)
     source = matter / "round-1-outgoing-draft.docx"
 
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         response = await session.call_tool(
             "inspect_document",
             {
@@ -2032,7 +2129,7 @@ async def test_surrogate_literal_phrase_is_a_stable_mcp_error(tmp_path: Path) ->
             },
         )
 
-    assert response.isError is True
+    assert response.is_error is True
     assert "invalid_phrase" in _error_text(response)
     journal = records.read_records(str(matter), max_records=10, include_payload=True)
     inspection_records = [
@@ -2051,7 +2148,7 @@ async def test_list_rounds_accepts_an_explicit_positional_manifest(
         (path.name for path in demo_dir.glob("*.docx")),
         reverse=True,
     )
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         listed = await session.call_tool(
             "list_rounds",
             {
@@ -2060,7 +2157,7 @@ async def test_list_rounds_accepts_an_explicit_positional_manifest(
             },
         )
 
-    assert not listed.isError
+    assert not listed.is_error
     payload = _payload(listed)
     assert [item["filename"] for item in payload["rounds"]] == ordered_filenames
     assert payload["ordering_source"] == "explicit_filename_sequence_v1"
@@ -2076,7 +2173,7 @@ async def test_verify_quote_rejects_anchor_fields_outside_closed_contract(
     demo_dir: Path,
 ) -> None:
     source = str(demo_dir / "round-2-counterparty-redline.docx")
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         extracted = _payload(
             await session.call_tool("extract_redlines", {"path": source})
         )
@@ -2090,7 +2187,7 @@ async def test_verify_quote_rejects_anchor_fields_outside_closed_contract(
             {"path": source, "anchor": anchor, "quote": "anything"},
         )
 
-    assert verified.isError
+    assert verified.is_error
     assert "invalid_anchor" in verified.content[0].text
 
 
@@ -2100,7 +2197,7 @@ async def test_inspect_document_and_paragraph_verify_are_hash_bound(
 ) -> None:
     source = str(demo_dir / "round-1-outgoing-draft.docx")
     phrase = "Except as set out in Clause 14.3"
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         inspected = await session.call_tool(
             "inspect_document",
             {
@@ -2111,7 +2208,7 @@ async def test_inspect_document_and_paragraph_verify_are_hash_bound(
                 "max_items": 1,
             },
         )
-        assert not inspected.isError
+        assert not inspected.is_error
         inspection = _payload(inspected)
         paragraph_ref = inspection["matches"][0]["paragraph_ref"]
         verified = await session.call_tool(
@@ -2123,7 +2220,7 @@ async def test_inspect_document_and_paragraph_verify_are_hash_bound(
             },
         )
 
-    assert not verified.isError
+    assert not verified.is_error
     assert inspection["record_status"] == "written"
     assert inspection["producer"] == server._producer()
     assert inspection["search_scope"] == "word_document_xml_body_v1"
@@ -2151,7 +2248,7 @@ async def test_verify_quote_accepts_policy_bound_change_unit_anchor(
     demo_dir: Path,
 ) -> None:
     source = str(demo_dir / "round-2-counterparty-redline.docx")
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         extracted = _payload(
             await session.call_tool("extract_redlines", {"path": source})
         )
@@ -2169,7 +2266,7 @@ async def test_verify_quote_accepts_policy_bound_change_unit_anchor(
             },
         )
 
-    assert not verified.isError
+    assert not verified.is_error
     payload = _payload(verified)
     assert payload["verdict"] == "exact"
     assert payload["checked_anchor"] == unit["anchor"]
@@ -2178,7 +2275,7 @@ async def test_verify_quote_accepts_policy_bound_change_unit_anchor(
 
 @pytest.mark.anyio
 async def test_tools_are_exposed_and_callable(demo_dir: Path) -> None:
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         tools = await session.list_tools()
         runtime_tools = {tool.name for tool in tools.tools}
         documented_tools = set(
@@ -2200,8 +2297,8 @@ async def test_tools_are_exposed_and_callable(demo_dir: Path) -> None:
         apply_tool = next(tool for tool in tools.tools if tool.name == "apply_edits")
         for tool_name in ("preflight_edits", "apply_edits"):
             tool = next(tool for tool in tools.tools if tool.name == tool_name)
-            assert "author" not in tool.inputSchema["properties"]
-        assert "include_payload" not in export_tool.inputSchema["properties"]
+            assert "author" not in tool.input_schema["properties"]
+        assert "include_payload" not in export_tool.input_schema["properties"]
         assert "actual expanded-output limits" in list_tool.description
         assert "split the folder and retry" in list_tool.description
         assert "without returning a partial round list" in list_tool.description
@@ -2222,7 +2319,7 @@ async def test_tools_are_exposed_and_callable(demo_dir: Path) -> None:
         )
 
         listed = await session.call_tool("list_rounds", {"folder": str(demo_dir)})
-        assert not listed.isError
+        assert not listed.is_error
         listed_payload = _payload(listed)
         assert listed_payload["record_status"] == "written"
         assert listed_payload["producer"] == server._producer()
@@ -2234,7 +2331,7 @@ async def test_tools_are_exposed_and_callable(demo_dir: Path) -> None:
         extracted = await session.call_tool(
             "extract_redlines", {"path": rounds[1]["path"]}
         )
-        assert not extracted.isError
+        assert not extracted.is_error
         assert _payload(extracted)["revision_count_basis"] == (REVISION_COUNT_BASIS_V1)
         payload = _payload(extracted)
         assert payload["record_status"] == "written"
@@ -2250,7 +2347,7 @@ async def test_tools_are_exposed_and_callable(demo_dir: Path) -> None:
         exported = await session.call_tool(
             "export_decision_record", {"workspace": str(demo_dir), "max_records": 2}
         )
-        assert not exported.isError
+        assert not exported.is_error
         export_payload = _payload(exported)
         assert export_payload["record_status"] == "written"
         assert export_payload["producer"] == server._producer()
@@ -2317,7 +2414,7 @@ async def test_stale_full_export_argument_never_returns_private_payload(
         == "written"
     )
 
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         exported = await session.call_tool(
             "export_decision_record",
             {
@@ -2327,7 +2424,7 @@ async def test_stale_full_export_argument_never_returns_private_payload(
             },
         )
 
-    assert not exported.isError
+    assert not exported.is_error
     payload = _payload(exported)
     assert payload["payloads"] == "compact"
     assert sentinel not in json.dumps(payload, ensure_ascii=False)
@@ -2351,13 +2448,13 @@ async def test_invalid_export_cursor_does_not_create_history(tmp_path: Path) -> 
     matter = tmp_path / "matter"
     matter.mkdir()
 
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         exported = await session.call_tool(
             "export_decision_record",
             {"workspace": str(matter), "before_record_id": "bad"},
         )
 
-    assert exported.isError
+    assert exported.is_error
     error_text = "\n".join(
         block.text for block in exported.content if hasattr(block, "text")
     )
@@ -2370,14 +2467,12 @@ async def test_export_workspace_discovery_states_are_path_safe_at_mcp_boundary(
     tmp_path: Path,
 ) -> None:
     async def export_error(workspace: Path) -> str:
-        async with create_connected_server_and_client_session(
-            mcp._mcp_server
-        ) as session:
+        async with Client(mcp) as session:
             result = await session.call_tool(
                 "export_decision_record",
                 {"workspace": str(workspace), "max_records": 10},
             )
-        assert result.isError
+        assert result.is_error
         return _error_text(result)
 
     uninitialized = tmp_path / "PRIVATE_EMPTY_MATTER"
@@ -2432,7 +2527,7 @@ async def test_export_workspace_discovery_states_are_path_safe_at_mcp_boundary(
 
 @pytest.mark.anyio
 async def test_apply_edits_tool_end_to_end(demo_dir: Path, tmp_path: Path) -> None:
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         source = str(demo_dir / "round-2-counterparty-redline.docx")
         extracted = _payload(
             await session.call_tool("extract_redlines", {"path": source})
@@ -2457,7 +2552,7 @@ async def test_apply_edits_tool_end_to_end(demo_dir: Path, tmp_path: Path) -> No
             "preflight_edits",
             {"source_path": source, "edits": edits},
         )
-        assert not preflighted.isError
+        assert not preflighted.is_error
         preflight_payload = _payload(preflighted)
         assert preflight_payload["record_status"] == "written"
         assert preflight_payload["batch_applicable"] is True
@@ -2479,7 +2574,7 @@ async def test_apply_edits_tool_end_to_end(demo_dir: Path, tmp_path: Path) -> No
                 "preflight_proof": preflight_payload["preflight_proof"],
             },
         )
-        assert not applied.isError
+        assert not applied.is_error
         payload = _payload(applied)
         assert payload["record_status"] == "written"
         assert payload["source_sha256"] == extracted["file_sha256"]
@@ -2515,7 +2610,7 @@ async def test_apply_edits_tool_end_to_end(demo_dir: Path, tmp_path: Path) -> No
                 "preflight_proof": preflight_payload["preflight_proof"],
             },
         )
-        assert broken.isError
+        assert broken.is_error
         assert not (tmp_path / "never.docx").exists()
 
 
@@ -2524,7 +2619,7 @@ async def test_invalid_xml_edit_text_is_recorded_as_preflight_refusal(
     demo_dir: Path,
 ) -> None:
     source = str(demo_dir / "round-2-counterparty-redline.docx")
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         extracted = _payload(
             await session.call_tool("extract_redlines", {"path": source})
         )
@@ -2550,7 +2645,7 @@ async def test_invalid_xml_edit_text_is_recorded_as_preflight_refusal(
             },
         )
 
-    assert not refused.isError
+    assert not refused.is_error
     payload = _payload(refused)
     assert payload["batch_applicable"] is False
     assert payload["failure_phase"] == "validation"
@@ -2588,7 +2683,7 @@ async def test_mcp_reinstate_preflight_rejects_present_insert_text_without_outpu
 
     source = str(demo_dir / "round-4-counterparty-reply.docx")
     output = tmp_path / "never.docx"
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         extracted = _payload(
             await session.call_tool("extract_redlines", {"path": source})
         )
@@ -2611,7 +2706,7 @@ async def test_mcp_reinstate_preflight_rejects_present_insert_text_without_outpu
             "preflight_edits", {"source_path": source, "edits": edits}
         )
 
-    assert not preflight.isError
+    assert not preflight.is_error
     payload = _payload(preflight)
     assert payload["batch_applicable"] is False
     assert payload["failure_phase"] == "validation"
@@ -2713,11 +2808,11 @@ def test_cli_version_and_doctor(monkeypatch, capsys) -> None:
 
 @pytest.mark.anyio
 async def test_tool_errors_are_reported_not_raised(demo_dir: Path) -> None:
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         broken = await session.call_tool(
             "list_rounds", {"folder": str(demo_dir / "nope")}
         )
-        assert broken.isError
+        assert broken.is_error
 
 
 @pytest.mark.anyio
@@ -2727,14 +2822,14 @@ async def test_round_scan_budget_overrun_is_a_stable_protocol_error(
 ) -> None:
     monkeypatch.setattr(rounds_module, "MAX_ROUND_TOTAL_EXPANDED_BYTES", 0)
 
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         result = await session.call_tool(
             "list_rounds",
             {"folder": str(demo_dir)},
         )
 
     text = _error_text(result)
-    assert result.isError
+    assert result.is_error
     assert "resource_limit_exceeded" in text
     assert "aggregate expanded-output limit" in text
     assert "split the folder and retry" in text
@@ -2808,7 +2903,7 @@ async def test_every_unexpected_tool_failure_is_sanitized_and_journaled(
         core_name,
         explode,
     )
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         result = await session.call_tool(tool_name, resolved_arguments)
     monkeypatch.setattr(
         core_owner,
@@ -2817,7 +2912,7 @@ async def test_every_unexpected_tool_failure_is_sanitized_and_journaled(
     )
 
     text = _error_text(result)
-    assert result.isError
+    assert result.is_error
     assert "internal_error" in text
     assert sentinel not in text
     raw = records.read_records(
@@ -2851,11 +2946,11 @@ async def test_post_core_failure_uses_the_same_sanitized_boundary(
         raise RuntimeError(sentinel)
 
     monkeypatch.setattr(server, "_list_rounds_provenance", explode)
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         result = await session.call_tool("list_rounds", {"folder": str(matter)})
 
     text = _error_text(result)
-    assert result.isError
+    assert result.is_error
     assert "internal_error" in text
     assert sentinel not in text
     raw = records.read_records(str(matter), max_records=10, include_payload=True)
@@ -2884,13 +2979,13 @@ async def test_export_permission_failure_never_exposes_the_workspace_path(
     assert str(error.value) == "workspace_unreadable: workspace cannot be read"
     assert sentinel not in str(error.value)
 
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         result = await session.call_tool(
             "export_decision_record",
             {"workspace": str(matter), "max_records": 10},
         )
     text = _error_text(result)
-    assert result.isError
+    assert result.is_error
     assert "workspace_unreadable" in text
     assert sentinel not in text
     assert str(matter) not in text
@@ -2919,14 +3014,14 @@ async def test_decision_record_refusals_are_path_free_at_mcp_boundary(
     else:
         sidecar.write_text("private", encoding="utf-8")
 
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         result = await session.call_tool(
             "export_decision_record",
             {"workspace": str(matter), "max_records": 10},
         )
 
     text = _error_text(result)
-    assert result.isError
+    assert result.is_error
     assert expected_code in text
     assert "decision-record operation refused" in text
     assert str(matter) not in text
@@ -2963,11 +3058,11 @@ async def test_decision_record_refusals_are_path_free_at_mcp_boundary(
 async def test_unresolvable_mcp_paths_are_stable_tool_errors(
     tool_name: str, arguments: dict
 ) -> None:
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         result = await session.call_tool(tool_name, arguments)
 
     text = "\n".join(block.text for block in result.content if hasattr(block, "text"))
-    assert result.isError
+    assert result.is_error
     assert "invalid_path" in text
     assert "embedded null byte" not in text
     assert "lstat" not in text
@@ -2992,7 +3087,7 @@ async def test_surrogate_corrupt_journal_is_a_controlled_tool_error(
     record["producer"]["build"] = "\udcff"
     journal.write_text(json.dumps(record) + "\n", encoding="utf-8")
 
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         exported = await session.call_tool(
             "export_decision_record",
             {"workspace": str(matter), "max_records": 10},
@@ -3001,7 +3096,7 @@ async def test_surrogate_corrupt_journal_is_a_controlled_tool_error(
     error_text = "\n".join(
         block.text for block in exported.content if hasattr(block, "text")
     )
-    assert exported.isError
+    assert exported.is_error
     assert "journal_corrupt" in error_text
     assert "decision-record operation refused" in error_text
     assert str(journal) not in error_text
@@ -3025,7 +3120,7 @@ async def test_unterminated_journal_is_a_controlled_tool_error(
     journal = matter / records.SIDECAR_DIR / records.JOURNAL_NAME
     journal.write_bytes(journal.read_bytes().removesuffix(b"\n"))
 
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         exported = await session.call_tool(
             "export_decision_record",
             {"workspace": str(matter), "max_records": 10},
@@ -3034,7 +3129,7 @@ async def test_unterminated_journal_is_a_controlled_tool_error(
     error_text = "\n".join(
         block.text for block in exported.content if hasattr(block, "text")
     )
-    assert exported.isError
+    assert exported.is_error
     assert "journal_corrupt" in error_text
     assert "decision-record operation refused" in error_text
     assert str(journal) not in error_text
@@ -3071,7 +3166,7 @@ async def test_decoder_limit_failures_are_controlled_tool_errors(
     journal = sidecar / records.JOURNAL_NAME
     journal.write_bytes(payload + b"\n")
 
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+    async with Client(mcp) as session:
         exported = await session.call_tool(
             "export_decision_record",
             {"workspace": str(matter), "max_records": 10},
@@ -3080,7 +3175,7 @@ async def test_decoder_limit_failures_are_controlled_tool_errors(
     error_text = "\n".join(
         block.text for block in exported.content if hasattr(block, "text")
     )
-    assert exported.isError
+    assert exported.is_error
     assert "journal_corrupt" in error_text
     assert "decision-record operation refused" in error_text
     assert not any(reason in error_text for reason in reasons)
