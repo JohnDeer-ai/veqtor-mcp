@@ -1216,6 +1216,7 @@ def test_incomplete_change_unit_anchor_v2_is_omitted_from_compact_sample() -> No
     reprojected = records._summary_provenance(
         {
             "tool_name": "extract_redlines",
+            "record_type": "tool_observation.v1",
             "result": {"status": "ok"},
             "provenance": {"anchors": prebounded},
         }
@@ -4134,6 +4135,7 @@ def test_all_compact_array_projections_filter_invalid_items() -> None:
     records_to_project = [
         {
             "tool_name": "list_rounds",
+            "record_type": "tool_observation.v1",
             "result": {
                 "status": "ok",
                 "folder": "/matter",
@@ -4143,6 +4145,7 @@ def test_all_compact_array_projections_filter_invalid_items() -> None:
         },
         {
             "tool_name": "apply_edits",
+            "record_type": "decision.v1",
             "result": {
                 "status": "ok",
                 "output_sha256": "a" * 64,
@@ -4158,6 +4161,7 @@ def test_all_compact_array_projections_filter_invalid_items() -> None:
         },
         {
             "tool_name": "verify_quote",
+            "record_type": "verification.v1",
             "result": {
                 "status": "ok",
                 "verdict": "exact",
@@ -4247,6 +4251,7 @@ def test_revision_count_basis_survives_current_compact_projections() -> None:
     for tool_name in ("list_rounds", "extract_redlines"):
         record = {
             "tool_name": tool_name,
+            "record_type": "tool_observation.v1",
             "result": {"status": "ok", "revision_count_basis": basis},
             "provenance": {"revision_count_basis": basis},
         }
@@ -4255,6 +4260,7 @@ def test_revision_count_basis_survives_current_compact_projections() -> None:
 
         legacy_record = {
             "tool_name": tool_name,
+            "record_type": "tool_observation.v1",
             "result": {"status": "ok"},
             "provenance": {},
         }
@@ -4357,7 +4363,15 @@ def test_result_collection_call_sites_preserve_invalid_value_digests() -> None:
     ]
 
     for tool_name, result, field in cases:
-        projected = records._summary_result({"tool_name": tool_name, "result": result})
+        projected = records._summary_result(
+            {
+                "tool_name": tool_name,
+                "record_type": records.V1_HISTORICAL_TOOL_SPECS[
+                    tool_name
+                ].record_type,
+                "result": result,
+            }
+        )
         assert projected[field] == {
             "count": None,
             "sha256": records._stable_digest(sentinel),
@@ -4372,6 +4386,7 @@ def test_provenance_collection_call_sites_preserve_invalid_value_digests() -> No
         (
             {
                 "tool_name": "extract_redlines",
+                "record_type": "tool_observation.v1",
                 "result": {"status": "ok"},
                 "provenance": {"anchors": sentinel},
             },
@@ -4380,6 +4395,7 @@ def test_provenance_collection_call_sites_preserve_invalid_value_digests() -> No
         (
             {
                 "tool_name": "apply_edits",
+                "record_type": "decision.v1",
                 "result": {"status": "ok"},
                 "provenance": {"applied": sentinel},
             },
@@ -4388,6 +4404,7 @@ def test_provenance_collection_call_sites_preserve_invalid_value_digests() -> No
         (
             {
                 "tool_name": "list_rounds",
+                "record_type": "tool_observation.v1",
                 "result": {"status": "ok"},
                 "provenance": {"rounds": sentinel},
             },
@@ -4648,6 +4665,7 @@ def test_compact_export_marks_invalid_prebounded_anchor_snapshots_incomplete(
     projected = records._summary_provenance(
         {
             "tool_name": "extract_redlines",
+            "record_type": "tool_observation.v1",
             "result": {"status": "ok"},
             "provenance": {"anchors": snapshot},
         }
@@ -5090,10 +5108,12 @@ def test_compact_projection_never_copies_unvalidated_scalars() -> None:
     result_records = [
         {
             "tool_name": "list_rounds",
+            "record_type": "tool_observation.v1",
             "result": {"status": sentinel, "rounds": [], "skipped": []},
         },
         {
             "tool_name": "extract_redlines",
+            "record_type": "tool_observation.v1",
             "result": {
                 "status": "ok",
                 "revision_count": sentinel,
@@ -5103,6 +5123,7 @@ def test_compact_projection_never_copies_unvalidated_scalars() -> None:
         },
         {
             "tool_name": "apply_edits",
+            "record_type": "decision.v1",
             "result": {
                 "status": sentinel,
                 "round_trip_check": {
@@ -5113,6 +5134,7 @@ def test_compact_projection_never_copies_unvalidated_scalars() -> None:
         },
         {
             "tool_name": "verify_quote",
+            "record_type": "verification.v1",
             "result": {
                 "status": sentinel,
                 "verdict": sentinel,
@@ -5121,6 +5143,7 @@ def test_compact_projection_never_copies_unvalidated_scalars() -> None:
         },
         {
             "tool_name": "export_decision_record",
+            "record_type": records.ACCESS_RECORD_TYPE,
             "result": {
                 "status": sentinel,
                 "total_count": sentinel,
@@ -5133,6 +5156,7 @@ def test_compact_projection_never_copies_unvalidated_scalars() -> None:
         },
         {
             "tool_name": "apply_edits",
+            "record_type": "decision.v1",
             "result": {
                 "status": "error",
                 "error_code": sentinel,
@@ -5590,7 +5614,23 @@ def test_v1_historical_tool_specs_are_frozen_and_cover_writable_tools() -> None:
     }
 
     assert actual == expected
-    assert records.WRITABLE_TOOL_NAMES <= records.V1_HISTORICAL_TOOL_SPECS.keys()
+    assert dict(records.WRITABLE_TOOL_SPECS) == dict(
+        records.V1_HISTORICAL_TOOL_SPECS
+    )
+    assert records.WRITABLE_TOOL_NAMES == records.V1_HISTORICAL_TOOL_SPECS.keys()
+    assert set(records.HISTORICAL_RECORD_SPECS) == {
+        (tool_name, record_type)
+        for tool_name, (record_type, _projection_kind) in expected.items()
+    }
+    assert records._historical_record_spec(
+        "verify_quote", "verification.v1"
+    ).projection_kind == "verify_quote"
+    assert records._historical_record_spec(
+        "preflight_edits", "verification.v1"
+    ).projection_kind == "preflight_edits"
+
+    with pytest.raises(records._RecordSchemaError, match="^invalid record_type$"):
+        records._historical_record_spec("verify_quote", "verification.v2")
 
 
 def test_api_historical_pair_list_matches_v1_registry() -> None:
@@ -6239,12 +6279,19 @@ def test_golden_v1_journal_stays_readable_and_appendable(tmp_path: Path) -> None
     )
     journal = sidecar / records.JOURNAL_NAME
     fixture_bytes = fixture.read_bytes()
+    expected_projection_bytes = expected_projection.read_bytes()
+    assert len(fixture_bytes) == 7_517
+    assert hashlib.sha256(fixture_bytes).hexdigest() == (
+        "5a433986983cb399ef399c26801e781061acc74c2330825eb34ca60658be3f61"
+    )
+    assert len(expected_projection_bytes) == 13_098
+    assert hashlib.sha256(expected_projection_bytes).hexdigest() == (
+        "f2139ffe23d0080314c58389a875a434ca05141825c928a2078264c61d268601"
+    )
     stored_records = [
         json.loads(line) for line in fixture_bytes.decode("utf-8").splitlines()
     ]
-    expected_compact_records = json.loads(
-        expected_projection.read_text(encoding="utf-8")
-    )
+    expected_compact_records = json.loads(expected_projection_bytes)
     journal.write_bytes(fixture_bytes)
 
     full = records.read_records(
@@ -6339,13 +6386,24 @@ def test_unknown_tool_is_refused_before_sidecar_creation(tmp_path: Path) -> None
             "record_type does not match tool_name",
         ),
         (
+            "verify_quote",
+            "verify_quote",
+            "decision.v1",
+            "record_type does not match tool_name",
+        ),
+        (
             "list_rounds",
             "probe",
             "tool_observation.v1",
             "invalid tool_name",
         ),
     ],
-    ids=["substantive_as_access", "access_as_substantive", "unknown_tool"],
+    ids=[
+        "substantive_as_access",
+        "access_as_substantive",
+        "verification_as_decision",
+        "unknown_tool",
+    ],
 )
 def test_semantically_invalid_tool_type_pair_is_corrupt_and_blocks_append(
     tmp_path: Path,

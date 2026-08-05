@@ -167,6 +167,74 @@ def _read_error(
     return VerifyError(code, detail, **metadata)
 
 
+def _resolve_change_unit(
+    anchor_kind: str,
+    anchor: dict,
+    extraction: dict,
+) -> tuple[dict, dict]:
+    """Resolve one change-unit anchor against one already captured extraction."""
+    claimed_sha = anchor.get("file_sha256")
+    actual_sha = extraction["file_sha256"]
+    if claimed_sha != actual_sha:
+        raise VerifyError(
+            "file_sha256_mismatch",
+            "anchor was produced from a different file than path",
+            claimed_source_sha256=claimed_sha,
+            observed_source_sha256=actual_sha,
+        )
+    container_policy = extraction["revision_inventory"].get("container_policy", {})
+    if anchor_kind == "legacy_change_unit" and not container_policy.get(
+        "legacy_two_field_anchor_safe", False
+    ):
+        raise VerifyError(
+            "legacy_anchor_ambiguous",
+            "the two-field anchor predates canonical container filtering; "
+            "re-extract and use the policy-bound v0.3 anchor",
+            claimed_source_sha256=claimed_sha,
+            observed_source_sha256=actual_sha,
+        )
+    unit_id = anchor["change_unit_id"]
+    unit = next(
+        (u for u in extraction["change_units"] if u["change_unit_id"] == unit_id),
+        None,
+    )
+    if unit is None:
+        raise VerifyError(
+            "anchor_not_found",
+            f"{unit_id} is not a change unit of the file",
+            claimed_source_sha256=claimed_sha,
+            observed_source_sha256=actual_sha,
+        )
+
+    if anchor_kind == "change_unit_v2":
+        observed_anchor = unit.get("anchor") or {}
+        observed_fingerprint = change_unit_fingerprint_sha256(unit)
+        if anchor.get("container_policy") != container_policy.get("schema_version"):
+            raise VerifyError(
+                "anchor_policy_mismatch",
+                "anchor container policy does not match the source snapshot",
+                claimed_source_sha256=claimed_sha,
+                observed_source_sha256=actual_sha,
+            )
+        if (
+            anchor.get("unit_fingerprint_sha256") != observed_fingerprint
+            or observed_anchor.get("unit_fingerprint_sha256") != observed_fingerprint
+        ):
+            raise VerifyError(
+                "anchor_fingerprint_mismatch",
+                "anchor structural/unit fingerprint does not match the source",
+                claimed_source_sha256=claimed_sha,
+                observed_source_sha256=actual_sha,
+            )
+
+    checked_anchor = (
+        dict(unit["anchor"])
+        if anchor_kind == "change_unit_v2"
+        else {"change_unit_id": unit_id, "file_sha256": actual_sha}
+    )
+    return unit, checked_anchor
+
+
 def _verdict(
     *,
     quote: str,
@@ -288,8 +356,6 @@ def verify_quote(path: str, anchor: dict, quote: str) -> dict:
     if anchor_kind == "paragraph":
         return _verify_paragraph(resolved, anchor, quote)
 
-    unit_id = anchor["change_unit_id"]
-
     # One snapshot for everything: extract_redlines reads the file exactly
     # once and derives file_sha256 from the same bytes as the facts, so the
     # verdict and checked_anchor can never describe different content.
@@ -301,63 +367,7 @@ def verify_quote(path: str, anchor: dict, quote: str) -> dict:
             resolved=resolved,
             claimed_sha=claimed_sha,
         ) from exc
-    actual_sha = extraction["file_sha256"]
-    if claimed_sha != actual_sha:
-        raise VerifyError(
-            "file_sha256_mismatch",
-            "anchor was produced from a different file than path",
-            claimed_source_sha256=claimed_sha,
-            observed_source_sha256=actual_sha,
-        )
-    container_policy = extraction["revision_inventory"].get("container_policy", {})
-    if anchor_kind == "legacy_change_unit" and not container_policy.get(
-        "legacy_two_field_anchor_safe", False
-    ):
-        raise VerifyError(
-            "legacy_anchor_ambiguous",
-            "the two-field anchor predates canonical container filtering; "
-            "re-extract and use the policy-bound v0.3 anchor",
-            claimed_source_sha256=claimed_sha,
-            observed_source_sha256=actual_sha,
-        )
-    unit = next(
-        (u for u in extraction["change_units"] if u["change_unit_id"] == unit_id),
-        None,
-    )
-    if unit is None:
-        raise VerifyError(
-            "anchor_not_found",
-            f"{unit_id} is not a change unit of the file",
-            claimed_source_sha256=claimed_sha,
-            observed_source_sha256=actual_sha,
-        )
-
-    if anchor_kind == "change_unit_v2":
-        observed_anchor = unit.get("anchor") or {}
-        observed_fingerprint = change_unit_fingerprint_sha256(unit)
-        if anchor.get("container_policy") != container_policy.get("schema_version"):
-            raise VerifyError(
-                "anchor_policy_mismatch",
-                "anchor container policy does not match the source snapshot",
-                claimed_source_sha256=claimed_sha,
-                observed_source_sha256=actual_sha,
-            )
-        if (
-            anchor.get("unit_fingerprint_sha256") != observed_fingerprint
-            or observed_anchor.get("unit_fingerprint_sha256") != observed_fingerprint
-        ):
-            raise VerifyError(
-                "anchor_fingerprint_mismatch",
-                "anchor structural/unit fingerprint does not match the source",
-                claimed_source_sha256=claimed_sha,
-                observed_source_sha256=actual_sha,
-            )
-
-    checked_anchor = (
-        dict(unit["anchor"])
-        if anchor_kind == "change_unit_v2"
-        else {"change_unit_id": unit_id, "file_sha256": actual_sha}
-    )
+    unit, checked_anchor = _resolve_change_unit(anchor_kind, anchor, extraction)
     # Deterministic preference: the new reading first, then the prior one.
     sides = [
         (MATCH_SIDE_NEW, unit["new_text"]),

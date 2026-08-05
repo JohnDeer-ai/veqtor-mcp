@@ -68,6 +68,7 @@ DEVELOPMENT_RUNTIME_SOURCE_FILES = (
     "src/veqtor_docx/_projection.py",
     "src/veqtor_mcp/_history_io.py",
     "src/veqtor_mcp/_history_resolution.py",
+    "src/veqtor_mcp/_verification_v2.py",
 )
 
 MCPB_REQUIRED_TOOLS = (
