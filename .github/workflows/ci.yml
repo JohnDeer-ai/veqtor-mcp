@@ -230,8 +230,9 @@ jobs:
           VEQTOR_TRACKED_CHANGE_AUTHOR: Veqtor MCPB CI
           VEQTOR_SMOKE_MATTER: ${{ runner.temp }}/veqtor-mcpb-smoke-demo
         run: |
-          cp -R "$RUNNER_TEMP/veqtor-mcpb-stage/demo" \
-            "$RUNNER_TEMP/veqtor-mcpb-smoke-demo"
+          mkdir "$RUNNER_TEMP/veqtor-mcpb-smoke-demo"
+          cp "$RUNNER_TEMP"/veqtor-mcpb-stage/demo/*.docx \
+            "$RUNNER_TEMP/veqtor-mcpb-smoke-demo/"
           uv run --frozen --no-dev \
             --directory "$RUNNER_TEMP/veqtor-mcpb-stage" \
             veqtor-mcp --version

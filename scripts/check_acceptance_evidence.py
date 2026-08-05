@@ -12,10 +12,17 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from release_contract import FIVE_EDIT_OUTPUT_SHA256, MCPB_REQUIRED_TOOLS, VERSION
+from release_contract import (
+    FIVE_EDIT_OUTPUT_SHA256,
+    MCPB_REQUIRED_TOOLS,
+    PREVIOUS_PUBLIC_MCPB_SHA256,
+    PREVIOUS_PUBLIC_MCPB_TOOLS,
+    PREVIOUS_PUBLIC_VERSION,
+    VERSION,
+)
 
 
-SCHEMA_VERSION = "veqtor_release_acceptance.v5"
+SCHEMA_VERSION = "veqtor_release_acceptance.v6"
 MAX_EVIDENCE_BYTES = 64 * 1024
 MAX_PACKET_INTEGER_DIGITS = 128
 HEX = frozenset("0123456789abcdef")
@@ -66,6 +73,11 @@ def _exact_count(value: Any, expected: int, location: str) -> int:
 def _passed(value: Any, location: str) -> None:
     if value != "passed":
         raise EvidenceError(f"{location} did not pass")
+
+
+def _boolean(value: Any, expected: bool, location: str) -> None:
+    if value is not expected:
+        raise EvidenceError(f"{location} does not equal {expected}")
 
 
 def _version(
@@ -234,7 +246,7 @@ def validate_evidence(
         {
             "verdict",
             "client",
-            "fresh_copy",
+            "fresh_user_profile",
             "event_omitted_from_records",
             "current_event_not_in_access_count",
             "raw_vs_compact_explained",
@@ -247,8 +259,8 @@ def validate_evidence(
     )
     if (
         desktop["verdict"] != "passed"
-        or desktop["client"] != "claude_desktop_fresh_copy"
-        or desktop["fresh_copy"] is not True
+        or desktop["client"] != "claude_desktop_fresh_user_profile"
+        or desktop["fresh_user_profile"] is not True
         or desktop["event_omitted_from_records"] is not True
         or desktop["current_event_not_in_access_count"] is not True
         or desktop["raw_vs_compact_explained"] is not True
@@ -258,9 +270,7 @@ def validate_evidence(
         raise EvidenceError("Desktop runtime build does not equal the source tree")
     if desktop["runtime_version"] != VERSION:
         raise EvidenceError("Desktop runtime version does not equal the candidate")
-    _hex_digest(
-        desktop["transcript_sha256"], 64, "desktop_rehearsal.transcript_sha256"
-    )
+    _hex_digest(desktop["transcript_sha256"], 64, "desktop_rehearsal.transcript_sha256")
     _hex_digest(
         desktop["raw_journal_sha256"],
         64,
@@ -271,17 +281,18 @@ def validate_evidence(
         packet["desktop_extension"],
         {
             "artifact_sha256",
+            "artifact_origin",
             "installation_channel",
             "platform",
             "client",
             "client_version",
             "platform_version",
-            "manual_uv_install_absent",
-            "manual_python_install_absent",
+            "environment",
             "host_managed_uv_runtime_confirmed",
             "tracked_change_author_confirmed",
             "extension_enabled_confirmed",
             "server_connected_confirmed",
+            "english_scenario_completed",
             "visible_tools",
             "called_tools",
             "runtime_producer_build",
@@ -289,6 +300,10 @@ def validate_evidence(
             "demo_round_count",
             "bundled_demo_prompt_completed",
             "inspection_map",
+            "history_trace",
+            "verify_quote_v2",
+            "compact_privacy",
+            "stdio_lifecycle",
             "post_apply_list_rounds_status",
             "post_apply_round_count",
             "source_sha256_unchanged",
@@ -296,40 +311,59 @@ def validate_evidence(
             "output_sha256_matches_reextract",
             "session_transcript_sha256",
             "demo_journal_sha256",
-            "lifecycle_scenario",
-            "fresh_install_status",
-            "upgrade_status",
-            "rollback_status",
-            "reinstall_same_artifact_status",
-            "uninstall_status",
-            "post_uninstall_tools_absent",
+            "lifecycle",
         },
         "desktop_extension",
     )
-    _hex_digest(
+    candidate_artifact_digest = _hex_digest(
         extension["artifact_sha256"],
         64,
         "desktop_extension.artifact_sha256",
     )
     if (
-        extension["installation_channel"] != "direct_download_mcpb"
+        extension["artifact_origin"] != "successful_main_ci_artifact"
+        or extension["installation_channel"] != "direct_download_mcpb"
         or extension["platform"] != "darwin"
-        or extension["client"] != "claude_desktop_fresh_copy"
-        or extension["manual_uv_install_absent"] is not True
-        or extension["manual_python_install_absent"] is not True
-        or extension["host_managed_uv_runtime_confirmed"] is not True
-        or extension["tracked_change_author_confirmed"] is not True
-        or extension["extension_enabled_confirmed"] is not True
-        or extension["server_connected_confirmed"] is not True
-        or extension["bundled_demo_prompt_completed"] is not True
-        or extension["lifecycle_scenario"] != "first_public_mcpb"
-        or extension["upgrade_status"]
-        != "not_applicable_first_public_mcpb"
-        or extension["rollback_status"]
-        != "not_applicable_no_prior_public_mcpb"
-        or extension["post_uninstall_tools_absent"] is not True
+        or extension["client"] != "claude_desktop_fresh_user_profile"
     ):
-        raise EvidenceError("Claude Desktop extension activation did not pass")
+        raise EvidenceError("Claude Desktop extension identity differs")
+    environment = _exact_keys(
+        extension["environment"],
+        {
+            "kind",
+            "physical_host",
+            "clean_physical_mac_claimed",
+            "fresh_user_profile",
+            "preexisting_veqtor_user_state_absent",
+            "repository_checkout_absent",
+            "manual_server_configuration_absent",
+            "developer_runtime_used",
+        },
+        "desktop_extension.environment",
+    )
+    if (
+        environment["kind"] != "fresh_isolated_standard_macos_user_v1"
+        or environment["physical_host"] != "maintainer_mac"
+    ):
+        raise EvidenceError("Desktop acceptance environment identity differs")
+    for field in (
+        "fresh_user_profile",
+        "preexisting_veqtor_user_state_absent",
+        "repository_checkout_absent",
+        "manual_server_configuration_absent",
+    ):
+        _boolean(environment[field], True, f"desktop_extension.environment.{field}")
+    for field in ("clean_physical_mac_claimed", "developer_runtime_used"):
+        _boolean(environment[field], False, f"desktop_extension.environment.{field}")
+    for field in (
+        "host_managed_uv_runtime_confirmed",
+        "tracked_change_author_confirmed",
+        "extension_enabled_confirmed",
+        "server_connected_confirmed",
+        "english_scenario_completed",
+        "bundled_demo_prompt_completed",
+    ):
+        _boolean(extension[field], True, f"desktop_extension.{field}")
     _version(
         extension["client_version"],
         pattern=_CLIENT_VERSION_PATTERN,
@@ -352,9 +386,7 @@ def validate_evidence(
         raise EvidenceError(
             "Desktop extension runtime version does not equal the candidate"
         )
-    _exact_count(
-        extension["demo_round_count"], 4, "desktop_extension.demo_round_count"
-    )
+    _exact_count(extension["demo_round_count"], 4, "desktop_extension.demo_round_count")
     inspection_map = _exact_keys(
         extension["inspection_map"],
         {
@@ -402,6 +434,206 @@ def validate_evidence(
         "supporting_current_count": 1,
     }:
         raise EvidenceError("Desktop inspection and Round Map acceptance differs")
+    for field, expected in {
+        "candidate_document_count": 5,
+        "exact_content_equality_count": 4,
+        "navigation_candidate_count": 0,
+        "recorded_derivation_count": 1,
+        "ambiguous_count": 0,
+        "exact_unique_count": 4,
+        "unresolved_count": 1,
+        "supporting_record_count": 1,
+        "supporting_current_count": 1,
+    }.items():
+        _exact_count(
+            inspection_map[field], expected, f"desktop_extension.inspection_map.{field}"
+        )
+    for field, expected in {
+        "scan_complete": True,
+        "derivation_recorded": True,
+        "lineage_verified": False,
+        "chronology_verified": False,
+    }.items():
+        _boolean(
+            inspection_map[field], expected, f"desktop_extension.inspection_map.{field}"
+        )
+
+    history = _exact_keys(
+        extension["history_trace"],
+        {
+            "schema_version",
+            "status",
+            "record_status",
+            "ordering_source",
+            "result_order",
+            "candidate_document_count",
+            "returned_observation_count",
+            "selected_paragraph_count",
+            "exact_unique_count",
+            "ambiguous_count",
+            "unresolved_count",
+            "rejected_projection_equality_count",
+            "next_cursor_absent",
+            "seed_deletion_change_unit_present",
+            "seed_deletion_author_literal_is_53",
+            "change_units_restricted_to_selected_paragraph",
+            "authorship_verified",
+            "time_verified",
+            "selected_relationships_lineage_verified",
+            "chronology_verified",
+            "semantic_identity_verified",
+        },
+        "desktop_extension.history_trace",
+    )
+    if (
+        history["schema_version"] != "paragraph_history.v1"
+        or history["status"] != "ok"
+        or history["record_status"] != "written"
+        or history["ordering_source"] != "filename_lexicographic_v1"
+        or history["result_order"] != "seed_then_descending_position_v1"
+    ):
+        raise EvidenceError("Desktop history trace identity differs")
+    for field, expected in {
+        "candidate_document_count": 4,
+        "returned_observation_count": 4,
+        "selected_paragraph_count": 4,
+        "exact_unique_count": 3,
+        "ambiguous_count": 0,
+        "unresolved_count": 0,
+        "rejected_projection_equality_count": 3,
+    }.items():
+        _exact_count(
+            history[field], expected, f"desktop_extension.history_trace.{field}"
+        )
+    for field in (
+        "next_cursor_absent",
+        "seed_deletion_change_unit_present",
+        "seed_deletion_author_literal_is_53",
+        "change_units_restricted_to_selected_paragraph",
+    ):
+        _boolean(history[field], True, f"desktop_extension.history_trace.{field}")
+    for field in (
+        "authorship_verified",
+        "time_verified",
+        "selected_relationships_lineage_verified",
+        "chronology_verified",
+        "semantic_identity_verified",
+    ):
+        _boolean(history[field], False, f"desktop_extension.history_trace.{field}")
+
+    verification = _exact_keys(
+        extension["verify_quote_v2"],
+        {
+            "schema_version",
+            "verdict",
+            "exact",
+            "record_status",
+            "checked_projection_schema_version",
+            "checked_projection_mode",
+            "checked_projection_status",
+            "match_count",
+            "match_side",
+            "diff_count",
+            "checked_anchor_matches_history_seed",
+            "projection_sha256_matches_history",
+        },
+        "desktop_extension.verify_quote_v2",
+    )
+    if verification != {
+        "schema_version": "verification_result.v2",
+        "verdict": "exact",
+        "exact": True,
+        "record_status": "written",
+        "checked_projection_schema_version": "verified_paragraph_projection.v1",
+        "checked_projection_mode": "pending_text_revisions_rejected_v1",
+        "checked_projection_status": "complete",
+        "match_count": 1,
+        "match_side": "paragraph_rejected_pending",
+        "diff_count": 0,
+        "checked_anchor_matches_history_seed": True,
+        "projection_sha256_matches_history": True,
+    }:
+        raise EvidenceError("Desktop verify_quote v2 acceptance differs")
+    _exact_count(
+        verification["match_count"], 1, "desktop_extension.verify_quote_v2.match_count"
+    )
+    _exact_count(
+        verification["diff_count"], 0, "desktop_extension.verify_quote_v2.diff_count"
+    )
+    for field in (
+        "exact",
+        "checked_anchor_matches_history_seed",
+        "projection_sha256_matches_history",
+    ):
+        _boolean(
+            verification[field],
+            True,
+            f"desktop_extension.verify_quote_v2.{field}",
+        )
+
+    privacy = _exact_keys(
+        extension["compact_privacy"],
+        {
+            "export_record_status",
+            "export_payloads",
+            "history_record_type",
+            "verification_record_type",
+            "history_record_present",
+            "verification_record_present",
+            "history_raw_path_text_author_absent",
+            "history_compact_path_text_author_absent",
+            "verification_compact_path_text_clause_absent",
+            "history_snapshot_digests_match_live",
+            "verification_projection_hashes_match_live",
+        },
+        "desktop_extension.compact_privacy",
+    )
+    if (
+        privacy["export_record_status"] != "written"
+        or privacy["export_payloads"] != "compact"
+        or privacy["history_record_type"] != "paragraph_history.v1"
+        or privacy["verification_record_type"] != "verification.v2"
+    ):
+        raise EvidenceError("Desktop compact privacy identity differs")
+    for field in (
+        "history_record_present",
+        "verification_record_present",
+        "history_raw_path_text_author_absent",
+        "history_compact_path_text_author_absent",
+        "verification_compact_path_text_clause_absent",
+        "history_snapshot_digests_match_live",
+        "verification_projection_hashes_match_live",
+    ):
+        _boolean(privacy[field], True, f"desktop_extension.compact_privacy.{field}")
+
+    stdio_lifecycle = _exact_keys(
+        extension["stdio_lifecycle"],
+        {
+            "client_request_abandonment_status",
+            "cancellation_notification_status",
+            "post_cancellation_session_recovery_status",
+            "server_work_cancellation_verified",
+            "cancelled_request_side_effect_absence_verified",
+            "process_teardown_status",
+        },
+        "desktop_extension.stdio_lifecycle",
+    )
+    for field in (
+        "client_request_abandonment_status",
+        "cancellation_notification_status",
+        "post_cancellation_session_recovery_status",
+        "process_teardown_status",
+    ):
+        _passed(stdio_lifecycle[field], f"desktop_extension.stdio_lifecycle.{field}")
+    for field in (
+        "server_work_cancellation_verified",
+        "cancelled_request_side_effect_absence_verified",
+    ):
+        _boolean(
+            stdio_lifecycle[field],
+            False,
+            f"desktop_extension.stdio_lifecycle.{field}",
+        )
     _passed(
         extension["post_apply_list_rounds_status"],
         "desktop_extension.post_apply_list_rounds_status",
@@ -427,12 +659,106 @@ def validate_evidence(
         64,
         "desktop_extension.demo_journal_sha256",
     )
+    lifecycle = _exact_keys(
+        extension["lifecycle"],
+        {
+            "scenario",
+            "previous_artifact_source",
+            "previous_artifact_version",
+            "initial_artifact_sha256",
+            "initial_checksum_status",
+            "previous_install_status",
+            "previous_visible_tools",
+            "upgrade_status",
+            "post_upgrade_artifact_sha256",
+            "post_upgrade_checksum_status",
+            "post_upgrade_runtime_version",
+            "post_upgrade_visible_tools",
+            "rollback_status",
+            "post_rollback_artifact_sha256",
+            "post_rollback_checksum_status",
+            "post_rollback_runtime_version",
+            "post_rollback_visible_tools",
+            "post_rollback_smoke_status",
+            "post_rollback_workspace_kind",
+            "rollback_scope",
+            "v04_workspace_presented_to_v03",
+            "v04_journal_downgrade_claimed",
+            "candidate_reinstall_status",
+            "post_reinstall_artifact_sha256",
+            "post_reinstall_checksum_status",
+            "post_reinstall_runtime_version",
+            "post_reinstall_visible_tools",
+            "uninstall_status",
+            "post_uninstall_tools_absent",
+        },
+        "desktop_extension.lifecycle",
+    )
+    if (
+        lifecycle["scenario"] != "v0.3.0_to_v0.4.0_upgrade_rollback_v1"
+        or lifecycle["previous_artifact_source"] != "immutable_github_release_v0.3.0"
+        or lifecycle["previous_artifact_version"] != PREVIOUS_PUBLIC_VERSION
+        or lifecycle["post_upgrade_runtime_version"] != VERSION
+        or lifecycle["post_rollback_runtime_version"] != PREVIOUS_PUBLIC_VERSION
+        or lifecycle["post_reinstall_runtime_version"] != VERSION
+        or lifecycle["post_rollback_workspace_kind"]
+        != "fresh_v03_compatible_workspace_v1"
+        or lifecycle["rollback_scope"] != "extension_runtime_and_tool_surface_only"
+    ):
+        raise EvidenceError("Desktop extension lifecycle identity differs")
+    expected_artifact_digests = {
+        "initial_artifact_sha256": PREVIOUS_PUBLIC_MCPB_SHA256,
+        "post_upgrade_artifact_sha256": candidate_artifact_digest,
+        "post_rollback_artifact_sha256": PREVIOUS_PUBLIC_MCPB_SHA256,
+        "post_reinstall_artifact_sha256": candidate_artifact_digest,
+    }
+    for field, expected_digest in expected_artifact_digests.items():
+        observed_digest = _hex_digest(
+            lifecycle[field],
+            64,
+            f"desktop_extension.lifecycle.{field}",
+        )
+        if observed_digest != expected_digest:
+            raise EvidenceError(
+                f"desktop_extension.lifecycle.{field} does not equal the accepted artifact"
+            )
+    previous_tools = list(PREVIOUS_PUBLIC_MCPB_TOOLS)
+    candidate_tools = list(MCPB_REQUIRED_TOOLS)
+    if (
+        lifecycle["previous_visible_tools"] != previous_tools
+        or lifecycle["post_upgrade_visible_tools"] != candidate_tools
+        or lifecycle["post_rollback_visible_tools"] != previous_tools
+        or lifecycle["post_reinstall_visible_tools"] != candidate_tools
+    ):
+        raise EvidenceError("Desktop extension lifecycle tool inventory differs")
     for field in (
-        "fresh_install_status",
-        "reinstall_same_artifact_status",
+        "initial_checksum_status",
+        "previous_install_status",
+        "upgrade_status",
+        "post_upgrade_checksum_status",
+        "rollback_status",
+        "post_rollback_checksum_status",
+        "post_rollback_smoke_status",
+        "candidate_reinstall_status",
+        "post_reinstall_checksum_status",
         "uninstall_status",
     ):
-        _passed(extension[field], f"desktop_extension.{field}")
+        _passed(lifecycle[field], f"desktop_extension.lifecycle.{field}")
+    _boolean(
+        lifecycle["v04_workspace_presented_to_v03"],
+        False,
+        "desktop_extension.lifecycle.v04_workspace_presented_to_v03",
+    )
+    _boolean(
+        lifecycle["v04_journal_downgrade_claimed"],
+        False,
+        "desktop_extension.lifecycle.v04_journal_downgrade_claimed",
+    )
+    _boolean(
+        lifecycle["post_uninstall_tools_absent"],
+        True,
+        "desktop_extension.lifecycle.post_uninstall_tools_absent",
+    )
 
 
 def _git(source_root: Path, *arguments: str) -> str:

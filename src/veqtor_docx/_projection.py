@@ -2,7 +2,7 @@
 """Internal Stage 3C paragraph projection contracts.
 
 This module builds the complete ``paragraph_projection.v1`` object without
-adding a public tool or changing the frozen v0.3 MCP contract.  The literal
+adding a public tool or changing the then-frozen v0.3 MCP contract.  The literal
 visibility primitive remains in :mod:`veqtor_docx._ooxml`; this layer owns the
 paragraph structural-context scan, availability decision, and closed result.
 """

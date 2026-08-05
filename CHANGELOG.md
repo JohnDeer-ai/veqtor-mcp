@@ -6,11 +6,11 @@ All notable changes to Veqtor MCP are documented here.
 Publication dates are authoritative in each version's immutable GitHub Release
 through its `published_at` timestamp.
 
-## 0.4.0.dev0
+## 0.4.0
 
-Unreleased development line. It advertises the nine-tool development contract
-`veqtor.mcp.v0.4`; this is not a public release, MCPB, Claude Desktop or
-publication acceptance claim.
+Veqtor v0.4.0 Alpha release contents. The immutable GitHub Release
+`published_at` timestamp, not this file, is authoritative for whether and when
+publication occurred.
 
 ### Added
 
@@ -25,23 +25,23 @@ publication acceptance claim.
 - Paragraph-side `verify_quote` projection selection and the closed
   `verification_result.v2` result/`verification.v2` journal pair, while keeping
   historical `verification.v1` records readable.
-- Development sdist packaging for the implemented
+- Release sdist packaging for the implemented
   `CLAUSE_HISTORY_V0.4.md` contract.
 
 ### Changed
 
-- The development server now uses MCP Python SDK v2 and negotiates both the
+- The v0.4 server uses MCP Python SDK v2 and negotiates both the
   modern `2026-07-28` and legacy `2025-11-25` wire revisions over local stdio.
 - The contract-wide schema marker is `veqtor.mcp.v0.4` on all nine tools,
   including all eight names carried forward from v0.3. Existing tools whose
   own schemas and behavior did not change still report the new surface-wide
   contract version.
 
-### Unchanged
-
-- The public v0.3 release contract, artifacts and MCPB remain the frozen
-  eight-tool `veqtor.mcp.v0.3` surface. `release_contract.VERSION` and the MCPB
-  tool inventory are not widened by this development cutover.
+- Package and release-candidate identity is `0.4.0`; publication still requires
+  the exact release contract, fresh isolated-user MCPB acceptance and immutable
+  promotion workflow.
+- Release CI builds and smokes wheel, sdist and the nine-tool MCPB surface,
+  then independently reproduces the sealed release set.
 
 ## 0.3.0
 

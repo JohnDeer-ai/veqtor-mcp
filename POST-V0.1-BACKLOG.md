@@ -113,8 +113,8 @@ and is not a published v0.3 commitment or release claim.
 ### Stage 3B — bounded round map
 
 The frozen preimplementation first-slice acceptance contract is specified in
-[`ROUND_MAP_V0.3.md`](ROUND_MAP_V0.3.md). Current development source now
-retains `map_rounds` and `(map_rounds, round_map.v1)`, which entered the surface
+[`ROUND_MAP_V0.3.md`](ROUND_MAP_V0.3.md). The current source retains
+`map_rounds` and `(map_rounds, round_map.v1)`, which entered the surface
 as the eighth tool and
 permanent success-only record pair. The frozen specification retains its
 historical future/seven-tool wording; implementation, independent review,
@@ -132,11 +132,11 @@ gates.
 ### Stage 3C — evidence-preserving paragraph history
 
 The closed first-slice contract is specified in
-[`CLAUSE_HISTORY_V0.4.md`](CLAUSE_HISTORY_V0.4.md). Development source
-`0.4.0.dev0` implements it as the ninth tool under the contract-wide
+[`CLAUSE_HISTORY_V0.4.md`](CLAUSE_HISTORY_V0.4.md). Release-candidate source
+`0.4.0` implements it as the ninth tool under the contract-wide
 `veqtor.mcp.v0.4` surface, together with paragraph-side `verify_quote` v2.
-The frozen public v0.3 release and MCPB remain eight-tool v0.3; development
-implementation, release, Desktop/MCPB and publication acceptance are separate
+The public v0.3 release and MCPB remain eight-tool v0.3; candidate
+implementation, Desktop/MCPB and publication acceptance are separate
 gates.
 
 - Implemented one bounded `trace_paragraph_history` contract for following one

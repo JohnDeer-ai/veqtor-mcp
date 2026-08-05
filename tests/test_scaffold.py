@@ -13,7 +13,7 @@ ROOT = Path(__file__).parents[1]
 
 
 def test_package_versions_match() -> None:
-    assert docx_version == "0.4.0.dev0"
+    assert docx_version == "0.4.0"
     assert mcp_version == docx_version
 
 
@@ -108,22 +108,21 @@ def test_changelog_keeps_timeless_release_copy() -> None:
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
     changelog = (ROOT / "CHANGELOG.md").read_text()
     releasing = (ROOT / "RELEASING.md").read_text()
-    development_marker = f"## {project['version']}\n"
-    release_marker = "## 0.3.0\n"
+    release_marker = f"## {project['version']}\n"
 
-    assert changelog.count(development_marker) == 1
-    development = changelog.split(development_marker, 1)[1].split("\n## ", 1)[0]
-    assert "Unreleased development line." in development
-    assert "nine-tool development contract\n`veqtor.mcp.v0.4`" in development
-    assert "this is not a public release" in development
     assert changelog.count(release_marker) == 1
     release = changelog.split(release_marker, 1)[1].split("\n## ", 1)[0]
-    assert "Veqtor v0.3.0 Alpha release contents." in release
+    assert "Veqtor v0.4.0 Alpha release contents." in release
+    assert "nine tools" in release
+    assert "Package and release-candidate identity is `0.4.0`" in release
     assert "Unreleased" not in release
     assert "Planned" not in release
-    assert re.search(r"\b20\d{2}-\d{2}-\d{2}\b", release) is None
+    assert "Release date:" not in release
+    release_prose = re.sub(r"`[^`\n]*`", "", release)
+    assert re.search(r"\b20\d{2}-\d{2}-\d{2}\b", release_prose) is None
     assert "Publication dates are authoritative" in changelog
     assert "`published_at` timestamp" in changelog
+    assert "## 0.3.0\n" in changelog
     assert "only timeless release contents" in releasing
     assert "`published_at` timestamp" in releasing
 
@@ -159,24 +158,16 @@ def test_release_copy_is_state_neutral_and_site_uses_public_v030() -> None:
     assert "veqtor-mcp@0.1.2" not in setup
     assert "veqtor-mcp==0.1.2" not in setup
     assert "https://pypi.org/project/veqtor-mcp/" in readme
-    assert "Both sources expose `0.3.0`" in readme
-    assert "| Otherwise | `0.1.2` |" in readme
-    assert (
-        "The descriptions below follow the development package `0.4.0.dev0` and its\n"
-        "nine-tool MCP contract `veqtor.mcp.v0.4`. They are not an installation promise\n"
-        "until both public verifiers expose the version. The frozen v0.3 release/MCPB\n"
-        "continues to contain only its eight `veqtor.mcp.v0.3` tools."
-    ) in readme
-    assert "release candidate source `0.3.0`" not in readme
-    assert "current public distribution" not in immutable_docs.lower()
-    assert "current public release" not in immutable_docs.lower()
+    assert "Both sources expose `0.4.0`" in readme
+    assert "| Otherwise | `0.3.0` |" in readme
+    assert "release candidate for package `0.4.0`" in readme
+    assert "nine-tool MCP contract `veqtor.mcp.v0.4`" in readme
+    assert "current public v0.3" in readme
+    assert "v0.4 candidate has no publication acceptance claim" in immutable_docs
     assert "v0.3.0 is not public yet" not in setup
     assert "Download Veqtor v{PUBLIC_RELEASE_VERSION} (.mcpb)" in setup
     assert "This is the first public MCPB" in setup
-    for forbidden in (
-        "releases/tag/v0.3.0",
-        "releases/download/v0.3.0",
-    ):
+    for forbidden in ("releases/tag/v0.4.0", "releases/download/v0.4.0"):
         assert forbidden not in readme
     for stale_site_copy in (
         "v0.3.0 is not public yet",
@@ -191,7 +182,7 @@ def test_release_copy_is_state_neutral_and_site_uses_public_v030() -> None:
     assert "Public v0.3.0" in public_pages
     assert "state-neutral version-selection" in releasing
     assert re.search(
-        r"must activate the public `v0\.3\.0` links.*deploy them, and\s+smoke the live setup page",
+        r"must activate the public v0\.4\.0 links.*deploy them, and\s+smoke the live setup page",
         releasing,
         re.DOTALL,
     )

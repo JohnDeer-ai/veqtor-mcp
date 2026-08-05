@@ -3,9 +3,9 @@
   "manifest_version": "0.4",
   "name": "veqtor-mcp",
   "display_name": "Veqtor",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Local DOCX redline evidence and fail-closed tracked edits for Claude",
-  "long_description": "Veqtor lets Claude inspect accepted/current Word text, map exact evidence across negotiation rounds, inspect tracked changes, verify quoted wording, preflight a complete edit proposal, create a separate DOCX with real tracked changes, and retain privacy-minimized local provenance. Document processing stays on the user's computer. Veqtor supplies bounded document facts and deterministic writes; it does not provide legal advice or decide whether wording is legally or commercially suitable.",
+  "long_description": "Veqtor lets Claude inspect accepted/current Word text, trace exact paragraph evidence across negotiation rounds, inspect tracked changes, verify current or rejected-pending wording, preflight a complete edit proposal, create a separate DOCX with real tracked changes, and retain privacy-minimized local provenance. Document processing stays on the user's computer. Veqtor supplies bounded document facts and deterministic writes; it does not provide legal advice or decide whether wording is legally or commercially suitable.",
   "author": {
     "name": "Ilya Shilov",
     "url": "https://veqtor.pro"
@@ -64,8 +64,8 @@
       "description": "Map exact paragraph evidence and recorded byte derivations without inferring chronology or lineage."
     },
     {
-      "name": "verify_quote",
-      "description": "Verify wording against one hash-bound tracked-change unit."
+      "name": "trace_paragraph_history",
+      "description": "Trace one exact paragraph across captured DOCX snapshots without inferring chronology or authorship."
     },
     {
       "name": "preflight_edits",
@@ -74,6 +74,10 @@
     {
       "name": "apply_edits",
       "description": "Create a separate DOCX from an exact successful preflight proof."
+    },
+    {
+      "name": "verify_quote",
+      "description": "Verify accepted/current or rejected-pending wording against one hash-bound anchor."
     },
     {
       "name": "export_decision_record",
@@ -85,7 +89,7 @@
     {
       "name": "try_veqtor_demo",
       "description": "Check the connection with four bundled synthetic Word rounds.",
-      "text": "Using the Veqtor tools, what happened to the limitation of liability across the four Word rounds in the folder named demo? Start with list_rounds, use inspect_document for a hash-bound paragraph reference, then use map_rounds to compare that evidence across the folder. Keep tool-confirmed document facts separate from your interpretation, and do not treat filename order as verified chronology or lineage."
+      "text": "Using the Veqtor tools, what happened to the limitation of liability across the four Word rounds in the folder named demo? Start with list_rounds, use inspect_document to select the liability-cap paragraph in the last declared file, then use trace_paragraph_history with that exact reference and filename order. Verify the immediately prior rejected-pending wording with verify_quote, and use map_rounds only as separate navigation and recorded-derivation evidence. Keep tool-confirmed document facts separate from your interpretation; do not treat filename order as verified chronology or lineage, and do not claim that the literal tracked-change author metadata identifies a person."
     }
   ],
   "prompts_generated": false,

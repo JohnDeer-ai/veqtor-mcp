@@ -50,7 +50,7 @@ def test_release_guard_precedes_execution_of_requested_commit() -> None:
     assert "private_dogfood_passed" not in workflow
     assert "acceptance_evidence:" in workflow
     assert "acceptance_evidence_sha256:" in workflow
-    assert "veqtor_release_acceptance.v5" in workflow
+    assert "veqtor_release_acceptance.v6" in workflow
     assert "expected_mcpb_sha256" in verify
     assert '"desktop_extension"]["artifact_sha256"]' in guard
     assert "mcpb_sha256=%s" in guard
@@ -230,6 +230,9 @@ def test_frozen_release_artifact_job_owns_and_smokes_the_flat_manifest() -> None
     assert "dist/*.mcpb" in artifact
     assert "Smoke the frozen tool inventory against the bundled demo" in artifact
     assert "Launch the exact MCPB command over stdio" in artifact
+    assert 'mkdir "$RUNNER_TEMP/veqtor-mcpb-smoke-demo"' in artifact
+    assert "veqtor-mcpb-stage/demo/*.docx" in artifact
+    assert 'cp -R "$RUNNER_TEMP/veqtor-mcpb-stage/demo"' not in artifact
     assert "path: dist/*" not in artifact
     assert "dist/SHA256SUMS.txt" in artifact
     assert "EXPECTED_MCPB_SHA256: ${{ inputs.expected_mcpb_sha256 }}" in artifact
@@ -522,11 +525,12 @@ def test_recovery_contract_distinguishes_new_dispatch_from_advanced_main() -> No
 def test_product_acceptance_documents_complete_path_free_packet() -> None:
     releasing = (ROOT / "RELEASING.md").read_text()
     smoke = (ROOT / "scripts" / "installed_wheel_smoke.py").read_text()
+    mcpb_smoke = (ROOT / "scripts" / "mcpb_stdio_smoke.py").read_text()
 
-    assert "installed wheel completes the eight-tool synthetic smoke" in releasing
-    assert "fresh-copy Claude Desktop rehearsal" in releasing
-    assert "exposes exactly the\n  eight public tools" in releasing
-    assert "### Construct the v5 acceptance packet" in releasing
+    assert "installed wheel completes the nine-tool synthetic smoke" in releasing
+    assert "fresh isolated standard macOS user" in releasing
+    assert "calls exactly nine tools" in releasing
+    assert "### Construct the v6 acceptance packet" in releasing
     assert "Claude Code" not in releasing
     assert "canonical path-free acceptance packet" in releasing
     assert "never filenames, local paths, quotations or document text" in releasing
@@ -534,11 +538,13 @@ def test_product_acceptance_documents_complete_path_free_packet() -> None:
     assert "`payment_preflight`" in releasing
     assert "`five_edit_batch`" in releasing
     assert "scripts/installed_wheel_smoke.py" in releasing
+    assert "forced transport-owner process teardown" in releasing
+    assert "await _prove_forced_transport_teardown(parameters)" in mcpb_smoke
     assert "Do not infer or" in releasing
     assert "Only after all required gates" in releasing
 
-    template = releasing.split("<!-- acceptance-v5-template-begin -->", 1)[1]
-    template = template.split("<!-- acceptance-v5-template-end -->", 1)[0]
+    template = releasing.split("<!-- acceptance-v6-template-begin -->", 1)[1]
+    template = template.split("<!-- acceptance-v6-template-end -->", 1)[0]
     packet = json.loads(template.split("```json\n", 1)[1].split("\n```", 1)[0])
     assert set(packet) == {
         "schema_version",
@@ -563,7 +569,9 @@ def test_product_acceptance_documents_complete_path_free_packet() -> None:
     assert packet["five_edit_batch"]["collateral_change_count"] == 0
     assert packet["installed_two_export"]["first_access_count"] == 0
     assert packet["installed_two_export"]["second_access_count"] == 1
-    assert packet["desktop_rehearsal"]["client"] == "claude_desktop_fresh_copy"
+    assert packet["desktop_rehearsal"]["client"] == (
+        "claude_desktop_fresh_user_profile"
+    )
     assert packet["desktop_extension"]["installation_channel"] == (
         "direct_download_mcpb"
     )
@@ -572,17 +580,64 @@ def test_product_acceptance_documents_complete_path_free_packet() -> None:
         "extract_redlines",
         "inspect_document",
         "map_rounds",
-        "verify_quote",
+        "trace_paragraph_history",
         "preflight_edits",
         "apply_edits",
+        "verify_quote",
         "export_decision_record",
     ]
+    environment = packet["desktop_extension"]["environment"]
+    assert environment["kind"] == "fresh_isolated_standard_macos_user_v1"
+    assert environment["physical_host"] == "maintainer_mac"
+    assert environment["clean_physical_mac_claimed"] is False
+    assert environment["developer_runtime_used"] is False
+    assert packet["desktop_extension"]["history_trace"]["exact_unique_count"] == 3
+    assert packet["desktop_extension"]["history_trace"]["authorship_verified"] is False
+    assert packet["desktop_extension"]["verify_quote_v2"]["schema_version"] == (
+        "verification_result.v2"
+    )
+    assert packet["desktop_extension"]["stdio_lifecycle"] == {
+        "client_request_abandonment_status": "passed",
+        "cancellation_notification_status": "passed",
+        "post_cancellation_session_recovery_status": "passed",
+        "server_work_cancellation_verified": False,
+        "cancelled_request_side_effect_absence_verified": False,
+        "process_teardown_status": "passed",
+    }
+    lifecycle = packet["desktop_extension"]["lifecycle"]
+    assert (
+        lifecycle["initial_artifact_sha256"]
+        == lifecycle["post_rollback_artifact_sha256"]
+    )
+    assert (
+        lifecycle["post_upgrade_artifact_sha256"]
+        == packet["desktop_extension"]["artifact_sha256"]
+    )
+    assert (
+        lifecycle["post_reinstall_artifact_sha256"]
+        == packet["desktop_extension"]["artifact_sha256"]
+    )
+    assert {
+        lifecycle["initial_checksum_status"],
+        lifecycle["post_upgrade_checksum_status"],
+        lifecycle["post_rollback_checksum_status"],
+        lifecycle["post_reinstall_checksum_status"],
+    } == {"passed"}
+    assert lifecycle["post_rollback_workspace_kind"] == (
+        "fresh_v03_compatible_workspace_v1"
+    )
+    assert lifecycle["v04_workspace_presented_to_v03"] is False
+    assert lifecycle["v04_journal_downgrade_claimed"] is False
     assert "first_access_id" in smoke
     assert 'exported_again["access_count"] == 1' in smoke
     assert 'record["record_type"] != "access_event.v1"' in smoke
     assert '"preflight_proof": preflight["preflight_proof"]' in smoke
     assert 'applied["preflight_binding_status"] == "verified"' in smoke
     assert 'applied["candidate_output_sha256_match"] is True' in smoke
+    assert 'method == "notifications/cancelled"' in mcpb_smoke
+    assert "client request abandonment returned a result" in mcpb_smoke
+    assert '"server_work_cancellation_verified": False' in mcpb_smoke
+    assert "stdio server process survived transport teardown" in mcpb_smoke
 
 
 def test_release_job_graph_has_one_root_and_orders_all_publication() -> None:
@@ -637,6 +692,7 @@ def test_all_release_actions_are_pinned_to_full_shas() -> None:
 def test_release_documents_use_only_the_canonical_project_slug() -> None:
     documents = [
         ROOT / "README.md",
+        ROOT / ".github" / "release-notes" / "v0.4.0.md",
         ROOT / ".github" / "release-notes" / "v0.3.0.md",
     ]
     combined = "\n".join(path.read_text() for path in documents)

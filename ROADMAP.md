@@ -18,7 +18,7 @@ document facts and deterministic writes; it does not claim legal correctness.
 - Tracked-change extraction from `word/document.xml` with source hashes and
   structural anchors.
 - Exact and normalized anchored quote verification, including a bounded
-  current/rejected-pending paragraph selector in development v0.4.
+  current/rejected-pending paragraph selector in v0.4.
 - Atomic full-pipeline preflight and apply for tracked replace, delete, counter
   and reinstate operations.
 - Private local decision records with compact export and explicit assurance
@@ -26,13 +26,13 @@ document facts and deterministic writes; it does not claim legal correctness.
 - Bounded DOCX/ZIP processing and versioned installation from PyPI, with the
   same verified wheel, sdist and checksum manifest on GitHub Releases.
 
-## Implemented in development source 0.4.0.dev0
+## Prepared in release-candidate source 0.4.0
 
-Development package `0.4.0.dev0` advertises the nine-tool MCP contract
+Release-candidate package `0.4.0` advertises the nine-tool MCP contract
 `veqtor.mcp.v0.4`. The contract version is a surface-wide API-schema identifier:
 all nine tools, including the eight names carried forward from v0.3, report
 v0.4 even where an individual schema and behavior are otherwise unchanged.
-Source version alone is not proof of a published package or release.
+Candidate source alone is not proof of a published package or release.
 
 Reliable-workflow stages 0 through 3C now provide:
 
@@ -73,24 +73,25 @@ digital signature, a trusted timestamp or tamper evidence.
 ## Next
 
 - Extend supported OOXML layouts based on reproducible public issues.
-- Validate the development v0.4 artifact independently before any separate
-  release/MCPB/Desktop/publication step; the frozen public v0.3 release remains
+- Complete exact-artifact v0.4 MCPB, isolated fresh-user Desktop, compact-
+  privacy and publication acceptance; the public v0.3 release remains
   eight-tool `veqtor.mcp.v0.3` until that process is completed.
 - Evaluate a separately specified Stage 3D clean-sendable-redline workflow only
   after external-user validation of the read-only Stage 3C evidence surface.
 - Refine installation, diagnostics and examples from external-user feedback.
 
-### Frozen Claude Desktop Extension boundary for version 0.3.0
+### Claude Desktop Extension release-candidate boundary for version 0.4.0
 
 Veqtor can be packaged as a versioned Claude Desktop Extension (`.mcpb`). It is
 a public installation path only when the exact artifact passes the documented
-clean-Mac gate and appears in the matching immutable release. When published, a
-non-technical macOS user can install the same local MCP server without editing
-JSON or running `uvx` manually: download the release artifact, open it, review
-the requested configuration, enter the tracked-change author name, confirm
-installation in Claude Desktop, and try Veqtor on the synthetic demo documents.
+fresh isolated-user gate and appears in the matching immutable release. When
+published, a non-technical macOS user can install the same local MCP server
+without editing JSON or running `uvx` manually: download the release artifact,
+open it, review the requested configuration, enter the tracked-change author
+name, confirm installation in Claude Desktop, and try Veqtor on the synthetic
+demo documents.
 
-Version 0.3.0 scope:
+Version 0.4.0 candidate scope:
 
 - macOS-only v1; Linux keeps the existing CLI setup until its Desktop path is
   separately supported and tested.
@@ -98,20 +99,22 @@ Version 0.3.0 scope:
   `VEQTOR_TRACKED_CHANGE_AUTHOR` as required user configuration.
 - The build is validated and byte-reproducible. Only promotion can bind a
   public artifact to its published checksum; it is not digitally signed.
-- The release gate requires a clean Claude Desktop install with all eight public
-  tools: `list_rounds`, `extract_redlines`, `inspect_document`, `map_rounds`,
-  `verify_quote`, `preflight_edits`, `apply_edits`, and
-  `export_decision_record`.
-- The package ships the same disposable four-round demo documents used by the website and a
-  copyable first prompt, so activation does not require generating a new corpus
-  in Terminal after the extension is installed.
-- Documentation covers version reporting, upgrades, rollback where available, and complete
-  uninstall/cleanup before presenting the extension as the recommended path.
+- The release gate uses a fresh standard macOS user on the maintainer's Mac,
+  without a developer checkout or prior Veqtor state, and requires all nine
+  public tools, including `trace_paragraph_history` and v2 `verify_quote`.
+- The lifecycle check installs public v0.3.0, upgrades to the exact v0.4.0
+  candidate, rolls back to v0.3.0, reinstalls the candidate, and verifies
+  complete uninstall. It does not claim a separate physical clean Mac.
+- The package ships the same disposable four-round demo documents used by the
+  website and a copyable first prompt, so activation does not require generating
+  a new corpus in Terminal after the extension is installed.
+- Documentation covers version reporting, upgrades, rollback where available,
+  and complete uninstall/cleanup before presenting the extension as the
+  recommended path.
 
-Development `0.4.0.dev0` does not widen this MCPB inventory: its ninth tool and
-v0.4 schemas require a separate exact-artifact Desktop/MCPB acceptance before a
-future release can claim them. In particular, the frozen
-`MCPB_REQUIRED_TOOLS` list remains the eight v0.3 names.
+The candidate `MCPB_REQUIRED_TOOLS` inventory contains the nine v0.4 names.
+The immutable v0.3 MCPB remains unchanged and eight-tool; the website must
+continue to present v0.3.0 as public until both v0.4 registries are verified.
 
 Non-goals and release boundaries:
 

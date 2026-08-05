@@ -65,6 +65,7 @@ SDIST_ALLOWED_TOP_LEVEL = frozenset(
         ".gitignore",
         "API.md",
         "CHANGELOG.md",
+        "CLAUSE_HISTORY_V0.4.md",
         "CONTRIBUTING.md",
         "INSPECT_DOCUMENT_V0.3.md",
         "KNOWN_LIMITATIONS.md",

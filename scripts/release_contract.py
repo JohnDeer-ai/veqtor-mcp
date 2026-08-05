@@ -1,12 +1,26 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Frozen v0.3 release inventory."""
+"""Frozen v0.4 release-candidate inventory."""
 
 from __future__ import annotations
 
 
 PROJECT_NAME = "veqtor-mcp"
 DIST_NAME = "veqtor_mcp"
-VERSION = "0.3.0"
+VERSION = "0.4.0"
+PREVIOUS_PUBLIC_VERSION = "0.3.0"
+PREVIOUS_PUBLIC_MCPB_SHA256 = (
+    "43e939a60c7f13d8d31b61f090b1520cab951732395e078cfb590622ece0c596"
+)
+PREVIOUS_PUBLIC_MCPB_TOOLS = (
+    "list_rounds",
+    "extract_redlines",
+    "inspect_document",
+    "map_rounds",
+    "verify_quote",
+    "preflight_edits",
+    "apply_edits",
+    "export_decision_record",
+)
 WHEEL_FILENAME = f"{DIST_NAME}-{VERSION}-py3-none-any.whl"
 SDIST_FILENAME = f"{DIST_NAME}-{VERSION}.tar.gz"
 MCPB_FILENAME = f"{PROJECT_NAME}-{VERSION}-macos.mcpb"
@@ -44,6 +58,7 @@ MAX_NORMALIZATION_PASSES = 8
 RUNTIME_SOURCE_FILES = (
     "src/veqtor_docx/__init__.py",
     "src/veqtor_docx/_ooxml.py",
+    "src/veqtor_docx/_projection.py",
     "src/veqtor_docx/apply.py",
     "src/veqtor_docx/contracts.py",
     "src/veqtor_docx/extract.py",
@@ -52,7 +67,11 @@ RUNTIME_SOURCE_FILES = (
     "src/veqtor_docx/synthetic.py",
     "src/veqtor_docx/verify.py",
     "src/veqtor_mcp/__init__.py",
+    "src/veqtor_mcp/_history_contract.py",
+    "src/veqtor_mcp/_history_io.py",
+    "src/veqtor_mcp/_history_resolution.py",
     "src/veqtor_mcp/_inspection_live.py",
+    "src/veqtor_mcp/_verification_v2.py",
     "src/veqtor_mcp/contracts.py",
     "src/veqtor_mcp/records.py",
     "src/veqtor_mcp/round_map.py",
@@ -60,26 +79,20 @@ RUNTIME_SOURCE_FILES = (
     "src/veqtor_mcp/server.py",
 )
 
-# Development source may advance without widening the frozen v0.3 artifact
-# inventory.  Release builders continue to consume ``RUNTIME_SOURCE_FILES``;
-# Hatch source-selection ratchets consume this complete development inventory.
-DEVELOPMENT_RUNTIME_SOURCE_FILES = (
-    *RUNTIME_SOURCE_FILES,
-    "src/veqtor_docx/_projection.py",
-    "src/veqtor_mcp/_history_contract.py",
-    "src/veqtor_mcp/_history_io.py",
-    "src/veqtor_mcp/_history_resolution.py",
-    "src/veqtor_mcp/_verification_v2.py",
-)
+# Release-candidate and development source inventories are intentionally equal.
+# Keeping the alias makes later development-only additions fail visibly until a
+# future release contract decides whether to include them.
+DEVELOPMENT_RUNTIME_SOURCE_FILES = RUNTIME_SOURCE_FILES
 
 MCPB_REQUIRED_TOOLS = (
     "list_rounds",
     "extract_redlines",
     "inspect_document",
     "map_rounds",
-    "verify_quote",
+    "trace_paragraph_history",
     "preflight_edits",
     "apply_edits",
+    "verify_quote",
     "export_decision_record",
 )
 MCPB_DEMO_FILENAMES = (
@@ -115,6 +128,7 @@ PUBLIC_DOCUMENT_FILES = (
     ".gitignore",
     "API.md",
     "CHANGELOG.md",
+    "CLAUSE_HISTORY_V0.4.md",
     "CONTRIBUTING.md",
     "INSPECT_DOCUMENT_V0.3.md",
     "KNOWN_LIMITATIONS.md",
