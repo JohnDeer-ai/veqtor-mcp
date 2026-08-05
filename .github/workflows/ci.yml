@@ -153,7 +153,7 @@ jobs:
         run: |
           uv venv /tmp/veqtor-wheel-min-smoke --python 3.12
           uv pip install --python /tmp/veqtor-wheel-min-smoke/bin/python \
-            "jsonschema==4.20.0" "lxml==6.1.0" "mcp==1.23.0"
+            "jsonschema==4.20.0" "lxml==6.1.0" "mcp==2.0.0"
           uv pip install --python /tmp/veqtor-wheel-min-smoke/bin/python --no-deps dist/*.whl
           cd /tmp
           /tmp/veqtor-wheel-min-smoke/bin/veqtor-mcp --version

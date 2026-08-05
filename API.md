@@ -14,6 +14,9 @@ tool exposes `veqtor.pro/contractSchemaVersion: veqtor.mcp.v0.3` in its MCP
 metadata and the same value under `x-veqtor-contract-schema-version` in its
 output schema. Nested anchors, edits and preflight proofs are closed objects;
 top-level results remain additive where the advertised schema says so.
+The MCP wire revision is a separate identity: the server negotiates modern
+`2026-07-28` and legacy revisions through `2025-11-25` without changing this
+Veqtor tool contract.
 
 Every successful live tool response includes the same bounded `producer`
 object with `name`, package `version`, and the process-start Python source
@@ -34,7 +37,7 @@ Stable error codes cover well-typed but invalid inputs (wrong hash, unknown
 anchor, blank quote, unresolvable layout). Type-level rejections — e.g. a
 non-object `anchor` or a non-array `edits` sent over MCP — are handled by the
 transport's schema validation before a tool runs and are outside that
-contract. The current FastMCP transport may ignore unrecognized object
+contract. The current MCPServer transport may ignore unrecognized object
 properties; clients must use the advertised tool schema. Strict rejection of
 unknown top-level arguments remains outside the current contract.
 
@@ -113,7 +116,7 @@ not an absolute hardware power-loss guarantee. After low-level storage
 failures, `write_failed` means the commit is unknown even if a partial frame
 later appears on disk. Controlled fail-closed `DocxError` refusals from the
 seven tools other than `map_rounds` attempt to record and are then re-raised;
-FastMCP error responses cannot echo their `record_id` in v1. Round Map has a
+MCPServer error responses cannot echo their `record_id` in v1. Round Map has a
 frozen success-only `round_map.v1` record: a pre-result refusal, including
 sanitized `internal_error`, neither appends a Map failure record nor initializes
 `.veqtor`. Only a fully validated successful map attempts that record; a

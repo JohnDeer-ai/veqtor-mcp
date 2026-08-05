@@ -438,7 +438,7 @@ The future named arguments are:
 
 The named input surface contains only `folder`, `seed`, `order_basis`,
 `cursor` and `max_items`; `cursor` and `max_items` may be omitted for the first
-page/default size. All nested objects are closed. Because the current FastMCP
+page/default size. All nested objects are closed. Because the current MCPServer
 transport may discard unknown top-level named arguments before the tool runs,
 callers must use only this advertised surface and cannot treat an ignored extra
 field as accepted policy.

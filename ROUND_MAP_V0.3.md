@@ -16,7 +16,7 @@ publishing a release remain separate gates.
 
 The specification reuses draft MCP contract `veqtor.mcp.v0.3`. All nested
 objects defined here are closed. The top-level result remains additive under
-the existing v0.3 compatibility rule. The current FastMCP transport may ignore
+the existing v0.3 compatibility rule. The current MCPServer transport may ignore
 unknown top-level input properties before a tool runs, so callers must use only
 the advertised named arguments.
 

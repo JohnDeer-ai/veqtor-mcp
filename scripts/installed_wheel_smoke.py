@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Smoke the installed wheel through a real in-memory MCP client session."""
+"""Smoke the installed wheel through modern, legacy, and in-memory MCP clients."""
 
 from __future__ import annotations
 
@@ -8,10 +8,13 @@ from contextlib import nullcontext
 from importlib.metadata import distribution
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
 
-from mcp.shared.memory import create_connected_server_and_client_session
+from mcp import StdioServerParameters
+from mcp.client import Client
+from mcp.client.stdio import stdio_client
 
 from veqtor_docx import generate_demo_rounds
 from veqtor_mcp import __version__
@@ -20,9 +23,21 @@ from veqtor_mcp.records import SOURCE_SNAPSHOT_IDENTITY
 from veqtor_mcp.server import mcp
 
 
+EXPECTED_TOOL_NAMES = (
+    "list_rounds",
+    "extract_redlines",
+    "inspect_document",
+    "map_rounds",
+    "preflight_edits",
+    "apply_edits",
+    "verify_quote",
+    "export_decision_record",
+)
+
+
 def _payload(result) -> dict:
-    if isinstance(result.structuredContent, dict):
-        data = result.structuredContent
+    if isinstance(result.structured_content, dict):
+        data = result.structured_content
         return data.get("result", data)
     return json.loads(result.content[0].text)
 
@@ -37,11 +52,44 @@ def _assert_producer(payload: dict) -> None:
     }
 
 
+async def _dual_era_stdio_smoke() -> dict[str, str]:
+    with tempfile.TemporaryDirectory(prefix="veqtor-wheel-stdio-") as root:
+        matter = Path(root) / "matter"
+        generate_demo_rounds(matter)
+        parameters = StdioServerParameters(
+            command=sys.executable,
+            args=["-m", "veqtor_mcp.server"],
+            env={
+                "VEQTOR_TRACKED_CHANGE_AUTHOR": "Veqtor installed-wheel stdio",
+            },
+        )
+        negotiated: dict[str, str] = {}
+        for mode, expected_protocol_version in (
+            ("auto", "2026-07-28"),
+            ("legacy", "2025-11-25"),
+        ):
+            async with Client(stdio_client(parameters), mode=mode) as client:
+                negotiated[mode] = client.protocol_version
+                tools = await client.list_tools()
+                assert tuple(tool.name for tool in tools.tools) == EXPECTED_TOOL_NAMES
+                listed = _payload(
+                    await client.call_tool(
+                        "list_rounds",
+                        {"folder": str(matter)},
+                    )
+                )
+                _assert_producer(listed)
+                assert listed["ordering_source"] == "filename_lexicographic_v1"
+            assert negotiated[mode] == expected_protocol_version
+        return negotiated
+
+
 async def smoke() -> dict:
     installed = distribution("veqtor-mcp")
     assert installed.metadata["Name"] == "veqtor-mcp"
     assert installed.version == __version__
     assert CheckedInspectionResult.__module__ == "veqtor_mcp._inspection_live"
+    stdio_protocol_versions = await _dual_era_stdio_smoke()
     configured_matter = os.environ.get("VEQTOR_SMOKE_MATTER")
     workspace = (
         nullcontext(configured_matter)
@@ -55,21 +103,10 @@ async def smoke() -> dict:
         else:
             matter = Path(root)
             assert matter.is_dir()
-        async with create_connected_server_and_client_session(
-            mcp._mcp_server
-        ) as session:
+        async with Client(mcp) as session:
             tools = await session.list_tools()
-            names = {tool.name for tool in tools.tools}
-            assert names == {
-                "list_rounds",
-                "extract_redlines",
-                "inspect_document",
-                "map_rounds",
-                "verify_quote",
-                "preflight_edits",
-                "apply_edits",
-                "export_decision_record",
-            }
+            names = tuple(tool.name for tool in tools.tools)
+            assert names == EXPECTED_TOOL_NAMES
             listed = _payload(
                 await session.call_tool("list_rounds", {"folder": str(matter)})
             )
@@ -229,6 +266,7 @@ async def smoke() -> dict:
                 "runtime_producer_build": SOURCE_SNAPSHOT_IDENTITY,
                 "runtime_version": __version__,
                 "installed_metadata_version": installed.version,
+                "stdio_protocol_versions": stdio_protocol_versions,
                 "tool_count": len(names),
                 "used_bundled_demo": configured_matter is not None,
             }

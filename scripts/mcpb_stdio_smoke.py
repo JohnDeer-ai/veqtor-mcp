@@ -27,8 +27,8 @@ EXPECTED_TOOLS = {
 
 
 def _payload(result) -> dict:
-    if isinstance(result.structuredContent, dict):
-        data = result.structuredContent
+    if isinstance(result.structured_content, dict):
+        data = result.structured_content
         return data.get("result", data)
     return json.loads(result.content[0].text)
 

@@ -39,7 +39,7 @@ The MCP contract identifier is `veqtor.mcp.v0.3`. The tool name is
 
 Every nested reference/selection object is closed, and mode-inapplicable
 values in the named arguments are refused rather than ignored. As documented
-in `API.md`, the current FastMCP transport may ignore unrecognized top-level
+in `API.md`, the current MCPServer transport may ignore unrecognized top-level
 arguments before the tool runs; callers must use the advertised named
 arguments. The public shape is:
 
