@@ -33,7 +33,7 @@ classifiers = [
 dependencies = [
   "jsonschema>=4.20,<5",
   "lxml>=6.1,<7",
-  "mcp>=1.23.0,<2",
+  "mcp>=1.23.0,<3",
 ]
 
 [project.urls]
