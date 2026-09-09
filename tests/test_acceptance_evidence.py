@@ -92,8 +92,8 @@ def _packet() -> dict:
         },
         "desktop_rehearsal": {
             "verdict": "passed",
-            "client": "claude_desktop_fresh_user_profile",
-            "fresh_user_profile": True,
+            "client": "claude_desktop_existing_user_profile",
+            "fresh_user_profile": False,
             "event_omitted_from_records": True,
             "current_event_not_in_access_count": True,
             "raw_vs_compact_explained": True,
@@ -107,20 +107,26 @@ def _packet() -> dict:
             "artifact_origin": "successful_main_ci_artifact",
             "installation_channel": "direct_download_mcpb",
             "platform": "darwin",
-            "client": "claude_desktop_fresh_user_profile",
+            "client": "claude_desktop_existing_user_profile",
             "client_version": "1.0.0",
             "platform_version": "15.5",
             "environment": {
-                "kind": "fresh_isolated_standard_macos_user_v1",
+                "kind": "existing_maintainer_macos_user_v1",
                 "physical_host": "maintainer_mac",
                 "clean_physical_mac_claimed": False,
-                "fresh_user_profile": True,
-                "preexisting_veqtor_user_state_absent": True,
-                "repository_checkout_absent": True,
-                "manual_server_configuration_absent": True,
-                "developer_runtime_used": False,
+                "fresh_user_profile": False,
+                "clean_install_claimed": False,
+                "developer_toolchain_independence_claimed": False,
+                "installed_mcpb_source_bytes_verified": True,
+                "repository_runtime_used": False,
+                "manual_veqtor_server_configuration_absent": True,
+                "fresh_demo_workspace_confirmed": True,
+                "uv_runtime_origin": "preexisting_system_uv",
+                "uv_runtime_version": "0.8.0",
+                "python_runtime_version": "3.13.0",
+                "runtime_origin_evidence_sha256": "4" * 64,
             },
-            "host_managed_uv_runtime_confirmed": True,
+            "claude_managed_extension_launch_confirmed": True,
             "tracked_change_author_confirmed": True,
             "extension_enabled_confirmed": True,
             "server_connected_confirmed": True,
@@ -265,10 +271,10 @@ def test_complete_exact_candidate_evidence_passes() -> None:
     _validate(_packet())
 
 
-def test_documented_working_template_matches_executable_v6_schema() -> None:
+def test_documented_working_template_matches_executable_v7_schema() -> None:
     releasing = (ROOT / "RELEASING.md").read_text()
-    template = releasing.split("<!-- acceptance-v6-template-begin -->", 1)[1]
-    template = template.split("<!-- acceptance-v6-template-end -->", 1)[0]
+    template = releasing.split("<!-- acceptance-v7-template-begin -->", 1)[1]
+    template = template.split("<!-- acceptance-v7-template-end -->", 1)[0]
     packet = _parse_packet(
         template.split("```json\n", 1)[1].split("\n```", 1)[0].encode()
     )
@@ -342,9 +348,9 @@ def test_documented_working_template_matches_executable_v6_schema() -> None:
         ),
         (
             lambda packet: packet["desktop_extension"]["environment"].update(
-                {"fresh_user_profile": False}
+                {"fresh_user_profile": True}
             ),
-            "fresh_user_profile does not equal True",
+            "fresh_user_profile does not equal False",
         ),
         (
             lambda packet: packet["desktop_extension"].update(
@@ -559,10 +565,12 @@ def test_lifecycle_requires_checksum_at_every_transition(field: str) -> None:
 @pytest.mark.parametrize(
     "schema_version",
     [
+        "veqtor_release_acceptance.v1",
         "veqtor_release_acceptance.v2",
         "veqtor_release_acceptance.v3",
         "veqtor_release_acceptance.v4",
         "veqtor_release_acceptance.v5",
+        "veqtor_release_acceptance.v6",
     ],
 )
 def test_older_packet_is_rejected_before_shape_validation(
@@ -573,6 +581,174 @@ def test_older_packet_is_rejected_before_shape_validation(
     packet.pop("desktop_extension")
 
     with pytest.raises(EvidenceError, match="schema version is unsupported"):
+        _validate(packet)
+
+
+@pytest.mark.parametrize("origin", ["preexisting_system_uv", "claude_managed_uv"])
+@pytest.mark.parametrize("python_version", ["3.12.0", "3.13.7", "3.14.1"])
+def test_existing_user_acceptance_supports_both_recorded_uv_origins(
+    origin: str, python_version: str
+) -> None:
+    packet = _packet()
+    environment = packet["desktop_extension"]["environment"]
+    environment["uv_runtime_origin"] = origin
+    environment["python_runtime_version"] = python_version
+
+    _validate(packet)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "fresh_user_profile",
+        "clean_physical_mac_claimed",
+        "clean_install_claimed",
+        "developer_toolchain_independence_claimed",
+        "installed_mcpb_source_bytes_verified",
+        "repository_runtime_used",
+        "manual_veqtor_server_configuration_absent",
+        "fresh_demo_workspace_confirmed",
+    ],
+)
+@pytest.mark.parametrize("invalid", ["opposite", None, 0, 1, "false", "true"])
+def test_existing_user_environment_requires_exact_boolean_evidence(
+    field: str, invalid: object
+) -> None:
+    packet = _packet()
+    environment = packet["desktop_extension"]["environment"]
+    expected = environment[field]
+    environment[field] = not expected if invalid == "opposite" else invalid
+
+    with pytest.raises(
+        EvidenceError, match=rf"environment\.{field} does not equal {expected}"
+    ):
+        _validate(packet)
+
+
+@pytest.mark.parametrize("field", sorted(_packet()["desktop_extension"]["environment"]))
+def test_existing_user_environment_metadata_cannot_be_omitted(field: str) -> None:
+    packet = _packet()
+    packet["desktop_extension"]["environment"].pop(field)
+
+    with pytest.raises(EvidenceError, match="environment fields differ"):
+        _validate(packet)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "private_runtime_path",
+        "preexisting_veqtor_user_state_absent",
+        "repository_checkout_absent",
+        "manual_server_configuration_absent",
+        "developer_runtime_used",
+    ],
+)
+def test_existing_user_environment_rejects_extra_or_legacy_keys(field: str) -> None:
+    packet = _packet()
+    packet["desktop_extension"]["environment"][field] = True
+
+    with pytest.raises(EvidenceError, match="environment fields differ"):
+        _validate(packet)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("kind", "fresh_isolated_standard_macos_user_v1", "identity differs"),
+        ("kind", None, "identity differs"),
+        ("physical_host", "clean_mac", "identity differs"),
+        ("physical_host", False, "identity differs"),
+        ("uv_runtime_origin", "unknown_uv", "runtime origin is unsupported"),
+        ("uv_runtime_origin", "/usr/local/bin/uv", "runtime origin is unsupported"),
+        ("uv_runtime_origin", None, "runtime origin is unsupported"),
+        ("uv_runtime_origin", True, "runtime origin is unsupported"),
+        ("uv_runtime_origin", [], "runtime origin is unsupported"),
+    ],
+)
+def test_existing_user_environment_rejects_wrong_identity_and_runtime_origin(
+    field: str, value: object, message: str
+) -> None:
+    packet = _packet()
+    packet["desktop_extension"]["environment"][field] = value
+
+    with pytest.raises(EvidenceError, match=message):
+        _validate(packet)
+
+
+@pytest.mark.parametrize("field", ["uv_runtime_version", "python_runtime_version"])
+@pytest.mark.parametrize(
+    "value",
+    [None, True, 3.13, "3", "3.13", "03.13.0", "3.13.0.1", "3.13.0rc1", "/3.13.0"],
+)
+def test_runtime_metadata_requires_path_free_three_part_versions(
+    field: str, value: object
+) -> None:
+    packet = _packet()
+    packet["desktop_extension"]["environment"][field] = value
+
+    with pytest.raises(EvidenceError, match=rf"{field} does not match MAJOR"):
+        _validate(packet)
+
+
+@pytest.mark.parametrize("version", ["2.7.18", "3.11.14", "3.15.0", "4.0.0"])
+def test_recorded_python_runtime_must_be_in_the_supported_range(version: str) -> None:
+    packet = _packet()
+    packet["desktop_extension"]["environment"]["python_runtime_version"] = version
+
+    with pytest.raises(EvidenceError, match="Python runtime version is unsupported"):
+        _validate(packet)
+
+
+@pytest.mark.parametrize("value", [None, True, "", "a" * 63, "a" * 65, "G" * 64])
+def test_runtime_origin_evidence_digest_is_required_and_valid(value: object) -> None:
+    packet = _packet()
+    packet["desktop_extension"]["environment"]["runtime_origin_evidence_sha256"] = value
+
+    with pytest.raises(EvidenceError, match="runtime_origin_evidence_sha256 is not"):
+        _validate(packet)
+
+
+@pytest.mark.parametrize("section", ["desktop_rehearsal", "desktop_extension"])
+@pytest.mark.parametrize("client", [None, "claude_desktop_fresh_user_profile", "codex"])
+def test_both_desktop_sections_must_identify_the_existing_user_client(
+    section: str, client: object
+) -> None:
+    packet = _packet()
+    packet[section]["client"] = client
+
+    with pytest.raises(EvidenceError, match="Claude Desktop"):
+        _validate(packet)
+
+
+@pytest.mark.parametrize("value", [True, None, 0, "false"])
+def test_desktop_rehearsal_cannot_claim_a_fresh_profile(value: object) -> None:
+    packet = _packet()
+    packet["desktop_rehearsal"]["fresh_user_profile"] = value
+
+    with pytest.raises(EvidenceError, match="Claude Desktop rehearsal did not pass"):
+        _validate(packet)
+
+
+@pytest.mark.parametrize("value", [False, None, 1, "true"])
+def test_claude_must_launch_the_installed_extension(value: object) -> None:
+    packet = _packet()
+    packet["desktop_extension"]["claude_managed_extension_launch_confirmed"] = value
+
+    with pytest.raises(
+        EvidenceError, match="claude_managed_extension_launch_confirmed does not equal True"
+    ):
+        _validate(packet)
+
+
+def test_legacy_uv_launch_key_cannot_replace_extension_launch_evidence() -> None:
+    packet = _packet()
+    extension = packet["desktop_extension"]
+    extension["host_managed_uv_runtime_confirmed"] = extension.pop(
+        "claude_managed_extension_launch_confirmed"
+    )
+
+    with pytest.raises(EvidenceError, match="desktop_extension fields differ"):
         _validate(packet)
 
 

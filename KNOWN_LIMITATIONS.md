@@ -12,10 +12,12 @@ unchanged eight-tool `veqtor.mcp.v0.3` surface until v0.4 promotion completes;
 the v0.4 candidate has no publication acceptance claim.
 
 The v0.4 MCPB release candidate is macOS-only and is public only when the exact
-artifact passes fresh isolated-user acceptance on the maintainer's Mac and is
-attached to the matching verified release. That test does not claim a separate
-physical clean Mac without a system toolchain. Linux keeps the CLI setup. There
-is no Windows extension, catalog listing, automatic update promise, silent
+artifact passes existing-user acceptance on the maintainer's Mac and is
+attached to the matching verified release. This profile permits pre-existing
+system UV and caches; it does not verify installation in an untouched user,
+on a separate clean Mac, or without a development toolchain. Claude must launch
+the installed MCPB, with source bytes and runtime origin checked. Linux keeps
+the CLI setup. There is no Windows extension, catalog listing, automatic update promise, silent
 installation or guaranteed in-app rollback. If published, `0.3.0` remains the
 first public MCPB. The v0.4 release gate requires a real upgrade from v0.3.0,
 rollback to that immutable release, and candidate reinstallation. The first UV

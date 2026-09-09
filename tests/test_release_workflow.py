@@ -50,7 +50,7 @@ def test_release_guard_precedes_execution_of_requested_commit() -> None:
     assert "private_dogfood_passed" not in workflow
     assert "acceptance_evidence:" in workflow
     assert "acceptance_evidence_sha256:" in workflow
-    assert "veqtor_release_acceptance.v6" in workflow
+    assert "veqtor_release_acceptance.v7" in workflow
     assert "expected_mcpb_sha256" in verify
     assert '"desktop_extension"]["artifact_sha256"]' in guard
     assert "mcpb_sha256=%s" in guard
@@ -528,9 +528,9 @@ def test_product_acceptance_documents_complete_path_free_packet() -> None:
     mcpb_smoke = (ROOT / "scripts" / "mcpb_stdio_smoke.py").read_text()
 
     assert "installed wheel completes the nine-tool synthetic smoke" in releasing
-    assert "fresh isolated standard macOS user" in releasing
+    assert "maintainer's existing macOS user" in releasing
     assert "calls exactly nine tools" in releasing
-    assert "### Construct the v6 acceptance packet" in releasing
+    assert "### Construct the v7 acceptance packet" in releasing
     assert "Claude Code" not in releasing
     assert "canonical path-free acceptance packet" in releasing
     assert "never filenames, local paths, quotations or document text" in releasing
@@ -543,8 +543,8 @@ def test_product_acceptance_documents_complete_path_free_packet() -> None:
     assert "Do not infer or" in releasing
     assert "Only after all required gates" in releasing
 
-    template = releasing.split("<!-- acceptance-v6-template-begin -->", 1)[1]
-    template = template.split("<!-- acceptance-v6-template-end -->", 1)[0]
+    template = releasing.split("<!-- acceptance-v7-template-begin -->", 1)[1]
+    template = template.split("<!-- acceptance-v7-template-end -->", 1)[0]
     packet = json.loads(template.split("```json\n", 1)[1].split("\n```", 1)[0])
     assert set(packet) == {
         "schema_version",
@@ -570,8 +570,13 @@ def test_product_acceptance_documents_complete_path_free_packet() -> None:
     assert packet["installed_two_export"]["first_access_count"] == 0
     assert packet["installed_two_export"]["second_access_count"] == 1
     assert packet["desktop_rehearsal"]["client"] == (
-        "claude_desktop_fresh_user_profile"
+        "claude_desktop_existing_user_profile"
     )
+    assert packet["desktop_rehearsal"]["fresh_user_profile"] is False
+    assert packet["desktop_extension"]["client"] == (
+        "claude_desktop_existing_user_profile"
+    )
+    assert packet["desktop_extension"]["claude_managed_extension_launch_confirmed"] is True
     assert packet["desktop_extension"]["installation_channel"] == (
         "direct_download_mcpb"
     )
@@ -587,10 +592,22 @@ def test_product_acceptance_documents_complete_path_free_packet() -> None:
         "export_decision_record",
     ]
     environment = packet["desktop_extension"]["environment"]
-    assert environment["kind"] == "fresh_isolated_standard_macos_user_v1"
-    assert environment["physical_host"] == "maintainer_mac"
-    assert environment["clean_physical_mac_claimed"] is False
-    assert environment["developer_runtime_used"] is False
+    assert environment == {
+        "kind": "existing_maintainer_macos_user_v1",
+        "physical_host": "maintainer_mac",
+        "fresh_user_profile": False,
+        "clean_physical_mac_claimed": False,
+        "clean_install_claimed": False,
+        "developer_toolchain_independence_claimed": False,
+        "installed_mcpb_source_bytes_verified": True,
+        "repository_runtime_used": False,
+        "manual_veqtor_server_configuration_absent": True,
+        "fresh_demo_workspace_confirmed": True,
+        "uv_runtime_origin": "preexisting_system_uv",
+        "uv_runtime_version": "0.11.28",
+        "python_runtime_version": "3.12.13",
+        "runtime_origin_evidence_sha256": "2" * 64,
+    }
     assert packet["desktop_extension"]["history_trace"]["exact_unique_count"] == 3
     assert packet["desktop_extension"]["history_trace"]["authorship_verified"] is False
     assert packet["desktop_extension"]["verify_quote_v2"]["schema_version"] == (
