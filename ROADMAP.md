@@ -73,7 +73,7 @@ digital signature, a trusted timestamp or tamper evidence.
 ## Next
 
 - Extend supported OOXML layouts based on reproducible public issues.
-- Complete exact-artifact v0.4 MCPB, isolated fresh-user Desktop, compact-
+- Complete exact-artifact v0.4 MCPB, existing-user Desktop, compact-
   privacy and publication acceptance; the public v0.3 release remains
   eight-tool `veqtor.mcp.v0.3` until that process is completed.
 - Evaluate a separately specified Stage 3D clean-sendable-redline workflow only
@@ -84,7 +84,7 @@ digital signature, a trusted timestamp or tamper evidence.
 
 Veqtor can be packaged as a versioned Claude Desktop Extension (`.mcpb`). It is
 a public installation path only when the exact artifact passes the documented
-fresh isolated-user gate and appears in the matching immutable release. When
+existing-user Desktop gate and appears in the matching immutable release. When
 published, a non-technical macOS user can install the same local MCP server
 without editing JSON or running `uvx` manually: download the release artifact,
 open it, review the requested configuration, enter the tracked-change author
@@ -99,9 +99,12 @@ Version 0.4.0 candidate scope:
   `VEQTOR_TRACKED_CHANGE_AUTHOR` as required user configuration.
 - The build is validated and byte-reproducible. Only promotion can bind a
   public artifact to its published checksum; it is not digitally signed.
-- The release gate uses a fresh standard macOS user on the maintainer's Mac,
-  without a developer checkout or prior Veqtor state, and requires all nine
-  public tools, including `trace_paragraph_history` and v2 `verify_quote`.
+- The release gate uses the maintainer's existing macOS user, verifies that
+  Claude launches the accepted installed MCPB rather than a developer checkout,
+  records the runtime origin, and requires all nine public tools, including
+  `trace_paragraph_history` and v2 `verify_quote`. Pre-existing system UV and
+  caches are permitted. Fresh-user first-install and developer-toolchain
+  independence remain unverified.
 - The lifecycle check installs public v0.3.0, upgrades to the exact v0.4.0
   candidate, rolls back to v0.3.0, reinstalls the candidate, and verifies
   complete uninstall. It does not claim a separate physical clean Mac.

@@ -253,13 +253,17 @@ and rolls back the complete batch after an expected publication failure.
 - The installed wheel completes the nine-tool synthetic smoke. Its two compact
   exports report access counts 0 then 1, omit the first access event from both
   returned record windows, and keep each current event outside its own snapshot.
-- A Claude Desktop rehearsal runs under a fresh isolated standard macOS user
-  profile on the maintainer's Mac. This is not a claim that a separate clean
-  physical Mac was used. The user profile has no pre-existing Veqtor state,
-  repository checkout or manual server configuration, and the rehearsal does
-  not use a developer runtime.
+- A Claude Desktop rehearsal runs under the maintainer's existing macOS user
+  profile. It makes no clean-install, fresh-user, separate-clean-Mac or
+  developer-toolchain-independence claim. Existing caches and tools may be
+  present. The installed MCPB source bytes must match the accepted artifact;
+  the running server must use that installed extension, not a repository
+  checkout or a manual Veqtor MCP configuration. Each document-test workspace
+  starts with fresh demo copies and no prior journal.
 - The exact macOS MCPB is downloaded from the successful `main` CI artifact for
-  the accepted commit and runs through Claude Desktop's host-managed UV runtime.
+  the accepted commit and runs through Claude Desktop's extension launcher.
+  Record whether Claude selected pre-existing system UV or its own managed UV,
+  the UV and Python runtime versions, and a digest of retained launch evidence.
   Acceptance confirms that the extension is enabled and connected, exposes and
   calls exactly nine tools, completes the English bundled prompt, and exercises
   paragraph history, rejected-pending `verify_quote` v2, compact privacy,
@@ -270,7 +274,7 @@ and rolls back the complete batch after an expected publication failure.
 - The write workflow uses a fresh writable copy of the four bundled DOCX files
   outside the immutable extension. It proves the source hash is unchanged and
   that apply, `list_rounds` and re-extraction agree on the output hash.
-- The same fresh user profile performs a real immutable-extension lifecycle:
+- The same existing user profile performs a real immutable-extension lifecycle:
   public v0.3.0 (eight tools) → candidate v0.4.0 (nine) → public v0.3.0
   (eight) → the same candidate v0.4.0 (nine), with checksum and runtime-version
   checks at every transition. Rollback covers only extension runtime and tool
@@ -285,7 +289,7 @@ The acceptance packet has one canonical byte representation and is exact-SHA,
 tree, runtime-build and MCPB-byte bound. Its executable schema is
 `scripts/check_acceptance_evidence.py`.
 
-### Construct the v6 acceptance packet
+### Construct the v7 acceptance packet
 
 Freeze one clean candidate before collecting evidence. These values must come
 from that checkout, and the same `producer_build` must appear at the packet
@@ -310,8 +314,8 @@ shasum -a 256 veqtor-mcp-0.4.0-macos.mcpb
 grep ' veqtor-mcp-0.4.0-macos.mcpb$' SHA256SUMS.txt
 ```
 
-The two digests must match. Install that exact MCPB in the fresh isolated
-standard-user profile and copy its digest into
+The two digests must match. Install that exact MCPB in the existing
+maintainer user profile and copy its digest into
 `desktop_extension.artifact_sha256`. Retain the CI run ID and attempt number
 with the private evidence. The later release dispatch passes that accepted
 digest back into CI and refuses any independently rebuilt MCPB whose bytes
@@ -328,21 +332,30 @@ retained evidence.
 | `payment_preflight` | The maintained private scenario is refused with `batch_applicable: false`, `refusal_code: "counter_position_unsupported"` and `match_count: 1`. |
 | `five_edit_batch` | Applicable preflight, successful apply of five edits, passing round trip, zero collateral changes and the fixed output digest below. |
 | `installed_two_export` | Copy the fields printed by `scripts/installed_wheel_smoke.py` from the installed candidate wheel, including the nine-tool modern/legacy stdio result and compact-export counters. |
-| `desktop_rehearsal` | Record the fixed client/fresh-profile values, runtime identity and SHA-256 digests of the retained private transcript and raw journal. |
-| `desktop_extension` | Record exact CI artifact provenance; fresh isolated-user conditions; client/OS versions; the nine visible and called tools; history, verify-v2 and privacy results; client abandonment/cancellation-notification/session-recovery status; explicit false server-cancellation and side-effect-absence claims; forced transport-owner process teardown; post-apply hashes; private evidence digests; and the real v0.3→v0.4→v0.3→v0.4 lifecycle. |
+| `desktop_rehearsal` | Record the existing-user client identity and `fresh_user_profile: false`, runtime identity and SHA-256 digests of the retained private transcript and raw journal. |
+| `desktop_extension` | Record exact CI artifact provenance; existing-user conditions and explicit clean-install non-claims; launch/runtime origin and evidence digest; client/OS versions; the nine visible and called tools; history, verify-v2 and privacy results; client abandonment/cancellation-notification/session-recovery status; explicit false server-cancellation and side-effect-absence claims; forced transport-owner process teardown; post-apply hashes; private evidence digests; and the real v0.3→v0.4→v0.3→v0.4 lifecycle. |
 
-### Same-Mac isolated-user rehearsal
+### Same-Mac existing-user rehearsal
 
-The accepted v0.4 rehearsal may use the maintainer's existing physical Mac,
-but it must run under a newly created standard macOS user. Record this as a
-fresh isolated standard-user profile on `maintainer_mac`; never describe it as
-a separate clean physical Mac.
+The v7 packet accepts the maintainer's existing macOS user on `maintainer_mac`.
+This intentionally replaces the v6 fresh-user requirement for the v0.4 Alpha.
+Reinstallation in an existing profile can reuse configuration, permissions and
+caches; it does not establish first-install success in an untouched user or
+independence from the maintainer's development toolchain. Those checks remain
+unperformed and must not be advertised as passed. Installing macOS on another
+disk is not required for this profile. The artifact, functional, privacy,
+transport and upgrade/rollback gates below remain required.
 
 1. After the exact candidate commit reaches `main` and its required CI is
-   green, create a standard macOS user through System Settings. Do not copy the
-   repository, prior Veqtor state, a manual MCP server configuration or a
-   developer runtime into that profile. Record the numeric Claude Desktop and
-   macOS versions.
+   green, record the numeric Claude Desktop and macOS versions. Inspect active
+   Veqtor connections and preserve prior settings before removing any duplicate
+   manual Veqtor configuration. Unrelated user integrations must be preserved.
+   A repository may exist elsewhere in the account, but must not provide the
+   server under test. Compare every packaged source file with the installed
+   MCPB, and retain evidence that Claude launches that installed extension.
+   Record the resolved UV origin, actual UV/Python versions and the SHA-256 of
+   the private runtime-origin evidence. Pre-existing system UV is permitted;
+   it is not evidence of a runtime downloaded by Claude.
 2. In that profile, verify and install the immutable public v0.3.0 MCPB using
    its published checksum. Confirm runtime `0.3.0`, exactly eight tools and a
    passing read-only smoke on a fresh v0.3-compatible workspace. Record the
@@ -364,7 +377,7 @@ a separate clean physical Mac.
    nine tools again, recheck and record the bytes as
    `post_reinstall_artifact_sha256`, then uninstall and confirm that its tools
    are absent.
-7. Build the canonical v6 packet from the observed values and retained digests,
+7. Build the canonical v7 packet from the observed values and retained digests,
    validate it against the exact candidate, and preserve the private supporting
    evidence outside git.
 
@@ -373,15 +386,32 @@ a separate clean physical Mac.
 `MAJOR.MINOR[.PATCH]`. Product names, paths, build labels and free-form OS text
 are rejected by the packet validator.
 
-The complete, type-correct v6 working template follows. Its sample SHA/tree,
+`environment.uv_runtime_origin` is exactly `preexisting_system_uv` or
+`claude_managed_uv`; both runtime-version fields use numeric `MAJOR.MINOR.PATCH`.
+The Python runtime must be in the supported 3.12, 3.13 or 3.14 series.
+`runtime_origin_evidence_sha256` binds the retained private launch evidence,
+including resolved executable/source paths and runtime versions. Those paths
+do not enter the public packet. Source-byte and runtime-origin checks apply
+again after each install, upgrade, rollback and reinstall, so a stale process
+cannot stand in for the accepted extension. `repository_runtime_used` is false
+even if the source repository exists elsewhere in the account.
+
+`claude_managed_extension_launch_confirmed` establishes who launches the
+installed extension, not who originally installed UV. A toggle, a model's
+summary or a passed SDK-only smoke does not establish a successful Claude
+call. Retain actual client/tool observations for the Desktop fields, including
+the cancellation and recovery checks. Fresh writable test folders isolate
+document/journal state but are not an operating-system filesystem sandbox.
+
+The complete, type-correct v7 working template follows. Its sample SHA/tree,
 runtime-build and private digests are placeholders; replace them with observed
 values. Fixed statuses, booleans, versions, previous-public MCPB identity and
 tool inventories are release-contract values.
 
-<!-- acceptance-v6-template-begin -->
+<!-- acceptance-v7-template-begin -->
 ```json
 {
-  "schema_version": "veqtor_release_acceptance.v6",
+  "schema_version": "veqtor_release_acceptance.v7",
   "candidate_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "candidate_tree": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "producer_build": "source-snapshot-v1-sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
@@ -428,8 +458,8 @@ tool inventories are release-contract values.
   },
   "desktop_rehearsal": {
     "verdict": "passed",
-    "client": "claude_desktop_fresh_user_profile",
-    "fresh_user_profile": true,
+    "client": "claude_desktop_existing_user_profile",
+    "fresh_user_profile": false,
     "event_omitted_from_records": true,
     "current_event_not_in_access_count": true,
     "raw_vs_compact_explained": true,
@@ -443,20 +473,26 @@ tool inventories are release-contract values.
     "artifact_origin": "successful_main_ci_artifact",
     "installation_channel": "direct_download_mcpb",
     "platform": "darwin",
-    "client": "claude_desktop_fresh_user_profile",
+    "client": "claude_desktop_existing_user_profile",
     "client_version": "1.0.0",
     "platform_version": "15.5",
     "environment": {
-      "kind": "fresh_isolated_standard_macos_user_v1",
+      "kind": "existing_maintainer_macos_user_v1",
       "physical_host": "maintainer_mac",
       "clean_physical_mac_claimed": false,
-      "fresh_user_profile": true,
-      "preexisting_veqtor_user_state_absent": true,
-      "repository_checkout_absent": true,
-      "manual_server_configuration_absent": true,
-      "developer_runtime_used": false
+      "fresh_user_profile": false,
+      "clean_install_claimed": false,
+      "developer_toolchain_independence_claimed": false,
+      "installed_mcpb_source_bytes_verified": true,
+      "repository_runtime_used": false,
+      "manual_veqtor_server_configuration_absent": true,
+      "fresh_demo_workspace_confirmed": true,
+      "uv_runtime_origin": "preexisting_system_uv",
+      "uv_runtime_version": "0.11.28",
+      "python_runtime_version": "3.12.13",
+      "runtime_origin_evidence_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
     },
-    "host_managed_uv_runtime_confirmed": true,
+    "claude_managed_extension_launch_confirmed": true,
     "tracked_change_author_confirmed": true,
     "extension_enabled_confirmed": true,
     "server_connected_confirmed": true,
@@ -645,9 +681,10 @@ tool inventories are release-contract values.
   }
 }
 ```
-<!-- acceptance-v6-template-end -->
+<!-- acceptance-v7-template-end -->
 
-Every field is required and exact; v1 through v5 packets are rejected. No
+Every field is required and exact; v1 through v6 packets are rejected. Runtime
+origin and version examples must be replaced with actual observations. No
 filenames, local paths, quotes or document text are allowed by the packet
 schema. The packet has one accepted byte representation: UTF-8 JSON produced
 with sorted keys, `ensure_ascii=False`, `allow_nan=False`, separators
@@ -739,7 +776,7 @@ install commands and download links remain pinned to public v0.3.0, and the
 Desktop Extension is labelled a v0.4.0 candidate or preview. After both pass,
 a separate docs/site change must activate the public v0.4.0 links and release
 wording, deploy them, and smoke the live setup page. That required copy
-activation does not amend the tag, replace isolated fresh-user acceptance, or
+activation does not amend the tag, replace existing-user Desktop acceptance, or
 waive any gate above.
 
 If promotion stops after reservation, the protected tag remains the only

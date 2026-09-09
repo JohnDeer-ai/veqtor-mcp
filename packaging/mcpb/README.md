@@ -2,7 +2,7 @@
 
 > **Release-candidate packaging notes:** there is no official public
 > `v0.4.0` MCPB merely because this directory can build one. These installation
-> steps apply only after the exact candidate passes fresh isolated-user acceptance and is
+> steps apply only after the exact candidate passes existing-user acceptance and is
 > attached to the immutable GitHub Release by the promotion workflow.
 
 Veqtor is a local MCP server for reviewing DOCX redlines with Claude. It reads
@@ -30,10 +30,16 @@ or decide whether contract wording is legally or commercially suitable.
 6. Run the bundled `try_veqtor_demo` prompt, or paste the prompt from
    `demo/FIRST_PROMPT.txt`.
 
-The first activation may need internet access while Claude Desktop's UV runtime
-downloads a compatible Python runtime and the dependencies pinned in
+Claude Desktop may select an existing system UV or a runtime it manages. The
+first activation may need internet access while UV downloads a compatible
+Python runtime and the dependencies pinned in
 `uv.lock`. Later availability depends on the host cache; this package does not
 promise a fully offline first install.
+
+The v0.4 Alpha acceptance profile uses the maintainer's existing macOS user.
+It verifies the installed artifact and actual extension workflow, but does not
+establish first-install success in a clean user or independence from an
+existing development toolchain.
 
 ## Bundled demo
 

@@ -22,7 +22,7 @@ from release_contract import (
 )
 
 
-SCHEMA_VERSION = "veqtor_release_acceptance.v6"
+SCHEMA_VERSION = "veqtor_release_acceptance.v7"
 MAX_EVIDENCE_BYTES = 64 * 1024
 MAX_PACKET_INTEGER_DIGITS = 128
 HEX = frozenset("0123456789abcdef")
@@ -32,6 +32,9 @@ _CLIENT_VERSION_PATTERN = re.compile(
 )
 _PLATFORM_VERSION_PATTERN = re.compile(
     rf"{_VERSION_COMPONENT}(?:\.{_VERSION_COMPONENT}){{1,2}}"
+)
+_RUNTIME_VERSION_PATTERN = re.compile(
+    rf"{_VERSION_COMPONENT}(?:\.{_VERSION_COMPONENT}){{2}}"
 )
 
 
@@ -259,8 +262,8 @@ def validate_evidence(
     )
     if (
         desktop["verdict"] != "passed"
-        or desktop["client"] != "claude_desktop_fresh_user_profile"
-        or desktop["fresh_user_profile"] is not True
+        or desktop["client"] != "claude_desktop_existing_user_profile"
+        or desktop["fresh_user_profile"] is not False
         or desktop["event_omitted_from_records"] is not True
         or desktop["current_event_not_in_access_count"] is not True
         or desktop["raw_vs_compact_explained"] is not True
@@ -288,7 +291,7 @@ def validate_evidence(
             "client_version",
             "platform_version",
             "environment",
-            "host_managed_uv_runtime_confirmed",
+            "claude_managed_extension_launch_confirmed",
             "tracked_change_author_confirmed",
             "extension_enabled_confirmed",
             "server_connected_confirmed",
@@ -324,7 +327,7 @@ def validate_evidence(
         extension["artifact_origin"] != "successful_main_ci_artifact"
         or extension["installation_channel"] != "direct_download_mcpb"
         or extension["platform"] != "darwin"
-        or extension["client"] != "claude_desktop_fresh_user_profile"
+        or extension["client"] != "claude_desktop_existing_user_profile"
     ):
         raise EvidenceError("Claude Desktop extension identity differs")
     environment = _exact_keys(
@@ -334,29 +337,61 @@ def validate_evidence(
             "physical_host",
             "clean_physical_mac_claimed",
             "fresh_user_profile",
-            "preexisting_veqtor_user_state_absent",
-            "repository_checkout_absent",
-            "manual_server_configuration_absent",
-            "developer_runtime_used",
+            "clean_install_claimed",
+            "developer_toolchain_independence_claimed",
+            "installed_mcpb_source_bytes_verified",
+            "repository_runtime_used",
+            "manual_veqtor_server_configuration_absent",
+            "fresh_demo_workspace_confirmed",
+            "uv_runtime_origin",
+            "uv_runtime_version",
+            "python_runtime_version",
+            "runtime_origin_evidence_sha256",
         },
         "desktop_extension.environment",
     )
     if (
-        environment["kind"] != "fresh_isolated_standard_macos_user_v1"
+        environment["kind"] != "existing_maintainer_macos_user_v1"
         or environment["physical_host"] != "maintainer_mac"
     ):
         raise EvidenceError("Desktop acceptance environment identity differs")
     for field in (
-        "fresh_user_profile",
-        "preexisting_veqtor_user_state_absent",
-        "repository_checkout_absent",
-        "manual_server_configuration_absent",
+        "installed_mcpb_source_bytes_verified",
+        "manual_veqtor_server_configuration_absent",
+        "fresh_demo_workspace_confirmed",
     ):
         _boolean(environment[field], True, f"desktop_extension.environment.{field}")
-    for field in ("clean_physical_mac_claimed", "developer_runtime_used"):
-        _boolean(environment[field], False, f"desktop_extension.environment.{field}")
     for field in (
-        "host_managed_uv_runtime_confirmed",
+        "fresh_user_profile",
+        "clean_physical_mac_claimed",
+        "clean_install_claimed",
+        "developer_toolchain_independence_claimed",
+        "repository_runtime_used",
+    ):
+        _boolean(environment[field], False, f"desktop_extension.environment.{field}")
+    if environment["uv_runtime_origin"] not in (
+        "preexisting_system_uv",
+        "claude_managed_uv",
+    ):
+        raise EvidenceError("Desktop acceptance uv runtime origin is unsupported")
+    for field in ("uv_runtime_version", "python_runtime_version"):
+        _version(
+            environment[field],
+            pattern=_RUNTIME_VERSION_PATTERN,
+            grammar="MAJOR.MINOR.PATCH",
+            location=f"desktop_extension.environment.{field}",
+        )
+    if not environment["python_runtime_version"].startswith(
+        ("3.12.", "3.13.", "3.14.")
+    ):
+        raise EvidenceError("Desktop acceptance Python runtime version is unsupported")
+    _hex_digest(
+        environment["runtime_origin_evidence_sha256"],
+        64,
+        "desktop_extension.environment.runtime_origin_evidence_sha256",
+    )
+    for field in (
+        "claude_managed_extension_launch_confirmed",
         "tracked_change_author_confirmed",
         "extension_enabled_confirmed",
         "server_connected_confirmed",

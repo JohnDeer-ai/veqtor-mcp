@@ -38,8 +38,12 @@ publication occurred.
   contract version.
 
 - Package and release-candidate identity is `0.4.0`; publication still requires
-  the exact release contract, fresh isolated-user MCPB acceptance and immutable
+  the exact release contract, existing-user MCPB acceptance and immutable
   promotion workflow.
+- Acceptance evidence v7 explicitly records an existing maintainer user,
+  installed-source verification and UV/Python runtime origin. It replaces the
+  fresh-user requirement without claiming clean-install or developer-toolchain
+  independence; the functional, privacy and extension lifecycle gates remain.
 - Release CI builds and smokes wheel, sdist and the nine-tool MCPB surface,
   then independently reproduces the sealed release set.
 
