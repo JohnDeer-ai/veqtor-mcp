@@ -199,6 +199,7 @@ def test_release_copy_is_state_neutral_and_site_uses_public_v040() -> None:
 
 
 def test_public_site_v040_history_instructions_match_the_release() -> None:
+    from veqtor_mcp._verification_v2 import PARAGRAPH_PROJECTION_MODES
     from veqtor_mcp.records import WRITABLE_TOOL_NAMES
 
     pages = ROOT / "website" / "src" / "pages"
@@ -211,13 +212,14 @@ def test_public_site_v040_history_instructions_match_the_release() -> None:
         "veqtor.mcp.v0.4",
         "filename_lexicographic_v1",
         "explicit_filename_sequence_v1",
-        "accepted_current_v1",
-        "rejected_pending_v1",
+        *PARAGRAPH_PROJECTION_MODES,
+        "paragraph_projection",
         "checked_projection",
         "authorship_verified",
         "time_verified",
     ):
         assert marker in docs
+    assert "rejected_pending_v1" not in docs
     prompt = (ROOT / "packaging/mcpb/demo/FIRST_PROMPT.txt").read_text().strip()
     assert f"<blockquote>{prompt}</blockquote>" in setup
     assert "${PUBLIC_MCPB_FILENAME}" in setup
