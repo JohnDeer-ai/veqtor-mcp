@@ -39,6 +39,8 @@ jobs:
           cache-dependency-path: website/package-lock.json
       - name: Install locked website dependencies
         run: npm ci
+      - name: Audit all website dependencies
+        run: npm run audit
       - name: Check Astro and TypeScript
         run: npm run check
       - name: Run website tests
