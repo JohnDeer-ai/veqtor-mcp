@@ -6,6 +6,16 @@ All notable changes to Veqtor MCP are documented here.
 Publication dates are authoritative in each version's immutable GitHub Release
 through its `published_at` timestamp.
 
+## Unreleased
+
+- Add local Codex setup, a next-round workflow prompt, and a native-client
+  evidence checker with a bounded v0.4.0 CLI compatibility observation.
+- Preserve controlled refusal codes through the MCP SDK 2.2 transport using
+  its anticipated-error interface. Keep core exception details private,
+  preserve existing safe recovery hints, and retain direct Python behavior
+  and the nine advertised tool schemas. This source change is not part of the
+  immutable published v0.4.0 artifacts.
+
 ## 0.4.0
 
 Veqtor v0.4.0 Alpha release contents. The immutable GitHub Release

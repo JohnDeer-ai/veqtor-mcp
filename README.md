@@ -61,6 +61,26 @@ author name. Its first activation may download a compatible Python runtime and
 locked dependencies. The artifact is checksum-bound by `SHA256SUMS.txt`, but
 not digitally signed.
 
+## Use Veqtor in local Codex
+
+The [Codex setup guide](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/docs/CODEX.md) connects the pinned `0.4.0` package to
+local Codex over stdio. It includes a synthetic read-and-write check and a
+[reusable next-round prompt](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/docs/prompts/next-round.md) for preparing a new
+Word file from your stated negotiation positions.
+
+After installing [uv](https://docs.astral.sh/uv/), find its executable with
+`command -v uvx`. Replace the path and author below with your own values:
+
+```bash
+codex mcp add veqtor --env 'VEQTOR_TRACKED_CHANGE_AUTHOR=Your Name' -- /absolute/path/to/uvx veqtor-mcp@0.4.0
+```
+
+Restart the MCP server or open a fresh Codex session, then use the guide's
+verification steps. Local Codex clients on the same host share MCP
+configuration; browser ChatGPT requires a separate connection.
+[Official OpenAI MCP documentation](https://learn.chatgpt.com/docs/extend/mcp).
+Registration alone does not establish a working document workflow.
+
 ## Install a verified published version for Claude Code
 
 Install [uv](https://docs.astral.sh/uv/) once, replace `X.Y.Z` using the table
@@ -270,7 +290,7 @@ for hostile same-user processes.
 | Operating systems | macOS, Linux |
 | Python | 3.12, 3.13, 3.14 |
 | Transport | local stdio MCP; modern `2026-07-28` and legacy through `2025-11-25` |
-| Validated clients | Claude Code, Claude Desktop |
+| Validated clients | Claude Code, Claude Desktop; bounded synthetic workflow in Codex CLI 0.153.4 with published Veqtor 0.4.0 ([evidence](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/docs/evidence/codex-v0.4.0-20260911.json)) |
 | DOCX part | `word/document.xml` |
 | Writes | tracked replace, delete, counter, reinstate |
 | Distribution | Versioned PyPI packages with matching immutable GitHub wheel/sdist/checksums; macOS MCPB only when attached to the matching verified release |
@@ -279,7 +299,9 @@ Windows, hosted MCP, comments/headers/footnotes, accept/reject, semantic
 cross-round lineage and cryptographic audit guarantees are outside the Alpha.
 The client row applies only to an exact version whose release artifacts passed
 the documented client gate; source and CI coverage alone do not establish that
-status.
+status. The Codex observation is a separate maintainer CLI check, with one
+recovered read error and a documented SDK 2.2 error-message limitation; it does
+not establish Desktop, browser ChatGPT, or clean-user acceptance.
 
 ## Support
 

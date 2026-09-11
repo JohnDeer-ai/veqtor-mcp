@@ -55,6 +55,17 @@ contract. The current MCPServer transport may ignore unrecognized object
 properties; clients must use the advertised tool schema. Strict rejection of
 unknown top-level arguments remains outside the current contract.
 
+The unreleased transport adapter registers controlled DOCX refusals as SDK
+`ToolError` responses (`isError: true`) so MCP SDK 2.2 preserves their stable
+code in the error text. Ordinary core exception details, including file paths
+and contract text, are omitted. Existing sanitized workspace-discovery hints
+and fixed recovery guidance remain available; unexpected failures report
+`internal_error` without exception details. This does not change successful
+output schemas or direct Python exceptions. The SDK may prefix the message
+with the tool name. Published v0.4.0 with SDK 2.2 predates this adapter and can
+return only a generic tool error. For journaled refusals, the private local
+journal retains the controlled code; some refusals occur before journaling.
+
 All DOCX-reading tools share one two-stage fail-closed ZIP boundary. Before any
 decoder is created, Veqtor bounds the 50 MiB compressed input, 2,000 members,
 4 MiB central directory and every declared member/aggregate size, rejects

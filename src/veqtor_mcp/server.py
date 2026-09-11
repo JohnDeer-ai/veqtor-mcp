@@ -11,15 +11,19 @@ import json
 import os
 import platform
 import sys
-from functools import cache
+from functools import cache, wraps
 from typing import Annotated, Any, Callable, Literal
 
 import jsonschema
 from mcp.server import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import Field, StrictInt
 
 import veqtor_docx
-from veqtor_docx._ooxml import tracked_change_author_validation_error
+from veqtor_docx._ooxml import (
+    ExpandedOutputBudgetExceeded,
+    tracked_change_author_validation_error,
+)
 from veqtor_docx.apply import DEFAULT_AUTHOR
 from veqtor_docx.contracts import INSPECT_FIXED_LIMITS_V1, InspectionContractV1
 from veqtor_docx.inspect import DEFAULT_MAX_ITEMS as DEFAULT_INSPECT_MAX_ITEMS
@@ -394,6 +398,47 @@ def _run_tool_boundary(
         raise _McpBoundaryError("internal_error", "unexpected tool failure") from None
 
 
+def _mcp_tool(**options: Any) -> Callable:
+    """Register a safe transport adapter while preserving direct Python calls."""
+
+    def register(fn: Callable) -> Callable:
+        @wraps(fn)
+        def transport_call(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return fn(*args, **kwargs)
+            except _McpBoundaryError as exc:
+                # This private boundary already omits raw exception details.
+                # Preserve its documented, path-safe workspace suggestions.
+                message = (
+                    str(exc)
+                    if is_record_error(exc.code)
+                    else "internal_error: unexpected tool failure"
+                )
+                raise ToolError(message) from None
+            except veqtor_docx.DocxError as exc:
+                code = getattr(exc, "code", None)
+                code = code if is_record_error(code) else "docx_error"
+                # Core diagnostics can contain paths or contract text. The
+                # safe templates preserve existing recovery guidance.
+                detail = "operation refused"
+                if isinstance(exc, _OutputContractError):
+                    detail = "tool output failed contract validation"
+                elif fn.__name__ == "list_rounds" and isinstance(
+                    exc.__cause__, ExpandedOutputBudgetExceeded
+                ):
+                    detail = "aggregate expanded-output limit; split the folder and retry"
+                raise ToolError(f"{code}: {detail}") from None
+            except Exception:
+                # SDK 2.0 exposed arbitrary exception messages; 2.2 masks them.
+                # Keep unexpected failures private on both versions.
+                raise ToolError("internal_error: unexpected tool failure") from None
+
+        mcp.tool(**options)(transport_call)
+        return fn
+
+    return register
+
+
 def _anchor_from_verify(anchor: dict) -> dict[str, Any]:
     """Copy only the closed public change-unit anchor fields.
 
@@ -737,7 +782,7 @@ def _decision_record_export_scope() -> dict[str, Any]:
     }
 
 
-@mcp.tool(
+@_mcp_tool(
     annotations=local_journaling_annotations("List DOCX negotiation rounds"),
     meta=contract_meta(),
     structured_output=True,
@@ -801,7 +846,7 @@ def list_rounds(
     )
 
 
-@mcp.tool(
+@_mcp_tool(
     annotations=local_journaling_annotations("Extract DOCX redlines"),
     meta=contract_meta(),
     structured_output=True,
@@ -854,7 +899,7 @@ def extract_redlines(path: str) -> ExtractRedlinesResult:
     )
 
 
-@mcp.tool(
+@_mcp_tool(
     annotations=local_journaling_annotations(
         "Inspect a mechanical accepted/current DOCX body reading"
     ),
@@ -961,7 +1006,7 @@ def inspect_document(
     )
 
 
-@mcp.tool(
+@_mcp_tool(
     annotations=local_journaling_annotations("Map bounded document rounds"),
     meta=contract_meta(),
     structured_output=True,
@@ -1021,7 +1066,7 @@ def map_rounds(
         raise _McpBoundaryError("internal_error", "unexpected tool failure") from None
 
 
-@mcp.tool(
+@_mcp_tool(
     annotations=local_journaling_annotations("Trace DOCX paragraph history"),
     meta=contract_meta(),
     structured_output=True,
@@ -1098,7 +1143,7 @@ def trace_paragraph_history(
     return {**normalized, **meta}
 
 
-@mcp.tool(
+@_mcp_tool(
     annotations=local_journaling_annotations("Preflight tracked edits"),
     meta=contract_meta(),
     structured_output=True,
@@ -1169,7 +1214,7 @@ def preflight_edits(
     )
 
 
-@mcp.tool(
+@_mcp_tool(
     annotations=local_journaling_annotations("Apply tracked edits"),
     meta=contract_meta(),
     structured_output=True,
@@ -1278,7 +1323,7 @@ def apply_edits(
     )
 
 
-@mcp.tool(
+@_mcp_tool(
     annotations=local_journaling_annotations("Verify a DOCX quote"),
     meta=contract_meta(),
     structured_output=True,
@@ -1360,7 +1405,7 @@ def verify_quote(
     )
 
 
-@mcp.tool(
+@_mcp_tool(
     annotations=local_journaling_annotations("Export decision records"),
     meta=contract_meta(),
     structured_output=True,
