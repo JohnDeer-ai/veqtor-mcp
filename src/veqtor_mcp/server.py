@@ -11,13 +11,15 @@ import json
 import os
 import platform
 import sys
+from contextvars import ContextVar
 from functools import cache, wraps
 from typing import Annotated, Any, Callable, Literal
 
 import jsonschema
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
-from pydantic import Field, StrictInt
+from mcp.types import CallToolResult, TextContent
+from pydantic import Field, StrictInt, ValidationError
 
 import veqtor_docx
 from veqtor_docx._ooxml import (
@@ -80,7 +82,59 @@ def _tracked_change_author() -> str:
     return _tracked_change_author_from_environment()
 
 
-mcp = MCPServer("veqtor", version=__version__)
+class _SafeToolError(ToolError):
+    """Only the Veqtor adapter may mint a client-visible diagnostic."""
+
+
+_TOOL_ENTRY: ContextVar[list[bool] | None] = ContextVar("veqtor_tool_entry", default=None)
+
+
+class _VeqtorMCPServer(MCPServer):
+    async def call_tool(self, name, arguments, context=None):
+        """Cover SDK argument validation and result conversion as well as the body.
+
+        SDK 2.0 and 2.2 wrap failures differently, but retain their causes.
+        Never trust the wrapper's text: it may echo rejected values or keys.
+        """
+        entered: list[bool] = []
+        token = _TOOL_ENTRY.set(entered)
+        try:
+            return await super().call_tool(name, arguments, context)
+        except Exception as exc:
+            cause = exc
+            seen: set[int] = set()
+            invalid_arguments = False
+            while cause is not None and id(cause) not in seen:
+                seen.add(id(cause))
+                if isinstance(cause, _SafeToolError):
+                    # The registered tool names, unlike request data, are fixed.
+                    tool_name = name if name in _RESULT_MODELS else "tool"
+                    raise ToolError(f"Error executing tool {tool_name}: {cause}") from None
+                invalid_arguments |= isinstance(cause, ValidationError)
+                cause = cause.__cause__
+            if invalid_arguments and not entered:
+                raise ToolError("invalid_arguments: tool input failed validation") from None
+            raise ToolError("internal_error: unexpected tool failure") from None
+        finally:
+            _TOOL_ENTRY.reset(token)
+
+
+async def _tool_request_boundary(ctx, call_next):
+    """Sanitize malformed tools/call envelopes rejected before call_tool."""
+    if ctx.method != "tools/call":
+        return await call_next(ctx)
+    try:
+        return await call_next(ctx)
+    except ValidationError:
+        message = "invalid_arguments: tool input failed validation"
+    except Exception:
+        message = "internal_error: unexpected tool failure"
+    return CallToolResult(content=[TextContent(type="text", text=message)], is_error=True)
+
+
+mcp = _VeqtorMCPServer(
+    "veqtor", version=__version__, middleware=[_tool_request_boundary]
+)
 
 
 _RESULT_MODELS = {
@@ -404,6 +458,8 @@ def _mcp_tool(**options: Any) -> Callable:
     def register(fn: Callable) -> Callable:
         @wraps(fn)
         def transport_call(*args: Any, **kwargs: Any) -> Any:
+            if (entered := _TOOL_ENTRY.get()) is not None:
+                entered.append(True)
             try:
                 return fn(*args, **kwargs)
             except _McpBoundaryError as exc:
@@ -414,7 +470,7 @@ def _mcp_tool(**options: Any) -> Callable:
                     if is_record_error(exc.code)
                     else "internal_error: unexpected tool failure"
                 )
-                raise ToolError(message) from None
+                raise _SafeToolError(message) from None
             except veqtor_docx.DocxError as exc:
                 code = getattr(exc, "code", None)
                 code = code if is_record_error(code) else "docx_error"
@@ -427,11 +483,11 @@ def _mcp_tool(**options: Any) -> Callable:
                     exc.__cause__, ExpandedOutputBudgetExceeded
                 ):
                     detail = "aggregate expanded-output limit; split the folder and retry"
-                raise ToolError(f"{code}: {detail}") from None
+                raise _SafeToolError(f"{code}: {detail}") from None
             except Exception:
                 # SDK 2.0 exposed arbitrary exception messages; 2.2 masks them.
                 # Keep unexpected failures private on both versions.
-                raise ToolError("internal_error: unexpected tool failure") from None
+                raise _SafeToolError("internal_error: unexpected tool failure") from None
 
         mcp.tool(**options)(transport_call)
         return fn
@@ -930,7 +986,10 @@ def inspect_document(
     supported body paragraph using the explicit ``match_basis``. ``browse``
     pages supported non-empty paragraphs when outline/search discovery is not
     sufficient. ``read`` resolves exactly one hash-bound ``paragraph_ref`` or
-    ``section_ref`` from an earlier result. Section reads are cursor-paginated;
+    ``section_ref`` from an earlier result. Pass that returned reference as
+    ``selection={"paragraph_ref": returned_reference}`` or
+    ``selection={"section_ref": returned_reference}``; do not pass a bare
+    reference or a paragraph index as selection. Section reads are cursor-paginated;
     paragraph reads return one full bounded paragraph and reject cursors.
 
     A literal-search snippet is only a navigation aid, even when neither

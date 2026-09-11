@@ -6,7 +6,11 @@ All notable changes to Veqtor MCP are documented here.
 Publication dates are authoritative in each version's immutable GitHub Release
 through its `published_at` timestamp.
 
-## Unreleased
+## 0.4.1.dev0
+
+Unreleased development build. Package and producer versions are `0.4.1.dev0`;
+the compatible nine-tool contract remains `veqtor.mcp.v0.4`. The frozen v0.4.0
+release contract, historical records and published artifacts are unchanged.
 
 - Add local Codex setup, a next-round workflow prompt, and a native-client
   evidence checker with a bounded v0.4.0 CLI compatibility observation.
@@ -15,6 +19,11 @@ through its `published_at` timestamp.
   preserve existing safe recovery hints, and retain direct Python behavior
   and the nine advertised tool schemas. This source change is not part of the
   immutable published v0.4.0 artifacts.
+- Sanitize SDK validation failures before tool entry, including rejected
+  values and nested field names; report `invalid_arguments` without private
+  diagnostics. Preserve safe Veqtor refusal codes across SDK 2.0 and 2.2.
+- Clarify the paragraph/section selection wrapper for `inspect_document` reads
+  in its tool description and the next-round prompt.
 
 ## 0.4.0
 

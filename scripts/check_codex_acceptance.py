@@ -97,6 +97,10 @@ def _baseline(value: Any) -> dict:
              and producer["name"] == "veqtor-mcp"
              and all(isinstance(item, str) and item for item in producer.values()),
              "baseline producer identity is invalid")
+    _require(re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:\.dev[0-9]+)?", producer["version"]) is not None
+             and producer["build"].startswith("source-snapshot-v1-sha256:")
+             and _sha256(producer["build"].removeprefix("source-snapshot-v1-sha256:")),
+             "baseline producer is not a package version and Python source snapshot")
     sources = value["source_sha256"]
     _require(isinstance(sources, dict) and bool(sources), "baseline sources are empty")
     for path, sha in sources.items():
@@ -183,7 +187,8 @@ def native_calls(events: list[dict], server_name: str) -> tuple[str, list[dict],
                      "preflight or apply attempt failed in the positive scenario")
             scope = {key: value for key, value in item["arguments"].items()
                      if key in {"path", "folder", "workspace", "source_path", "mode"}}
-            failures.append({"tool": item["tool"], "call_index": len(completed_ids), "scope": scope})
+            failures.append({"tool": item["tool"], "call_index": len(completed_ids),
+                             "completed_at": event_index, "scope": scope})
             completed_ids.add(item_id)
             continue
         _require(item.get("status") == "completed" and item.get("error") is None,
@@ -205,7 +210,7 @@ def native_calls(events: list[dict], server_name: str) -> tuple[str, list[dict],
         completed_ids.add(item_id)
     _require(completed and bool(calls), "native run did not complete with MCP calls")
     _require(all(any(call["tool"] == failure["tool"]
-                     and call["call_index"] > failure["call_index"]
+                     and call["started_at"] > failure["completed_at"]
                      and all(call["arguments"].get(key) == value
                              for key, value in failure["scope"].items()) for call in calls)
                  for failure in failures), "a failed read call was not followed by a successful retry")
@@ -235,8 +240,8 @@ def validate_evidence(events: list[dict], baseline: dict) -> dict:
     applies = matches("apply_edits")
     _require(len(preflights) == len(applies) == 1,
              "acceptance requires exactly one preflight and one apply")
-    pre_index, pre = preflights[0]
-    apply_index, apply = applies[0]
+    _, pre = preflights[0]
+    _, apply = applies[0]
     _require(pre["completed_at"] < apply["started_at"],
              "apply started before its successful preflight completed")
     source = baseline["source_path"]
@@ -272,7 +277,7 @@ def validate_evidence(events: list[dict], baseline: dict) -> dict:
                      for index, call in matches("verify_quote", path=source)),
                  "an intended input fragment lacks exact source-bound native verification")
     initial_lists = [(index, call) for index, call in matches("list_rounds")
-                     if index < pre_index]
+                     if call["completed_at"] < pre["started_at"]]
     _require(any(call["payload"].get("skipped") == [] and
                  {row.get("path"): row.get("sha256") for row in call["payload"].get("rounds", [])}
                  == baseline["source_sha256"] for _, call in initial_lists),

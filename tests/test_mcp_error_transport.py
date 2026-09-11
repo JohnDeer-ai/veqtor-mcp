@@ -7,6 +7,7 @@ from pathlib import Path
 
 from mcp.client import Client
 from mcp.server import MCPServer
+from mcp.types import CallToolResult, Request
 import pytest
 
 import veqtor_docx
@@ -136,7 +137,7 @@ async def test_transport_adapter_does_not_leak_exception_details(
 ) -> None:
     # Register through the public SDK API; direct and transport calls use the
     # same callable, with only the registered version receiving the adapter.
-    probe = MCPServer("transport-error-probe")
+    probe = server._VeqtorMCPServer("transport-error-probe")
     monkeypatch.setattr(server, "mcp", probe)
 
     @server._mcp_tool()
@@ -214,3 +215,90 @@ def test_direct_apply_error_retains_core_exception_and_metadata(tmp_path: Path) 
         server.apply_edits(source, str(matter / "counter.docx"), edits, proof)
     assert caught.value.code == "preflight_proof_invalid"
     assert caught.value.metadata["failure_phase"] == "preflight_binding"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("tool", "arguments"),
+    [
+        ("inspect_document", {"path": "/PRIVATE/path.docx", "mode": "PRIVATE_TEXT"}),
+        ("inspect_document", {"path": "/PRIVATE/path.docx", "mode": "browse",
+                              "max_items": {"PRIVATE_KEY": "PRIVATE_TEXT"}}),
+        ("inspect_document", {"path": "/PRIVATE/path.docx", "mode": "read",
+                              "selection": "PRIVATE_TEXT /PRIVATE/path"}),
+        ("list_rounds", {"folder": "/PRIVATE/path", "ordered_filenames": [
+            {"PRIVATE_KEY": "PRIVATE_TEXT"}]}),
+        ("apply_edits", {"source_path": "/PRIVATE/source.docx",
+                         "output_path": "/PRIVATE/output.docx", "edits": "PRIVATE_TEXT",
+                         "preflight_proof": {"PRIVATE_KEY": "PRIVATE_TEXT"}}),
+        ("verify_quote", {"path": "/PRIVATE/source.docx", "quote": "PRIVATE_TEXT",
+                          "anchor": "/PRIVATE/path"}),
+    ],
+)
+async def test_sdk_validation_before_tool_entry_is_private(
+    monkeypatch: pytest.MonkeyPatch, tool: str, arguments: dict
+) -> None:
+    entered = []
+
+    def forbidden(**kwargs):
+        entered.append(kwargs)
+        raise AssertionError("tool body must not run")
+
+    monkeypatch.setattr(server, "_run_tool_boundary", forbidden)
+    async with Client(server.mcp) as session:
+        text = _error_text(await session.call_tool(tool, arguments))
+    assert text == "invalid_arguments: tool input failed validation"
+    assert entered == []
+
+
+@pytest.mark.anyio
+async def test_unknown_tool_does_not_echo_untrusted_name() -> None:
+    async with Client(server.mcp) as session:
+        text = _error_text(await session.call_tool("PRIVATE_TEXT /private/path", {}))
+    assert text == "internal_error: unexpected tool failure"
+
+
+@pytest.mark.anyio
+async def test_sdk_result_conversion_error_is_private(monkeypatch: pytest.MonkeyPatch) -> None:
+    probe = server._VeqtorMCPServer("transport-conversion-probe")
+    monkeypatch.setattr(server, "mcp", probe)
+
+    @server._mcp_tool(structured_output=True)
+    def fail() -> str:
+        return {"PRIVATE_KEY": "PRIVATE_TEXT /private/path"}
+
+    async with Client(probe) as session:
+        text = _error_text(await session.call_tool("fail", {}))
+    assert text == "internal_error: unexpected tool failure"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("arguments", ["PRIVATE_TEXT", ["/private/path"], 42])
+async def test_malformed_call_envelope_is_private(arguments) -> None:
+    async with Client(server.mcp) as client:
+        response = await client.session.send_request(
+            Request(method="tools/call", params={"name": "inspect_document", "arguments": arguments}),
+            CallToolResult,
+        )
+    assert _error_text(response) == "invalid_arguments: tool input failed validation"
+
+
+@pytest.mark.anyio
+async def test_read_selection_wrappers_are_discoverable_and_work(tmp_path: Path) -> None:
+    veqtor_docx.generate_demo_rounds(tmp_path)
+    path = str(tmp_path / "round-4-counterparty-reply.docx")
+    async with Client(server.mcp) as session:
+        tools = await server.mcp.list_tools()
+        description = next(tool.description for tool in tools if tool.name == "inspect_document")
+        for kind in ("paragraph_ref", "section_ref"):
+            assert f'selection={{"{kind}": returned_reference}}' in description
+        browse = _payload(await session.call_tool("inspect_document", {"path": path, "mode": "browse"}))
+        reference = browse["paragraphs"][0]["paragraph_ref"]
+        read = _payload(await session.call_tool("inspect_document", {
+            "path": path, "mode": "read", "selection": {"paragraph_ref": reference}}))
+        assert read["paragraphs"][0]["paragraph_ref"] == reference
+        outline = _payload(await session.call_tool("inspect_document", {"path": path, "mode": "outline"}))
+        section = outline["sections"][0]["section_ref"]
+        read = _payload(await session.call_tool("inspect_document", {
+            "path": path, "mode": "read", "selection": {"section_ref": section}}))
+        assert read["file_sha256"] == reference["file_sha256"]

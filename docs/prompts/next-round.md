@@ -18,6 +18,10 @@ Our positions and permitted concessions:
 [List the required changes, any linked conditions, and matters requiring a decision.]
 
 Use Veqtor MCP to read the document and verify every quotation used as evidence.
+Discover references through inspect_document outline, literal_search, or browse.
+For mode=read, pass selection={"paragraph_ref": the_returned_reference} or
+selection={"section_ref": the_returned_reference}. Copy the complete returned
+reference; do not pass a bare reference or a paragraph index as selection.
 Distinguish the document's actual wording from your legal interpretation and
 from a business decision. Use only the positions and concessions I supplied;
 do not invent approval or treat a model suggestion as an agreed position.

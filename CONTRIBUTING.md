@@ -40,6 +40,35 @@ uv build --clear
 uvx twine check dist/*.whl dist/*.tar.gz
 ```
 
+### MCP transport compatibility
+
+The normal frozen environment tests MCP SDK 2.0.0. For changes to the transport
+boundary, also test SDK 2.2.0 with its hash-pinned pair in
+`tests/compat/mcp-2.2.0.txt`. Every other dependency comes from the same
+repository lock. Keep this environment and its reports outside the checkout:
+
+```bash
+MCP_COMPAT_DIR="$(mktemp -d)"
+uv export --frozen --all-extras --no-emit-project \
+  --no-emit-package mcp --no-emit-package mcp-types \
+  --format requirements-txt --output-file "$MCP_COMPAT_DIR/locked-rest.txt"
+uv venv "$MCP_COMPAT_DIR/env" --python .venv/bin/python
+uv pip sync --python "$MCP_COMPAT_DIR/env/bin/python" --require-hashes \
+  "$MCP_COMPAT_DIR/locked-rest.txt" tests/compat/mcp-2.2.0.txt
+uv pip check --python "$MCP_COMPAT_DIR/env/bin/python"
+UV_PROJECT_ENVIRONMENT="$MCP_COMPAT_DIR/env" uv run --frozen --no-sync python -c \
+  'import sysconfig; from pathlib import Path; Path(sysconfig.get_paths()["purelib"], "veqtor-source.pth").write_text(str(Path("src").resolve()) + "\n")'
+UV_PROJECT_ENVIRONMENT="$MCP_COMPAT_DIR/env" uv run --frozen --no-sync \
+  pytest -q tests/test_mcp_error_transport.py tests/test_mcp_server.py
+```
+
+The `.pth` points subprocess tests at this checkout's sources without building
+or installing another Veqtor artifact. `--no-sync` keeps this deliberate
+SDK-only compatibility substitution; it is
+not used for the normal development/full-suite command. These transport tests
+do not replace exact-candidate native Codex or rendered-DOCX acceptance in
+[CODEX.md](docs/CODEX.md).
+
 ### Frozen-release checks
 
 After the development checks, run the commands below only from a frozen

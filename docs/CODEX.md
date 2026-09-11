@@ -6,7 +6,10 @@ Connect Veqtor to local Codex, point it at the latest Word file, and state your
 negotiation positions. Codex can use Veqtor to read the wording, check evidence,
 prepare supported tracked changes, and create a new DOCX for your review.
 
-This guide uses package `0.4.0` and the nine-tool contract `veqtor.mcp.v0.4`.
+The public installation instructions use package `0.4.0` and the nine-tool
+contract `veqtor.mcp.v0.4`. This source tree is development `0.4.1.dev0` with
+compatible tool contracts and a distinct producer version and source build.
+It adds the error-transport adapter and is not a new published release.
 Use the matching [PyPI version](https://pypi.org/project/veqtor-mcp/0.4.0/) and
 [immutable GitHub release](https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/v0.4.0).
 Veqtor supports macOS and Linux with Python 3.12–3.14. Windows is outside the
@@ -80,6 +83,11 @@ In a fresh local Codex session, give the absolute path to that folder and ask:
 > the latest document and explain what changed in the limitation of liability.
 > Verify the quotations you rely on. Treat the numbered filenames as the demo's
 > supplied order; do not infer document lineage from their names.
+
+For `inspect_document` reads, first obtain references from outline, search or
+browse. Use `selection={"paragraph_ref": returned_reference}` or
+`selection={"section_ref": returned_reference}` with the complete reference.
+A bare reference or paragraph index is not the read-selection object.
 
 Then use the [next-round prompt](prompts/next-round.md), setting:
 
@@ -189,12 +197,55 @@ subsequent read succeeded. All 21 packaged Python files matched the reviewed
 source. The observation records that candidate's distinct build and wheel hash.
 The pinned public `0.4.0` installation above does **not** include this patch.
 
+These dated observations belong to their recorded source/build identities.
+They do not establish native acceptance of the subsequent `0.4.1.dev0` changes.
+
+## Development candidate acceptance
+
+Acceptance of `0.4.1.dev0` is pending independent review and the final gates.
+After Reviewer PASS, run the required full tests, locked runtime audit and
+wheel/sdist checks from the exact reviewed commit and tree. Keep gate evidence
+outside the repository; do not modify the frozen v0.4 release manifest to admit
+the development sdist's three Codex documents.
+
+For the native test, select the exact candidate in that run's configuration.
+Codex supports per-run `-c key=value` overrides; see
+[official configuration documentation](https://learn.chatgpt.com/docs/config-file/config-advanced).
+For a reviewed source checkout, the equivalent server entry is:
+
+```toml
+[mcp_servers.veqtor]
+command = "/absolute/path/to/uv"
+args = ["--directory", "/absolute/path/to/reviewed-candidate", "run", "--frozen", "veqtor-mcp"]
+
+[mcp_servers.veqtor.env]
+VEQTOR_TRACKED_CHANGE_AUTHOR = "Veqtor Acceptance"
+```
+
+Apply this only to the isolated test configuration or per-run overrides.
+Keep the user's public registration separate. Record the selected command,
+exact Git commit/tree, wheel/sdist hashes and source snapshot build. Compare
+the candidate's `doctor` build with `producer.build` from every successful
+native call and require `producer.version` to be `0.4.1.dev0`. Source identity
+alone does not verify wheel packaging; inspect the exact built artifacts too.
+
+Use synthetic documents and actual `codex exec --json` calls for all nine
+tools, one complete two-edit batch, exact current-projection readback and
+decision-record export. Capture a baseline before writing. Run invalid-proof,
+binding-mismatch and existing-output refusals in a separate negative scenario;
+the positive checker deliberately rejects every failed preflight/apply attempt.
+Record each refusal code and independently verify no extra or partial output,
+no overwrite and unchanged sources. Do not bypass an MCP refusal with a direct
+Python edit. Render the final Word candidate with the documents skill and
+inspect every page. These gates concern this development candidate; they do
+not publish it or establish separate desktop write or independent-user acceptance.
+
 ## Recheck native evidence
 
 Maintainers can capture a fresh `codex exec --json` run and validate it with:
 
 ```bash
-uv run --locked --extra dev python scripts/check_codex_acceptance.py \
+uv run --frozen python scripts/check_codex_acceptance.py \
   --events /absolute/path/to/native-events.jsonl \
   --baseline /absolute/path/to/baseline.json
 ```

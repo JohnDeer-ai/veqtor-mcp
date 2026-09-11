@@ -184,7 +184,8 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
     assert len(DEVELOPMENT_RUNTIME_SOURCE_FILES) == len(development_runtime)
     assert development_runtime == discovered_runtime
     assert frozen_runtime == discovered_runtime
-    assert config["project"]["version"] == VERSION
+    assert config["project"]["version"] == "0.4.1.dev0"
+    assert config["project"]["version"] != VERSION
     assert VERSION == "0.4.0"
     assert wheel_includes == discovered_runtime
     assert discovered_runtime <= sdist_includes
@@ -194,6 +195,9 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
     assert "/ROUND_MAP_V0.3.md" in sdist_includes
     assert "/CLAUSE_HISTORY_V0.4.md" in sdist_includes
     assert "CLAUSE_HISTORY_V0.4.md" in SDIST_GIT_FILES
+    codex_docs = {"docs/CODEX.md", "docs/prompts/next-round.md", "docs/evidence/codex-v0.4.0-20260911.json"}
+    assert {f"/{path}" for path in codex_docs} <= sdist_includes
+    assert codex_docs.isdisjoint(SDIST_GIT_FILES)
 
 
 release_contract_only = pytest.mark.skipif(

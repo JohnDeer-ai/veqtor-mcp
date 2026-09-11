@@ -26,13 +26,18 @@ document facts and deterministic writes; it does not claim legal correctness.
 - Bounded DOCX/ZIP processing and versioned installation from PyPI, with the
   same verified wheel, sdist and checksum manifest on GitHub Releases.
 
-## Prepared in release-candidate source 0.4.0
+## Public 0.4.0 and development 0.4.1.dev0
 
-Release-candidate package `0.4.0` advertises the nine-tool MCP contract
+Development package `0.4.1.dev0` preserves the public `0.4.0` contracts and
+advertises the nine-tool MCP contract
 `veqtor.mcp.v0.4`. The contract version is a surface-wide API-schema identifier:
 all nine tools, including the eight names carried forward from v0.3, report
 v0.4 even where an individual schema and behavior are otherwise unchanged.
-Candidate source alone is not proof of a published package or release.
+The development changes add Codex setup, a reusable next-round prompt, native
+evidence checks and safe error transport, including SDK validation before tool
+entry. Historical Codex observations are in [CODEX.md](docs/CODEX.md); they do
+not establish acceptance of the new development candidate. The frozen v0.4
+release contract, golden records and published artifacts remain unchanged.
 
 Reliable-workflow stages 0 through 3C now provide:
 
@@ -56,7 +61,7 @@ Reliable-workflow stages 0 through 3C now provide:
   verifies it before publication;
 - explicit per-edit `position_status` and operation-level `failure_phase`
   diagnostics, without using `null` to mean that position was not evaluated;
-- `revision_inventory.v1`, with a checked partition between decoded revision
+- `revision_inventory.v2`, with a checked partition between decoded revision
   elements and unsupported occurrences and separate change-unit accounting;
 - a complete optional `ordered_filenames` positional manifest for
   `list_rounds`, alongside the disclosed `filename_lexicographic_v1` default;
@@ -73,14 +78,16 @@ digital signature, a trusted timestamp or tamper evidence.
 ## Next
 
 - Extend supported OOXML layouts based on reproducible public issues.
-- Complete exact-artifact v0.4 MCPB, existing-user Desktop, compact-
-  privacy and publication acceptance; the public v0.3 release remains
-  eight-tool `veqtor.mcp.v0.3` until that process is completed.
+- Complete independent review and exact-candidate native Codex/render checks
+  for `0.4.1.dev0`; then run the required development packaging and audit gates.
+  The installed public MCP and earlier observations cannot close those gates.
+- Specify ordinary-paragraph editing separately; it is not part of this
+  Codex integration development cycle.
 - Evaluate a separately specified Stage 3D clean-sendable-redline workflow only
   after external-user validation of the read-only Stage 3C evidence surface.
 - Refine installation, diagnostics and examples from external-user feedback.
 
-### Claude Desktop Extension release-candidate boundary for version 0.4.0
+### Frozen Claude Desktop Extension release boundary for version 0.4.0
 
 Veqtor can be packaged as a versioned Claude Desktop Extension (`.mcpb`). It is
 a public installation path only when the exact artifact passes the documented
@@ -91,7 +98,7 @@ open it, review the requested configuration, enter the tracked-change author
 name, confirm installation in Claude Desktop, and try Veqtor on the synthetic
 demo documents.
 
-Version 0.4.0 candidate scope:
+Frozen version 0.4.0 release scope:
 
 - macOS-only v1; Linux keeps the existing CLI setup until its Desktop path is
   separately supported and tested.
@@ -115,9 +122,10 @@ Version 0.4.0 candidate scope:
   and complete uninstall/cleanup before presenting the extension as the
   recommended path.
 
-The candidate `MCPB_REQUIRED_TOOLS` inventory contains the nine v0.4 names.
-The immutable v0.3 MCPB remains unchanged and eight-tool; the website must
-continue to present v0.3.0 as public until both v0.4 registries are verified.
+The frozen `MCPB_REQUIRED_TOOLS` inventory contains the nine v0.4 names.
+The historical v0.3 MCPB remains unchanged and eight-tool. The public website
+uses v0.4.0; this development cycle does not replace its published downloads
+or claim a new release.
 
 Non-goals and release boundaries:
 

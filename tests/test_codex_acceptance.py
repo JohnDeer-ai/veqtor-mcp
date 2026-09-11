@@ -10,6 +10,7 @@ from pathlib import Path
 import sys
 
 import pytest
+from veqtor_mcp import __version__
 
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "scripts"))
@@ -42,7 +43,8 @@ def evidence(tmp_path):
     source.write_bytes(b"original source bytes")
     output.write_bytes(b"counterproposal bytes")
     source_hash, output_hash = _hash(source.read_bytes()), _hash(output.read_bytes())
-    producer = {"name": "veqtor-mcp", "version": "0.4.0", "build": "test-build"}
+    producer = {"name": "veqtor-mcp", "version": __version__,
+                "build": "source-snapshot-v1-sha256:" + "a" * 64}
     anchor = {"schema_version": "change_unit_anchor.v2", "file_sha256": source_hash,
               "change_unit_id": "cu_001"}
     expected = [{"delete_text": "50", "insert_text": "250"}, {"reinstate_text": "misconduct"}]
@@ -293,3 +295,77 @@ def test_cli_checks_raw_files_and_hashes_them(evidence, tmp_path, capsys):
     before.write_text('{"schema_version":1,"schema_version":2}')
     assert checker.main(["--events", str(log), "--baseline", str(before)]) == 1
     assert str(tmp_path) not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("tool", ["preflight_edits", "apply_edits"])
+@pytest.mark.parametrize("envelope", ["failed", "isError", "is_error", "payload_status"])
+def test_write_failure_cannot_be_a_successful_native_call(evidence, tool, envelope):
+    events, baseline = evidence
+    item = _completed(events, tool)
+    if envelope == "failed":
+        item["status"] = "failed"
+    elif envelope == "payload_status":
+        item["result"]["structured_content"]["status"] = "error"
+        _sync_text(item)
+    else:
+        item["result"][envelope] = True
+    with pytest.raises(checker.EvidenceError):
+        checker.validate_evidence(events, baseline)
+
+
+@pytest.mark.parametrize("field", ["version", "build"])
+def test_invalid_baseline_identity_is_not_candidate_proof(evidence, field):
+    events, baseline = evidence
+    baseline["producer"][field] = "PRIVATE_TEXT /private/path"
+    with pytest.raises(checker.EvidenceError, match="source snapshot") as caught:
+        checker.validate_evidence(events, baseline)
+    assert "PRIVATE" not in str(caught.value)
+
+
+def test_dropping_an_intended_edit_even_with_rebound_proof_is_refused(evidence):
+    events, baseline = evidence
+    preflight = _completed(events, "preflight_edits")
+    apply = _completed(events, "apply_edits")
+    edits = deepcopy(preflight["arguments"]["edits"][:1])
+    proof = deepcopy(preflight["result"]["structured_content"]["preflight_proof"])
+    proof["edits_sha256"] = _canonical(edits)
+    proof["proof_sha256"] = _canonical({k: v for k, v in proof.items() if k != "proof_sha256"})
+    for event in events:
+        item = event.get("item", {})
+        if item.get("tool") in {"preflight_edits", "apply_edits"}:
+            item["arguments"]["edits"] = deepcopy(edits)
+            if item["tool"] == "apply_edits":
+                item["arguments"]["preflight_proof"] = deepcopy(proof)
+    preflight["result"]["structured_content"]["preflight_proof"] = proof
+    apply["result"]["structured_content"]["applied"] = apply["result"]["structured_content"]["applied"][:1]
+    _sync_text(preflight)
+    _sync_text(apply)
+    with pytest.raises(checker.EvidenceError, match="pre-run intended"):
+        checker.validate_evidence(events, baseline)
+
+
+def test_overlapping_read_cannot_count_as_recovery(evidence):
+    events, baseline = evidence
+    success = _completed(events, "inspect_document")
+    start_index = next(i for i, event in enumerate(events) if event["type"] == "item.started"
+                       and event["item"]["id"] == success["id"])
+    failed = deepcopy(success)
+    failed.update(id="failed_read", status="failed", result=None, error={"message": "PRIVATE_TEXT"})
+    start = deepcopy(failed)
+    start.update(status="in_progress", error=None)
+    events.insert(start_index, {"type": "item.started", "item": start})
+    events.insert(start_index + 2, {"type": "item.completed", "item": failed})
+    with pytest.raises(checker.EvidenceError, match="successful retry"):
+        checker.validate_evidence(events, baseline)
+
+
+def test_inventory_must_complete_before_preflight_starts(evidence):
+    events, baseline = evidence
+    index = next(i for i, event in enumerate(events) if event["type"] == "item.started"
+                 and event["item"].get("tool") == "preflight_edits")
+    pre_start = events.pop(index)
+    index = next(i for i, event in enumerate(events) if event["type"] == "item.completed"
+                 and event.get("item", {}).get("tool") == "list_rounds")
+    events.insert(index, pre_start)
+    with pytest.raises(checker.EvidenceError):
+        checker.validate_evidence(events, baseline)
