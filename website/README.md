@@ -26,18 +26,22 @@ release, download, checksum and PyPI links.
 
 This is a separate website activation, not a new software release. Preserve the
 tagged README's conditional version-selection rule, package inputs, release
-assets and accepted evidence. The website's existing static deployment,
-dependencies, guide URLs/SEO inventory and media are unchanged.
+assets and accepted evidence. That activation preserved the website's existing
+static deployment, dependencies, guide URLs/SEO inventory and media. Subsequent
+build-dependency maintenance is covered by the checks below.
 
 ## Local development
 
-Use the Node version in `.node-version` (Node 22.16.0). Astro 7 requires an
-even-numbered Node release at or above 22.12.0; the exact version is pinned so
-local and Cloudflare builds do not drift.
+Use the Node version in `.node-version` (Node 22.23.2). The current Astro 7
+dependency tree requires Node 22.19.0 or newer in the Node 22 line (including
+`undici`, used by Astro's font tooling). This project sets Node 22.23.2 as its
+minimum security baseline and pins that exact version so local, CI and
+Cloudflare builds use the same runtime.
 
 ```sh
 cd website
 npm ci
+npm run audit
 npm run check
 npm test
 npm run build
@@ -46,6 +50,15 @@ npm run dev
 
 Use `npm run preview` after a build to inspect the exact static production
 output locally.
+
+`npm run audit` checks the complete lockfile, including development and optional
+dependencies for other platforms, against the npm advisory database. The website
+CI runs it after the locked install and
+fails on high or critical advisories, or an audit-service error. Lower-severity
+findings are still reported. It does not suppress findings or rewrite the lockfile;
+review dependency updates and rerun the site checks before merging them. This is
+a build-dependency check, not a security guarantee for the published Python package
+or a test for every possible vulnerability.
 
 `npm run build` writes the deployable site to `website/dist/`, then verifies the
 legacy URL/SEO inventory, internal links, real 404 behavior and plain-language
@@ -66,12 +79,15 @@ reviewed. When the repository is connected to Cloudflare Pages, use:
 | Dependency install | `npm ci` |
 | Build command | `npm run build` |
 | Build output directory | `dist` |
-| Node version | `22.16.0` (read from `.node-version`) |
+| Node version | `22.23.2` (read from `.node-version`) |
 
 If the Pages dashboard does not expose a separate dependency-install field,
 its npm lockfile installation runs before the build command; keep the build
 command as `npm run build`. Preview deployments should be approved before the
 custom domain is attached.
+
+If a Cloudflare `NODE_VERSION` environment override is configured, keep it in sync
+with `.node-version` or remove the override so the file selects the runtime.
 
 After the preview is accepted:
 
