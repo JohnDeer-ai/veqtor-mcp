@@ -6,7 +6,7 @@ const sections = [
     id: 'connect',
     title: '1. Connect Veqtor to Claude',
     body: [
-      'Veqtor runs on your computer and connects to Claude using a standard called MCP. You do not need to understand MCP to use it. On a Mac, install the public v0.3.0 extension directly in Claude Desktop. For Claude Code on Mac or Linux, register the exact public v0.3.0 package after installing uv.',
+      'Veqtor runs on your computer and connects to Claude using a standard called MCP. You do not need to understand MCP to use it. On a Mac, install the public v0.4.0 extension directly in Claude Desktop. For Claude Code on Mac or Linux, register the exact public v0.4.0 package after installing uv.',
       'You only need to do this once for each Claude app you use. The setup guide shows both paths separately.',
     ],
   },
@@ -14,7 +14,7 @@ const sections = [
     id: 'order-drafts',
     title: '2. Put the drafts in a clear order',
     body: [
-      'Keep the negotiation drafts in one folder and begin their file names with 01, 02, 03 and so on. Veqtor reads that file-name order. It does not try to reconstruct chronology from document metadata or guess which version came first.',
+      'Keep the negotiation drafts in one folder and begin their file names with 01, 02, 03 and so on. Veqtor can trace a paragraph in that file-name order, or you can provide a complete explicit file order. Neither option reconstructs chronology from document metadata or proves which version came first.',
       'Tell Claude where the folder is and what you want to understand. You can start with a normal question such as “What changed in the limitation of liability across these drafts?”',
     ],
     links: [
@@ -29,8 +29,8 @@ const sections = [
     id: 'inspect-and-check',
     title: '3. Veqtor reads and checks the Word files',
     body: [
-      'Claude chooses when it needs Veqtor. Veqtor returns the changed words, the file they came from, and a small amount of nearby text. If Claude needs to rely on exact wording, it can ask Veqtor to check the quote against the specific change it came from.',
-      'You still review Claude’s interpretation. The point is to tie important statements to a particular tracked change instead of treating every sentence in chat as equally reliable.',
+      'Claude chooses when it needs Veqtor. Veqtor can select a paragraph in the last draft and follow exact matches backward through the declared order. It also returns the supported tracked changes in each selected paragraph. When the next step is unclear, it stops rather than guessing.',
+      'Before relying on a quote, ask Claude to check it against its specific paragraph or tracked change. A paragraph can be read as current text or with supported pending text revisions mechanically reversed; that second reading is not proof of a previous draft. You still review Claude’s interpretation.',
     ],
     links: [
       {

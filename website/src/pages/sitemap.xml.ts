@@ -24,17 +24,21 @@ const STATIC_ROUTES = [
   '/limitations',
 ]
 const STATIC_ROUTE_LASTMOD = new Map<string, string>([
-  ['/', '2026-07-23'],
-  ['/product', '2026-07-23'],
-  ['/how-it-works', '2026-07-23'],
+  ['/', '2026-09-11'],
+  ['/product', '2026-09-11'],
+  ['/how-it-works', '2026-09-11'],
   ['/security', '2026-07-23'],
-  ['/demo', '2026-07-23'],
+  ['/demo', '2026-09-11'],
   ['/ai-contract-review', '2026-07-23'],
   ['/contract-redline-analysis', '2026-07-23'],
   ['/docx-track-changes-review', '2026-07-23'],
   ['/author/ilya-shilov', '2026-07-23'],
   ['/guides', '2026-07-23'],
-  ['/setup', '2026-07-23'],
+  ['/setup', '2026-09-11'],
+  ['/docs', '2026-09-11'],
+  ['/limitations', '2026-09-11'],
+  ['/terms', '2026-09-11'],
+  ['/veqtor-vs-claude-for-word', '2026-09-11'],
 ])
 
 function escapeXml(value: string): string {

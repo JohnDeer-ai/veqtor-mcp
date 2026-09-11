@@ -6,6 +6,29 @@ does not need `@astrojs/cloudflare`. The generated `dist/` directory can be
 served by any static host, including Cloudflare Pages. Astro telemetry is
 disabled in the project scripts.
 
+## Public v0.4.0 activation
+
+The public installation instructions now select **v0.4.0 Alpha**, following
+verified PyPI publication and the immutable GitHub Release published on
+**2026-09-11 at 06:17:17 UTC**:
+
+- [Immutable v0.4.0 release](https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/v0.4.0)
+- [Exact PyPI v0.4.0 package](https://pypi.org/project/veqtor-mcp/0.4.0/)
+- MCPB SHA-256: `44a75ee286c701f1a14a2c96fba531e8290240fb8d554eff886565b380b5bd2c`
+
+`src/lib/public-release.ts` supplies the current release links, install pins
+and checksum. `/setup` covers installation, upgrade, disposable-folder rollback
+and a read-only connection check; `/docs` describes all nine tools, paragraph
+history and projection-aware verification. The v0.1.2 video stays historical.
+The source update date is not deployment evidence: after production deployment,
+check the live `/setup`, `/docs`, homepage structured data, `/llms.txt`, and all
+release, download, checksum and PyPI links.
+
+This is a separate website activation, not a new software release. Preserve the
+tagged README's conditional version-selection rule, package inputs, release
+assets and accepted evidence. The website's existing static deployment,
+dependencies, guide URLs/SEO inventory and media are unchanged.
+
 ## Local development
 
 Use the Node version in `.node-version` (Node 22.16.0). Astro 7 requires an
