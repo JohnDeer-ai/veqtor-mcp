@@ -5,15 +5,15 @@ import SiteCta from '../components/SiteCta.astro'
 import { PUBLIC_PYPI_URL, PUBLIC_RELEASE_URL, PUBLIC_RELEASE_VERSION } from '../lib/public-release'
 
 const title = 'Veqtor MCP Documentation — Tools, Workflow and Boundaries'
-const description = `Technical overview of public Veqtor ${PUBLIC_RELEASE_VERSION}: local MCP connection, supported Word redline workflow, eight tools, output behavior and privacy boundary.`
+const description = `Technical overview of public Veqtor ${PUBLIC_RELEASE_VERSION}: nine tools, exact paragraph history, quotation projections, supported Word redlines and privacy boundaries.`
 ---
 
 <BaseLayout title={title} description={description} canonicalPath="/docs">
   <PageHero
     eyebrow="Documentation"
-    title="A technical map of public Veqtor 0.3.0."
-    lede="Start here for the v0.3.0 tool surface, operating model and assurance boundaries. Installation artifacts are available through the immutable public release."
-    meta="Public v0.3.0 · Eight tools · macOS and Linux"
+    title={`A technical map of public Veqtor ${PUBLIC_RELEASE_VERSION}.`}
+    lede={`Start here for the v${PUBLIC_RELEASE_VERSION} tool surface, operating model and assurance boundaries. Installation artifacts are available through the immutable public release.`}
+    meta={`Public v${PUBLIC_RELEASE_VERSION} · Nine tools · macOS and Linux`}
     breadcrumbs={[{ label: 'Documentation' }]}
   />
 
@@ -27,13 +27,14 @@ const description = `Technical overview of public Veqtor ${PUBLIC_RELEASE_VERSIO
         </section>
 
         <section id="tools">
-          <h2>Veqtor 0.3 tools</h2>
+          <h2>Veqtor {PUBLIC_RELEASE_VERSION} tools</h2>
           <div class="tool-list">
             <article><code>list_rounds</code><h3>Discover negotiation drafts</h3><p>Scans one local folder, ignores Word lock files and reports readable rounds in deterministic filename order.</p></article>
             <article><code>extract_redlines</code><h3>Read supported tracked changes</h3><p>Returns change units, document hashes, structural references and bounded paragraph context.</p></article>
             <article><code>inspect_document</code><h3>Read accepted/current text</h3><p>Returns bounded main-body views with paragraph references bound to the exact document bytes.</p></article>
             <article><code>map_rounds</code><h3>Map exact cross-round evidence</h3><p>Reports exact paragraph equality and recorded document-byte derivations without inferring chronology or lineage.</p></article>
-            <article><code>verify_quote</code><h3>Check one quote at its source</h3><p>Compares supplied wording with one anchored change and returns exact, normalized or not_found.</p></article>
+            <article><code>trace_paragraph_history</code><h3>Trace one paragraph across drafts</h3><p>Follows exact paragraph matches backward through the declared file order, using current text or a mechanical reading with supported pending text revisions rejected. Reports ambiguous and unresolved steps rather than guessing.</p></article>
+            <article><code>verify_quote</code><h3>Check one quote at its source</h3><p>Compares supplied wording with a specific tracked change or hash-bound paragraph and returns exact, normalized or not_found. Paragraph checks use current text by default; rejected-pending text must be selected explicitly.</p></article>
             <article><code>preflight_edits</code><h3>Test the complete edit batch</h3><p>Runs the full document-processing pipeline in memory and never creates an output document.</p></article>
             <article><code>apply_edits</code><h3>Create a new tracked-change output</h3><p>Writes supported replace, delete, counter and reinstate edits atomically to a create-if-absent file.</p></article>
             <article><code>export_decision_record</code><h3>Export compact local provenance</h3><p>Returns a privacy-aware summary of the best-effort local activity journal for later review.</p></article>
@@ -44,7 +45,7 @@ const description = `Technical overview of public Veqtor ${PUBLIC_RELEASE_VERSIO
           <h2>Expected trust sequence</h2>
           <ol>
             <li>List the available rounds.</li>
-            <li>Inspect or map the exact document evidence needed for the task.</li>
+            <li>Inspect the exact paragraph in the last declared file, then trace its history. Use the round map separately for navigation and recorded derivations.</li>
             <li>Extract the current redlines.</li>
             <li>Verify every quotation used as evidence.</li>
             <li>Preflight the complete proposed edit batch.</li>
@@ -52,6 +53,16 @@ const description = `Technical overview of public Veqtor ${PUBLIC_RELEASE_VERSIO
             <li>Re-extract the output and export the decision record.</li>
           </ol>
           <p>Veqtor never overwrites the source or an existing output file. A successful write creates a new Word document and normally appends to a private local journal.</p>
+        </section>
+
+        <section id="history">
+          <h2>Paragraph history and quotation checks</h2>
+          <p>Start with a paragraph reference from <code>inspect_document</code> in the last declared file. History uses either <code>filename_lexicographic_v1</code> or a complete <code>explicit_filename_sequence_v1</code> list without missing or duplicate files. Neither choice verifies chronology or lineage.</p>
+          <p>The result is seed-first and follows exact matches backward. Ambiguity or an unresolved step stops further backward propagation; fuzzy or semantic matching is not performed. Returned change units belong only to the selected paragraph, not every change in the document.</p>
+          <p>For <code>verify_quote</code>, paragraph references default to <code>accepted_current_v1</code>. Set <code>paragraph_projection</code> to <code>pending_text_revisions_rejected_v1</code> explicitly to check the mechanical reading with supported pending text revisions rejected. This is not a recovered original or necessarily the wording of a prior round, does not establish legal effect, and does not write or reject changes in Word. Use the returned <code>checked_projection</code> to identify what was checked.</p>
+          <p>Author and date strings are literal Word metadata only. For example, an author value of <code>53</code> does not identify a person: <code>authorship_verified</code> and <code>time_verified</code> remain <code>false</code>.</p>
+          <p>History pages default to 50 observations, with a maximum of 100. Follow <code>next_cursor</code> until it is null; an observation is never split. Files, seed, order, policies and result must remain unchanged between pages. A complete page is not proof that all pages were retrieved.</p>
+          <div class="notice"><strong>One contract version for all nine tools.</strong><p>v0.4 advertises <code>veqtor.mcp.v0.4</code> on every tool, including the eight existing names. Clients pinned to <code>veqtor.mcp.v0.3</code> must deliberately adopt the new contract; this is not merely an extra tool under the old version.</p></div>
         </section>
 
         <section id="records">
@@ -63,14 +74,14 @@ const description = `Technical overview of public Veqtor ${PUBLIC_RELEASE_VERSIO
         <section id="primary-docs">
           <h2>Primary documentation and release status</h2>
           <ul>
-            <li><a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/README.md">Default-branch README and release-status guard</a></li>
-            <li><a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/API.md">Default-branch MCP tool API</a></li>
-            <li><a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/KNOWN_LIMITATIONS.md">Default-branch known limitations</a></li>
+            <li><a href={`${PUBLIC_RELEASE_URL.replace('/releases/tag/', '/blob/')}/README.md`}>Tagged README and version-selection rule</a></li>
+            <li><a href={`${PUBLIC_RELEASE_URL.replace('/releases/tag/', '/blob/')}/API.md`}>Tagged v{PUBLIC_RELEASE_VERSION} MCP tool API</a></li>
+            <li><a href={`${PUBLIC_RELEASE_URL.replace('/releases/tag/', '/blob/')}/KNOWN_LIMITATIONS.md`}>Tagged v{PUBLIC_RELEASE_VERSION} known limitations</a></li>
             <li><a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/SECURITY.md">Security policy and threat model</a></li>
             <li><a href={PUBLIC_RELEASE_URL}>Immutable public v{PUBLIC_RELEASE_VERSION} release and artifacts</a></li>
             <li><a href={PUBLIC_PYPI_URL}>Public v{PUBLIC_RELEASE_VERSION} package on PyPI</a></li>
           </ul>
-          <div class="notice notice--lime"><strong>The tagged v0.3.0 contract is public.</strong><p>The immutable release and its verified assets define the version users may install. The default branch can continue to evolve after that release.</p></div>
+          <div class="notice notice--lime"><strong>The tagged v{PUBLIC_RELEASE_VERSION} contract is public.</strong><p>The immutable release and its verified assets define the version users may install. Tagged documents retain their pre-publication checks and conditional version-selection rule; both public sources now expose v{PUBLIC_RELEASE_VERSION}. The default branch can continue to evolve after that release.</p></div>
         </section>
       </article>
       <aside class="side-index" aria-label="Documentation sections">
@@ -78,6 +89,7 @@ const description = `Technical overview of public Veqtor ${PUBLIC_RELEASE_VERSIO
         <a href="#model">Operating model</a>
         <a href="#tools">Public tools</a>
         <a href="#sequence">Trust sequence</a>
+        <a href="#history">History &amp; quotations</a>
         <a href="#records">Decision records</a>
         <a href="#primary-docs">Primary documentation</a>
       </aside>

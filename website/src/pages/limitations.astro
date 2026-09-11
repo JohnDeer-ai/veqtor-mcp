@@ -3,7 +3,7 @@ import BaseLayout from '../layouts/BaseLayout.astro'
 import PageHero from '../components/PageHero.astro'
 import { PUBLIC_RELEASE_URL, PUBLIC_RELEASE_VERSION } from '../lib/public-release'
 
-const title = 'Veqtor MCP Known Limitations — Public 0.3.0 Alpha'
+const title = `Veqtor MCP Known Limitations — Public ${PUBLIC_RELEASE_VERSION} Alpha`
 const description = `Plain-language and technical limits of the public Veqtor ${PUBLIC_RELEASE_VERSION} Alpha.`
 ---
 
@@ -11,8 +11,8 @@ const description = `Plain-language and technical limits of the public Veqtor ${
   <PageHero
     eyebrow="Known limitations"
     title="Know what Veqtor does not support yet."
-    lede="The public v0.3.0 Alpha is intentionally narrow. Read these boundaries before using Veqtor on a real matter."
-    meta="Public v0.3.0 · Community supported · Not legal advice"
+    lede={`The public v${PUBLIC_RELEASE_VERSION} Alpha is intentionally narrow. Read these boundaries before using Veqtor on a real matter.`}
+    meta={`Public v${PUBLIC_RELEASE_VERSION} · Community supported · Not legal advice`}
     breadcrumbs={[{ label: 'Limitations' }]}
   >
     <div slot="actions" class="actions"><a class="button button--primary" href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/KNOWN_LIMITATIONS.md">Open default-branch technical limits ↗</a></div>
@@ -26,7 +26,7 @@ const description = `Plain-language and technical limits of the public Veqtor ${
         <article><span>WORD CONTENT</span><h3>Main document text only</h3><p>Comments, headers, footers, footnotes and endnotes are not analyzed or edited.</p></article>
         <article><span>CHANGES</span><h3>Not every Word revision</h3><p>Formatting changes, moved text and some complex layouts may be counted but cannot always be edited.</p></article>
         <article><span>DECISIONS</span><h3>No accept or reject button</h3><p>Veqtor can create supported new tracked changes. It does not accept or reject existing ones.</p></article>
-        <article><span>HISTORY</span><h3>File names establish order</h3><p>Veqtor does not prove chronology or automatically match the same clause across every draft.</p></article>
+        <article><span>HISTORY</span><h3>Declared order, exact matches only</h3><p>Veqtor can follow an exact paragraph match, but does not prove chronology or guess its way past an unclear step.</p></article>
         <article><span>LEGAL ANALYSIS</span><h3>Claude and the user supply judgment</h3><p>Veqtor does not establish that an interpretation or proposed clause is legally correct.</p></article>
         <article><span>ACTIVITY RECORD</span><h3>Helpful local history, not independent proof</h3><p>The local record can be incomplete or changed by someone who has access to the computer.</p></article>
         <article><span>SUPPORT</span><h3>Community-supported Alpha</h3><p>There is no guaranteed response, fix, compatibility or uptime.</p></article>
@@ -47,7 +47,9 @@ const description = `Plain-language and technical limits of the public Veqtor ${
         <p>Numbering and clause labels are navigation aids, not evidence. Durable references combine the document hash, change-unit identity, structural location and checked wording.</p>
 
         <h3>Round interpretation</h3>
-        <p>Round order is deterministic filename order, not lineage proof. Public v0.3.0 maps exact paragraph evidence and recorded document-byte derivations, but does not provide semantic clause lineage or authorship forensics.</p>
+        <p>Public v{PUBLIC_RELEASE_VERSION} maps exact paragraph evidence and recorded document-byte derivations, and traces one paragraph backward in filename or complete explicit order. Neither order is lineage proof. There is no fuzzy or semantic clause matching, and ambiguity or an unresolved step stops further backward propagation.</p>
+        <p>History refuses unsafe candidates, file drift, an invalid seed or an incomplete order. It has separate paragraph, text, change-unit and page budgets in addition to the file limits above. Default pages contain at most 50 observations, with a maximum of 100; follow every cursor without changing the inputs to retrieve the full result.</p>
+        <p>Rejected-pending wording is a mechanical reading, not a recovered original, a proven prior round or a legal-effect conclusion. Literal author and date metadata do not verify who made a change or when. The <a href="/docs#history">history and quotation documentation</a> explains these distinctions.</p>
 
         <h3>Preflight and apply</h3>
         <p>One atomic batch accepts up to 100 edits, 20,000 new characters per edit and 200,000 across the batch. Preflight runs the same document pipeline in memory, but apply can still fail if the source changes, the destination already exists or the filesystem refuses publication.</p>

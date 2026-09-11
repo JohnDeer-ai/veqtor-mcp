@@ -43,7 +43,7 @@ const structuredData = [
       <div class="trustline" aria-label="Product summary">
         <span>Runs on your computer</span>
         <span>Open source</span>
-        <span>Early public version</span>
+        <span>Public v{PUBLIC_RELEASE_VERSION} Alpha</span>
       </div>
       <p class="hero-boundary">Veqtor's document tools run on your computer. Text they return becomes part of your Claude conversation. <a href="/security">See what information may leave your computer</a>.</p>
     </div>
@@ -89,8 +89,8 @@ const structuredData = [
       <div class="problem__copy">
         <p>A negotiation is spread across several drafts. The hard part is keeping each conclusion tied to the change it came from, then testing the complete counterproposal before creating the next file. Veqtor gives Claude a clear workflow for that job.</p>
         <div class="rule-list">
-          <div class="rule-item"><span class="rule-item__number">01</span><div><h3>Several drafts, ordered by file name</h3></div></div>
-          <div class="rule-item"><span class="rule-item__number">02</span><div><h3>Important quotes checked against a specific tracked change</h3></div></div>
+          <div class="rule-item"><span class="rule-item__number">01</span><div><h3>Exact paragraph matches across drafts in a declared order</h3></div></div>
+          <div class="rule-item"><span class="rule-item__number">02</span><div><h3>Important quotes checked against a specific paragraph or tracked change</h3></div></div>
           <div class="rule-item"><span class="rule-item__number">03</span><div><h3>All requested changes tested together before a separate file is created</h3></div></div>
         </div>
         <p class="problem__comparison"><a href="/product">See the complete product scope</a>. Already using Claude inside Word? <a href="/veqtor-vs-claude-for-word">Compare the two workflows</a>.</p>
@@ -109,7 +109,7 @@ const structuredData = [
           <span class="ask-row__number">01</span>
           <blockquote>“What changed in the liability clause across these drafts?”</blockquote>
           <span class="ask-row__arrow" aria-hidden="true">→</span>
-          <div><strong>A draft-by-draft explanation based on the tracked changes Veqtor can read.</strong><span class="tech-note">list_rounds · extract_redlines · deterministic filename order</span></div>
+          <div><strong>Exact paragraph evidence across the declared draft order, with unclear steps reported instead of guessed.</strong><span class="tech-note">inspect_document → trace_paragraph_history · exact matches only · chronology unverified</span></div>
         </div>
         <div class="ask-row">
           <span class="ask-row__number">02</span>
@@ -146,7 +146,7 @@ const structuredData = [
         </a>
       </div>
       <div class="video-caption"><strong>Recorded with Veqtor v0.1.2 · Real Claude prompts · Sample documents</strong><span>Compare drafts → check wording → create the next Word document · <a href="/demo#watch">Open the demo page</a> · <a href="/demo#transcript">Read transcript</a></span></div>
-      <p class="demo-install-note">This video remains a historical v0.1.2 recording: its “one command” line refers to Claude Code and its Desktop path used a configuration edit. Public v0.3.0 now adds the downloadable macOS Claude Desktop extension described in the current connection guide. One correction to the recording still applies: v0.1.2 checks the proposed Word document in memory before saving it; it does not reopen the saved copy for a separate final check.</p>
+      <p class="demo-install-note">This video remains a historical v0.1.2 recording: its “one command” line refers to Claude Code and its Desktop path used a configuration edit. Public v{PUBLIC_RELEASE_VERSION} includes the downloadable macOS Claude Desktop extension and exact paragraph history described in the current connection guide; the video does not demonstrate the new history tool. One correction to the recording still applies: v0.1.2 checks the proposed Word document in memory before saving it; it does not reopen the saved copy for a separate final check.</p>
     </div>
   </section>
 
@@ -157,7 +157,7 @@ const structuredData = [
         <p>After setup, keep your Word drafts together and ask Claude questions in your own words.</p>
       </div>
       <div class="steps">
-        <div class="step"><span>STEP / 01</span><h3>Connect Veqtor</h3><p>Choose the Claude app you use and follow its step-by-step setup guide.</p><span class="tech-note">Public v0.3.0: download the macOS extension for Claude Desktop, or register the exact PyPI version with Claude Code on Mac or Linux.</span></div>
+        <div class="step"><span>STEP / 01</span><h3>Connect Veqtor</h3><p>Choose the Claude app you use and follow its step-by-step setup guide.</p><span class="tech-note">Public v{PUBLIC_RELEASE_VERSION}: download the macOS extension for Claude Desktop, or register the exact PyPI version with Claude Code on Mac or Linux.</span></div>
         <div class="step"><span>STEP / 02</span><h3>Put the Word drafts in one folder</h3><p>Add 01, 02, 03 to the beginning of the file names to show their order, then tell Claude where the folder is.</p><span class="tech-note">Deterministic filename order · not reconstructed chronology</span></div>
         <div class="step"><span>STEP / 03</span><h3>Ask Claude normally</h3><p>Ask what changed, check wording, or request a counterproposal. Review Claude’s answer and the new Word document before using them.</p></div>
       </div>
@@ -201,7 +201,7 @@ const structuredData = [
           <div><strong>Claude asks Veqtor</strong><span>→</span><small>MCP connection</small></div>
           <div><strong>Veqtor checks Word</strong><span>→</span><small>read · check · test</small></div>
           <div><strong>Veqtor creates a new file</strong><span>→</span><small>tracked changes · original unchanged</small></div>
-          <p class="tech-note">Local stdio MCP · list_rounds · extract_redlines · verify_quote · preflight_edits · apply_edits · export_decision_record</p>
+          <p class="tech-note">Local stdio MCP · list_rounds · inspect_document · extract_redlines · map_rounds · trace_paragraph_history · verify_quote · preflight_edits · apply_edits · export_decision_record</p>
         </div>
       </div>
     </div>

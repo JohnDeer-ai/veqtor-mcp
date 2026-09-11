@@ -127,7 +127,7 @@ def test_changelog_keeps_timeless_release_copy() -> None:
     assert "`published_at` timestamp" in releasing
 
 
-def test_release_copy_is_state_neutral_and_site_uses_public_v030() -> None:
+def test_release_copy_is_state_neutral_and_site_uses_public_v040() -> None:
     readme = (ROOT / "README.md").read_text()
     immutable_docs = "\n".join(
         (ROOT / name).read_text()
@@ -150,7 +150,10 @@ def test_release_copy_is_state_neutral_and_site_uses_public_v030() -> None:
         '-e VEQTOR_TRACKED_CHANGE_AUTHOR="Your Name" -- '
         "uvx veqtor-mcp@X.Y.Z"
     ) in readme
-    assert "PUBLIC_RELEASE_VERSION = '0.3.0'" in release_config
+    assert "PUBLIC_RELEASE_VERSION = '0.4.0'" in release_config
+    assert (
+        "44a75ee286c701f1a14a2c96fba531e8290240fb8d554eff886565b380b5bd2c"
+    ) in release_config
     assert "PUBLIC_MCPB_URL" in setup
     assert "PUBLIC_RELEASE_URL" in setup
     assert "PUBLIC_CHECKSUMS_URL" in setup
@@ -166,7 +169,9 @@ def test_release_copy_is_state_neutral_and_site_uses_public_v030() -> None:
     assert "v0.4 candidate has no publication acceptance claim" in immutable_docs
     assert "v0.3.0 is not public yet" not in setup
     assert "Download Veqtor v{PUBLIC_RELEASE_VERSION} (.mcpb)" in setup
-    assert "This is the first public MCPB" in setup
+    assert "This is the first public MCPB" not in setup
+    assert "immutable v0.3.0 release" in setup
+    assert "does not establish compatibility with v0.4 journals" in setup
     for forbidden in ("releases/tag/v0.4.0", "releases/download/v0.4.0"):
         assert forbidden not in readme
     for stale_site_copy in (
@@ -176,16 +181,50 @@ def test_release_copy_is_state_neutral_and_site_uses_public_v030() -> None:
         "current public v0.1.2",
         "current public distribution remains v0.1.2",
         "there is no official v0.3.0 download yet",
+        "v0.4.0 is not public yet",
+        "v0.4.0 release candidate",
+        "v0.4.0 candidate",
+        "there is no official v0.4.0 download yet",
     ):
         assert stale_site_copy not in public_pages.lower()
     assert "Recorded with Veqtor v0.1.2" in public_pages
-    assert "Public v0.3.0" in public_pages
+    assert "Public v0.3.0" not in public_pages
+    assert "Public v{PUBLIC_RELEASE_VERSION}" in public_pages
     assert "state-neutral version-selection" in releasing
     assert re.search(
         r"must activate the public v0\.4\.0 links.*deploy them, and\s+smoke the live setup page",
         releasing,
         re.DOTALL,
     )
+
+
+def test_public_site_v040_history_instructions_match_the_release() -> None:
+    from veqtor_mcp._verification_v2 import PARAGRAPH_PROJECTION_MODES
+    from veqtor_mcp.records import WRITABLE_TOOL_NAMES
+
+    pages = ROOT / "website" / "src" / "pages"
+    docs = (pages / "docs.astro").read_text()
+    setup = (pages / "setup.astro").read_text()
+    tool_cards = re.findall(r"<article><code>(\w+)</code><h3>", docs)
+    assert len(tool_cards) == len(set(tool_cards)) == 9
+    assert set(tool_cards) == set(WRITABLE_TOOL_NAMES)
+    for marker in (
+        "veqtor.mcp.v0.4",
+        "filename_lexicographic_v1",
+        "explicit_filename_sequence_v1",
+        *PARAGRAPH_PROJECTION_MODES,
+        "paragraph_projection",
+        "checked_projection",
+        "authorship_verified",
+        "time_verified",
+    ):
+        assert marker in docs
+    assert "rejected_pending_v1" not in docs
+    prompt = (ROOT / "packaging/mcpb/demo/FIRST_PROMPT.txt").read_text().strip()
+    assert f"<blockquote>{prompt}</blockquote>" in setup
+    assert "${PUBLIC_MCPB_FILENAME}" in setup
+    assert "nine tools" in setup
+    assert "not a full acceptance test" in setup
 
 
 def test_pypi_long_description_has_no_repository_relative_links() -> None:

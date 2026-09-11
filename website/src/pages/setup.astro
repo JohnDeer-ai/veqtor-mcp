@@ -45,8 +45,8 @@ const desktopAuthorSetting = `"env": {
   <PageHero
     eyebrow="Connect"
     title="Connect Veqtor to Claude."
-    lede="Install the public v0.3.0 extension in Claude Desktop on Mac, or register the exact v0.3.0 package with Claude Code on Mac or Linux."
-    meta="Public v0.3.0 · Claude Desktop extension for Mac · Claude Code on macOS and Linux"
+    lede={`Install the public v${PUBLIC_RELEASE_VERSION} extension in Claude Desktop on Mac, or register the exact v${PUBLIC_RELEASE_VERSION} package with Claude Code on Mac or Linux.`}
+    meta={`Public v${PUBLIC_RELEASE_VERSION} · Claude Desktop extension for Mac · Claude Code on macOS and Linux`}
     breadcrumbs={[{ label: 'Connect' }]}
   />
 
@@ -70,14 +70,14 @@ const desktopAuthorSetting = `"env": {
             <li>For Claude Code: a Mac or Linux computer with <a href="https://docs.astral.sh/uv/getting-started/installation/">uv installed</a>.</li>
             <li>No separate Python or uv installation is required for the Claude Desktop extension.</li>
           </ul>
-          <div class="notice notice--lime"><strong>v0.3.0 is the current public Alpha.</strong><p>The macOS extension, wheel and source archive are bound to the same verified immutable GitHub Release; the Python package is also published on PyPI.</p></div>
+          <div class="notice notice--lime"><strong>v{PUBLIC_RELEASE_VERSION} is the current public Alpha.</strong><p>The macOS extension, wheel and source archive are bound to the same verified immutable GitHub Release; the Python package is also published on PyPI. This version adds exact paragraph history across drafts and checks of current or rejected-pending paragraph wording.</p></div>
           <div class="notice"><strong>Windows is not supported in the public Alpha.</strong><p>Do not improvise a Windows installation for real matters; the current local record locking and release tests target Mac and Linux.</p></div>
         </section>
 
         <section id="claude-desktop">
           <p class="eyebrow">Recommended on Mac</p>
           <h2>Claude Desktop Extension for Mac</h2>
-          <p>Public v0.3.0 packages the local server, its exact dependency lock and four synthetic Word rounds into one macOS extension. It processes documents locally; the extension does not create a Veqtor account or upload your files to a Veqtor service.</p>
+          <p>Public v{PUBLIC_RELEASE_VERSION} packages the local server, its exact dependency lock and four synthetic Word rounds into one macOS extension. It processes documents locally; the extension does not create a Veqtor account or upload your files to a Veqtor service. Text returned to Claude enters your conversation and may be processed by your model provider.</p>
           <div class="notice"><strong>Use the official immutable release.</strong><p>Download the MCPB only from the link below. Do not install an extension copied from CI, a branch, chat, issue or unrelated site.</p></div>
           <div class="actions">
             <a class="button button--primary" href={PUBLIC_MCPB_URL}>Download Veqtor v{PUBLIC_RELEASE_VERSION} (.mcpb)</a>
@@ -92,14 +92,16 @@ const desktopAuthorSetting = `"env": {
           </ol>
           <p>The first start may download a compatible Python runtime and the dependencies pinned in the extension. Later starts can use the local host cache.</p>
           <h3>First prompt</h3>
-          <blockquote>Using the Veqtor tools, what happened to the limitation of liability across the four Word rounds in the folder named demo? Start with list_rounds, use inspect_document for a hash-bound paragraph reference, then use map_rounds to compare that evidence across the folder. Keep tool-confirmed document facts separate from your interpretation, and do not treat filename order as verified chronology or lineage.</blockquote>
+          <blockquote>Using the Veqtor tools, what happened to the limitation of liability across the four Word rounds in the folder named demo? Start with list_rounds, use inspect_document to select the liability-cap paragraph in the last declared file, then use trace_paragraph_history with that exact reference and filename order. Verify the immediately prior rejected-pending wording with verify_quote, and use map_rounds only as separate navigation and recorded-derivation evidence. Keep tool-confirmed document facts separate from your interpretation; do not treat filename order as verified chronology or lineage, and do not claim that the literal tracked-change author metadata identifies a person.</blockquote>
           <p>The bundled prompt is read-only. For a write test, first copy the four synthetic DOCX files to a new writable folder outside the installed extension and create the output only in that copy. After apply, ask Claude to list the folder again and re-extract the output; the source hash should stay unchanged and the output hash should agree across apply, list and extraction.</p>
           <h3>Optional advanced integrity check</h3>
           <p>Advanced users can also download <a href={PUBLIC_CHECKSUMS_URL}><code>SHA256SUMS.txt</code></a> and verify the file before opening it. The expected MCPB SHA-256 is <code>{PUBLIC_MCPB_SHA256}</code>. This checksum verifies integrity; the MCPB is not separately digitally signed.</p>
-          <div class="code-block"><div class="code-block__head"><span>Terminal · optional</span><span>SHA-256</span></div><pre><code>{`shasum -a 256 veqtor-mcp-0.3.0-macos.mcpb
-grep ' veqtor-mcp-0.3.0-macos.mcpb$' SHA256SUMS.txt`}</code></pre></div>
-          <h3>Remove or reinstall</h3>
-          <p>If you installed a preview or development build before public v0.3.0, uninstall it from Claude Desktop's extension settings, fully quit Claude, and then install the public MCPB above. To reinstall v0.3.0, use the same uninstall-and-install sequence. This is the first public MCPB, so there is no older public extension to roll back to.</p>
+          <div class="code-block"><div class="code-block__head"><span>Terminal · optional</span><span>SHA-256</span></div><pre><code>{`shasum -a 256 ${PUBLIC_MCPB_FILENAME}
+grep ' ${PUBLIC_MCPB_FILENAME}$' SHA256SUMS.txt`}</code></pre></div>
+          <h3>Update from v0.3, remove or reinstall</h3>
+          <p>To replace an older extension or a preview, uninstall only Veqtor from Claude Desktop's extension settings, fully quit Claude, reopen it and install the public MCPB above. Use the same sequence to reinstall v{PUBLIC_RELEASE_VERSION}. Preserve your document folders and their private journals; do not delete them to refresh the connection.</p>
+          <p>If you also registered Veqtor manually, back up the configuration and remove only that duplicate Veqtor entry before enabling the extension. Keep all unrelated servers and settings.</p>
+          <p>For a temporary rollback, use the <a href="https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/v0.3.0">immutable v0.3.0 release</a> and its checksum manifest. That restores the older eight-tool runtime, not v0.4 paragraph history. Test rollback in a fresh disposable folder: it does not establish compatibility with v0.4 journals or downgrade their records.</p>
         </section>
 
         <section id="claude-code">
@@ -150,7 +152,8 @@ grep ' veqtor-mcp-0.3.0-macos.mcpb$' SHA256SUMS.txt`}</code></pre></div>
           <div class="code-block"><div class="code-block__head"><span>Terminal</span><span>Public v{PUBLIC_RELEASE_VERSION}</span></div><pre><code>{`uvx --from "${PUBLIC_PACKAGE_PIN}" veqtor-demo-rounds ~/veqtor-demo-rounds`}</code></pre></div>
           <p>In a new Claude session, ask:</p>
           <blockquote>Using the Veqtor tools, what happened to the limitation of liability across the rounds in ~/veqtor-demo-rounds?</blockquote>
-          <p>If Claude identifies and explains the four rounds, the connection is working. Continue with the <a href="/demo">recorded demo</a> before trying a write workflow.</p>
+          <p>Ask Claude to report the producer version from an actual tool response. It should be <code>{PUBLIC_RELEASE_VERSION}</code>; the tool definitions should show nine tools, including <code>trace_paragraph_history</code>, under <code>veqtor.mcp.v0.4</code>. Four demo documents and a successful history call confirm this read-only connection check, not a full acceptance test.</p>
+          <p>The history follows the declared order, not independently verified chronology. The rejected-pending reading mechanically reverses supported pending text revisions; it is not a recovered original or a legal conclusion. See the <a href="/docs#history">history and quotation boundaries</a>, then the <a href="/demo">historical recorded demo</a> before trying a write workflow.</p>
         </section>
 
         <section id="troubleshooting">
