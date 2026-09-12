@@ -13,6 +13,10 @@ The reference is resolved against the same immutable source bytes as extraction,
 planning and surgery, using its file hash, part, canonical paragraph index,
 paragraph text hash, reading mode and container policy. There is no text-based
 fallback. Matching must find exactly one occurrence inside that paragraph.
+Each preparation validates the whole source ZIP once and reuses its retained
+package for extraction, inspection, admissibility and surgery. It validates the
+serialized candidate once and reuses that complete package for every candidate
+check. Packages are never cached across independent preflight/apply calls.
 
 Admissible targets are clean canonical body/table-cell paragraphs with supported
 direct text runs and preserved paragraph/run properties. Every pending text,

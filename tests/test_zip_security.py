@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 import hashlib
 import io
 import struct
@@ -628,46 +629,105 @@ def test_product_paths_do_not_use_zipfile_member_readers(
     assert apply_edits(str(source), str(output), [edit])["status"] == "ok"
 
 
-def test_apply_validates_source_once_and_candidate_once(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+@pytest.mark.parametrize("scenario", ["legacy", "paragraph", "mixed"])
+@pytest.mark.parametrize("operation", ["apply", "preflight"])
+def test_apply_validates_source_once_and_candidate_once(tmp_path, monkeypatch, scenario, operation):
+    # Count the real central-directory and member-decoding boundaries, whichever
+    # module alias called the loader. Roles follow the captured/serialized bytes.
+    from veqtor_docx import inspect as inspect_module, inspect_document
+    from veqtor_docx.synthetic import generate_demo_rounds
+    from test_paragraph_fix2 import mixed_edits
+
     source = tmp_path / "source.docx"
-    output = tmp_path / "output.docx"
-    source.write_bytes(_single_member_docx())
-    extracted = extract_redlines(str(source))
-    unit = extracted["change_units"][0]
-    edit = {
-        "anchor": {
-            "change_unit_id": unit["change_unit_id"],
-            "file_sha256": extracted["file_sha256"],
-        },
-        "delete_text": "Safe change",
-        "insert_text": "Safer change",
-    }
-    source_loads = 0
-    candidate_loads = 0
-    original_source_loader = apply_module.load_validated_docx
-    original_candidate_loader = extract_module.load_validated_docx
+    if scenario == "legacy":
+        source.write_bytes(_single_member_docx())
+    else:
+        source = generate_demo_rounds(tmp_path / "corpus", profile="paragraph-edits")[scenario == "mixed"]
+    with zipfile.ZipFile(source, "a") as archive:
+        archive.writestr("custom/stored.bin", b"Retain and validate this opaque member", compress_type=zipfile.ZIP_STORED)
+        archive.writestr("custom/deflated.bin", b"Validate this too" * 100, compress_type=zipfile.ZIP_DEFLATED)
+    before = source.read_bytes()
+    source_sha = hashlib.sha256(before).hexdigest()
+    with zipfile.ZipFile(source) as archive:
+        members = set(archive.namelist())
+        expanded = sum(info.file_size for info in archive.infolist())
+    if scenario == "legacy":
+        unit = extract_redlines(str(source))["change_units"][0]
+        edits = [{"anchor": unit["anchor"], "delete_text": "Safe change", "insert_text": "Safer change"}]
+    elif scenario == "mixed":
+        edits = mixed_edits(source)
+    else:
+        ref = inspect_document(str(source), mode="browse")["paragraphs"][0]["paragraph_ref"]
+        edits = [{"target": {"kind": "paragraph", "paragraph_ref": ref},
+                  "delete_text": "30 days", "insert_text": "45 days"}]
+    build = "validation-reuse-regression"
+    proof = preflight_edits(str(source), edits, producer_build=build)["preflight_proof"]
+    assert proof is not None
+    reader = apply_module.read_docx_payload
+    serializer = apply_module._output_archive_bytes
+    validate = _ooxml.validate_docx_central_directory
+    reads, candidates, validations, decodes = [], [], [], []
 
-    def count_source(*args, **kwargs):
-        nonlocal source_loads
-        source_loads += 1
-        return original_source_loader(*args, **kwargs)
+    def observe_read(path):
+        payload = reader(path)
+        reads.append((str(path), payload))
+        return payload
 
-    def count_candidate(*args, **kwargs):
-        nonlocal candidate_loads
-        candidate_loads += 1
-        return original_candidate_loader(*args, **kwargs)
+    def observe_serialize(*args, **kwargs):
+        payload = serializer(*args, **kwargs)
+        candidates.append(payload)
+        return payload
 
-    monkeypatch.setattr(apply_module, "load_validated_docx", count_source)
-    monkeypatch.setattr(extract_module, "load_validated_docx", count_candidate)
+    def observe_validation(payload):
+        validations.append(payload)
+        return validate(payload)
 
-    result = apply_edits(str(source), str(output), [edit])
+    def observe_decoder(decode):
+        def observed(payload, entry, *args, **kwargs):
+            result = decode(payload, entry, *args, **kwargs)
+            decodes.append((payload, entry.filename, result[1], kwargs["capture"]))
+            return result
+        return observed
 
-    assert result["status"] == "ok"
-    assert source_loads == 1
-    assert candidate_loads == 1
+    for module in (apply_module, extract_module, inspect_module, _ooxml):
+        monkeypatch.setattr(module, "read_docx_payload", observe_read)
+    monkeypatch.setattr(apply_module, "_output_archive_bytes", observe_serialize)
+    monkeypatch.setattr(_ooxml, "validate_docx_central_directory", observe_validation)
+    for name in ("_decode_stored_member", "_decode_deflated_member"):
+        monkeypatch.setattr(_ooxml, name, observe_decoder(getattr(_ooxml, name)))
+
+    # Repeat independent preparation calls on the same bytes: no cross-call
+    # package cache may suppress either validation on a later invocation.
+    for attempt in range(2):
+        reads.clear()
+        candidates.clear()
+        validations.clear()
+        decodes.clear()
+        output = tmp_path / f"output-{attempt}.docx"
+        result = (apply_edits(str(source), str(output), edits, preflight_proof=proof, producer_build=build)
+                  if operation == "apply" else preflight_edits(str(source), edits, producer_build=build))
+        assert result["status"] == "ok" and result["source_sha256"] == source_sha
+        assert result["round_trip_check"]["status"] == "passed"
+        assert len(reads) == len(candidates) == 1 and reads[0][0] == str(source)
+        captured, candidate = reads[0][1], candidates[0]
+        assert captured == before and candidate != before
+        assert len(validations) == 2 and validations[0] is captured and validations[1] is candidate
+        for payload in (captured, candidate):
+            decoded = [(name, size, kept) for data, name, size, kept in decodes if data is payload]
+            assert Counter(name for name, _, _ in decoded) == Counter({name: 1 for name in members})
+            assert all(kept for _, _, kept in decoded)
+            if payload is captured:
+                assert sum(size for _, size, _ in decoded) == expanded
+        assert all(data is captured or data is candidate for data, _, _, _ in decodes)
+        candidate_sha = hashlib.sha256(candidate).hexdigest()
+        if operation == "apply":
+            assert result["preflight_binding_status"] == "verified"
+            assert result["output_sha256"] == result["preflight_candidate_sha256"] == candidate_sha
+            assert output.read_bytes() == candidate
+        else:
+            assert result["batch_applicable"] and result["preflight_proof"] == proof
+            assert result["candidate_sha256"] == candidate_sha and not output.exists()
+        assert source.read_bytes() == before
 
 
 def test_encryption_is_rejected_consistently_on_every_surface(
@@ -687,3 +747,85 @@ def test_encryption_is_rejected_consistently_on_every_surface(
             expected_code="encrypted_docx",
             expected_list_reason="encrypted_docx",
         )
+
+
+@pytest.mark.parametrize("fault", ["central", "opaque_crc", "opaque_budget", "opaque_collateral"])
+def test_single_candidate_validation_retains_refusals_and_distinct_hashes(tmp_path, monkeypatch, fault):
+    from veqtor_docx.synthetic import generate_demo_rounds
+    from test_paragraph_edits import edit
+
+    source = generate_demo_rounds(tmp_path / "corpus", profile="paragraph-edits")[0]
+    with zipfile.ZipFile(source, "a") as archive:
+        archive.writestr("custom/opaque.bin", b"Preserved opaque bytes", compress_type=zipfile.ZIP_STORED)
+    before = source.read_bytes()
+    source_sha = hashlib.sha256(before).hexdigest()
+    edits = [edit(source)]
+    build = "candidate-validation-regression"
+    proof = preflight_edits(str(source), edits, producer_build=build)["preflight_proof"]
+    serialize = apply_module._output_archive_bytes
+    candidates = []
+    if fault == "opaque_budget":
+        monkeypatch.setattr(_ooxml, "MAX_DOCX_OTHER_MEMBER_BYTES", 128)
+
+    def corrupt(infos, parts):
+        changed = dict(parts)
+        if fault in {"opaque_collateral", "opaque_budget"}:
+            changed["custom/opaque.bin"] = b"X" * (129 if fault == "opaque_budget" else 20)
+        payload = serialize(infos, changed)
+        if fault == "central":
+            payload = payload[:-10]
+        elif fault == "opaque_crc":
+            with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+                info = archive.getinfo("custom/opaque.bin")
+            offset = info.header_offset + 30 + len(info.filename.encode()) + len(info.extra)
+            data = bytearray(payload)
+            data[offset] ^= 1
+            payload = bytes(data)
+        candidates.append(payload)
+        return payload
+
+    monkeypatch.setattr(apply_module, "_output_archive_bytes", corrupt)
+    code = {"central": "file_unextractable", "opaque_crc": "file_unextractable",
+            "opaque_budget": "resource_limit_exceeded", "opaque_collateral": "round_trip_failed"}[fault]
+    pre = preflight_edits(str(source), edits, producer_build=build)
+    assert not pre["batch_applicable"] and pre["refusal_code"] == code
+    assert pre["preflight_proof"] is None and pre["failure_phase"] == "round_trip"
+    assert pre["source_sha256"] == source_sha
+    assert pre["observed_candidate_sha256"] == hashlib.sha256(candidates[-1]).hexdigest()
+    output = tmp_path / "never.docx"
+    with pytest.raises(DocxError) as error:
+        apply_edits(str(source), str(output), edits, preflight_proof=proof, producer_build=build)
+    assert error.value.code == code
+    assert error.value.metadata["observed_source_sha256"] == source_sha
+    assert error.value.metadata["observed_candidate_sha256"] == hashlib.sha256(candidates[-1]).hexdigest()
+    assert error.value.metadata["observed_candidate_sha256"] != source_sha
+    assert error.value.metadata["failure_phase"] == "round_trip"
+    assert error.value.metadata["round_trip_check"]["status"] == "failed"
+    assert not output.exists() and not list(tmp_path.glob("*.veqtor-tmp"))
+    assert source.read_bytes() == before
+
+
+def test_inspection_package_consumer_reuses_retained_snapshot_without_io(tmp_path, monkeypatch):
+    from veqtor_docx import inspect as inspect_module, inspect_document
+    from veqtor_docx.synthetic import generate_demo_rounds
+
+    source = generate_demo_rounds(tmp_path / "corpus", profile="paragraph-edits")[1]
+    payload = source.read_bytes()
+    sha = hashlib.sha256(payload).hexdigest()
+    expected = inspect_document(str(source), mode="browse", max_items=100)
+    package = _ooxml.load_validated_docx(payload, capture=None)
+    incomplete = _ooxml.load_validated_docx(payload, capture={"word/document.xml"})
+    source.write_bytes(b"External replacement after the immutable capture")
+
+    def no_io(*_args, **_kwargs):
+        raise AssertionError("validated inspection consumer reread or revalidated the package")
+
+    for module in (inspect_module, extract_module, apply_module, _ooxml):
+        monkeypatch.setattr(module, "load_validated_docx", no_io)
+        monkeypatch.setattr(module, "read_docx_payload", no_io)
+    snapshot = inspect_module._snapshot_from_validated(package, path=str(source), file_sha256=sha)
+    assert inspect_module._inspect_snapshot(snapshot, "browse", max_items=100) == expected
+    with pytest.raises(inspect_module.InspectError) as error:
+        inspect_module._snapshot_from_validated(incomplete, path=str(source), file_sha256=sha)
+    assert error.value.code == "file_unextractable"
+    assert error.value.metadata["observed_source_sha256"] == sha

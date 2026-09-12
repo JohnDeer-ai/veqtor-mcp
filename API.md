@@ -1351,11 +1351,15 @@ ids than remain through `2147483647` returns `revision_id_exhausted` before any
 OOXML surgery. Neither condition reaches Python's unbounded integer conversion
 path or publishes a partial batch.
 Before creating a candidate, apply eagerly validates the whole source package
-once and retains those same validated bytes for baseline extraction and OOXML
-surgery. Every member is checked even when extraction does not otherwise use
-it; duplicate-name lookup is never allowed to substitute the last member's
-bytes for an earlier member. The separately serialized candidate is then
-validated again as the exact round-trip snapshot that may be published.
+once and retains those same validated bytes for baseline extraction, paragraph
+inspection/admissibility and OOXML surgery. Every member is checked even when
+extraction does not otherwise use it; duplicate-name lookup is never allowed
+to substitute the last member's bytes for an earlier member. The separately
+serialized candidate is fully validated once; its all-member package is reused
+for extraction and every serialized text/format/structure/collateral check
+before publication. Source and candidate packages are local to one preparation
+invocation; separate preflight/apply calls always capture and validate their own
+snapshots.
 
 Three edit forms, all written as visible tracked changes — never silent
 rewrites:

@@ -110,11 +110,10 @@ from ._paragraph_edits import (
     resolve_paragraph_target,
     validate_paragraph_target,
 )
-from .inspect import InspectError, _load_snapshot_from_payload
+from .inspect import InspectError, _snapshot_from_validated
 from .extract import (
     CHANGE_UNIT_ANCHOR_SCHEMA_V2,
     DocxError,
-    _extract_from_bytes,
     _extract_validated,
     _group_change_fields,
     _group_units,
@@ -788,7 +787,7 @@ def _read_source_archive(
     payload: bytes,
     source: str,
 ) -> ValidatedDocx:
-    """Read every source member or return one provenance-bearing refusal."""
+    """Retain every validated member of one edit-pipeline snapshot."""
     try:
         return load_validated_docx(payload, capture=None)
     except ArchiveValidationError as exc:
@@ -1570,7 +1569,7 @@ def _prepare_candidate(
     paragraph_snapshot = None
     if any("target" in edit for edit in edits):
         try:
-            paragraph_snapshot = _load_snapshot_from_payload(source_payload, path=source)
+            paragraph_snapshot = _snapshot_from_validated(package, path=source, file_sha256=source_sha)
         except InspectError as exc:
             raise ApplyError(exc.code, exc.detail, observed_source_sha256=source_sha,
                              failure_phase="source") from exc
@@ -1882,9 +1881,12 @@ def _prepare_candidate(
             candidate_payload,
             limit="candidate_docx_bytes",
         )
+        candidate_sha = hashlib.sha256(candidate_payload).hexdigest()
         try:
-            result = _extract_from_bytes(candidate_payload, source)
+            candidate_package = _read_source_archive(candidate_payload, source)
+            result = _extract_validated(candidate_package, source, candidate_sha)
         except DocxError as exc:
+            _attach_observed_source_metadata(exc, candidate_sha)
             raise _relabel_candidate_snapshot_metadata(
                 exc,
                 source_sha,
@@ -1899,7 +1901,6 @@ def _prepare_candidate(
         if verdict is not None:
             raise verdict
 
-        candidate_package = _read_source_archive(candidate_payload, source)
         candidate_document = parse_xml(candidate_package.parts[DOCUMENT_PART])
         if set(candidate_package.parts) != set(package.parts) or any(
             candidate_package.parts[name] != payload
