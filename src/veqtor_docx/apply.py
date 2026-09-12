@@ -1745,8 +1745,11 @@ def _prepare_candidate(
         key = id(plan.paragraph)
         by_paragraph.setdefault(key, []).append(plan)
         paragraphs[key] = plan.paragraph
+    # Retain ancestors too: xml:space can be inherited from body/document/table.
+    original_document = parse_xml(source_document_bytes)
+    original_flow = canonical_body_flow_v1(original_document.find(w("body"))).paragraphs
     original_paragraphs = {
-        plan.paragraph_index: copy.deepcopy(plan.paragraph)
+        plan.paragraph_index: original_flow[plan.paragraph_index].element
         for plan in planned if plan.target is not None
     }
     expected_paragraph_text = {}
@@ -1934,7 +1937,7 @@ def _prepare_candidate(
             if any(para is t for t in touched_elements)
         }
         collateral = _collateral_outside(
-            parse_xml(source_document_bytes),
+            original_document,
             candidate_document,
             touched_positions,
         )

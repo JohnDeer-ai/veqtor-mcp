@@ -388,16 +388,33 @@ def test_combined_wrong_reads_matches_and_export_cannot_attest_mixed_scenario(tm
 
 @pytest.mark.parametrize("fault", ["duplicate_ppr", "drawing", "bookmarks", "combined", "empty_run", "wrapper_attribute",
                                    "body_tail", "table_tail", "combined_tails", "legacy_tail", "whitespace_tail",
-                                   "tail_bookmarks"])
+                                   "tail_bookmarks", "space_missing", "space_default", "space_invalid",
+                                   "space_deleted", "space_equivalent"])
 def test_independent_checker_rejects_actual_structural_collateral(tmp_path, monkeypatch, fault):
     from test_paragraph_edits import inject_paragraph_structure, rewrite
 
     monkeypatch.delenv("VEQTOR_DISABLE_DECISION_RECORD", raising=False)
-    events, baseline = build_evidence(tmp_path, mixed=True, empty=True)
+    events, baseline = build_evidence(tmp_path, mixed=True, empty=fault != "space_deleted")
     assert checker.validate_evidence(events, baseline)["status"] == "passed"
     output = Path(baseline["output_path"])
     old_sha = hashlib.sha256(output.read_bytes()).hexdigest()
-    rewrite(output, lambda root: inject_paragraph_structure(root, fault))
+    def mutate(root):
+        if fault.startswith("space_"):
+            from veqtor_docx._ooxml import w
+            space = "{http://www.w3.org/XML/1998/namespace}space"
+            node = root.find(".//" + w("t"))
+            if fault == "space_deleted":
+                node = next(atom for atom in root.iter(w("delText")) if atom.text.endswith(" "))
+            elif fault == "space_equivalent":
+                node = root.find(".//" + w("ins") + "/" + w("r") + "/" + w("t"))
+                assert node.text == node.text.strip()
+            if fault in {"space_default", "space_invalid"}:
+                node.set(space, fault.removeprefix("space_"))
+            else:
+                node.attrib.pop(space)
+        else:
+            inject_paragraph_structure(root, fault)
+    rewrite(output, mutate)
     new_sha = hashlib.sha256(output.read_bytes()).hexdigest()
 
     def rebind(value, old, new):
@@ -430,6 +447,14 @@ def test_independent_checker_rejects_actual_structural_collateral(tmp_path, monk
             exports["result"]["structured_content"]["records"][index] = checker._expected_export_record(
                 call, row, str(Path(baseline["source_path"]).parent))
     sync(events, exports)
+    for event in events:
+        if event["type"] == "item.completed" and event["item"].get("tool") in checker._RESULT_VALIDATORS:
+            checker._RESULT_VALIDATORS[event["item"]["tool"]].validate(event["item"]["result"]["structured_content"])
+    if fault == "space_equivalent":
+        assert checker.validate_evidence(events, baseline)["status"] == "passed"
+        return
     message = "table or document skeleton changed" if fault == "legacy_tail" else "unaccounted paragraph structure"
+    if fault in {"space_missing", "space_default", "space_deleted"}:
+        message = "original paragraph text or formatting changed"
     with pytest.raises(checker.EvidenceError, match=message):
         checker.validate_evidence(events, baseline)

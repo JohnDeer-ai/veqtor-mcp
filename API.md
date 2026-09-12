@@ -1288,6 +1288,13 @@ match the complete planned XML structure, including elements without text.
 Tails after closing paragraph tags remain outside the editable paragraph and
 must match the source; non-whitespace target tails are unsupported. Both the
 write pipeline and independent checker retain tails when masking paragraph contents.
+Both also account for effective `xml:space`, including inheritance. Source nodes
+with edge XML whitespace that is not preserved, and invalid effective values,
+are refused as `paragraph_structure_unsupported`; run splitting may preserve
+newly exposed significant spaces but may not change their meaning. Field and
+comment-range boundaries are resolved across the main document story, including
+non-adjacent paragraphs. Targets within those contexts, and malformed or
+unclosed boundary contexts, are refused with the same structure code.
 Mixed legacy/paragraph batches share
 one all-or-nothing pipeline and unchanged `preflight_proof.v1` bindings; the
 proof's ordered edit digest includes target kind and the entire reference.

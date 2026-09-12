@@ -259,6 +259,86 @@ def _require_style_dependencies(parts: dict, paragraph: etree._Element) -> None:
                 require_numbering(node.get(w("val")))
 
 
+def validate_paragraph_context(document, paragraph):
+    """Prove the target is outside closed fields and comment ranges in its story.
+
+    Endpoints need not be in adjacent paragraphs. Malformed or unsupported
+    boundary contexts cannot prove a clean target, even after the target ends.
+    """
+    body = document.find(w("body"))
+    fields, comments, seen_comments = [], set(), set()
+    selected = False
+    markers = {w(name) for name in ("fldChar", "instrText", "commentRangeStart", "commentRangeEnd")}
+    containers = {w(name) for name in ("r", "p", "tc", "tr", "tbl")}
+
+    def refuse():
+        raise InspectError("paragraph_structure_unsupported", "field or comment context is not a clean paragraph")
+
+    for event, node in etree.iterwalk(body, events=("start", "end")):
+        if node is paragraph:
+            selected = event == "start"
+            if selected and (fields or comments):
+                refuse()
+        if event != "start" or node.tag not in markers:
+            continue
+        if selected:
+            refuse()
+        for ancestor in node.iterancestors():
+            if ancestor is body:
+                break
+            if ancestor.tag not in containers:
+                refuse()
+        if node.tag == w("fldChar"):
+            kind = node.get(w("fldCharType"))
+            if kind == "begin":
+                fields.append(False)
+            elif kind == "separate" and fields and not fields[-1]:
+                fields[-1] = True
+            elif kind == "end" and fields:
+                fields.pop()
+            else:
+                refuse()
+        elif node.tag == w("instrText"):
+            if not fields or fields[-1]:
+                refuse()
+        else:
+            identity = node.get(w("id"), "")
+            if not identity or not identity.isascii() or not identity.isdecimal():
+                refuse()
+            identity = identity.lstrip("0") or "0"
+            if node.tag == w("commentRangeStart"):
+                if identity in seen_comments:
+                    refuse()
+                comments.add(identity)
+                seen_comments.add(identity)
+            elif identity in comments:
+                comments.remove(identity)
+            else:
+                refuse()
+    if fields or comments:
+        refuse()
+
+
+def _text_space_bounds(atom):
+    """Bounds of significant raw characters under inherited xml:space.
+
+    Keep raw positions for the public reading/anchor contract. A signature also
+    records significance so changing only xml:space cannot conceal text loss.
+    """
+    text = atom.text or ""
+    mode = "default"
+    for node in (atom, *atom.iterancestors()):
+        value = node.get("{http://www.w3.org/XML/1998/namespace}space")
+        if value is not None:
+            if value not in {"default", "preserve"}:
+                raise InspectError("paragraph_structure_unsupported", "unsupported xml:space value")
+            mode = value
+            break
+    if mode == "preserve":
+        return 0, len(text)
+    return len(text) - len(text.lstrip(" \t\r\n")), len(text.rstrip(" \t\r\n"))
+
+
 def resolve_paragraph_target(snapshot, document: etree._Element, target: dict, parts: dict):
     ref = validate_paragraph_target(target)
     item = _resolve_paragraph(snapshot, ref)
@@ -272,6 +352,7 @@ def resolve_paragraph_target(snapshot, document: etree._Element, target: dict, p
     if any(isinstance(node.tag, str) and etree.QName(node).localname in _RANGE_NAMES
            for node in document.iter()):
         raise InspectError("paragraph_pending_revisions", "document contains unresolvable revision ranges")
+    validate_paragraph_context(document, paragraph)
     for section in document.iter(w("sectPr")):
         _require_clean(section)
     _require_style_dependencies(parts, paragraph)
@@ -320,7 +401,7 @@ def _xml_shape(node):
 
 
 def paragraph_format_signature(paragraph, *, reject_new=False, accept_new=False):
-    """Compare original text and per-character run formatting despite run splits."""
+    """Compare raw text, whitespace significance and run format despite splits."""
     tokens = []
     for child in paragraph:
         if child.tag == w("pPr"):
@@ -334,7 +415,9 @@ def paragraph_format_signature(paragraph, *, reject_new=False, accept_new=False)
             attrs = tuple(sorted(run.attrib.items()))
             for atom in run:
                 if atom.tag in {w("t"), w("delText")}:
-                    tokens.extend((char, attrs, props) for char in atom.text or "")
+                    start, end = _text_space_bounds(atom)
+                    tokens.extend((char, attrs, props, start <= index < end)
+                                  for index, char in enumerate(atom.text or ""))
                 elif atom.tag != w("rPr"):
                     tokens.append(("unsupported", _xml_shape(atom)))
     return (tuple(sorted(paragraph.attrib.items())),
@@ -382,6 +465,9 @@ def validate_paragraph_candidate(original, candidate):
                 if (len(atom) or set(atom.attrib) - {"{http://www.w3.org/XML/1998/namespace}space"}
                         or (atom.tail or "").strip()):
                     raise InspectError("paragraph_structure_unsupported", "unsupported candidate text structure")
+                bounds = _text_space_bounds(atom)
+                if not revisions and bounds != (0, len(atom.text or "")):
+                    raise InspectError("paragraph_structure_unsupported", "source edge whitespace is not preserved")
                 if wrapper and not atom.text:
                     raise InspectError("paragraph_structure_unsupported", "empty revision run")
                 if child.tag != w("ins"):

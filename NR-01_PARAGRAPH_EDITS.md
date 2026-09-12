@@ -24,6 +24,18 @@ format, move/range, paragraph-mark and structural revision applicable to the
 paragraph or its enclosing table/row/cell properties is forbidden. Unsupported
 containers, fields, comments, content controls, drawings and unprovable property
 or inline structure are refused; a text-revision flag alone is insufficient.
+Field and comment-range context is checked across the whole main document story,
+including non-adjacent body/table paragraphs and nested fields. A target inside
+either context is refused. Unclosed, unmatched, duplicate or unsupported boundary
+contexts cannot authorize a write; a balanced context wholly outside the target
+does not by itself block an otherwise clean paragraph.
+Source text with XML edge whitespace requires effective `xml:space="preserve"`,
+including inherited values. Absent/default preservation with edge whitespace, or
+an invalid effective value, returns `paragraph_structure_unsupported`. Ordinary
+internal spaces and explicitly preserved edge spaces remain supported. Run splits
+preserve newly exposed significant spaces; source and candidate signatures compare
+each raw character's significance as well as its formatting. The independent
+checker applies the same whitespace and source-context checks to actual DOCX files.
 Style/numbering dependencies must use their supported internal package locations;
 missing, external or alternate targets are unprovable and refused. Present parts
 need their relationships, and referenced style inheritance/link and numbering

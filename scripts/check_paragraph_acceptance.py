@@ -22,7 +22,9 @@ import jsonschema
 from veqtor_docx import extract_redlines, inspect_document
 from veqtor_docx.inspect import InspectError
 from veqtor_docx._ooxml import canonical_body_flow_v1, parse_xml, w
-from veqtor_docx._paragraph_edits import paragraph_format_signature, validate_paragraph_candidate
+from veqtor_docx._paragraph_edits import (
+    paragraph_format_signature, validate_paragraph_candidate, validate_paragraph_context,
+)
 from veqtor_mcp import __version__, records, server
 from veqtor_mcp.records import SOURCE_SNAPSHOT_IDENTITY
 from veqtor_mcp.contracts import (
@@ -236,7 +238,7 @@ def validate_evidence(events, baseline):
                        and call["payload"].get("change_units") == output_units
                        and call["payload"].get("revision_count") == output_extraction["revision_count"]]
     _require(native_extracts, "complete exact output revisions lack native extraction")
-    _, _, source_paras = _paragraphs(source)
+    _, source_document, source_paras = _paragraphs(source)
     _, _, output_paras = _paragraphs(output)
     expected = {row["paragraph_index"]: row for row in baseline["expected_paragraphs"]}
     applied = result.get("applied")
@@ -376,6 +378,7 @@ def validate_evidence(events, baseline):
         if not paragraph_edits:
             continue
         try:
+            validate_paragraph_context(source_document, source_paras[index])
             validate_paragraph_candidate(source_paras[index], output_paras[index])
         except InspectError as exc:
             raise EvidenceError("unaccounted paragraph structure in actual output") from exc
