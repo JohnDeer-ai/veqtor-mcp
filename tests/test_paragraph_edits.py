@@ -567,7 +567,7 @@ def inject_paragraph_structure(root, fault):
         etree.SubElement(etree.SubElement(para, w("pPr")), w("pageBreakBefore"))
     if fault in {"drawing", "combined"}:
         etree.SubElement(para, w("drawing"))
-    if fault in {"bookmarks", "combined"}:
+    if fault in {"bookmarks", "combined", "tail_bookmarks"}:
         etree.SubElement(para, w("bookmarkStart"), {w("id"): "987", w("name"): "UnexpectedBookmark"})
         etree.SubElement(para, w("bookmarkEnd"), {w("id"): "987"})
     if fault == "empty_run":
@@ -576,6 +576,11 @@ def inject_paragraph_structure(root, fault):
         para.find(w("ins")).set(w("unexpected"), "yes")
     if fault == "current_text":
         para.find(w("r") + "/" + w("t")).text = "corrupted unedited prefix "
+    tail_indices = {"body_tail": (0,), "table_tail": (3,), "combined_tails": (0, 3),
+                    "legacy_tail": (6,), "whitespace_tail": (0,), "tail_bookmarks": (0,)}
+    paragraphs = list(root.iter(w("p")))
+    for index in tail_indices.get(fault, ()):
+        paragraphs[index].tail = "\n  " if fault == "whitespace_tail" else "UNEXPECTED OUTSIDE PARAGRAPH"
 
 
 @pytest.mark.parametrize("fault", ["duplicate_ppr", "drawing", "bookmarks", "combined",

@@ -25,7 +25,10 @@ missing, external or alternate targets are unprovable and refused. Present parts
 need their relationships, and referenced style inheritance/link and numbering
 instance/abstract chains must resolve, including defaults. The tolerant reader
 cannot supply write authorization for a missing definition. Style definition
-elements retain their own vocabulary. The paragraph
+elements retain their own vocabulary. A `numStyleLink` must resolve through a
+numbering style's own or inherited `numId` to a terminal abstract definition;
+missing effective targets and redirection cycles refuse. A terminal `styleLink`
+association may be reciprocal and does not create another redirection. The paragraph
 mark is retained even when all visible text is deleted.
 
 Both address forms share the existing all-or-nothing planning, revision-ID,
@@ -37,6 +40,9 @@ edits additionally prove the complete expected current paragraph and preservatio
 of its rejected/original text and formatting. New replacement text inherits the
 first removed run's properties. Every serialized touched paragraph must match
 the complete planned XML structure; zero-text nodes cannot escape comparison.
+Paragraph tails belong to the enclosing body/cell, remain in collateral masking,
+and must equal their source values. Non-whitespace tails on paragraph targets
+are unsupported. The post-surgery planned snapshot cannot authorize tail changes.
 Existing source files are never rewritten.
 
 Stable refusals cover malformed targets (`invalid_edit`/`invalid_reference`),

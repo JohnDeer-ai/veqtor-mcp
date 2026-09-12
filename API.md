@@ -1272,7 +1272,11 @@ require their internal relationships; referenced styles, basedOn/link chains,
 numbering instances and abstract definitions must resolve, including inherited
 and default formatting dependencies. Extraction fallbacks cannot authorize a
 write. Style definitions retain their own vocabulary; they are not restricted
-to the direct paragraph property vocabulary. Reading support is broader than writing support. See [the complete contract](NR-01_PARAGRAPH_EDITS.md).
+to the direct paragraph property vocabulary. A `numStyleLink` must resolve via
+a numbering style's own or inherited `numId` to a terminal abstract definition;
+missing effective references, wrong style roles and redirection cycles refuse.
+The terminal definition's `styleLink` association may legitimately be reciprocal.
+Reading support is broader than writing support. See [the complete contract](NR-01_PARAGRAPH_EDITS.md).
 
 A paragraph can become empty without removing its paragraph mark. Replacement
 text inherits the first removed run's attributes and properties; deleted text
@@ -1281,6 +1285,9 @@ original text and formatting under rejection of the new edits, all new/prior
 revision facts, untargeted paragraphs, table skeleton and other package members
 are checked on the serialized candidate. Every touched paragraph must also
 match the complete planned XML structure, including elements without text.
+Tails after closing paragraph tags remain outside the editable paragraph and
+must match the source; non-whitespace target tails are unsupported. Both the
+write pipeline and independent checker retain tails when masking paragraph contents.
 Mixed legacy/paragraph batches share
 one all-or-nothing pipeline and unchanged `preflight_proof.v1` bindings; the
 proof's ordered edit digest includes target kind and the entire reference.

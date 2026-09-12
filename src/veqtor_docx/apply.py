@@ -1387,7 +1387,8 @@ def _collateral_outside(
     paragraph (by document-order position) must serialize identically, and
     the document skeleton with all paragraph content masked out must be
     byte-identical too — that covers table rows and cells, section
-    properties and block order.
+    properties, block order and text outside closing paragraph tags. Paragraph
+    tails belong to the enclosing container and must never be masked.
     """
     issues: list[str] = []
     original_paras = list(original_root.iter(w("p")))
@@ -1405,7 +1406,7 @@ def _collateral_outside(
     def skeleton(root: etree._Element) -> bytes:
         clone = copy.deepcopy(root)
         for para in clone.iter(w("p")):
-            para.clear()
+            para.clear(keep_tail=True)
         return etree.tostring(clone)
 
     if skeleton(original_root) != skeleton(mutated_root):

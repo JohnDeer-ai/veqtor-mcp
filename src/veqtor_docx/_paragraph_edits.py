@@ -183,24 +183,80 @@ def _require_style_dependencies(parts: dict, paragraph: etree._Element) -> None:
                     unresolved()
             checked_styles.update((set_index, item) for item in path)
 
+    numbering_style_targets = {}
+
+    def effective_numbering(identity):
+        """A numStyleLink needs an effective numId, not just a named style."""
+        require_style(identity)
+        if identity in numbering_style_targets:
+            return numbering_style_targets[identity]
+        targets = set()
+        for styles in style_sets:
+            current, effective = identity, None
+            # require_style already proved the entire basedOn chain exists and
+            # is acyclic. Still check its role, even after finding an own numId.
+            while current is not None:
+                node = styles[current]
+                if node.get(w("type")) != "numbering":
+                    unresolved()
+                refs = node.findall(w("pPr") + "/" + w("numPr") + "/" + w("numId"))
+                if len(refs) > 1 or (refs and not refs[0].get(w("val"))):
+                    unresolved()
+                if effective is None and refs:
+                    effective = refs[0].get(w("val"))
+                based = node.find(w("basedOn"))
+                current = based.get(w("val")) if based is not None else None
+            if effective is None or effective == "0":
+                unresolved()
+            targets.add(effective)
+        numbering_style_targets[identity] = targets
+        return targets
+
+    def require_numbering(identity):
+        # Iterative postorder distinguishes an active redirect from one proven
+        # to terminate. A visited numId is not itself a resolved definition.
+        active = set()
+        stack = [(identity, False)]
+        while stack:
+            current, finished = stack.pop()
+            if finished:
+                active.remove(current)
+                checked_nums.add(current)
+                continue
+            if current in active:
+                unresolved()
+            if current in checked_nums:
+                continue
+            if current not in nums:
+                unresolved()
+            num = nums[current]
+            refs = num.findall(w("abstractNumId"))
+            if len(refs) != 1 or refs[0].get(w("val")) not in abstracts:
+                unresolved()
+            abstract = abstracts[refs[0].get(w("val"))]
+            links = abstract.findall(w("numStyleLink"))
+            if len(links) > 1:
+                unresolved()
+            targets = effective_numbering(links[0].get(w("val"))) if links else ()
+            pending.extend((num, abstract))
+            active.add(current)
+            stack.append((current, True))
+            stack.extend((target, False) for target in sorted(targets))
+            # A terminal abstract's styleLink is an association, not another
+            # numbering redirect. Its reciprocal link is checked by the general
+            # dependency walk without turning that valid association into a cycle.
+
     while pending:
         root = pending.pop()
         for node in root.iter():
             if node.tag in {w(name) for name in (
-                    "pStyle", "rStyle", "tblStyle", "basedOn", "link", "numStyleLink", "styleLink")}:
+                    "pStyle", "rStyle", "tblStyle", "basedOn", "link", "styleLink")}:
                 require_style(node.get(w("val")))
-            elif node.tag == w("numId"):
-                identity = node.get(w("val"))
-                if identity == "0" or identity in checked_nums:
-                    continue
-                if identity not in nums:
-                    unresolved()
-                num = nums[identity]
-                refs = num.findall(w("abstractNumId"))
-                if len(refs) != 1 or refs[0].get(w("val")) not in abstracts:
-                    unresolved()
-                checked_nums.add(identity)
-                pending.extend((num, abstracts[refs[0].get(w("val"))]))
+            elif node.tag == w("numStyleLink"):
+                for identity in effective_numbering(node.get(w("val"))):
+                    require_numbering(identity)
+            elif node.tag == w("numId") and node.get(w("val")) != "0":
+                require_numbering(node.get(w("val")))
 
 
 def resolve_paragraph_target(snapshot, document: etree._Element, target: dict, parts: dict):
@@ -334,5 +390,9 @@ def validate_paragraph_candidate(original, candidate):
                     position += len(atom.text or "")
         return empty_runs
 
-    if (candidate.text or "").strip() or shape(original, False) != shape(candidate, True):
+    # tail belongs to the enclosing body/cell, outside the authorized paragraph.
+    # Compare to the source, not the planned shape captured after surgery.
+    if (original.tail != candidate.tail or (original.tail or "").strip()
+            or (candidate.tail or "").strip() or (original.text or "").strip()
+            or (candidate.text or "").strip() or shape(original, False) != shape(candidate, True)):
         raise InspectError("paragraph_structure_unsupported", "unaccounted paragraph structure")

@@ -386,7 +386,9 @@ def test_combined_wrong_reads_matches_and_export_cannot_attest_mixed_scenario(tm
         checker.validate_evidence(events, baseline)
 
 
-@pytest.mark.parametrize("fault", ["duplicate_ppr", "drawing", "bookmarks", "combined", "empty_run", "wrapper_attribute"])
+@pytest.mark.parametrize("fault", ["duplicate_ppr", "drawing", "bookmarks", "combined", "empty_run", "wrapper_attribute",
+                                   "body_tail", "table_tail", "combined_tails", "legacy_tail", "whitespace_tail",
+                                   "tail_bookmarks"])
 def test_independent_checker_rejects_actual_structural_collateral(tmp_path, monkeypatch, fault):
     from test_paragraph_edits import inject_paragraph_structure, rewrite
 
@@ -428,5 +430,6 @@ def test_independent_checker_rejects_actual_structural_collateral(tmp_path, monk
             exports["result"]["structured_content"]["records"][index] = checker._expected_export_record(
                 call, row, str(Path(baseline["source_path"]).parent))
     sync(events, exports)
-    with pytest.raises(checker.EvidenceError, match="unaccounted paragraph structure"):
+    message = "table or document skeleton changed" if fault == "legacy_tail" else "unaccounted paragraph structure"
+    with pytest.raises(checker.EvidenceError, match=message):
         checker.validate_evidence(events, baseline)

@@ -133,7 +133,7 @@ def _collateral(source, output, touched):
             _require(etree.tostring(old) == etree.tostring(new), "untouched paragraph changed")
     for root in (before, after):
         for paragraph in root.iter(w("p")):
-            paragraph.clear()
+            paragraph.clear(keep_tail=True)
     _require(etree.tostring(before) == etree.tostring(after), "table or document skeleton changed")
 
 
