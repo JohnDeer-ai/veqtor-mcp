@@ -35,6 +35,7 @@ from ._ooxml import (
     ResourceLimitError,
     TEXT_REVISION_TAGS,
     UserPathError,
+    ValidatedDocx,
     CanonicalBodyFlow,
     canonical_body_flow_v1,
     current_text_atom,
@@ -471,6 +472,45 @@ def _load_snapshot_from_payload(
             ),
             expanded_budget=expanded_budget,
         )
+    except DocxError as exc:
+        metadata = getattr(exc, "metadata", None)
+        if not isinstance(metadata, dict):
+            metadata = {}
+            exc.metadata = metadata
+        metadata.setdefault("observed_source_sha256", file_sha256)
+        raise
+    except (IndexError, KeyError, OverflowError, TypeError, ValueError) as exc:
+        raise InspectError(
+            invalid_ooxml_value_code,
+            "cannot inspect invalid OOXML values",
+            observed_source_sha256=file_sha256,
+        ) from exc
+    return _snapshot_from_validated(
+        package, path=path, file_sha256=file_sha256,
+        missing_document_part_code=missing_document_part_code,
+        invalid_document_structure_code=invalid_document_structure_code,
+        invalid_ooxml_value_code=invalid_ooxml_value_code,
+    )
+
+
+def _snapshot_from_validated(
+    package: ValidatedDocx,
+    *,
+    path: str,
+    file_sha256: str,
+    missing_document_part_code: str = "file_unextractable",
+    invalid_document_structure_code: str = "file_unextractable",
+    invalid_ooxml_value_code: str = "file_unextractable",
+) -> _Snapshot:
+    """Build inspection facts from one already validated, hash-identified package.
+
+    The caller supplies the hash of the same captured bytes and retains all
+    inspection inputs. This consumer never rereads a path or revalidates a ZIP.
+    """
+    try:
+        required = {_PART_NAME, "word/styles.xml", "word/numbering.xml", _DOCUMENT_RELS_PART}
+        if required.intersection(package.member_names) - package.parts.keys():
+            raise InspectError("file_unextractable", "inspection package lacks retained members")
         document_payload = package.parts.get(_PART_NAME)
         if document_payload is None:
             raise InspectError(missing_document_part_code, f"no {_PART_NAME}")
