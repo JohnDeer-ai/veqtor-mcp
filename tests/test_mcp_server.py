@@ -1578,7 +1578,8 @@ async def test_mcp_rejects_coercible_non_integer_limits_before_execution(
         response = await session.call_tool(tool_name, arguments)
 
     assert response.is_error is True
-    assert "validation error" in _error_text(response).casefold()
+    assert _error_text(response) == "invalid_arguments: tool input failed validation"
+    assert str(matter) not in _error_text(response)
     assert not (matter / records.SIDECAR_DIR / records.JOURNAL_NAME).exists()
 
 
@@ -1639,7 +1640,8 @@ async def test_mcp_rejects_out_of_range_max_items_before_execution(
         )
 
     assert response.is_error is True
-    assert "validation error" in _error_text(response).casefold()
+    assert _error_text(response) == "invalid_arguments: tool input failed validation"
+    assert str(matter) not in _error_text(response)
     assert not (matter / records.SIDECAR_DIR / records.JOURNAL_NAME).exists()
 
 
@@ -1662,7 +1664,8 @@ async def test_mcp_rejects_max_records_above_advertised_bound_before_execution(
         )
 
     assert response.is_error is True
-    assert "validation error" in _error_text(response).casefold()
+    assert _error_text(response) == "invalid_arguments: tool input failed validation"
+    assert str(matter) not in _error_text(response)
     assert not (matter / records.SIDECAR_DIR / records.JOURNAL_NAME).exists()
 
 

@@ -2,23 +2,28 @@
 
 # Known limitations
 
-This file describes release-candidate source `0.4.0` and its nine-tool MCP
-contract `veqtor.mcp.v0.4`. All nine tools, including the eight names carried
-forward from v0.3, expose the same contract-wide v0.4 metadata value. It does
-not establish that the package, extension or release exists publicly.
-Published installation status comes only from matching entries on PyPI and the
-immutable GitHub Releases list. The current v0.3 release and MCPB remain an
-unchanged eight-tool `veqtor.mcp.v0.3` surface until v0.4 promotion completes;
-the v0.4 candidate has no publication acceptance claim.
+This file describes development source `0.4.1.dev0` and its nine-tool MCP
+contract `veqtor.mcp.v0.4`, compatible with public `0.4.0`. All nine tools expose
+the same contract-wide metadata value. Development source and test results do
+not establish a new publication or exact-candidate client acceptance. The
+frozen v0.4 release contract, historical golden records and published artifacts
+are unchanged; v0.3 remains a historical eight-tool artifact.
 
-The v0.4 MCPB release candidate is macOS-only and is public only when the exact
-artifact passes existing-user acceptance on the maintainer's Mac and is
-attached to the matching verified release. This profile permits pre-existing
-system UV and caches; it does not verify installation in an untouched user,
+The [Codex guide](docs/CODEX.md) records historical public 0.4.0 CLI write and
+desktop read observations, plus a distinct unpublished error-transport patch.
+These are not tests of `0.4.1.dev0`. The development adapter keeps controlled
+refusal codes and safe hints, and sanitizes SDK input-validation errors before
+tool entry. It does not add plain-paragraph editing or desktop write acceptance.
+
+Public v0.4.0 MCPB is macOS-only. Its frozen release policy binds the exact
+artifact to existing-user acceptance on the maintainer's Mac and to the matching
+verified immutable release. This development build does not rerun or extend
+that release acceptance. This profile permits pre-existing system UV and
+caches; it does not verify installation in an untouched user,
 on a separate clean Mac, or without a development toolchain. Claude must launch
 the installed MCPB, with source bytes and runtime origin checked. Linux keeps
 the CLI setup. There is no Windows extension, catalog listing, automatic update promise, silent
-installation or guaranteed in-app rollback. If published, `0.3.0` remains the
+installation or guaranteed in-app rollback. `0.3.0` remains the
 first public MCPB. The v0.4 release gate requires a real upgrade from v0.3.0,
 rollback to that immutable release, and candidate reinstallation. The first UV
 activation may download a compatible Python runtime and locked dependencies, so

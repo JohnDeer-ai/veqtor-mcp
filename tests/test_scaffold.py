@@ -13,8 +13,12 @@ ROOT = Path(__file__).parents[1]
 
 
 def test_package_versions_match() -> None:
-    assert docx_version == "0.4.0"
+    assert docx_version == "0.4.1.dev0"
     assert mcp_version == docx_version
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
+    lock = tomllib.loads((ROOT / "uv.lock").read_text())
+    assert project["version"] == mcp_version
+    assert next(p["version"] for p in lock["package"] if p["name"] == "veqtor-mcp") == mcp_version
 
 
 def test_api_validation_code_table_matches_the_runtime_contract() -> None:
@@ -105,10 +109,9 @@ def test_export_example_matches_compact_count_and_gap_contract() -> None:
 
 
 def test_changelog_keeps_timeless_release_copy() -> None:
-    project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
     changelog = (ROOT / "CHANGELOG.md").read_text()
     releasing = (ROOT / "RELEASING.md").read_text()
-    release_marker = f"## {project['version']}\n"
+    release_marker = "## 0.4.0\n"
 
     assert changelog.count(release_marker) == 1
     release = changelog.split(release_marker, 1)[1].split("\n## ", 1)[0]
@@ -163,10 +166,18 @@ def test_release_copy_is_state_neutral_and_site_uses_public_v040() -> None:
     assert "https://pypi.org/project/veqtor-mcp/" in readme
     assert "Both sources expose `0.4.0`" in readme
     assert "| Otherwise | `0.3.0` |" in readme
-    assert "release candidate for package `0.4.0`" in readme
+    assert "development package `0.4.1.dev0`" in readme
     assert "nine-tool MCP contract `veqtor.mcp.v0.4`" in readme
-    assert "current public v0.3" in readme
-    assert "v0.4 candidate has no publication acceptance claim" in immutable_docs
+    assert "Public `0.4.0` is the published release line" in readme
+    assert "not a new publication" in immutable_docs
+    for name in ("README.md", "API.md", "KNOWN_LIMITATIONS.md", "ROADMAP.md", "docs/CODEX.md"):
+        current = (ROOT / name).read_text()
+        assert "0.4.1.dev0" in current
+        assert "0.4.0" in current
+        assert "veqtor.mcp.v0.4" in current
+        assert "release-candidate source `0.4.0`" not in current
+    development = (ROOT / "CHANGELOG.md").read_text().split("## 0.4.1.dev0\n", 1)[1].split("\n## ", 1)[0]
+    assert "Unreleased development build" in development
     assert "v0.3.0 is not public yet" not in setup
     assert "Download Veqtor v{PUBLIC_RELEASE_VERSION} (.mcpb)" in setup
     assert "This is the first public MCPB" not in setup
