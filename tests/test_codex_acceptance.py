@@ -35,6 +35,18 @@ def _sync_text(item):
     item["result"]["content"][0]["text"] = json.dumps(item["result"]["structured_content"])
 
 
+def _sync_arguments(events, item):
+    next(event["item"] for event in events if event.get("type") == "item.started"
+         and event["item"].get("id") == item["id"])["arguments"] = deepcopy(item["arguments"])
+
+
+def _output_inspection(events, baseline, mode="read"):
+    return next(event["item"] for event in events if event.get("type") == "item.completed"
+                and event.get("item", {}).get("tool") == "inspect_document"
+                and event["item"]["arguments"].get("path") == baseline["output_path"]
+                and event["item"]["arguments"].get("mode") == mode)
+
+
 @pytest.fixture
 def evidence(tmp_path):
     # The checker treats documents as opaque bytes: it verifies logged native
@@ -108,10 +120,20 @@ def evidence(tmp_path):
             {"change_unit_id": "cu_001", "operation": "counter", "deleted_text": "50", "inserted_text": "250"},
             {"change_unit_id": "cu_002", "operation": "reinstate", "deleted_text": None, "inserted_text": "misconduct"}]})
     add("extract_redlines", {"path": str(output)}, {"file_sha256": output_hash})
-    output_ref = {"schema_version": "paragraph_ref.v1", "file_sha256": output_hash,
-                  "paragraph_index": 0, "reading_mode": "accepted_current_v1"}
-    add("inspect_document", {"path": str(output), "mode": "read"}, {
-        "file_sha256": output_hash, "paragraphs": [{"paragraph_ref": output_ref}]})
+    output_text = "Liability is capped at 250, except for misconduct."
+    output_ref = {"schema_version": "paragraph_ref.v1", "ref_type": "paragraph",
+                  "file_sha256": output_hash, "part_name": "word/document.xml",
+                  "paragraph_index": 0, "paragraph_text_sha256": _hash(output_text.encode()),
+                  "reading_mode": "accepted_current_v1", "container_policy": "canonical_body_flow_v1"}
+    add("inspect_document", {"path": str(output), "mode": "literal_search",
+                             "phrases": ["250", "misconduct"], "match_basis": "exact_literal"}, {
+        "mode": "literal_search", "file_sha256": output_hash,
+        "reading_mode": "accepted_current_v1", "matches": [{"paragraph_ref": output_ref,
+            "snippet": {"text": output_text, "truncated_before": False, "truncated_after": False}}]})
+    add("inspect_document", {"path": str(output), "mode": "read",
+                             "selection": {"paragraph_ref": output_ref}}, {
+        "mode": "read", "file_sha256": output_hash, "reading_mode": "accepted_current_v1",
+        "selection_kind": "paragraph", "paragraphs": [{"paragraph_ref": output_ref, "text": output_text}]})
     for phrase in ("250", "misconduct"):
         add("verify_quote", {"path": str(output), "quote": phrase, "anchor": output_ref,
                              "paragraph_projection": "accepted_current_v1"}, {
@@ -227,6 +249,121 @@ def test_each_intended_fragment_needs_its_own_native_quote(evidence, target):
         and event["item"]["arguments"].get("quote") == "misconduct")]
     with pytest.raises(checker.EvidenceError, match="fragment lacks"):
         checker.validate_evidence(events, baseline)
+
+
+@pytest.mark.parametrize("remove_source_read", [False, True])
+def test_navigation_cannot_replace_missing_output_read(evidence, remove_source_read):
+    events, baseline = evidence
+    # Preserve search, including its full untruncated snippet and exact reference.
+    # These are the two NR00-READBACK-001 native-log omission sequences.
+    events[:] = [event for event in events if not (
+        event.get("item", {}).get("tool") == "inspect_document"
+        and event["item"]["arguments"].get("mode") == "read"
+        and (remove_source_read or event["item"]["arguments"].get("path") == baseline["output_path"]))]
+    with pytest.raises(checker.EvidenceError, match="output fragment lacks"):
+        checker.validate_evidence(events, baseline)
+
+
+@pytest.mark.parametrize("mode", ["browse", "literal_search", "outline"])
+def test_navigation_with_paragraph_text_is_still_not_a_read(evidence, mode):
+    events, baseline = evidence
+    item = _output_inspection(events, baseline)
+    item["arguments"]["mode"] = mode
+    item["result"]["structured_content"]["mode"] = mode
+    _sync_arguments(events, item)
+    _sync_text(item)
+    with pytest.raises(checker.EvidenceError, match="output fragment lacks"):
+        checker.validate_evidence(events, baseline)
+
+
+@pytest.mark.parametrize("mutation", ["missing_text", "partial_text", "wrong_paragraph",
+                                     "wrong_file", "wrong_projection", "wrong_result_mode",
+                                     "matches_only"])
+def test_output_read_must_return_full_current_text_at_the_verified_reference(evidence, mutation):
+    events, baseline = evidence
+    item = _output_inspection(events, baseline)
+    payload = item["result"]["structured_content"]
+    row = payload["paragraphs"][0]
+    if mutation == "missing_text":
+        del row["text"]
+    elif mutation == "partial_text":
+        row["text"] = "250, except for misconduct"
+    elif mutation == "wrong_paragraph":
+        row["paragraph_ref"]["paragraph_index"] = 123
+        item["arguments"]["selection"]["paragraph_ref"]["paragraph_index"] = 123
+        _sync_arguments(events, item)
+    elif mutation == "wrong_file":
+        payload["file_sha256"] = "0" * 64
+    elif mutation == "wrong_projection":
+        payload["reading_mode"] = "rejected_pending_v1"
+    elif mutation == "wrong_result_mode":
+        payload["mode"] = "literal_search"
+    else:
+        payload["matches"] = payload.pop("paragraphs")
+    _sync_text(item)
+    with pytest.raises(checker.EvidenceError, match="output fragment lacks"):
+        checker.validate_evidence(events, baseline)
+
+
+@pytest.mark.parametrize("ordering", ["before_apply", "overlaps_apply", "overlaps_verify", "after_verify"])
+def test_output_read_must_start_after_apply_and_complete_before_each_quote(evidence, ordering):
+    events, baseline = evidence
+    item = _output_inspection(events, baseline)
+    pair = [event for event in events if event.get("item", {}).get("id") == item["id"]]
+    events[:] = [event for event in events if event not in pair]
+    target_tool = "apply_edits" if "apply" in ordering else "verify_quote"
+    target_type = "item.started" if ordering in {"before_apply", "overlaps_verify"} else "item.completed"
+    index = next(i for i, event in enumerate(events) if event["type"] == target_type
+                 and event.get("item", {}).get("tool") == target_tool
+                 and (target_tool == "apply_edits"
+                      or event["item"]["arguments"].get("path") == baseline["output_path"]))
+    if ordering == "before_apply":
+        events[index:index] = pair
+    elif ordering == "after_verify":
+        events[index + 1:index + 1] = pair
+    else:
+        events.insert(index, pair[0])
+        events.insert(index + 2, pair[1])
+    with pytest.raises(checker.EvidenceError, match="output fragment lacks"):
+        checker.validate_evidence(events, baseline)
+
+
+def test_read_of_first_quote_does_not_cover_another_paragraph(evidence):
+    events, baseline = evidence
+    quote = next(event["item"] for event in events if event.get("type") == "item.completed"
+                 and event.get("item", {}).get("tool") == "verify_quote"
+                 and event["item"]["arguments"].get("path") == baseline["output_path"]
+                 and event["item"]["arguments"].get("quote") == "misconduct")
+    quote["arguments"]["anchor"]["paragraph_index"] = 1
+    quote["result"]["structured_content"]["checked_anchor"]["paragraph_index"] = 1
+    _sync_arguments(events, quote)
+    _sync_text(quote)
+    search = _output_inspection(events, baseline, "literal_search")
+    search["result"]["structured_content"]["matches"].append({
+        "paragraph_ref": deepcopy(quote["arguments"]["anchor"])})
+    _sync_text(search)
+    with pytest.raises(checker.EvidenceError, match="output fragment lacks"):
+        checker.validate_evidence(events, baseline)
+
+
+@pytest.mark.parametrize("paginated", [False, True])
+def test_containing_section_read_can_supply_full_verified_paragraph(evidence, paginated):
+    events, baseline = evidence
+    item = _output_inspection(events, baseline)
+    ref = item["arguments"]["selection"]["paragraph_ref"]
+    item["arguments"]["selection"] = {"section_ref": {
+        "schema_version": "section_ref.v1", "ref_type": "section",
+        "file_sha256": ref["file_sha256"], "reading_mode": ref["reading_mode"],
+        "part_name": ref["part_name"], "container_policy": ref["container_policy"],
+        "start_paragraph_index": 0, "end_paragraph_index_exclusive": 2}}
+    payload = item["result"]["structured_content"]
+    payload["selection_kind"] = "section"
+    # Pagination omits later paragraphs, never part of the returned paragraph.
+    payload["coverage"] = {"output_truncated": paginated}
+    payload["next_cursor"] = "next-section-page" if paginated else None
+    _sync_arguments(events, item)
+    _sync_text(item)
+    assert checker.validate_evidence(events, baseline)["status"] == "passed"
 
 
 @pytest.mark.parametrize("mutation", ["candidate_hash", "unobserved_reference", "old_side"])

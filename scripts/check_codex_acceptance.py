@@ -348,10 +348,16 @@ def validate_evidence(events: list[dict], baseline: dict) -> dict:
             verified = any(apply["completed_at"] < read["started_at"]
                            and read["completed_at"] < call["started_at"]
                            and read["payload"].get("file_sha256") == candidate
-                           and anchor in [row.get("paragraph_ref") for row in
-                               read["payload"].get("matches", []) + read["payload"].get("paragraphs", [])
-                               if isinstance(row, dict)]
-                           for read_index, read in matches("inspect_document", path=output))
+                           and read["payload"].get("mode") == "read"
+                           and read["payload"].get("reading_mode") == "accepted_current_v1"
+                           # A section page can supply the complete paragraph;
+                           # navigation matches and snippets cannot prove a read.
+                           and any(isinstance(row, dict) and row.get("paragraph_ref") == anchor
+                                   and isinstance(row.get("text"), str)
+                                   and hashlib.sha256(row["text"].encode("utf-8")).hexdigest()
+                                   == anchor.get("paragraph_text_sha256")
+                                   for row in read["payload"].get("paragraphs", []))
+                           for read_index, read in matches("inspect_document", path=output, mode="read"))
             if verified:
                 break
         _require(verified, "an intended output fragment lacks exact current-projection native verification")
