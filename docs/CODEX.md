@@ -323,7 +323,8 @@ output hash, and set the paragraph text hash to SHA-256 of the empty string
 read must resolve this complete reference and return empty text. Finally export records
 from the source workspace with enough records to include preflight/apply.
 No map/history calls are required. Failed apply/preflight attempts belong in a
-separate negative run. Current profile export samples support at most 20 edits.
+separate negative run. The full native results bind every edit; bounded export collections must match
+their counts, digests, samples and truncation flags.
 
 ```bash
 uv run --frozen python scripts/check_paragraph_acceptance.py \
@@ -334,9 +335,12 @@ uv run --frozen python scripts/check_paragraph_acceptance.py \
 Run the checker in the exact candidate runtime; its loaded version/source build
 must match the pre-run baseline. This checker requires ordered complete native
 input/result reads, exact proof,
-build/hash/reference binding, precise revisions and target identities in compact
-export. It also independently inspects the current local source/output package
-and all untouched paragraphs/table skeleton. Synthetic envelopes in tests prove
+build/hash/reference binding and returned read and quote-match file/part/revision
+identities. Both preflight/apply compact records must equal their native
+input/result/proof/producer/workspace/provenance projections, including all
+bounded collection facts. The checker independently inspects the current local
+source/output package, supported touched-paragraph structure, original/current
+formatting, and all untouched paragraphs/table skeleton. Synthetic envelopes in tests prove
 checker behavior only; they are never native acceptance. Preserve raw documents,
 baselines and logs outside public sources. After independent PASS, render and
 inspect every page with the documents skill using the bundled renderer. Native

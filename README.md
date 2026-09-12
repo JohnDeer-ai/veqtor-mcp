@@ -174,14 +174,12 @@ The expected trust sequence is:
 2. verify every quotation used as evidence;
 3. preflight the complete atomic batch;
 4. apply only when `batch_applicable` is true — version `0.1.2` reuses the exact
-   edit payload, while contracts `veqtor.mcp.v0.2`, `veqtor.mcp.v0.3`, and
-   `veqtor.mcp.v0.4`
+   edit payload, while contracts `veqtor.mcp.v0.2` through `veqtor.mcp.v0.4.1`
    also pass the complete `preflight_proof` returned by that successful
    preflight;
 5. re-extract the output and export the decision record.
 
-In MCP contracts `veqtor.mcp.v0.2`, `veqtor.mcp.v0.3`, and
-`veqtor.mcp.v0.4`, the proof binds
+In MCP contracts `veqtor.mcp.v0.2` through `veqtor.mcp.v0.4.1`, the proof binds
 the source bytes, canonical edit payload, configured author, producer build and
 predicted candidate hash so apply can detect drift. It is an unkeyed content
 binding, not authentication or a digital signature. Version `0.1.2` does not
@@ -217,7 +215,8 @@ or environment.
 ## Tool surface
 
 The descriptions below follow development package `0.4.1.dev1` and its
-nine-tool MCP contract `veqtor.mcp.v0.4.1`, shared with public `0.4.0`. For an
+nine-tool MCP contract `veqtor.mcp.v0.4.1`. Public `0.4.0` retains the frozen
+`veqtor.mcp.v0.4` contract. For an
 installed version, use the API file carried by that exact artifact or its
 matching immutable tag. Historical v0.3 artifacts retain their eight tools.
 
@@ -242,8 +241,7 @@ matching immutable tag. Historical v0.3 artifacts retain their eight tools.
 - `preflight_edits`: the complete apply pipeline as an in-memory dry-run, with
   closed position/failure diagnostics and a successful drift-binding proof.
 - `apply_edits`: atomic tracked replace, delete, counter and reinstate writes;
-  MCP contracts `veqtor.mcp.v0.2`, `veqtor.mcp.v0.3`, and `veqtor.mcp.v0.4`
-  require the
+  MCP contracts `veqtor.mcp.v0.2` through `veqtor.mcp.v0.4.1` require the
   complete successful preflight proof; version `0.1.2` reuses the exact edit
   payload without that new field.
 - `verify_quote`: anchored `exact`, `normalized`, or `not_found` verification,

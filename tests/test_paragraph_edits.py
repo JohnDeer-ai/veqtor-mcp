@@ -11,7 +11,7 @@ import jsonschema
 from lxml import etree
 import pytest
 
-from veqtor_docx import ApplyError, apply_edits, extract_redlines, inspect_document, preflight_edits
+from veqtor_docx import DocxError, ApplyError, apply_edits, extract_redlines, inspect_document, preflight_edits
 from veqtor_docx._ooxml import parse_xml, w
 from veqtor_docx.synthetic import generate_demo_rounds
 from veqtor_mcp import contracts, records, server
@@ -453,3 +453,164 @@ def test_unresolved_formatting_dependencies_refuse(corpus, kind, target, mode):
         rel.set("TargetMode", mode)
     rewrite(source, mutate, part="word/_rels/document.xml.rels")
     assert_refused(source, [edit(source)], "paragraph_structure_unsupported")
+
+
+def rewrite_parts(path, mutate):
+    with zipfile.ZipFile(path) as archive:
+        infos = archive.infolist()
+        parts = {info.filename: archive.read(info) for info in infos}
+    mutate(parts)
+    with zipfile.ZipFile(path, "w") as archive:
+        for info in infos:
+            if info.filename in parts:
+                archive.writestr(info, parts[info.filename])
+
+
+@pytest.mark.parametrize("case", [
+    "styles_part_and_rel", "styles_rel", "styles_part", "rels_part",
+    "numbering_part_and_rel", "numbering_rel", "missing_parent", "missing_numbering",
+    "missing_abstract", "combined_missing", "combined_missing_with_revision",
+    "known_property_revision", "cycle", "missing_run_style", "missing_table_style",
+    "missing_linked_style", "missing_default_parent", "supported_chain",
+])
+def test_write_dependency_closure_preserves_tolerant_reading(corpus, tmp_path, case):
+    source = corpus[0]
+    original_ref = rows(source)[0]["paragraph_ref"]
+
+    def mutate(parts):
+        styles = parse_xml(parts["word/styles.xml"])
+        base = styles[0]
+        parent = etree.SubElement(styles, w("style"), {w("type"): "paragraph", w("styleId"): "Parent"})
+        etree.SubElement(parent, w("name"), {w("val"): "Normal inherited style vocabulary"})
+        etree.SubElement(etree.SubElement(parent, w("pPr")), w("keepNext"))
+        etree.SubElement(base, w("basedOn"), {w("val"): "Parent"})
+        num = etree.SubElement(base.find(w("pPr")), w("numPr"))
+        etree.SubElement(num, w("numId"), {w("val"): "1"})
+        etree.SubElement(num, w("ilvl"), {w("val"): "0"})
+        if case in {"missing_parent", "combined_missing", "combined_missing_with_revision"}:
+            styles.remove(parent)
+        if case in {"missing_numbering", "combined_missing", "combined_missing_with_revision"}:
+            num.find(w("numId")).set(w("val"), "999")
+        if case == "missing_abstract":
+            numbering = parse_xml(parts["word/numbering.xml"])
+            numbering.find(w("num")).find(w("abstractNumId")).set(w("val"), "999")
+            parts["word/numbering.xml"] = etree.tostring(numbering)
+        if case == "cycle":
+            etree.SubElement(parent, w("basedOn"), {w("val"): "VBody"})
+        if case in {"known_property_revision", "combined_missing_with_revision"}:
+            etree.SubElement(etree.SubElement(base.find(w("pPr")), w("pPrChange"),
+                                             {w("id"): "500", w("author"): "Other"}), w("pPr"))
+        if case == "missing_linked_style":
+            etree.SubElement(base, w("link"), {w("val"): "AbsentCharacter"})
+        if case == "missing_default_parent":
+            default = etree.SubElement(styles, w("style"), {
+                w("type"): "character", w("default"): "1", w("styleId"): "DefaultCharacter"})
+            etree.SubElement(default, w("basedOn"), {w("val"): "AbsentCharacter"})
+        parts["word/styles.xml"] = etree.tostring(styles)
+        if case == "missing_run_style":
+            document = parse_xml(parts["word/document.xml"])
+            run = document.find(".//" + w("r"))
+            props = etree.Element(w("rPr"))
+            run.insert(0, props)
+            etree.SubElement(props, w("rStyle"), {w("val"): "AbsentCharacter"})
+            parts["word/document.xml"] = etree.tostring(document)
+        if case == "missing_table_style":
+            document = parse_xml(parts["word/document.xml"])
+            etree.SubElement(document.find(".//" + w("tblPr")), w("tblStyle"), {w("val"): "AbsentTable"})
+            parts["word/document.xml"] = etree.tostring(document)
+        kind = "styles" if case.startswith("styles_") else "numbering"
+        if case.endswith("_part_and_rel") or case in {"styles_rel", "numbering_rel"}:
+            rels = parse_xml(parts["word/_rels/document.xml.rels"])
+            for rel in list(rels):
+                if rel.get("Type").endswith("/" + kind):
+                    rels.remove(rel)
+            parts["word/_rels/document.xml.rels"] = etree.tostring(rels)
+        if case.endswith("_part_and_rel") or case == "styles_part":
+            parts.pop(f"word/{kind}.xml")
+        if case == "rels_part":
+            parts.pop("word/_rels/document.xml.rels")
+
+    rewrite_parts(source, mutate)
+    before = source.read_bytes()
+    if case == "cycle":
+        ref = {**original_ref, "file_sha256": hashlib.sha256(before).hexdigest()}
+        with pytest.raises(DocxError, match="cycles"):
+            rows(source)
+    else:
+        ref = rows(source)[3 if case == "missing_table_style" else 0]["paragraph_ref"]
+        assert inspect_document(str(source), mode="read", selection={"paragraph_ref": ref})["paragraphs"]
+    edits = [{"target": {"kind": "paragraph", "paragraph_ref": ref},
+              "delete_text": "30 days", "insert_text": "45 days"}]
+    output = tmp_path / "dependency-output.docx"
+    if case == "supported_chain":
+        _, result = execute(source, output, edits)
+        assert result["round_trip_check"]["status"] == "passed"
+    else:
+        code = "docx_error" if case == "cycle" else (
+            "paragraph_pending_revisions" if case in {"known_property_revision", "combined_missing_with_revision"}
+            else "paragraph_structure_unsupported")
+        pre = preflight_edits(str(source), edits, author=AUTHOR, producer_build=BUILD)
+        assert not pre["batch_applicable"] and pre["refusal_code"] == code, pre
+        assert pre["preflight_proof"] is None
+        with pytest.raises(DocxError) as error:
+            apply_edits(str(source), str(output), edits, author=AUTHOR, producer_build=BUILD)
+        assert getattr(error.value, "code", "docx_error") == code
+        if case == "cycle":
+            assert pre["failure_phase"] == "source"
+        assert not output.exists()
+    assert source.read_bytes() == before
+
+
+def inject_paragraph_structure(root, fault):
+    para = root.find(".//" + w("p"))
+    if fault in {"duplicate_ppr", "combined"}:
+        etree.SubElement(etree.SubElement(para, w("pPr")), w("pageBreakBefore"))
+    if fault in {"drawing", "combined"}:
+        etree.SubElement(para, w("drawing"))
+    if fault in {"bookmarks", "combined"}:
+        etree.SubElement(para, w("bookmarkStart"), {w("id"): "987", w("name"): "UnexpectedBookmark"})
+        etree.SubElement(para, w("bookmarkEnd"), {w("id"): "987"})
+    if fault == "empty_run":
+        etree.SubElement(etree.SubElement(para, w("r")), w("t"))
+    if fault == "wrapper_attribute":
+        para.find(w("ins")).set(w("unexpected"), "yes")
+    if fault == "current_text":
+        para.find(w("r") + "/" + w("t")).text = "corrupted unedited prefix "
+
+
+@pytest.mark.parametrize("fault", ["duplicate_ppr", "drawing", "bookmarks", "combined",
+                                       "empty_run", "wrapper_attribute", "current_text"])
+def test_serialized_structure_rejected_by_preflight_and_proof_bound_apply(corpus, tmp_path, monkeypatch, fault):
+    source = corpus[1]
+    before = source.read_bytes()
+    units = extract_redlines(str(source))["change_units"]
+    edits = [edit(source), edit(source, 1, rows(source)[1]["text"], ""), edit(source, 3),
+             {"anchor": units[0]["anchor"], "delete_text": "50 units", "insert_text": "75 units"},
+             {"anchor": units[1]["anchor"], "reinstate_text": "inspection right"}]
+    pre, control = execute(source, tmp_path / "control.docx", edits)
+    assert len(control["applied"]) == 5
+    assert len(extract_redlines(control["output_path"])["change_units"]) == 7
+    empty_ref = {**edits[1]["target"]["paragraph_ref"], "file_sha256": control["output_sha256"],
+                 "paragraph_text_sha256": hashlib.sha256(b"").hexdigest()}
+    assert inspect_document(control["output_path"], mode="read", selection={"paragraph_ref": empty_ref})[
+        "paragraphs"][0]["text"] == ""
+    original = apply_module._output_archive_bytes
+
+    def corrupt(infos, parts):
+        changed = dict(parts)
+        root = parse_xml(parts["word/document.xml"])
+        inject_paragraph_structure(root, fault)
+        changed["word/document.xml"] = etree.tostring(root)
+        return original(infos, changed)
+
+    monkeypatch.setattr(apply_module, "_output_archive_bytes", corrupt)
+    refused = preflight_edits(str(source), edits, author=AUTHOR, producer_build=BUILD)
+    assert not refused["batch_applicable"] and refused["refusal_code"] == "round_trip_failed"
+    assert refused["round_trip_check"]["status"] == "failed"
+    assert refused["preflight_proof"] is None
+    output = tmp_path / "refused.docx"
+    with pytest.raises(ApplyError) as error:
+        apply_edits(str(source), str(output), edits, author=AUTHOR, producer_build=BUILD,
+                    preflight_proof=pre["preflight_proof"])
+    assert error.value.code == "round_trip_failed"
+    assert not output.exists() and source.read_bytes() == before

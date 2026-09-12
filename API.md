@@ -1267,15 +1267,21 @@ property extensions, comments, bookmarks, fields, drawings, content controls
 and other inline containers are outside this write subset. Revision ranges
 anywhere in the document and revisions in styles/numbering (including styles with effects) conservatively
 refuse, since this slice does not infer their applicability. External, missing
-or alternate style/numbering relationship targets are unsupported. Reading support is
-broader than writing support. See [the complete contract](NR-01_PARAGRAPH_EDITS.md).
+or alternate style/numbering relationship targets are unsupported. Present parts
+require their internal relationships; referenced styles, basedOn/link chains,
+numbering instances and abstract definitions must resolve, including inherited
+and default formatting dependencies. Extraction fallbacks cannot authorize a
+write. Style definitions retain their own vocabulary; they are not restricted
+to the direct paragraph property vocabulary. Reading support is broader than writing support. See [the complete contract](NR-01_PARAGRAPH_EDITS.md).
 
 A paragraph can become empty without removing its paragraph mark. Replacement
 text inherits the first removed run's attributes and properties; deleted text
 retains each original run's properties. Full expected current text and formatting,
 original text and formatting under rejection of the new edits, all new/prior
 revision facts, untargeted paragraphs, table skeleton and other package members
-are checked on the serialized candidate. Mixed legacy/paragraph batches share
+are checked on the serialized candidate. Every touched paragraph must also
+match the complete planned XML structure, including elements without text.
+Mixed legacy/paragraph batches share
 one all-or-nothing pipeline and unchanged `preflight_proof.v1` bindings; the
 proof's ordered edit digest includes target kind and the entire reference.
 

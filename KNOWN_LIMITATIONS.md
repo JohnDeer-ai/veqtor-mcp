@@ -200,8 +200,7 @@ permissions.
   same source bytes, build, configured author and edits. Apply can still fail if
   the source changes, the output exists, or publication encounters permissions,
   storage or filesystem races.
-- Under MCP contracts `veqtor.mcp.v0.2`, `veqtor.mcp.v0.3`, and
-  `veqtor.mcp.v0.4`,
+- Under MCP contracts `veqtor.mcp.v0.2` through `veqtor.mcp.v0.4.1`,
   `apply_edits` requires the complete `preflight_proof` returned by a successful
   preflight. The proof binds the source SHA-256, canonical edits digest,
   configured author, producer build and candidate SHA-256; it does not bind the

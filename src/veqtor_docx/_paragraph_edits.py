@@ -97,9 +97,24 @@ def _require_properties(root: etree._Element) -> None:
         raise InspectError("paragraph_structure_unsupported", "unsupported paragraph or container properties")
 
 
-def _require_style_dependencies(parts: dict) -> None:
+def _require_style_dependencies(parts: dict, paragraph: etree._Element) -> None:
+    """Prove referenced formatting definitions; extraction's fallbacks are read-only.
+
+    Style definitions have their own vocabulary (name, basedOn, linked styles,
+    numbering, etc.). Do not apply the direct-run property whitelist to them.
+    """
     supported = {"styles": "word/styles.xml", "numbering": "word/numbering.xml",
                  "stylesWithEffects": "word/stylesWithEffects.xml"}
+    roots = {kind: parse_xml(parts[part]) for kind, part in supported.items() if part in parts}
+    # Known pending revisions remain the primary refusal even when another
+    # dependency is missing. Missing definitions never erase this evidence.
+    for root in roots.values():
+        _require_clean(root)
+
+    def unresolved():
+        raise InspectError("paragraph_structure_unsupported", "unresolved style or numbering dependency")
+
+    bound = set()
     rels = parts.get("word/_rels/document.xml.rels")
     if rels is not None:
         for rel in parse_xml(rels):
@@ -107,12 +122,85 @@ def _require_style_dependencies(parts: dict) -> None:
             if kind not in supported:
                 continue
             target = posixpath.normpath(posixpath.join("word", rel.get("Target", ""))).lstrip("/")
-            if (rel.get("TargetMode", "Internal") != "Internal"
+            if (kind in bound or rel.get("TargetMode", "Internal") != "Internal"
                     or target != supported[kind] or target not in parts):
-                raise InspectError("paragraph_structure_unsupported", "unsupported style or numbering dependency")
-    for part in supported.values():
-        if part in parts:
-            _require_clean(parse_xml(parts[part]))
+                unresolved()
+            bound.add(kind)
+    if set(roots) != bound:
+        unresolved()
+
+    def definitions(root, tag, key):
+        result = {}
+        if root is not None:
+            for node in root.findall(w(tag)):
+                identity = node.get(w(key))
+                if not identity or identity in result:
+                    unresolved()
+                result[identity] = node
+        return result
+
+    style_sets = [definitions(roots.get("styles"), "style", "styleId")]
+    if "stylesWithEffects" in roots:
+        style_sets.append(definitions(roots["stylesWithEffects"], "style", "styleId"))
+    nums = definitions(roots.get("numbering"), "num", "numId")
+    abstracts = definitions(roots.get("numbering"), "abstractNum", "abstractNumId")
+    pending = [paragraph]
+    for ancestor in paragraph.iterancestors():
+        if ancestor.tag == w("tbl"):
+            props = ancestor.find(w("tblPr"))
+            if props is not None:
+                pending.append(props)
+    for kind in ("styles", "stylesWithEffects"):
+        root = roots.get(kind)
+        if root is not None:
+            pending.extend(root.findall(w("docDefaults")))
+            pending.extend(node for node in root.findall(w("style"))
+                           if node.get(w("default")) in {"1", "true", "on"})
+
+    # Follow basedOn chains separately from cross-links: legitimate paragraph /
+    # character or numbering links may be reciprocal, inheritance may not cycle.
+    checked_styles, checked_nums = set(), set()
+
+    def require_style(identity):
+        if not isinstance(identity, str) or not identity:
+            unresolved()
+        for set_index, styles in enumerate(style_sets):
+            path = set()
+            current = identity
+            while current is not None:
+                if current in path or current not in styles:
+                    unresolved()
+                if (set_index, current) in checked_styles:
+                    break
+                path.add(current)
+                node = styles[current]
+                pending.append(node)
+                based = node.findall(w("basedOn"))
+                if len(based) > 1:
+                    unresolved()
+                current = based[0].get(w("val")) if based else None
+                if based and not current:
+                    unresolved()
+            checked_styles.update((set_index, item) for item in path)
+
+    while pending:
+        root = pending.pop()
+        for node in root.iter():
+            if node.tag in {w(name) for name in (
+                    "pStyle", "rStyle", "tblStyle", "basedOn", "link", "numStyleLink", "styleLink")}:
+                require_style(node.get(w("val")))
+            elif node.tag == w("numId"):
+                identity = node.get(w("val"))
+                if identity == "0" or identity in checked_nums:
+                    continue
+                if identity not in nums:
+                    unresolved()
+                num = nums[identity]
+                refs = num.findall(w("abstractNumId"))
+                if len(refs) != 1 or refs[0].get(w("val")) not in abstracts:
+                    unresolved()
+                checked_nums.add(identity)
+                pending.extend((num, abstracts[refs[0].get(w("val"))]))
 
 
 def resolve_paragraph_target(snapshot, document: etree._Element, target: dict, parts: dict):
@@ -130,7 +218,7 @@ def resolve_paragraph_target(snapshot, document: etree._Element, target: dict, p
         raise InspectError("paragraph_pending_revisions", "document contains unresolvable revision ranges")
     for section in document.iter(w("sectPr")):
         _require_clean(section)
-    _require_style_dependencies(parts)
+    _require_style_dependencies(parts, paragraph)
     # A preceding paragraph mark revision can join this paragraph to its sibling.
     for neighbour in (paragraph.getprevious(), paragraph.getnext()):
         if neighbour is not None and neighbour.tag == w("p"):
@@ -164,6 +252,7 @@ def resolve_paragraph_target(snapshot, document: etree._Element, target: dict, p
                 raise InspectError("paragraph_structure_unsupported", "nested text markup is unsupported")
         else:
             raise InspectError("paragraph_structure_unsupported", "unsupported inline paragraph structure")
+    validate_paragraph_candidate(paragraph, paragraph)
     return paragraph, item.paragraph_index
 
 
@@ -171,7 +260,7 @@ def _xml_shape(node):
     if node is None:
         return None
     return (node.tag, tuple(sorted(node.attrib.items())), node.text,
-            tuple(_xml_shape(child) for child in node))
+            tuple(_xml_shape(child) for child in node), node.tail)
 
 
 def paragraph_format_signature(paragraph, *, reject_new=False, accept_new=False):
@@ -194,3 +283,56 @@ def paragraph_format_signature(paragraph, *, reject_new=False, accept_new=False)
                     tokens.append(("unsupported", _xml_shape(atom)))
     return (tuple(sorted(paragraph.attrib.items())),
             _xml_shape(paragraph.find(w("pPr"))), tuple(tokens))
+
+
+def paragraph_xml_signature(paragraph):
+    """Complete expanded-name XML structure, including zero-text elements."""
+    return _xml_shape(paragraph)
+
+
+def validate_paragraph_candidate(original, candidate):
+    """Reject unaccounted inline structure before comparing text/format projections.
+
+    This also serves the independent file checker: a complete extraction inventory
+    cannot detect bookmarks, duplicate properties, empty drawings or empty runs.
+    """
+    def shape(paragraph, revisions):
+        position, empty_runs = 0, []
+        for index, child in enumerate(paragraph):
+            if child.tag == w("pPr") and index == 0:
+                _require_properties(child)
+                continue
+            wrapper = child.tag in {w("del"), w("ins")}
+            if wrapper:
+                if (not revisions or not len(child)
+                        or set(child.attrib) != {w("id"), w("author")}
+                        or not child.get(w("id")) or not child.get(w("author"))):
+                    raise InspectError("paragraph_structure_unsupported", "unsupported revision structure")
+                runs = list(child)
+            else:
+                runs = [child]
+            if (child.text or "").strip() or (child.tail or "").strip():
+                raise InspectError("paragraph_structure_unsupported", "unexpected inline text")
+            for run in runs:
+                text_tag = w("delText") if child.tag == w("del") else w("t")
+                tags = [node.tag for node in run]
+                if (run.tag != w("r") or tags not in ([text_tag], [w("rPr"), text_tag])
+                        or (run.text or "").strip() or (run.tail or "").strip()):
+                    raise InspectError("paragraph_structure_unsupported", "unsupported candidate run structure")
+                props = run.find(w("rPr"))
+                if props is not None:
+                    _require_properties(props)
+                atom = run.find(text_tag)
+                if (len(atom) or set(atom.attrib) - {"{http://www.w3.org/XML/1998/namespace}space"}
+                        or (atom.tail or "").strip()):
+                    raise InspectError("paragraph_structure_unsupported", "unsupported candidate text structure")
+                if wrapper and not atom.text:
+                    raise InspectError("paragraph_structure_unsupported", "empty revision run")
+                if child.tag != w("ins"):
+                    if not atom.text:
+                        empty_runs.append((position, _xml_shape(run)))
+                    position += len(atom.text or "")
+        return empty_runs
+
+    if (candidate.text or "").strip() or shape(original, False) != shape(candidate, True):
+        raise InspectError("paragraph_structure_unsupported", "unaccounted paragraph structure")

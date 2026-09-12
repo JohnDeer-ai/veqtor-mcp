@@ -21,7 +21,11 @@ paragraph or its enclosing table/row/cell properties is forbidden. Unsupported
 containers, fields, comments, content controls, drawings and unprovable property
 or inline structure are refused; a text-revision flag alone is insufficient.
 Style/numbering dependencies must use their supported internal package locations;
-missing, external or alternate targets are unprovable and refused. The paragraph
+missing, external or alternate targets are unprovable and refused. Present parts
+need their relationships, and referenced style inheritance/link and numbering
+instance/abstract chains must resolve, including defaults. The tolerant reader
+cannot supply write authorization for a missing definition. Style definition
+elements retain their own vocabulary. The paragraph
 mark is retained even when all visible text is deleted.
 
 Both address forms share the existing all-or-nothing planning, revision-ID,
@@ -31,7 +35,9 @@ adjacency/grouping refusals also apply, including touching operations in a clean
 paragraph. New paragraph
 edits additionally prove the complete expected current paragraph and preservation
 of its rejected/original text and formatting. New replacement text inherits the
-first removed run's properties. Existing source files are never rewritten.
+first removed run's properties. Every serialized touched paragraph must match
+the complete planned XML structure; zero-text nodes cannot escape comparison.
+Existing source files are never rewritten.
 
 Stable refusals cover malformed targets (`invalid_edit`/`invalid_reference`),
 stale files (`file_sha256_mismatch`), mismatched policy/text/position
@@ -53,6 +59,11 @@ Development identity advances to 0.4.1.dev1 and the additive public schema to
 veqtor.mcp.v0.4.1. Frozen v0.4 contracts, release identity and historical fixtures
 remain intact. Native acceptance uses a separate NR-01 profile requiring ordered
 full input/result reads, exact quote verification, full expected current text,
-exact new/prior revisions, source/collateral evidence and export identity. The
+exact new/prior revisions, source/collateral evidence and export identity. Native
+read paths/parts and quote-match file/part/revision/side identities must bind to
+the resolved source or output. The checker independently rejects unaccounted
+structure in touched paragraph targets and checks the complete compact record
+projection against native input/result/proof/producer/workspace/provenance,
+including collection counts, digests, samples and truncation. The
 old nine-tool native profile remains unchanged. Native/render/package final
 gates follow independent review; Python checks do not assert those gates.

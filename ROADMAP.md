@@ -28,11 +28,10 @@ document facts and deterministic writes; it does not claim legal correctness.
 
 ## Public 0.4.0 and development 0.4.1.dev1
 
-Development package `0.4.1.dev1` preserves the public `0.4.0` contracts and
-advertises the nine-tool MCP contract
-`veqtor.mcp.v0.4`. The contract version is a surface-wide API-schema identifier:
-all nine tools, including the eight names carried forward from v0.3, report
-v0.4 even where an individual schema and behavior are otherwise unchanged.
+Development package `0.4.1.dev1` advertises the nine-tool MCP contract
+`veqtor.mcp.v0.4.1`. The contract version is a surface-wide API-schema identifier:
+all nine tools report v0.4.1, including tools whose behavior is unchanged.
+Public `0.4.0` retains its frozen `veqtor.mcp.v0.4` contract.
 The development changes add Codex setup, a reusable next-round prompt, native
 evidence checks and safe error transport, including SDK validation before tool
 entry. Historical Codex observations are in [CODEX.md](docs/CODEX.md); they do

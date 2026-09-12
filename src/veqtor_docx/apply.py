@@ -105,6 +105,8 @@ from .contracts import (
 )
 from ._paragraph_edits import (
     paragraph_format_signature,
+    paragraph_xml_signature,
+    validate_paragraph_candidate,
     resolve_paragraph_target,
     validate_paragraph_target,
 )
@@ -1870,6 +1872,9 @@ def _prepare_candidate(
         + etree.tostring(document)
     )
     candidate_payload: bytes | None = None
+    planned_paragraph_shapes = {
+        plan.paragraph_index: paragraph_xml_signature(plan.paragraph) for plan in planned
+    }
     try:
         candidate_payload = _output_archive_bytes(infos, parts)
         validate_docx_payload_size(
@@ -1901,8 +1906,16 @@ def _prepare_candidate(
         ):
             raise ApplyError("round_trip_failed", "candidate package collateral changed")
         candidate_paras = canonical_body_flow_v1(candidate_document.find(w("body"))).paragraphs
+        for index, expected_shape in planned_paragraph_shapes.items():
+            if (index >= len(candidate_paras)
+                    or paragraph_xml_signature(candidate_paras[index].element) != expected_shape):
+                raise ApplyError("round_trip_failed", "serialized paragraph structure differs from planned edits")
         for index, original in original_paragraphs.items():
             candidate_para = candidate_paras[index].element
+            try:
+                validate_paragraph_candidate(original, candidate_para)
+            except InspectError as exc:
+                raise ApplyError("round_trip_failed", "unaccounted paragraph structure") from exc
             if (_reading_text(_paragraph_segments(candidate_para)) != expected_paragraph_text[index]
                     or paragraph_format_signature(original) != paragraph_format_signature(
                         candidate_para, reject_new=True)

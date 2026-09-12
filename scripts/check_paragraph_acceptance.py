@@ -20,9 +20,10 @@ from lxml import etree
 import jsonschema
 
 from veqtor_docx import extract_redlines, inspect_document
+from veqtor_docx.inspect import InspectError
 from veqtor_docx._ooxml import canonical_body_flow_v1, parse_xml, w
-from veqtor_docx._paragraph_edits import paragraph_format_signature
-from veqtor_mcp import __version__
+from veqtor_docx._paragraph_edits import paragraph_format_signature, validate_paragraph_candidate
+from veqtor_mcp import __version__, records, server
 from veqtor_mcp.records import SOURCE_SNAPSHOT_IDENTITY
 from veqtor_mcp.contracts import (
     EDIT_INPUT_SCHEMA, PARAGRAPH_REF_SCHEMA, APPLY_EDITS_RESULT_SCHEMA,
@@ -136,6 +137,38 @@ def _collateral(source, output, touched):
     _require(etree.tostring(before) == etree.tostring(after), "table or document skeleton changed")
 
 
+def _expected_export_record(call, exported, workspace):
+    """Rebuild the compact view from native evidence, never from exported facts.
+
+    Only the journal timestamp is unavailable in the native response. Validate
+    its representation without claiming to authenticate its value or the log.
+    Projection uses the versioned record contract, including every nested
+    collection's digest, count, sample and truncation flag.
+    """
+    created_at = exported.get("created_at")
+    _require(records._compact_created_at(created_at) == created_at and created_at is not None,
+             "exported record timestamp is invalid")
+    payload = {key: value for key, value in call["payload"].items()
+               if key not in {"record_id", "record_status", "record_error"}}
+    payload.setdefault("status", "ok")
+    args = call["arguments"]
+    tool = call["tool"]
+    input_payload = {"source_path": args["source_path"], "edits": server._record_edits(args["edits"])}
+    provenance = server._preflight_provenance
+    if tool == "apply_edits":
+        input_payload.update(output_path=args["output_path"], preflight_proof=args["preflight_proof"])
+        provenance = server._apply_provenance
+    return records._compact_record({
+        "schema_version": records.SCHEMA_VERSION,
+        "record_type": records._writable_tool_spec(tool).record_type,
+        "record_id": call["payload"]["record_id"], "created_at": created_at,
+        "tool_name": tool, "workspace": workspace, "producer": call["payload"]["producer"],
+        "input": input_payload, "result": payload,
+        "result_sha256": _digest(payload), "tool_result_sha256": _digest(payload),
+        "provenance": provenance(payload, args["source_path"], args["edits"]),
+    })
+
+
 def validate_evidence(events, baseline):
     baseline = _baseline(baseline)
     thread_id, calls, failures = native_calls(events, baseline["server_name"])
@@ -218,6 +251,8 @@ def validate_evidence(events, baseline):
             payload = read["payload"]
             if (lower < read["started_at"] and read["completed_at"] < upper
                     and payload.get("mode") == "read" and payload.get("reading_mode") == "accepted_current_v1"
+                    and payload.get("path") == path and payload.get("part_name") == ref["part_name"]
+                    and payload.get("container_policy") == ref["container_policy"]
                     and payload.get("file_sha256") == ref["file_sha256"]
                     and read["arguments"].get("selection") == {"paragraph_ref": ref}
                     and payload.get("selection_kind") == "paragraph"
@@ -228,12 +263,22 @@ def validate_evidence(events, baseline):
                 return True
         return False
 
-    def verified(path, ref, quote, lower, upper, *, current=False):
+    def verified(path, ref, quote, lower, upper, *, current=False, unit=None, side=None):
+        def bound_matches(payload):
+            matches = payload.get("matches", [])
+            return bool(matches) and all(
+                match.get("path") == path
+                and match.get("part_name") == (ref["part_name"] if current else unit["reference"]["part_name"])
+                and match.get("revision_ids") == ([] if current else unit["reference"]["revision_ids"])
+                and match.get("side") == ("paragraph_current" if current else side)
+                for match in matches)
+
         return [call for call in matches("verify_quote", path=path, anchor=ref, quote=quote)
                 if lower < call["started_at"] and call["completed_at"] < upper
                 and call["payload"].get("checked_anchor") == ref
                 and call["payload"].get("verdict") == "exact"
                 and call["payload"].get("exact") is True
+                and bound_matches(call["payload"])
                 and (not current or (
                     call["arguments"].get("paragraph_projection") == "accepted_current_v1"
                     and call["payload"].get("checked_projection", {}).get("mode") == "accepted_current_v1"
@@ -244,7 +289,7 @@ def validate_evidence(events, baseline):
                         "projection_text_sha256": ref["paragraph_text_sha256"],
                         "text_length": len(expected[ref["paragraph_index"]]["before" if path == source else "after"]),
                     }
-                    and any(match.get("side") == "paragraph_current" and match.get("path") == path
+                    and all(match.get("side") == "paragraph_current" and match.get("path") == path
                             and match.get("paragraph_index") == ref["paragraph_index"]
                             and match.get("paragraph_text_sha256") == ref["paragraph_text_sha256"]
                             and match.get("projection_text_sha256") == ref["paragraph_text_sha256"]
@@ -285,7 +330,11 @@ def validate_evidence(events, baseline):
         input_quote = edit.get("delete_text", edit.get("reinstate_text"))
         _require(any(read_before(source, ref, row["before"], -1, call["started_at"])
                      for call in verified(source, input_anchor, input_quote, -1, pre["started_at"],
-                                          current="target" in edit)), "input lacks ordered full read and exact verification")
+                                          current="target" in edit,
+                                          unit=None if "target" in edit else source_unit,
+                                          side=None if "target" in edit else (
+                                              "new" if source_unit["new_text"] and input_quote in source_unit["new_text"]
+                                              else "old"))), "input lacks ordered full read and exact verification")
         _require(diagnostic.get("edit_index") == number and diagnostic.get("status") == "applicable"
                  and diagnostic.get("operation") == operation and diagnostic.get("match_count") == 1
                  and diagnostic.get("position_status") == "supported" and diagnostic.get("refusal_code") is None,
@@ -315,7 +364,8 @@ def validate_evidence(events, baseline):
                          and any(match.get("side") == "old" and match.get("path") == output
                                  and match.get("revision_ids") == unit["reference"]["revision_ids"]
                                  for match in call["payload"].get("matches", []))
-                         for call in verified(output, unit["anchor"], edit["delete_text"], app["completed_at"], float("inf"))),
+                         for call in verified(output, unit["anchor"], edit["delete_text"], app["completed_at"], float("inf"),
+                                              unit=unit, side="old")),
                      "exact deletion lacks ordered full read, extraction and native verification")
     _require(touched == set(expected), "expected paragraphs differ from affected targets")
     _require(Counter(map(_unit, output_units)) == Counter(map(_unit, source_units)) + Counter(new_units),
@@ -325,6 +375,10 @@ def validate_evidence(events, baseline):
                            and edit["target"]["paragraph_ref"]["paragraph_index"] == index]
         if not paragraph_edits:
             continue
+        try:
+            validate_paragraph_candidate(source_paras[index], output_paras[index])
+        except InspectError as exc:
+            raise EvidenceError("unaccounted paragraph structure in actual output") from exc
         original_signature = paragraph_format_signature(source_paras[index])
         _require(original_signature == paragraph_format_signature(output_paras[index], reject_new=True),
                  "original paragraph text or formatting changed")
@@ -348,37 +402,23 @@ def validate_evidence(events, baseline):
                  "current paragraph text or replacement formatting differs")
     _collateral(source, output, touched)
     exports = matches("export_decision_record", workspace=str(Path(source).parent))
-    wanted = {pre_result["record_id"]: "preflight_edits", result["record_id"]: "apply_edits"}
+    wanted = {pre_result["record_id"]: pre, result["record_id"]: app}
+    _require(len(wanted) == 2, "preflight and apply record identities collide")
+    workspace = str(Path(source).resolve().parent)
     valid_export = False
     for call in exports:
         if call["started_at"] <= max(item["completed_at"] for item in calls
                                      if item["tool"] in {"verify_quote", "extract_redlines", "inspect_document"}):
             continue
-        exported = {row.get("record_id"): row for row in call["payload"].get("records", [])}
-        if not all(rid in exported and exported[rid].get("tool_name") == tool for rid, tool in wanted.items()):
+        rows = call["payload"].get("records", [])
+        exported = {row.get("record_id"): row for row in rows}
+        if (len(exported) != len(rows) or not wanted.keys() <= exported.keys()
+                or call["payload"].get("workspace") != records._path_digest(workspace)):
             continue
-        pre_projection = exported[pre_result["record_id"]].get("result", {}).get("edits", {})
-        pre_sample = pre_projection.get("sample")
-        if not (pre_projection.get("count") == len(edits) and pre_projection.get("truncated") is False
-                and isinstance(pre_sample, list) and len(pre_sample) == len(edits)
-                and all(row.get("edit_index") == index and row.get("status") == "applicable"
-                        and row.get("operation") == item["operation"]
-                        and (row.get("target") == edit["target"] and "change_unit_id" not in row
-                             if "target" in edit else row.get("change_unit_id") == edit["anchor"]["change_unit_id"])
-                        for index, (row, item, edit) in enumerate(zip(pre_sample, applied, edits)))):
-            continue
-        projection = exported[result["record_id"]].get("result", {}).get("applied", {})
-        sample = projection.get("sample")
-        if not (projection.get("count") == len(edits) and projection.get("truncated") is False
-                and isinstance(sample, list) and len(sample) == len(edits)):
-            continue
-        if all(row.get("operation") == item["operation"]
-               and row.get("tracked_revision_ids", {}).get("sample") == item["tracked_revision_ids"]
-               and (row.get("target") == edit["target"] and "change_unit_id" not in row
-                    if "target" in edit else row.get("change_unit_id") == edit["anchor"]["change_unit_id"])
-               for row, item, edit in zip(sample, applied, edits)):
+        if all(exported[rid] == _expected_export_record(native, exported[rid], workspace)
+               for rid, native in wanted.items()):
             valid_export = True
-    _require(valid_export, "final export lacks exact applied target identities")
+    _require(valid_export, "final export differs from native inputs, results or provenance")
     for path, sha in baseline["source_sha256"].items():
         _require(_file_sha256(path) == sha, "source drifted during evidence verification")
     _require(_file_sha256(output) == candidate, "output drifted during evidence verification")
