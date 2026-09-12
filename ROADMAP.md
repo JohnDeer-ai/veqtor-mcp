@@ -26,9 +26,9 @@ document facts and deterministic writes; it does not claim legal correctness.
 - Bounded DOCX/ZIP processing and versioned installation from PyPI, with the
   same verified wheel, sdist and checksum manifest on GitHub Releases.
 
-## Public 0.4.0 and development 0.4.1.dev0
+## Public 0.4.0 and development 0.4.1.dev1
 
-Development package `0.4.1.dev0` preserves the public `0.4.0` contracts and
+Development package `0.4.1.dev1` preserves the public `0.4.0` contracts and
 advertises the nine-tool MCP contract
 `veqtor.mcp.v0.4`. The contract version is a surface-wide API-schema identifier:
 all nine tools, including the eight names carried forward from v0.3, report
@@ -79,10 +79,10 @@ digital signature, a trusted timestamp or tamper evidence.
 
 - Extend supported OOXML layouts based on reproducible public issues.
 - Complete independent review and exact-candidate native Codex/render checks
-  for `0.4.1.dev0`; then run the required development packaging and audit gates.
+  for `0.4.1.dev1`; then run the required development packaging and audit gates.
   The installed public MCP and earlier observations cannot close those gates.
-- Specify ordinary-paragraph editing separately; it is not part of this
-  Codex integration development cycle.
+- Validate the bounded NR-01 ordinary-paragraph edit candidate described below;
+  keep broader next-round and position-memory work separately authorized.
 - Evaluate a separately specified Stage 3D clean-sendable-redline workflow only
   after external-user validation of the read-only Stage 3C evidence surface.
 - Refine installation, diagnostics and examples from external-user feedback.
@@ -147,3 +147,11 @@ Non-goals and release boundaries:
 Public priorities are driven by reproducible
 [GitHub Issues](https://github.com/JohnDeer-ai/veqtor-mcp/issues). Never attach
 real client documents or confidential matter text to an issue.
+
+## NR-01 development candidate
+
+`0.4.1.dev1` adds closed paragraph targets under `veqtor.mcp.v0.4.1` for supported
+clean body/table replace and delete-only. It preserves legacy operations and
+frozen v0.4 release identity. Independent review, full development gates and
+exact-build native/rendered acceptance are required before readiness. NR-02
+position memory is a separate decision and is not started by this change.

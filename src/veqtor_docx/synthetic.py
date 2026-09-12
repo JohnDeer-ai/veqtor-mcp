@@ -794,7 +794,25 @@ def _stage_payload(out: Path, filename: str, payload: bytes) -> tuple[Path, tupl
         ) from exc
 
 
-def generate_demo_rounds(out_dir: str | Path) -> list[Path]:
+def _paragraph_edit_specs() -> list[RoundSpec]:
+    """NR-01 clean body/table targets and a mixed legacy positive control."""
+    blocks = [
+        Para("VBody", [T("Payment is due within 30 days after receipt.")]),
+        Para("VBody", [T("The optional audit right applies annually.")]),
+        Para("VBody", [T("Payment is due within 30 days after receipt.")]),
+        Table([TableRow([[T("Delivery within 30 days.")], [T("Neighbour stays unchanged.")]])]),
+        Para("VBody", [T("Repeated 30 days and 30 days.")]),
+    ]
+    timestamp = "2026-09-12T09:00:00Z"
+    return [
+        RoundSpec("nr01-clean.docx", "Counterparty", timestamp, timestamp, timestamp, blocks),
+        RoundSpec("nr01-mixed.docx", "Counterparty", timestamp, timestamp, timestamp,
+                  blocks + [Para("VBody", [T("Limit: "), INS("50 units"), T(" per year.")]),
+                            Para("VBody", [T("Audit: "), DEL("inspection right"), T(" remains.")])]),
+    ]
+
+
+def generate_demo_rounds(out_dir: str | Path, *, profile: str = "rounds") -> list[Path]:
     """Atomically publish four deterministic rounds without overwriting files."""
     try:
         out = Path(resolve_user_path(out_dir))
@@ -806,7 +824,9 @@ def generate_demo_rounds(out_dir: str | Path) -> list[Path]:
     published: list[tuple[Path, tuple[int, int]]] = []
     try:
         created_output_directory = _prepare_output_directory(out)
-        specs = _round_specs()
+        if profile not in {"rounds", "paragraph-edits"}:
+            raise SyntheticError("invalid_profile", "unsupported synthetic corpus profile")
+        specs = _round_specs() if profile == "rounds" else _paragraph_edit_specs()
         targets = [out / spec.filename for spec in specs]
         if any(not _target_is_absent(target) for target in targets):
             raise SyntheticError(
@@ -869,9 +889,11 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(description="Generate Veqtor demo DOCX rounds")
     parser.add_argument("output", nargs="?", default="veqtor-demo-rounds")
-    target = parser.parse_args().output
+    parser.add_argument("--profile", choices=("rounds", "paragraph-edits"), default="rounds")
+    args = parser.parse_args()
+    target = args.output
     try:
-        written = generate_demo_rounds(target)
+        written = generate_demo_rounds(target, profile=args.profile)
     except DocxError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

@@ -546,7 +546,7 @@ def test_public_v04_surface_activates_v2_without_changing_python_v1(
         "matches",
         "diff",
     }
-    assert MCP_CONTRACT_SCHEMA_VERSION == "veqtor.mcp.v0.4"
+    assert MCP_CONTRACT_SCHEMA_VERSION == "veqtor.mcp.v0.4.1"
     assert "schema_version" in VerifyQuoteResult.contract_schema["properties"]
     assert "checked_projection" in VerifyQuoteResult.contract_schema["properties"]
     assert len(records.WRITABLE_TOOL_NAMES) == 9

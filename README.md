@@ -18,15 +18,22 @@ counterproposal batches, create a new DOCX with real tracked changes, and keep
 re-checkable local provenance. The model remains the legal-reasoning layer;
 Veqtor handles document facts and writes.
 
+The NR-01 development slice can replace exact text or delete a fragment in a
+clean body/table paragraph, even in a DOCX with no existing Track Changes. It
+uses the full inspection reference, refuses pending revisions and unsupported
+structure, and creates a separate file with real deletion/insertion revisions.
+See [the paragraph edit contract](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/NR-01_PARAGRAPH_EDITS.md) and
+[the next-round prompt](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/docs/prompts/next-round.md).
+
 Veqtor is not legal advice, a generic Word editor, a hosted service, or a
 tamper-evident audit system. Review the
 [known limitations](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/KNOWN_LIMITATIONS.md)
 before using it on a real matter.
 
-This source tree is development package `0.4.1.dev0` and advertises the
-nine-tool MCP contract `veqtor.mcp.v0.4`. All nine tools report that one
-contract-wide marker. Their successful input/output contracts remain compatible
-with public `0.4.0`; live `producer.version` identifies this development version
+This source tree is development package `0.4.1.dev1` and advertises the
+nine-tool MCP contract `veqtor.mcp.v0.4.1`. All nine tools report that one
+contract-wide marker. Legacy calls remain compatible
+with public `0.4.0`; the additive paragraph target requires this development build; live `producer.version` identifies this development version
 and `producer.build` fingerprints the imported Python sources.
 
 Public `0.4.0` is the published release line. This development tree adds the
@@ -81,7 +88,7 @@ configuration; browser ChatGPT requires a separate connection.
 [Official OpenAI MCP documentation](https://learn.chatgpt.com/docs/extend/mcp).
 Registration alone does not establish a working document workflow. The guide
 separates the historical public-package observations from pending acceptance of
-the exact `0.4.1.dev0` candidate; the installed public server is not that candidate.
+the exact `0.4.1.dev1` candidate; the installed public server is not that candidate.
 
 ## Install a verified published version for Claude Code
 
@@ -209,8 +216,8 @@ or environment.
 
 ## Tool surface
 
-The descriptions below follow development package `0.4.1.dev0` and its
-nine-tool MCP contract `veqtor.mcp.v0.4`, shared with public `0.4.0`. For an
+The descriptions below follow development package `0.4.1.dev1` and its
+nine-tool MCP contract `veqtor.mcp.v0.4.1`, shared with public `0.4.0`. For an
 installed version, use the API file carried by that exact artifact or its
 matching immutable tag. Historical v0.3 artifacts retain their eight tools.
 
@@ -290,7 +297,7 @@ for hostile same-user processes.
 | Operating systems | macOS, Linux |
 | Python | 3.12, 3.13, 3.14 |
 | Transport | local stdio MCP; modern `2026-07-28` and legacy through `2025-11-25` |
-| Historical client observations | Claude Code, Claude Desktop; bounded synthetic workflow in Codex CLI 0.153.4 with published Veqtor 0.4.0 ([evidence](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/docs/evidence/codex-v0.4.0-20260911.json)); this is not acceptance of 0.4.1.dev0 |
+| Historical client observations | Claude Code, Claude Desktop; bounded synthetic workflow in Codex CLI 0.153.4 with published Veqtor 0.4.0 ([evidence](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/docs/evidence/codex-v0.4.0-20260911.json)); this is not acceptance of 0.4.1.dev1 |
 | DOCX part | `word/document.xml` |
 | Writes | tracked replace, delete, counter, reinstate |
 | Distribution | Versioned PyPI packages with matching immutable GitHub wheel/sdist/checksums; macOS MCPB only when attached to the matching verified release |

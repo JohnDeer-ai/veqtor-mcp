@@ -7,9 +7,10 @@ negotiation positions. Codex can use Veqtor to read the wording, check evidence,
 prepare supported tracked changes, and create a new DOCX for your review.
 
 The public installation instructions use package `0.4.0` and the nine-tool
-contract `veqtor.mcp.v0.4`. This source tree is development `0.4.1.dev0` with
-compatible tool contracts and a distinct producer version and source build.
-It adds the error-transport adapter and is not a new published release.
+contract `veqtor.mcp.v0.4`. This source tree is development `0.4.1.dev1` with
+additive schema `veqtor.mcp.v0.4.1`, legacy compatibility and a distinct producer
+version/build. It adds NR-01 paragraph edits alongside the error-transport
+adapter and is not a new published release.
 Use the matching [PyPI version](https://pypi.org/project/veqtor-mcp/0.4.0/) and
 [immutable GitHub release](https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/v0.4.0).
 Veqtor supports macOS and Linux with Python 3.12–3.14. Windows is outside the
@@ -202,7 +203,7 @@ They do not establish native acceptance of the subsequent `0.4.1.dev0` changes.
 
 ## Development candidate acceptance
 
-Acceptance of `0.4.1.dev0` is pending independent review and the final gates.
+Acceptance of `0.4.1.dev1` is pending independent review and the final gates.
 After Reviewer PASS, run the required full tests, locked runtime audit and
 wheel/sdist checks from the exact reviewed commit and tree. Keep gate evidence
 outside the repository; do not modify the frozen v0.4 release manifest to admit
@@ -226,7 +227,7 @@ Apply this only to the isolated test configuration or per-run overrides.
 Keep the user's public registration separate. Record the selected command,
 exact Git commit/tree, wheel/sdist hashes and source snapshot build. Compare
 the candidate's `doctor` build with `producer.build` from every successful
-native call and require `producer.version` to be `0.4.1.dev0`. Source identity
+native call and require `producer.version` to be `0.4.1.dev1`. Source identity
 alone does not verify wheel packaging; inspect the exact built artifacts too.
 
 Use synthetic documents and actual `codex exec --json` calls for all nine
@@ -267,3 +268,77 @@ causal preflight/apply order, native readback and provenance. It reports
 recovered read failures separately. A passing report does not prove log
 authenticity or visual Word quality. Keep raw events and baselines local;
 they contain paths and document text.
+
+## NR-01 native profile
+
+The development package `0.4.1.dev1` advertises `veqtor.mcp.v0.4.1`. Its new
+paragraph target and delete-only scenario uses a separate checker. The original
+`check_codex_acceptance.py` and its nine-tool v1 profile stay unchanged.
+
+Generate the two deterministic synthetic sources outside the checkout:
+
+```bash
+uv run --frozen veqtor-demo-rounds /absolute/path/to/nr01/corpus --profile paragraph-edits
+```
+
+In `nr01-clean.docx`, target paragraph 0: `30 days` to `45 days`; paragraph 1:
+delete `optional `; and table paragraph 3: `30 days` to `60 days`. Expected full
+results are `Payment is due within 45 days after receipt.`,
+`The audit right applies annually.`, and `Delivery within 60 days.`. Paragraph
+2 deliberately repeats the first paragraph and must remain unchanged, as must
+the neighbouring table cell. Paragraph 5 repeats `30 days` twice and is a
+negative ambiguity case. A separate positive run can delete all of paragraph 1;
+its full expected result is the empty string, while the paragraph mark remains.
+`nr01-mixed.docx` adds a counterparty insertion (`50 units`) and deletion
+(`inspection right`) for a mixed paragraph/counter/reinstate batch.
+
+Before any native write, save the closed local baseline with schema
+`veqtor_codex_paragraph_baseline.v1` and these fields:
+
+- `server_name`, exact final `producer` (`name`, `version`, `build`),
+  `tracked_change_author`, and `source_sha256` mapping all original absolute
+  paths to their pre-run SHA-256 values.
+- `source_path`, a separate `output_path` and `output_absent_before: true`,
+  checked before the run.
+- `expected_edits`: the exact complete ordered edit objects, including the full
+  paragraph targets or legacy anchors, as specified in [API.md](../API.md).
+- `expected_paragraphs`: one object per affected canonical index, each with
+  exactly `paragraph_index`, full `before` text and full `after` text. An empty
+  `after` is supported. Capture refs/text before writing; do not derive intended
+  output wording from the completed output.
+
+Use the isolated exact-build native configuration described above. The run must
+read each complete source paragraph with `mode=read` and
+`selection={"paragraph_ref": REF}`, then verify its intended input, preflight
+and apply the unchanged whole batch/proof. Discover fresh output references,
+read the complete expected current result for each affected paragraph, verify
+that full text with `paragraph_projection: accepted_current_v1`, and extract
+all output revisions. For every deletion, verify its exact old text on the
+new output change-unit anchor after extraction and full read. An empty result
+requires a direct empty paragraph read and that exact deletion verification;
+it cannot be represented by a nonempty current quote. Browse omits empty
+paragraphs: for that read, retain the source index/part/policies, use the applied
+output hash, and set the paragraph text hash to SHA-256 of the empty string
+(`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`). The direct
+read must resolve this complete reference and return empty text. Finally export records
+from the source workspace with enough records to include preflight/apply.
+No map/history calls are required. Failed apply/preflight attempts belong in a
+separate negative run. Current profile export samples support at most 20 edits.
+
+```bash
+uv run --frozen python scripts/check_paragraph_acceptance.py \
+  --events /absolute/path/to/nr01/native-events.jsonl \
+  --baseline /absolute/path/to/nr01/baseline.json
+```
+
+Run the checker in the exact candidate runtime; its loaded version/source build
+must match the pre-run baseline. This checker requires ordered complete native
+input/result reads, exact proof,
+build/hash/reference binding, precise revisions and target identities in compact
+export. It also independently inspects the current local source/output package
+and all untouched paragraphs/table skeleton. Synthetic envelopes in tests prove
+checker behavior only; they are never native acceptance. Preserve raw documents,
+baselines and logs outside public sources. After independent PASS, render and
+inspect every page with the documents skill using the bundled renderer. Native
+client evidence and visual layout are separate gates; neither is asserted by
+this development implementation or a Python test result.

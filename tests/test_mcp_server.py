@@ -1315,7 +1315,12 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
 
     for name in ("preflight_edits", "apply_edits"):
         edit_schema = tools[name].input_schema["properties"]["edits"]["items"]
-        assert edit_schema["additionalProperties"] is False
+        legacy_schema, paragraph_schema = edit_schema["oneOf"]
+        assert legacy_schema["additionalProperties"] is False
+        assert paragraph_schema["additionalProperties"] is False
+        assert paragraph_schema["required"] == ["target", "delete_text"]
+        assert paragraph_schema["properties"]["target"]["additionalProperties"] is False
+        edit_schema = legacy_schema
         anchor_variants = edit_schema["properties"]["anchor"]["oneOf"]
         assert len(anchor_variants) == 2
         assert all(item["additionalProperties"] is False for item in anchor_variants)

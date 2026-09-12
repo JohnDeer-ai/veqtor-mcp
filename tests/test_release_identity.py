@@ -183,8 +183,9 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
     assert "/src" not in sdist["include"]
     assert len(DEVELOPMENT_RUNTIME_SOURCE_FILES) == len(development_runtime)
     assert development_runtime == discovered_runtime
-    assert frozen_runtime == discovered_runtime
-    assert config["project"]["version"] == "0.4.1.dev0"
+    assert frozen_runtime < discovered_runtime
+    assert discovered_runtime - frozen_runtime == {"/src/veqtor_docx/_paragraph_edits.py"}
+    assert config["project"]["version"] == "0.4.1.dev1"
     assert config["project"]["version"] != VERSION
     assert VERSION == "0.4.0"
     assert wheel_includes == discovered_runtime

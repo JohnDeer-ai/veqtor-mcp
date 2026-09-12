@@ -232,19 +232,19 @@ def test_development_preserves_the_complete_frozen_v04_surface() -> None:
 
     source_version = project["project"]["version"]
     frozen_version = release["VERSION"]
-    assert source_version == development_version == "0.4.1.dev0"
+    assert source_version == development_version == "0.4.1.dev1"
     assert "/CLAUSE_HISTORY_V0.4.md" in sdist_includes
     assert frozen_version == "0.4.0"
     assert frozen_version != source_version
     assert "CLAUSE_HISTORY_V0.4.md" in release["PUBLIC_DOCUMENT_FILES"]
     assert "CLAUSE_HISTORY_V0.4.md" in release["SDIST_GIT_FILES"]
-    assert MCP_CONTRACT_SCHEMA_VERSION == "veqtor.mcp.v0.4"
+    assert MCP_CONTRACT_SCHEMA_VERSION == "veqtor.mcp.v0.4.1"
     assert len(records.WRITABLE_TOOL_NAMES) == 9
     assert "trace_paragraph_history" in records.WRITABLE_TOOL_NAMES
     assert len(release["MCPB_REQUIRED_TOOLS"]) == 9
     assert "trace_paragraph_history" in release["MCPB_REQUIRED_TOOLS"]
     assert f"development source is package `{source_version}`" in api
-    assert "nine-tool MCP contract `veqtor.mcp.v0.4`" in api
+    assert "nine-tool MCP contract `veqtor.mcp.v0.4.1`" in api
     assert "Public `0.4.0`" in api
     assert f"development source `{source_version}`" in limitations
     assert "veqtor.mcp.v0.4" in limitations

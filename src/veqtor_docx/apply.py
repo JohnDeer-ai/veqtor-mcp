@@ -4,7 +4,10 @@
 M2 slice 2. The contract (see API.md and the M2 gate in ROADMAP.md):
 
 - Edits apply only at an anchor produced by the read path: the caller passes a
-  ``change_unit_id`` + ``file_sha256`` from :func:`veqtor_docx.extract_redlines`.
+  ``change_unit_id`` + ``file_sha256`` from :func:`veqtor_docx.extract_redlines`,
+  or a closed ``target`` containing the full ``paragraph_ref.v1`` from inspection.
+  Paragraph targets allow exact replace/delete-only in supported clean body/table
+  paragraphs; every applicable revision and unsupported shape is refused.
 - Three edit forms, all visible tracked changes, never silent rewrites:
 
   * plain replace/delete — ``delete_text`` occurs exactly once in the anchored
@@ -100,6 +103,12 @@ from .contracts import (
     ROUND_TRIP_STATUS_FAILED,
     ROUND_TRIP_STATUS_PASSED,
 )
+from ._paragraph_edits import (
+    paragraph_format_signature,
+    resolve_paragraph_target,
+    validate_paragraph_target,
+)
+from .inspect import InspectError, _load_snapshot_from_payload
 from .extract import (
     CHANGE_UNIT_ANCHOR_SCHEMA_V2,
     DocxError,
@@ -402,7 +411,7 @@ def _next_non_inert(element: etree._Element) -> etree._Element | None:
 
 @dataclass
 class _PlannedEdit:
-    anchor_id: str
+    anchor_id: str | None
     edit_index: int
     claimed_source_sha256: str
     paragraph: etree._Element
@@ -414,6 +423,7 @@ class _PlannedEdit:
     container: etree._Element | None  # counter: their w:ins; reinstate: their w:del
     del_id: str | None
     ins_id: str | None
+    target: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -541,6 +551,7 @@ def _plan_diagnostic(plan: _PlannedEdit, *, status: str) -> dict:
     return {
         "edit_index": plan.edit_index,
         "change_unit_id": plan.anchor_id,
+        **({"target": copy.deepcopy(plan.target)} if plan.target else {}),
         "status": status,
         "operation": plan.op
         if plan.op != _PLAN_OPERATION_PLAIN
@@ -566,6 +577,7 @@ def _plan_diagnostic(plan: _PlannedEdit, *, status: str) -> dict:
 
 
 _PREFLIGHT_DIAGNOSTIC_KEYS = (
+    "target",
     "edit_index",
     "change_unit_id",
     "status",
@@ -589,6 +601,7 @@ def _empty_preflight_diagnostic(
     return {
         "edit_index": edit_index,
         "change_unit_id": change_unit_id,
+        **_paragraph_target_identity(edit),
         "status": status,
         "operation": None,
         "match_count": None,
@@ -619,9 +632,28 @@ def _normalize_preflight_diagnostic(
     return item
 
 
+def _paragraph_target_identity(edit: object) -> dict:
+    if isinstance(edit, dict) and "target" in edit:
+        try:
+            validate_paragraph_target(edit["target"])
+        except InspectError:
+            return {}
+        return {"target": copy.deepcopy(edit["target"])}
+    return {}
+
+
+def _edit_reference(edit: dict) -> dict:
+    if "target" in edit:
+        return edit["target"]["paragraph_ref"]
+    return edit["anchor"]
+
+
 def _claimed_source_sha_from_edit(edit: object) -> str | None:
-    if isinstance(edit, dict) and isinstance(edit.get("anchor"), dict):
-        value = edit["anchor"].get("file_sha256")
+    if isinstance(edit, dict):
+        try:
+            value = _edit_reference(edit).get("file_sha256")
+        except (KeyError, TypeError, AttributeError):
+            return None
         if isinstance(value, str):
             return value
     return None
@@ -847,55 +879,59 @@ def _validate_edit_shapes(
                 f"edits[{index}] must be an object",
                 **_edit_error_metadata(edit, index, observed_source_sha256),
             )
-        anchor = edit.get("anchor")
-        if not isinstance(anchor, dict):
-            raise ApplyError(
-                "anchor_missing",
-                f"edits[{index}].anchor must be an object",
-                **_edit_error_metadata(edit, index, observed_source_sha256),
-            )
-        schema_version = anchor.get("schema_version")
-        expected_anchor_keys = (
-            _LEGACY_ANCHOR_KEYS if schema_version is None else _V2_ANCHOR_KEYS
-        )
-        unexpected_anchor_keys = set(anchor) - expected_anchor_keys
-        missing_anchor_keys = expected_anchor_keys - set(anchor)
-        if unexpected_anchor_keys or missing_anchor_keys:
-            detail_parts = []
-            if unexpected_anchor_keys:
-                detail_parts.append(
-                    "unsupported fields: "
-                    + ", ".join(sorted(map(str, unexpected_anchor_keys)))
-                )
-            if missing_anchor_keys:
-                detail_parts.append(
-                    "missing fields: "
-                    + ", ".join(sorted(map(str, missing_anchor_keys)))
-                )
-            raise ApplyError(
-                "invalid_edit",
-                f"edits[{index}].anchor has " + "; ".join(detail_parts),
-                **_edit_error_metadata(edit, index, observed_source_sha256),
-            )
-        if (
-            schema_version is not None
-            and schema_version != CHANGE_UNIT_ANCHOR_SCHEMA_V2
-        ):
-            raise ApplyError(
-                "invalid_edit",
-                f"edits[{index}].anchor.schema_version is unsupported",
-                **_edit_error_metadata(edit, index, observed_source_sha256),
-            )
-        for key in ("change_unit_id", "file_sha256"):
-            value = anchor.get(key)
-            if not isinstance(value, str) or not value:
+        is_paragraph = "target" in edit
+        if is_paragraph:
+            if "anchor" in edit or "reinstate_text" in edit:
                 raise ApplyError(
-                    "anchor_missing",
-                    f"edits[{index}].anchor.{key} must be a non-empty string",
+                    "invalid_edit", "paragraph targets require delete_text and no anchor/reinstate_text",
                     **_edit_error_metadata(edit, index, observed_source_sha256),
                 )
-        if schema_version == CHANGE_UNIT_ANCHOR_SCHEMA_V2:
-            for key in ("container_policy", "unit_fingerprint_sha256"):
+            try:
+                validate_paragraph_target(edit["target"])
+            except InspectError as exc:
+                raise ApplyError(exc.code, exc.detail,
+                                 **_edit_error_metadata(edit, index, observed_source_sha256)) from exc
+        else:
+            anchor = edit.get("anchor")
+            if not isinstance(anchor, dict):
+                raise ApplyError(
+                    "anchor_missing",
+                    f"edits[{index}].anchor must be an object",
+                    **_edit_error_metadata(edit, index, observed_source_sha256),
+                )
+            schema_version = anchor.get("schema_version")
+            expected_anchor_keys = (
+                _LEGACY_ANCHOR_KEYS if schema_version is None else _V2_ANCHOR_KEYS
+            )
+            unexpected_anchor_keys = set(anchor) - expected_anchor_keys
+            missing_anchor_keys = expected_anchor_keys - set(anchor)
+            if unexpected_anchor_keys or missing_anchor_keys:
+                detail_parts = []
+                if unexpected_anchor_keys:
+                    detail_parts.append(
+                        "unsupported fields: "
+                        + ", ".join(sorted(map(str, unexpected_anchor_keys)))
+                    )
+                if missing_anchor_keys:
+                    detail_parts.append(
+                        "missing fields: "
+                        + ", ".join(sorted(map(str, missing_anchor_keys)))
+                    )
+                raise ApplyError(
+                    "invalid_edit",
+                    f"edits[{index}].anchor has " + "; ".join(detail_parts),
+                    **_edit_error_metadata(edit, index, observed_source_sha256),
+                )
+            if (
+                schema_version is not None
+                and schema_version != CHANGE_UNIT_ANCHOR_SCHEMA_V2
+            ):
+                raise ApplyError(
+                    "invalid_edit",
+                    f"edits[{index}].anchor.schema_version is unsupported",
+                    **_edit_error_metadata(edit, index, observed_source_sha256),
+                )
+            for key in ("change_unit_id", "file_sha256"):
                 value = anchor.get(key)
                 if not isinstance(value, str) or not value:
                     raise ApplyError(
@@ -903,6 +939,15 @@ def _validate_edit_shapes(
                         f"edits[{index}].anchor.{key} must be a non-empty string",
                         **_edit_error_metadata(edit, index, observed_source_sha256),
                     )
+            if schema_version == CHANGE_UNIT_ANCHOR_SCHEMA_V2:
+                for key in ("container_policy", "unit_fingerprint_sha256"):
+                    value = anchor.get(key)
+                    if not isinstance(value, str) or not value:
+                        raise ApplyError(
+                            "anchor_missing",
+                            f"edits[{index}].anchor.{key} must be a non-empty string",
+                            **_edit_error_metadata(edit, index, observed_source_sha256),
+                        )
         has_delete_text = "delete_text" in edit
         has_reinstate_text = "reinstate_text" in edit
         if has_delete_text and has_reinstate_text:
@@ -945,7 +990,9 @@ def _validate_edit_shapes(
                     **_edit_error_metadata(edit, index, observed_source_sha256),
                 )
         else:
-            unexpected_edit_keys = set(edit) - _DELETE_EDIT_KEYS
+            unexpected_edit_keys = set(edit) - (
+                {"target", "delete_text", "insert_text"} if is_paragraph else _DELETE_EDIT_KEYS
+            )
             if unexpected_edit_keys:
                 raise ApplyError(
                     "invalid_edit",
@@ -1297,7 +1344,16 @@ def _apply_plan(plan: _PlannedEdit, author: str) -> None:
     if plan.op == _PLAN_OPERATION_PLAIN:
         deletion = _wrap_covered_runs(plan.paragraph, plan, author)
         if plan.ins_id is not None:
-            deletion.addnext(_new_insertion(plan.ins_id, author, plan.insert_text))
+            insertion = _new_insertion(plan.ins_id, author, plan.insert_text)
+            if plan.target is not None:
+                # Paragraph replacement inherits the first removed run's format.
+                old_run = deletion.find(w("r"))
+                new_run = insertion.find(w("r"))
+                new_run.attrib.update(old_run.attrib)
+                props = old_run.find(w("rPr"))
+                if props is not None:
+                    new_run.insert(0, copy.deepcopy(props))
+            deletion.addnext(insertion)
     elif plan.op == APPLY_OPERATION_COUNTER:
         _wrap_covered_runs(plan.container, plan, author)
         if plan.ins_id is not None:
@@ -1508,11 +1564,18 @@ def _prepare_candidate(
         if isinstance(metadata, dict):
             metadata.setdefault("failure_phase", "source")
         raise
+    paragraph_snapshot = None
+    if any("target" in edit for edit in edits):
+        try:
+            paragraph_snapshot = _load_snapshot_from_payload(source_payload, path=source)
+        except InspectError as exc:
+            raise ApplyError(exc.code, exc.detail, observed_source_sha256=source_sha,
+                             failure_phase="source") from exc
     planned: list[_PlannedEdit] = []
     for edit_index, edit in enumerate(edits):
         unit: dict | None = None
         try:
-            anchor = edit["anchor"]
+            anchor = _edit_reference(edit)
             if anchor["file_sha256"] != source_sha:
                 raise ApplyError(
                     "file_sha256_mismatch",
@@ -1521,54 +1584,63 @@ def _prepare_candidate(
                     observed_source_sha256=source_sha,
                     edit_index=edit_index,
                 )
-            container_policy = baseline["revision_inventory"].get(
-                "container_policy", {}
-            )
-            is_legacy_anchor = "schema_version" not in anchor
-            if is_legacy_anchor and not container_policy.get(
-                "legacy_two_field_anchor_safe", False
-            ):
-                raise ApplyError(
-                    "legacy_anchor_ambiguous",
-                    "the two-field anchor predates canonical container filtering; "
-                    "re-extract and use a policy-bound v0.3 anchor",
-                    match_count=0,
-                    edit_index=edit_index,
-                    container_policy=container_policy.get("schema_version"),
+            target = edit.get("target")
+            if target is not None:
+                try:
+                    paragraph, paragraph_index = resolve_paragraph_target(
+                        paragraph_snapshot, document, target, parts,
+                    )
+                except InspectError as exc:
+                    raise ApplyError(exc.code, exc.detail) from exc
+            else:
+                container_policy = baseline["revision_inventory"].get(
+                    "container_policy", {}
                 )
-            unit = units_by_id.get(anchor["change_unit_id"])
-            if unit is None:
-                raise ApplyError(
-                    "anchor_not_found",
-                    f"{anchor['change_unit_id']} is not a change unit of the source file",
-                    claimed_source_sha256=anchor["file_sha256"],
-                    observed_source_sha256=source_sha,
-                    edit_index=edit_index,
-                )
-            if not is_legacy_anchor:
-                observed_anchor = unit.get("anchor") or {}
-                if anchor.get("container_policy") != container_policy.get(
-                    "schema_version"
+                is_legacy_anchor = "schema_version" not in anchor
+                if is_legacy_anchor and not container_policy.get(
+                    "legacy_two_field_anchor_safe", False
                 ):
                     raise ApplyError(
-                        "anchor_policy_mismatch",
-                        "anchor container policy does not match the source snapshot",
+                        "legacy_anchor_ambiguous",
+                        "the two-field anchor predates canonical container filtering; "
+                        "re-extract and use a policy-bound v0.3 anchor",
                         match_count=0,
                         edit_index=edit_index,
+                        container_policy=container_policy.get("schema_version"),
                     )
-                observed_fingerprint = change_unit_fingerprint_sha256(unit)
-                if (
-                    anchor.get("unit_fingerprint_sha256") != observed_fingerprint
-                    or observed_anchor.get("unit_fingerprint_sha256")
-                    != observed_fingerprint
-                ):
+                unit = units_by_id.get(anchor["change_unit_id"])
+                if unit is None:
                     raise ApplyError(
-                        "anchor_fingerprint_mismatch",
-                        "anchor structural/unit fingerprint does not match the source",
-                        match_count=0,
+                        "anchor_not_found",
+                        f"{anchor['change_unit_id']} is not a change unit of the source file",
+                        claimed_source_sha256=anchor["file_sha256"],
+                        observed_source_sha256=source_sha,
                         edit_index=edit_index,
                     )
-            paragraph, paragraph_index = _resolve_anchor_paragraph(document, unit)
+                if not is_legacy_anchor:
+                    observed_anchor = unit.get("anchor") or {}
+                    if anchor.get("container_policy") != container_policy.get(
+                        "schema_version"
+                    ):
+                        raise ApplyError(
+                            "anchor_policy_mismatch",
+                            "anchor container policy does not match the source snapshot",
+                            match_count=0,
+                            edit_index=edit_index,
+                        )
+                    observed_fingerprint = change_unit_fingerprint_sha256(unit)
+                    if (
+                        anchor.get("unit_fingerprint_sha256") != observed_fingerprint
+                        or observed_anchor.get("unit_fingerprint_sha256")
+                        != observed_fingerprint
+                    ):
+                        raise ApplyError(
+                            "anchor_fingerprint_mismatch",
+                            "anchor structural/unit fingerprint does not match the source",
+                            match_count=0,
+                            edit_index=edit_index,
+                        )
+                paragraph, paragraph_index = _resolve_anchor_paragraph(document, unit)
 
             reinstate_text = edit.get("reinstate_text")
             if reinstate_text is not None:
@@ -1581,7 +1653,7 @@ def _prepare_candidate(
                 )
                 planned.append(
                     _PlannedEdit(
-                        anchor["change_unit_id"],
+                        anchor.get("change_unit_id"),
                         edit_index,
                         anchor["file_sha256"],
                         paragraph,
@@ -1617,7 +1689,7 @@ def _prepare_candidate(
             ins_id = reserved[1] if insert_text else None
             planned.append(
                 _PlannedEdit(
-                    anchor["change_unit_id"],
+                    anchor.get("change_unit_id"),
                     edit_index,
                     anchor["file_sha256"],
                     paragraph,
@@ -1629,6 +1701,7 @@ def _prepare_candidate(
                     container,
                     del_id,
                     ins_id,
+                    copy.deepcopy(target),
                 )
             )
         except ApplyError as exc:
@@ -1648,6 +1721,7 @@ def _prepare_candidate(
                     if isinstance(edit, dict) and isinstance(edit.get("anchor"), dict)
                     else None
                 ),
+                **_paragraph_target_identity(edit),
                 "status": "blocked",
                 "operation": operation,
                 "match_count": metadata.get("match_count", 0),
@@ -1669,6 +1743,12 @@ def _prepare_candidate(
         key = id(plan.paragraph)
         by_paragraph.setdefault(key, []).append(plan)
         paragraphs[key] = plan.paragraph
+    original_paragraphs = {
+        plan.paragraph_index: copy.deepcopy(plan.paragraph)
+        for plan in planned if plan.target is not None
+    }
+    expected_paragraph_text = {}
+    expected_paragraph_format = {}
     for key, plans in by_paragraph.items():
         targeted_deletions: set[int] = set()
         for plan in plans:
@@ -1758,6 +1838,18 @@ def _prepare_candidate(
                     "two edits target overlapping text in the same paragraph",
                     **_plan_error_metadata(right, source_sha, planned),
                 )
+        index = plans[0].paragraph_index
+        if index in original_paragraphs:
+            original = original_paragraphs[index]
+            expected = _reading_text(_paragraph_segments(original))
+            attrs, props, original_tokens = paragraph_format_signature(original)
+            tokens = list(original_tokens)
+            for plan in sorted(plans, key=lambda p: p.span[0], reverse=True):
+                expected = expected[:plan.span[0]] + plan.insert_text + expected[plan.span[1]:]
+                style = tokens[plan.span[0]][1:]
+                tokens[plan.span[0]:plan.span[1]] = [(char, *style) for char in plan.insert_text]
+            expected_paragraph_text[index] = expected
+            expected_paragraph_format[index] = (attrs, props, tuple(tokens))
         for plan in sorted(plans, key=lambda p: p.span[0], reverse=True):
             try:
                 _apply_plan(plan, author)
@@ -1801,6 +1893,23 @@ def _prepare_candidate(
         if verdict is not None:
             raise verdict
 
+        candidate_package = _read_source_archive(candidate_payload, source)
+        candidate_document = parse_xml(candidate_package.parts[DOCUMENT_PART])
+        if set(candidate_package.parts) != set(package.parts) or any(
+            candidate_package.parts[name] != payload
+            for name, payload in package.parts.items() if name != DOCUMENT_PART
+        ):
+            raise ApplyError("round_trip_failed", "candidate package collateral changed")
+        candidate_paras = canonical_body_flow_v1(candidate_document.find(w("body"))).paragraphs
+        for index, original in original_paragraphs.items():
+            candidate_para = candidate_paras[index].element
+            if (_reading_text(_paragraph_segments(candidate_para)) != expected_paragraph_text[index]
+                    or paragraph_format_signature(original) != paragraph_format_signature(
+                        candidate_para, reject_new=True)
+                    or expected_paragraph_format[index] != paragraph_format_signature(
+                        candidate_para, accept_new=True)):
+                raise ApplyError("round_trip_failed", "full paragraph text or original formatting changed")
+
         touched_elements = list(
             {id(p.paragraph): p.paragraph for p in planned}.values()
         )
@@ -1811,7 +1920,7 @@ def _prepare_candidate(
         }
         collateral = _collateral_outside(
             parse_xml(source_document_bytes),
-            parse_xml(parts[DOCUMENT_PART]),
+            candidate_document,
             touched_positions,
         )
         if collateral:
@@ -1846,7 +1955,8 @@ def _prepare_candidate(
 
     applied = [
         {
-            "change_unit_id": plan.anchor_id,
+            **({"target": copy.deepcopy(plan.target)} if plan.target is not None
+               else {"change_unit_id": plan.anchor_id}),
             "operation": plan.op
             if plan.op != _PLAN_OPERATION_PLAIN
             else (APPLY_OPERATION_REPLACE if plan.ins_id else APPLY_OPERATION_DELETE),

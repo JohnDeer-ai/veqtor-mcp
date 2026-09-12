@@ -5,26 +5,27 @@
 This file defines the public tool surface. Output examples are part of the API
 because models use them to decide how to call tools and how to cite results.
 
-The development source is package `0.4.1.dev0` and advertises the
-nine-tool MCP contract `veqtor.mcp.v0.4`. Package version, contract and
+The development source is package `0.4.1.dev1` and advertises the
+nine-tool MCP contract `veqtor.mcp.v0.4.1`. Package version, contract and
 publication status are separate identities: only matching entries on public
 PyPI and the immutable GitHub Releases list establish distribution. This file
 alone does not. Every current tool exposes
-`veqtor.pro/contractSchemaVersion: veqtor.mcp.v0.4` in its MCP metadata and the
+`veqtor.pro/contractSchemaVersion: veqtor.mcp.v0.4.1` in its MCP metadata and the
 same value under `x-veqtor-contract-schema-version` in its output schema. The
 contract version covers the complete tool surface, so all eight tool names
-carried forward from v0.3 also advertise v0.4, even where an individual tool's
+carried forward from v0.3 also advertise v0.4.1, even where an individual tool's
 schema and behavior are otherwise unchanged. Nested anchors, edits and
 preflight proofs are closed objects; top-level results remain additive where
 the advertised schema says so. `trace_paragraph_history` and the v2
 `verify_quote` result are closed at the top level as well.
 
-Public `0.4.0` has the same nine-tool contract. This development build adds
-Codex integration and safe error transport; it does not modify the frozen
+Public `0.4.0` retains the nine-tool `veqtor.mcp.v0.4` contract. This development
+build adds clean-paragraph edits under `veqtor.mcp.v0.4.1`, alongside Codex
+integration and safe error transport; it does not modify the frozen
 release contract or published artifacts. Historical v0.3 artifacts retain the
 eight-tool `veqtor.mcp.v0.3` surface. Historical examples and golden records
 retain their recorded producer identities; current live examples below use
-`0.4.1.dev0`. Client observations for public 0.4.0 and the earlier unpublished
+`0.4.1.dev1`. Client observations for public 0.4.0 and the earlier unpublished
 patch are recorded separately in [CODEX.md](docs/CODEX.md); neither establishes
 acceptance of this development build.
 The MCP wire revision is a separate identity: the server negotiates modern
@@ -60,7 +61,7 @@ The current MCPServer transport may ignore unrecognized object
 properties; clients must use the advertised tool schema. Strict rejection of
 unknown top-level arguments remains outside the current contract.
 
-The `0.4.1.dev0` transport adapter registers controlled DOCX refusals as SDK
+The `0.4.1.dev1` transport adapter registers controlled DOCX refusals as SDK
 `ToolError` responses (`isError: true`) so MCP SDK 2.2 preserves their stable
 code in the error text. Ordinary core exception details, including file paths
 and contract text, are omitted. Existing sanitized workspace-discovery hints
@@ -310,7 +311,7 @@ the folder before retrying:
   "skipped": [],
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.4.1.dev0",
+    "version": "0.4.1.dev1",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "record_id": "dr_001",
@@ -656,7 +657,7 @@ guessed:
   },
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.4.1.dev0",
+    "version": "0.4.1.dev1",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "record_id": "dr_002",
@@ -874,7 +875,7 @@ inventory abbreviated):
   "next_cursor": null,
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.4.1.dev0",
+    "version": "0.4.1.dev1",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "record_id": "dr_003",
@@ -989,7 +990,7 @@ Output:
   "diff": [],
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.4.1.dev0",
+    "version": "0.4.1.dev1",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "record_id": "dr_003",
@@ -1074,7 +1075,7 @@ Output:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.4.1.dev0",
+    "version": "0.4.1.dev1",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "batch_applicable": true,
@@ -1125,7 +1126,7 @@ for example:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.4.1.dev0",
+    "version": "0.4.1.dev1",
     "build": "source-snapshot-v1-sha256:example"
   },
   "batch_applicable": false,
@@ -1162,7 +1163,8 @@ candidate failure preserves
 `observed_candidate_sha256` and a failed `round_trip_check` without presenting
 the candidate as applicable.
 
-Every item in `edits` has the same field set. A `null` operation,
+Legacy items in `edits` retain their historical field set. Valid paragraph
+target diagnostics additionally carry the complete `target`, with `change_unit_id: null`. A `null` operation,
 `match_count`, or target means that processing never reached the phase that
 could establish that fact; `match_count: 0` means matching did run and proved
 there were no matches. Position is never nullable: `position_status` is
@@ -1191,9 +1193,9 @@ API.
 
 ## `apply_edits`
 
-Call this only after the user asks to prepare or apply counter wording and only
-with an anchor produced by `extract_redlines`. Under MCP contracts
-`veqtor.mcp.v0.2`, `veqtor.mcp.v0.3`, and `veqtor.mcp.v0.4`, the complete
+Call this only after the user asks to prepare or apply wording, using a returned
+change-unit anchor or the closed paragraph target described below. Under MCP
+contracts `veqtor.mcp.v0.2` through `veqtor.mcp.v0.4.1`, the complete
 `preflight_proof` returned by the successful
 preflight is a required input. Missing or malformed proof objects are rejected
 by the advertised MCP schema or as `preflight_proof_invalid`; a well-formed
@@ -1215,11 +1217,85 @@ bound to a different file hash, or resolved to text that does not exactly match
 `delete_text`, the tool returns an error and writes nothing.
 
 Edit anchors are a closed union of the legacy two-field change-unit anchor and
-`change_unit_anchor.v2`; paragraph and section references are read evidence and
-cannot authorize edits. New callers should pass the exact v2 anchor emitted on
-the change unit. A legacy anchor proceeds only when
+`change_unit_anchor.v2`. For these legacy operations, callers should pass the
+exact v2 anchor emitted on the change unit. Section references cannot authorize
+edits. Clean paragraph targets are a separate closed edit branch introduced in
+`veqtor.mcp.v0.4.1`. A legacy anchor proceeds only when
 `legacy_two_field_anchor_safe: true`; otherwise preflight/apply refuse with
 `legacy_anchor_ambiguous` before surgery or publication.
+
+### Clean paragraph targets (NR-01)
+
+For exact replace/delete in a supported clean body or table-cell paragraph,
+pass the complete `paragraph_ref.v1` returned by `inspect_document`:
+
+```json
+{
+  "target": {
+    "kind": "paragraph",
+    "paragraph_ref": {
+      "schema_version": "paragraph_ref.v1",
+      "ref_type": "paragraph",
+      "file_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "part_name": "word/document.xml",
+      "paragraph_index": 0,
+      "paragraph_text_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "reading_mode": "accepted_current_v1",
+      "container_policy": "canonical_body_flow_v1"
+    }
+  },
+  "delete_text": "30 days",
+  "insert_text": "45 days"
+}
+```
+
+`target` contains exactly `kind` and `paragraph_ref`; the edit contains exactly
+`target`, nonempty `delete_text`, and optional `insert_text`. An empty or omitted
+insertion means delete-only. Mixing `anchor` with `target`, reinstate via a
+paragraph target, insertion-only or extra fields is refused. No target is
+selected by clause label, similar text or the first matching phrase. Multiple
+occurrences within the chosen paragraph are ambiguous; repeats elsewhere do
+not affect its address.
+
+Every reference field is checked against the single source byte snapshot used
+by the entire edit pipeline. The write subset requires direct simple text runs
+and a bounded known paragraph/run/table property vocabulary. Pending text,
+format, structural, move/range and paragraph-mark revisions are forbidden.
+Revision-bearing enclosing table/row/cell properties, neighbouring paragraph
+properties that may affect a mark, and section properties also refuse. Unknown
+property extensions, comments, bookmarks, fields, drawings, content controls
+and other inline containers are outside this write subset. Revision ranges
+anywhere in the document and revisions in styles/numbering (including styles with effects) conservatively
+refuse, since this slice does not infer their applicability. External, missing
+or alternate style/numbering relationship targets are unsupported. Reading support is
+broader than writing support. See [the complete contract](NR-01_PARAGRAPH_EDITS.md).
+
+A paragraph can become empty without removing its paragraph mark. Replacement
+text inherits the first removed run's attributes and properties; deleted text
+retains each original run's properties. Full expected current text and formatting,
+original text and formatting under rejection of the new edits, all new/prior
+revision facts, untargeted paragraphs, table skeleton and other package members
+are checked on the serialized candidate. Mixed legacy/paragraph batches share
+one all-or-nothing pipeline and unchanged `preflight_proof.v1` bindings; the
+proof's ordered edit digest includes target kind and the entire reference.
+
+Successful applied entries contain `target`, `operation`, `deleted_text`,
+`inserted_text` (null for deletion) and `tracked_revision_ids`, with no source
+`change_unit_id`. Preflight diagnostics add `target` and use a null source
+change-unit ID. Compact records preserve the full safe target identity in their
+applied/diagnostic samples. Historical records remain unchanged.
+
+| Paragraph refusal | Code |
+| --- | --- |
+| Malformed target / incomplete or invalid reference types | `invalid_edit` / `invalid_reference` |
+| Stale source hash | `file_sha256_mismatch` |
+| Wrong text hash, reference kind, part or policy | `reference_mismatch` |
+| Canonical index absent | `reference_not_found` |
+| Applicable pending revisions | `paragraph_pending_revisions` |
+| Unprovable or unsupported structure | `paragraph_structure_unsupported` |
+| Zero / multiple exact occurrences | `delete_text_not_found` / `delete_text_ambiguous` |
+
+### Shared atomic pipeline and legacy operations
 
 `edits` are atomic: if any edit fails validation or application, no final
 output DOCX is written. Planning, OOXML surgery, candidate serialization,
@@ -1282,7 +1358,7 @@ rewrites:
   placed before the preserved deletion. This is not Word Reject: Veqtor does
   not accept, reject or remove the counterparty deletion.
 
-Edit objects use a closed schema. Replace/delete accepts only `anchor`, a
+Legacy edit objects use a closed schema. Their replace/delete accepts only `anchor`, a
 non-empty string `delete_text`, and optional string `insert_text`; an empty
 string means delete-only. Reinstate accepts only `anchor` and a non-empty
 string `reinstate_text`: the `insert_text` key must be absent. Validation uses
@@ -1365,7 +1441,7 @@ Output:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.4.1.dev0",
+    "version": "0.4.1.dev1",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "applied": [
@@ -1541,7 +1617,7 @@ Output:
 {
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.4.1.dev0",
+    "version": "0.4.1.dev1",
     "build": "source-snapshot-v1-sha256:..."
   },
   "workspace": {"sha256": "example-workspace-digest", "omitted": true},

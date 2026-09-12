@@ -39,7 +39,7 @@ from ._history_contract import (
     PARAGRAPH_HISTORY_SEED_SCHEMA,
 )
 
-MCP_CONTRACT_SCHEMA_VERSION = "veqtor.mcp.v0.4"
+MCP_CONTRACT_SCHEMA_VERSION = "veqtor.mcp.v0.4.1"
 MCP_CONTRACT_META_KEY = "veqtor.pro/contractSchemaVersion"
 MCP_CONTRACT_SCHEMA_EXTENSION = "x-veqtor-contract-schema-version"
 RECORD_ID_PATTERN = r"^dr_[0-9]+(?![\s\S])"
@@ -166,7 +166,7 @@ ANCHOR_INPUT_SCHEMA: dict[str, Any] = {
     ],
 }
 
-EDIT_INPUT_SCHEMA: dict[str, Any] = {
+LEGACY_EDIT_INPUT_SCHEMA: dict[str, Any] = {
     "title": "Veqtor tracked edit",
     MCP_CONTRACT_SCHEMA_EXTENSION: MCP_CONTRACT_SCHEMA_VERSION,
     "type": "object",
@@ -237,7 +237,6 @@ PREFLIGHT_PROOF_SCHEMA: dict[str, Any] = {
 }
 
 AnchorInput = Annotated[dict[str, Any], WithJsonSchema(ANCHOR_INPUT_SCHEMA)]
-EditInput = Annotated[dict[str, Any], WithJsonSchema(EDIT_INPUT_SCHEMA)]
 PreflightProofInput = Annotated[dict[str, Any], WithJsonSchema(PREFLIGHT_PROOF_SCHEMA)]
 
 
@@ -271,6 +270,30 @@ PARAGRAPH_REF_SCHEMA: dict[str, Any] = {
     ],
     "additionalProperties": False,
 }
+
+PARAGRAPH_TARGET_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {"kind": {"const": "paragraph"}, "paragraph_ref": PARAGRAPH_REF_SCHEMA},
+    "required": ["kind", "paragraph_ref"],
+    "additionalProperties": False,
+}
+PARAGRAPH_EDIT_INPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "target": PARAGRAPH_TARGET_SCHEMA,
+        "delete_text": _NONEMPTY_STRING,
+        "insert_text": _STRING,
+    },
+    "required": ["target", "delete_text"],
+    "additionalProperties": False,
+}
+EDIT_INPUT_SCHEMA: dict[str, Any] = {
+    "title": "Veqtor tracked edit",
+    MCP_CONTRACT_SCHEMA_EXTENSION: MCP_CONTRACT_SCHEMA_VERSION,
+    "oneOf": [LEGACY_EDIT_INPUT_SCHEMA, PARAGRAPH_EDIT_INPUT_SCHEMA],
+}
+EditInput = Annotated[dict[str, Any], WithJsonSchema(EDIT_INPUT_SCHEMA)]
+
 
 VERIFY_ANCHOR_INPUT_SCHEMA: dict[str, Any] = {
     "title": "Veqtor quote-verification anchor",
@@ -461,6 +484,7 @@ _PREFLIGHT_DIAGNOSTIC_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "edit_index": _NONNEGATIVE_INTEGER,
+        "target": PARAGRAPH_TARGET_SCHEMA,
         "change_unit_id": {
             "anyOf": [
                 {"type": "string", "pattern": "^cu_[0-9]+$"},
@@ -1224,6 +1248,24 @@ APPLY_EDITS_RESULT_SCHEMA = _output_schema(
         "candidate_output_sha256_match",
     ],
 )
+
+_LEGACY_APPLIED_ITEM_SCHEMA = APPLY_EDITS_RESULT_SCHEMA["properties"]["applied"]["items"]
+_LEGACY_APPLIED_ITEM_SCHEMA["not"] = {"required": ["target"]}
+_PARAGRAPH_APPLIED_ITEM_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "target": PARAGRAPH_TARGET_SCHEMA,
+        "operation": {"enum": ["replace", "delete"]},
+        "deleted_text": _NONEMPTY_STRING,
+        "inserted_text": _NULLABLE_STRING,
+        "tracked_revision_ids": {"type": "array", "items": _STRING},
+    },
+    "required": ["target", "operation", "deleted_text", "inserted_text", "tracked_revision_ids"],
+    "additionalProperties": False,
+}
+APPLY_EDITS_RESULT_SCHEMA["properties"]["applied"]["items"] = {
+    "oneOf": [_LEGACY_APPLIED_ITEM_SCHEMA, _PARAGRAPH_APPLIED_ITEM_SCHEMA],
+}
 
 def _without_contract_extension(value: Any) -> Any:
     if isinstance(value, dict):

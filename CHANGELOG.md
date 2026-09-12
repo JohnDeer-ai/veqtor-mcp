@@ -6,6 +6,24 @@ All notable changes to Veqtor MCP are documented here.
 Publication dates are authoritative in each version's immutable GitHub Release
 through its `published_at` timestamp.
 
+## 0.4.1.dev1
+
+Unreleased development build. Package/producer identity is `0.4.1.dev1`;
+additive public schema is `veqtor.mcp.v0.4.1`. Frozen v0.4 release identity,
+legacy tool behavior and historical decision-record goldens remain unchanged.
+
+- Add closed full-reference paragraph targets for exact replace and delete-only
+  in supported clean body/table paragraphs, including documents with no revisions.
+- Refuse pending text, property, structural and paragraph-mark revisions or
+  unsupported structure. Share source snapshot, batch planning, proof and atomic
+  publication with legacy counter/reinstate operations.
+- Prove complete expected paragraph text, original text/run properties, new
+  replacement formatting, exact revisions and untouched package/paragraph content.
+- Preserve full paragraph target identity in preflight, applied results, private
+  journal and compact export, without inventing a source change unit.
+- Add a separate NR-01 native acceptance checker, synthetic corpus and next-round
+  scenario. Full native/render/package gates are separate from Python tests.
+
 ## 0.4.1.dev0
 
 Unreleased development build. Package and producer versions are `0.4.1.dev0`;
