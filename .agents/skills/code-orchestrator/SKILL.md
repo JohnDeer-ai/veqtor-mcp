@@ -128,6 +128,13 @@ targeted or adversarial checks. Do not repeat a passing full suite on unchanged
 `H` and unchanged inputs solely to duplicate another role's evidence. Reviewer
 may run it when repository policy, scope, or failure investigation requires.
 
+For acceptance checkers and other pass/fail gates in scope, Reviewer derives
+required evidence from the specification; existing test names and fixtures are
+not proof of coverage. For affected guarantees, check missing evidence and
+plausible weaker substitutes while keeping other conditions valid. Use real
+recorded inputs when available and retain a valid positive control. Before PASS,
+briefly state the guarantee tested and the observed result.
+
 If Reviewer stops discovery early for a P0, discovery remains incomplete. After
 the fix it must finish the entire original broad scope on new H; narrow closure
 alone cannot support PASS.
