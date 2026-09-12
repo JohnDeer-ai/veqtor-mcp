@@ -5,12 +5,11 @@
 This file defines the public tool surface. Output examples are part of the API
 because models use them to decide how to call tools and how to cite results.
 
-The release-candidate source is package `0.4.0` and advertises the
+The development source is package `0.4.1.dev0` and advertises the
 nine-tool MCP contract `veqtor.mcp.v0.4`. Package version, contract and
 publication status are separate identities: only matching entries on public
 PyPI and the immutable GitHub Releases list establish distribution. This file
-alone does not. Every
-candidate tool exposes
+alone does not. Every current tool exposes
 `veqtor.pro/contractSchemaVersion: veqtor.mcp.v0.4` in its MCP metadata and the
 same value under `x-veqtor-contract-schema-version` in its output schema. The
 contract version covers the complete tool surface, so all eight tool names
@@ -20,11 +19,14 @@ preflight proofs are closed objects; top-level results remain additive where
 the advertised schema says so. `trace_paragraph_history` and the v2
 `verify_quote` result are closed at the top level as well.
 
-The current v0.3 public release and its MCPB remain a separate eight-tool
-`veqtor.mcp.v0.3` surface. The v0.4 candidate does not modify that immutable
-artifact or establish v0.4 Desktop or publication acceptance. Historical v0.3
-examples may therefore still contain `"version": "0.3.0"`; current candidate
-examples use `0.4.0`.
+Public `0.4.0` has the same nine-tool contract. This development build adds
+Codex integration and safe error transport; it does not modify the frozen
+release contract or published artifacts. Historical v0.3 artifacts retain the
+eight-tool `veqtor.mcp.v0.3` surface. Historical examples and golden records
+retain their recorded producer identities; current live examples below use
+`0.4.1.dev0`. Client observations for public 0.4.0 and the earlier unpublished
+patch are recorded separately in [CODEX.md](docs/CODEX.md); neither establishes
+acceptance of this development build.
 The MCP wire revision is a separate identity: the server negotiates modern
 `2026-07-28` and legacy revisions through `2025-11-25` without changing this
 Veqtor tool contract. Client request abandonment sends the MCP cancellation
@@ -50,10 +52,24 @@ server's separate controlled-error path and are never success extensions.
 Stable error codes cover well-typed but invalid inputs (wrong hash, unknown
 anchor, blank quote, unresolvable layout). Type-level rejections — e.g. a
 non-object `anchor` or a non-array `edits` sent over MCP — are handled by the
-transport's schema validation before a tool runs and are outside that
-contract. The current MCPServer transport may ignore unrecognized object
+SDK's validation before a tool runs. The development transport reports
+`invalid_arguments: tool input failed validation` without reflecting values,
+field names or validation diagnostics. This transport code is separate from
+the tool-specific domain codes and creates no tool provenance record.
+The current MCPServer transport may ignore unrecognized object
 properties; clients must use the advertised tool schema. Strict rejection of
 unknown top-level arguments remains outside the current contract.
+
+The `0.4.1.dev0` transport adapter registers controlled DOCX refusals as SDK
+`ToolError` responses (`isError: true`) so MCP SDK 2.2 preserves their stable
+code in the error text. Ordinary core exception details, including file paths
+and contract text, are omitted. Existing sanitized workspace-discovery hints
+and fixed recovery guidance remain available; unexpected failures report
+`internal_error` without exception details. This does not change successful
+output schemas or direct Python exceptions. The SDK may prefix the message
+with the tool name. Published v0.4.0 with SDK 2.2 predates this adapter and can
+return only a generic tool error. For journaled refusals, the private local
+journal retains the controlled code; some refusals occur before journaling.
 
 All DOCX-reading tools share one two-stage fail-closed ZIP boundary. Before any
 decoder is created, Veqtor bounds the 50 MiB compressed input, 2,000 members,
@@ -294,7 +310,7 @@ the folder before retrying:
   "skipped": [],
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.4.0",
+    "version": "0.4.1.dev0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "record_id": "dr_001",
@@ -640,7 +656,7 @@ guessed:
   },
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.4.0",
+    "version": "0.4.1.dev0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "record_id": "dr_002",
@@ -858,7 +874,7 @@ inventory abbreviated):
   "next_cursor": null,
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.4.0",
+    "version": "0.4.1.dev0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "record_id": "dr_003",
@@ -973,7 +989,7 @@ Output:
   "diff": [],
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.4.0",
+    "version": "0.4.1.dev0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "record_id": "dr_003",
@@ -1058,7 +1074,7 @@ Output:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.4.0",
+    "version": "0.4.1.dev0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "batch_applicable": true,
@@ -1109,7 +1125,7 @@ for example:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.4.0",
+    "version": "0.4.1.dev0",
     "build": "source-snapshot-v1-sha256:example"
   },
   "batch_applicable": false,
@@ -1349,7 +1365,7 @@ Output:
   "tracked_change_author": "Veqtor MCP",
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.4.0",
+    "version": "0.4.1.dev0",
     "build": "source-snapshot-v1-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "applied": [
@@ -1525,7 +1541,7 @@ Output:
 {
   "producer": {
     "name": "veqtor-mcp",
-    "version": "0.4.0",
+    "version": "0.4.1.dev0",
     "build": "source-snapshot-v1-sha256:..."
   },
   "workspace": {"sha256": "example-workspace-digest", "omitted": true},

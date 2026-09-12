@@ -1,0 +1,177 @@
+{
+  "schema_version": "veqtor_codex_compatibility_observation.v1",
+  "observed_date": "2026-09-11",
+  "scope": "Maintainer same-account synthetic native Codex CLI workflow with a separate desktop activation and read check",
+  "client": {
+    "name": "Codex CLI",
+    "version": "0.153.4",
+    "os": "macOS",
+    "transport": "stdio"
+  },
+  "runtime": {
+    "veqtor_mcp": "0.4.0",
+    "mcp_sdk": "2.2.0",
+    "python": "3.14.6"
+  },
+  "positive_workflow": {
+    "baseline_sha256": "d216cf98d82ac6ac9bb7ef77a4c045c2a3bd66a23bffea90b07bd2933dbe6a6e",
+    "events_sha256": "693a3335e259a0c28f983d1ef0a22242d6a626c825fce72184735fea0f83d18e",
+    "failed_read_call_count": 1,
+    "failed_read_tools": [
+      "inspect_document"
+    ],
+    "log_authenticity_verified": false,
+    "native_actions_only": true,
+    "native_mcp_call_count": 29,
+    "output_sha256": "1eabe51fa53c17638848f32999825693870a66cf67b83a1f92b7a09f67db6451",
+    "preflight_proof_sha256": "8e4289e4020e9d73bff60e03f29f891e40a5a20a2006d1d3feb6241a7a772349",
+    "producer": {
+      "build": "source-snapshot-v1-sha256:5b1f081cc518edfdaafac66bc91d7c7ea82918585de6aa77de69860d0674750b",
+      "name": "veqtor-mcp",
+      "version": "0.4.0"
+    },
+    "schema_version": "veqtor_codex_acceptance.v1",
+    "source_count": 4,
+    "source_hashes_unchanged": true,
+    "status": "passed",
+    "successful_mcp_call_count": 28,
+    "tool_count": 9,
+    "tool_sequence": [
+      "list_rounds",
+      "inspect_document",
+      "extract_redlines",
+      "inspect_document",
+      "inspect_document",
+      "trace_paragraph_history",
+      "map_rounds",
+      "map_rounds",
+      "map_rounds",
+      "map_rounds",
+      "map_rounds",
+      "map_rounds",
+      "map_rounds",
+      "map_rounds",
+      "map_rounds",
+      "map_rounds",
+      "trace_paragraph_history",
+      "verify_quote",
+      "verify_quote",
+      "verify_quote",
+      "preflight_edits",
+      "apply_edits",
+      "extract_redlines",
+      "inspect_document",
+      "inspect_document",
+      "verify_quote",
+      "verify_quote",
+      "export_decision_record"
+    ],
+    "visual_word_qa_verified": false
+  },
+  "independent_visual_check": {
+    "renderer": "bundled LibreOffice via render_docx.py",
+    "pages_inspected": 3,
+    "tracked_changes_visible": true,
+    "clipping_or_overlap_observed": false,
+    "prior_counterparty_markup_preserved": true,
+    "microsoft_word_application_checked": false
+  },
+  "negative_workflow": {
+    "fresh_client_readback": true,
+    "session_usable_after_refusals": true,
+    "all_five_docx_hashes_unchanged": true,
+    "unexpected_output_absent": true,
+    "journal_refusal_codes": [
+      "preflight_proof_invalid",
+      "output_exists"
+    ],
+    "client_received_specific_codes": false,
+    "client_error_text": "Error executing tool apply_edits",
+    "events_sha256": "cc6a3711d4d2691b65d5bbacf17f0aa01da215b6120a8822358ef62fe8035b51"
+  },
+  "limitations": [
+    "Desktop activation and native reads are verified; a desktop write workflow is not tested.",
+    "ChatGPT web is not configured or tested.",
+    "One invalid_selection read request was corrected by the client.",
+    "Published package with MCP SDK 2.2.0 masks controlled error codes at the client boundary.",
+    "No independent-user, real-matter or next release acceptance is implied.",
+    "Local evidence hashes bind this observation to files; they do not authenticate logs."
+  ],
+  "unreleased_transport_patch": {
+    "status": "passed",
+    "published": false,
+    "producer": {
+      "name": "veqtor-mcp",
+      "version": "0.4.0",
+      "build": "source-snapshot-v1-sha256:9001d7e4d537b0425bf3a3d48185ad69a816faf086e46bb73f52eddcb5bbdac5"
+    },
+    "wheel_sha256": "96bb2df84a732f43396bb8b2f31e55eb986e9908d4d05e53d3e989c27fbf93f2",
+    "packaged_python_sources_match_worktree": 21,
+    "events_sha256": "dd5635eb14b091826d149287c1e60914389eca4cd1896289d95761b5b598afb1",
+    "native_mcp_call_count": 6,
+    "expected_refusals": [
+      "preflight_proof_invalid",
+      "preflight_binding_mismatch",
+      "output_exists"
+    ],
+    "codes_visible_in_client": true,
+    "raw_paths_or_contract_text_in_refusal_messages": false,
+    "files_unchanged": 5,
+    "unexpected_outputs_absent": true,
+    "post_refusal_read_succeeded": true
+  },
+  "desktop_activation": {
+    "observed_at_utc": "2026-09-11T09:28:18Z",
+    "client": "Codex desktop current task",
+    "scope": "native activation and read verification after the user restarted Veqtor in MCP settings",
+    "producer": {
+      "build": "source-snapshot-v1-sha256:5b1f081cc518edfdaafac66bc91d7c7ea82918585de6aa77de69860d0674750b",
+      "name": "veqtor-mcp",
+      "version": "0.4.0"
+    },
+    "native_tools_available": 9,
+    "native_call_count": 6,
+    "successful_call_count": 5,
+    "recovered_read_failure_count": 1,
+    "recovery": "The paragraph read succeeded after wrapping the returned reference in selection.paragraph_ref.",
+    "calls": [
+      {
+        "tool": "list_rounds",
+        "is_error": false,
+        "record_id": "dr_047"
+      },
+      {
+        "tool": "inspect_document",
+        "is_error": false,
+        "record_id": "dr_048"
+      },
+      {
+        "tool": "inspect_document",
+        "is_error": true,
+        "record_id": null
+      },
+      {
+        "tool": "inspect_document",
+        "is_error": false,
+        "record_id": "dr_050"
+      },
+      {
+        "tool": "verify_quote",
+        "is_error": false,
+        "record_id": "dr_051"
+      },
+      {
+        "tool": "verify_quote",
+        "is_error": false,
+        "record_id": "dr_052"
+      }
+    ],
+    "exact_current_quote_checks": 2,
+    "output_sha256": "1eabe51fa53c17638848f32999825693870a66cf67b83a1f92b7a09f67db6451",
+    "docx_hashes_match_previous_evidence": 5,
+    "unexpected_docx_absent": true,
+    "desktop_write_workflow_tested": false,
+    "native_snapshot_sha256": "9e8b37330837ce9088e56a87cff131ed57764ea2c7a8ac956571a8671503fb1f",
+    "log_authenticity_verified": false
+  }
+}
