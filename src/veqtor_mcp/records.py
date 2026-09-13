@@ -3656,19 +3656,34 @@ def _observed_round_summary(value: Any) -> dict[str, Any] | None:
     return {"sha256": value["sha256"], "revision_count": revision_count}
 
 
+def _paragraph_target_summary(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict) or set(value) != {"kind", "paragraph_ref"}:
+        return None
+    if value["kind"] != "paragraph":
+        return None
+    ref = _observed_anchor_summary(value["paragraph_ref"])
+    if ref is None or ref.get("schema_version") != "paragraph_ref.v1" or ref != value["paragraph_ref"]:
+        return None
+    return {"kind": "paragraph", "paragraph_ref": ref}
+
+
 def _observed_applied_summary(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, dict):
+        return None
+    target = _paragraph_target_summary(value.get("target"))
+    if "target" in value and (target is None or "change_unit_id" in value):
         return None
     change_unit_id = _change_unit_id(value.get("change_unit_id"))
     operation = _known_value(value.get("operation"), APPLY_OPERATIONS_V1)
     if (
-        change_unit_id is None
+        (change_unit_id is None and target is None)
+        or (target is not None and (change_unit_id is not None or operation not in {"replace", "delete"}))
         or operation is None
         or "tracked_revision_ids" not in value
     ):
         return None
     return {
-        "change_unit_id": change_unit_id,
+        **({"target": target} if target is not None else {"change_unit_id": change_unit_id}),
         "operation": operation,
         "tracked_revision_ids": _revision_ids_summary(value["tracked_revision_ids"]),
     }
@@ -3686,6 +3701,11 @@ def _preflight_edit_summary(value: Any) -> dict[str, Any] | None:
     ):
         return None
     summary: dict[str, Any] = {"edit_index": edit_index, "status": status}
+    target = _paragraph_target_summary(value.get("target"))
+    if "target" in value and (target is None or value.get("change_unit_id") is not None):
+        return None
+    if target is not None:
+        summary["target"] = target
     change_unit_id = _change_unit_id(value.get("change_unit_id"))
     if change_unit_id is not None:
         summary["change_unit_id"] = change_unit_id

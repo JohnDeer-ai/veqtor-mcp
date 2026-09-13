@@ -79,10 +79,9 @@ RUNTIME_SOURCE_FILES = (
     "src/veqtor_mcp/server.py",
 )
 
-# Release-candidate and development source inventories are intentionally equal.
-# Keeping the alias makes later development-only additions fail visibly until a
-# future release contract decides whether to include them.
-DEVELOPMENT_RUNTIME_SOURCE_FILES = RUNTIME_SOURCE_FILES
+# Development-only files do not enter the frozen v0.4 runtime/artifact inventory.
+# A future release must explicitly decide whether to promote these additions.
+DEVELOPMENT_RUNTIME_SOURCE_FILES = (*RUNTIME_SOURCE_FILES, "src/veqtor_docx/_paragraph_edits.py")
 
 MCPB_REQUIRED_TOOLS = (
     "list_rounds",

@@ -13,7 +13,7 @@ ROOT = Path(__file__).parents[1]
 
 
 def test_package_versions_match() -> None:
-    assert docx_version == "0.4.1.dev0"
+    assert docx_version == "0.4.1.dev1"
     assert mcp_version == docx_version
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
     lock = tomllib.loads((ROOT / "uv.lock").read_text())
@@ -166,17 +166,17 @@ def test_release_copy_is_state_neutral_and_site_uses_public_v040() -> None:
     assert "https://pypi.org/project/veqtor-mcp/" in readme
     assert "Both sources expose `0.4.0`" in readme
     assert "| Otherwise | `0.3.0` |" in readme
-    assert "development package `0.4.1.dev0`" in readme
-    assert "nine-tool MCP contract `veqtor.mcp.v0.4`" in readme
+    assert "development package `0.4.1.dev1`" in readme
+    assert "nine-tool MCP contract `veqtor.mcp.v0.4.1`" in readme
     assert "Public `0.4.0` is the published release line" in readme
     assert "not a new publication" in immutable_docs
     for name in ("README.md", "API.md", "KNOWN_LIMITATIONS.md", "ROADMAP.md", "docs/CODEX.md"):
         current = (ROOT / name).read_text()
-        assert "0.4.1.dev0" in current
+        assert "0.4.1.dev1" in current
         assert "0.4.0" in current
         assert "veqtor.mcp.v0.4" in current
         assert "release-candidate source `0.4.0`" not in current
-    development = (ROOT / "CHANGELOG.md").read_text().split("## 0.4.1.dev0\n", 1)[1].split("\n## ", 1)[0]
+    development = (ROOT / "CHANGELOG.md").read_text().split("## 0.4.1.dev1\n", 1)[1].split("\n## ", 1)[0]
     assert "Unreleased development build" in development
     assert "v0.3.0 is not public yet" not in setup
     assert "Download Veqtor v{PUBLIC_RELEASE_VERSION} (.mcpb)" in setup

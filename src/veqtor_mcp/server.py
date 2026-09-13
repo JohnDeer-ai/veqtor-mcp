@@ -526,6 +526,10 @@ def _anchors_from_edits(edits: list[dict]) -> list[dict[str, Any]]:
     for edit in edits:
         if isinstance(edit, dict) and isinstance(edit.get("anchor"), dict):
             anchors.append(_anchor_from_verify(edit["anchor"]))
+        elif isinstance(edit, dict) and isinstance(edit.get("target"), dict):
+            ref = edit["target"].get("paragraph_ref")
+            if isinstance(ref, dict):
+                anchors.append(_anchor_from_verify(ref))
     return anchors
 
 
@@ -545,11 +549,10 @@ def _record_edits(edits: Any) -> Any:
 
 
 def _claimed_source_sha_from_edits(edits: list[dict]) -> str | None:
-    for edit in edits:
-        if isinstance(edit, dict) and isinstance(edit.get("anchor"), dict):
-            value = edit["anchor"].get("file_sha256")
-            if isinstance(value, str):
-                return value
+    for anchor in _anchors_from_edits(edits):
+        value = anchor.get("file_sha256")
+        if isinstance(value, str):
+            return value
     return None
 
 
@@ -715,7 +718,8 @@ def _apply_provenance(
         "anchors": _anchors_from_edits(edits),
         "applied": [
             {
-                "change_unit_id": item["change_unit_id"],
+                **({"target": item["target"]} if "target" in item
+                   else {"change_unit_id": item["change_unit_id"]}),
                 "operation": item["operation"],
                 "tracked_revision_ids": item["tracked_revision_ids"],
             }
@@ -1287,7 +1291,11 @@ def apply_edits(
     """Create a new DOCX with the given edits applied as real tracked changes.
 
     Call this only after the user asks to prepare or apply counter wording,
-    and only with anchors produced by ``extract_redlines``. Each edit needs
+    with change-unit anchors from ``extract_redlines`` or a closed paragraph
+    ``target`` ({kind: "paragraph", paragraph_ref: <full inspect reference>}).
+    Paragraph targets require clean supported body/table paragraphs and exact
+    delete_text plus optional insert_text; pending revisions are refused.
+    Each legacy edit needs
     ``anchor`` ({change_unit_id, file_sha256}) plus either ``delete_text``
     with optional ``insert_text``, or ``reinstate_text``. ``delete_text``
     must occur exactly once in the anchored clause: in untouched text it
