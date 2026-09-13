@@ -269,7 +269,14 @@ def validate_paragraph_context(document, paragraph):
     fields, comments, seen_comments = [], set(), set()
     selected = False
     markers = {w(name) for name in ("fldChar", "instrText", "commentRangeStart", "commentRangeEnd")}
-    containers = {w(name) for name in ("r", "p", "tc", "tr", "tbl")}
+    # Closed grammar for supported main-story paths, not merely a whitelist of
+    # ancestor names. A misplaced end must never pop a real enclosing field.
+    parents = {w(name): {w(parent) for parent in allowed} for name, allowed in {
+        "fldChar": ("r",), "instrText": ("r",), "r": ("p",),
+        "commentRangeStart": ("p", "body", "tbl", "tr", "tc"),
+        "commentRangeEnd": ("p", "body", "tbl", "tr", "tc"),
+        "p": ("body", "tc"), "tc": ("tr",), "tr": ("tbl",), "tbl": ("body", "tc"),
+    }.items()}
 
     def refuse():
         raise InspectError("paragraph_structure_unsupported", "field or comment context is not a clean paragraph")
@@ -283,11 +290,12 @@ def validate_paragraph_context(document, paragraph):
             continue
         if selected:
             refuse()
-        for ancestor in node.iterancestors():
-            if ancestor is body:
-                break
-            if ancestor.tag not in containers:
+        child = node
+        while child is not body:
+            parent = child.getparent()
+            if parent is None or parent.tag not in parents.get(child.tag, ()):
                 refuse()
+            child = parent
         if node.tag == w("fldChar"):
             kind = node.get(w("fldCharType"))
             if kind == "begin":

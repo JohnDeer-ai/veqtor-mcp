@@ -1295,6 +1295,12 @@ newly exposed significant spaces but may not change their meaning. Field and
 comment-range boundaries are resolved across the main document story, including
 non-adjacent paragraphs. Targets within those contexts, and malformed or
 unclosed boundary contexts, are refused with the same structure code.
+Before interpreting any boundary or field instruction, every parent-child edge
+must follow the supported main-story grammar up to the actual `body`: field
+markers/instructions belong to a run, runs to a paragraph, paragraphs/tables to
+the body or a cell, cells to rows, and rows to tables. Comment boundaries may
+belong to paragraphs or body/table/row/cell containers. Recognized element names
+in an invalid nesting order cannot close or open a context.
 Mixed legacy/paragraph batches share
 one all-or-nothing pipeline and unchanged `preflight_proof.v1` bindings; the
 proof's ordered edit digest includes target kind and the entire reference.

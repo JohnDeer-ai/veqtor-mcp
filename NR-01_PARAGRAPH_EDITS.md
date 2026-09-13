@@ -26,7 +26,10 @@ containers, fields, comments, content controls, drawings and unprovable property
 or inline structure are refused; a text-revision flag alone is insufficient.
 Field and comment-range context is checked across the whole main document story,
 including non-adjacent body/table paragraphs and nested fields. A target inside
-either context is refused. Unclosed, unmatched, duplicate or unsupported boundary
+either context is refused. Each boundary/instruction must also have a supported
+parent-child path all the way to the actual main-story body; a run nested in a
+run or a field marker directly in a paragraph cannot alter the context state.
+Unclosed, unmatched, duplicate or unsupported boundary
 contexts cannot authorize a write; a balanced context wholly outside the target
 does not by itself block an otherwise clean paragraph.
 Source text with XML edge whitespace requires effective `xml:space="preserve"`,

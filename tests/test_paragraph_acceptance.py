@@ -389,17 +389,34 @@ def test_combined_wrong_reads_matches_and_export_cannot_attest_mixed_scenario(tm
 @pytest.mark.parametrize("fault", ["duplicate_ppr", "drawing", "bookmarks", "combined", "empty_run", "wrapper_attribute",
                                    "body_tail", "table_tail", "combined_tails", "legacy_tail", "whitespace_tail",
                                    "tail_bookmarks", "space_missing", "space_default", "space_invalid",
-                                   "space_deleted", "space_equivalent"])
+                                   "space_deleted", "space_equivalent", "context_direct_p", "context_nested_r",
+                                   "context_away"])
 def test_independent_checker_rejects_actual_structural_collateral(tmp_path, monkeypatch, fault):
     from test_paragraph_edits import inject_paragraph_structure, rewrite
 
     monkeypatch.delenv("VEQTOR_DISABLE_DECISION_RECORD", raising=False)
     events, baseline = build_evidence(tmp_path, mixed=True, empty=fault != "space_deleted")
     assert checker.validate_evidence(events, baseline)["status"] == "passed"
-    output = Path(baseline["output_path"])
-    old_sha = hashlib.sha256(output.read_bytes()).hexdigest()
     def mutate(root):
-        if fault.startswith("space_"):
+        if fault.startswith("context_"):
+            from veqtor_docx._ooxml import w
+            from test_paragraph_fix4 import child
+            paragraphs = list(root.iter(w("p")))
+            before, after = paragraphs[2], paragraphs[4]
+            child(child(before, "r"), "fldChar", fldCharType="begin")
+            child(child(before, "r"), "instrText").text = " DOCPROPERTY Title "
+            child(child(before, "r"), "fldChar", fldCharType="separate")
+            if fault == "context_away":
+                child(child(before, "r"), "fldChar", fldCharType="end")
+            else:
+                fake_before, fake_after = before, after
+                if fault == "context_nested_r":
+                    fake_before = child(child(before, "r"), "r")
+                    fake_after = child(child(after, "r"), "r")
+                child(fake_before, "fldChar", fldCharType="end")
+                child(fake_after, "fldChar", fldCharType="begin")
+                child(child(after, "r"), "fldChar", fldCharType="end")
+        elif fault.startswith("space_"):
             from veqtor_docx._ooxml import w
             space = "{http://www.w3.org/XML/1998/namespace}space"
             node = root.find(".//" + w("t"))
@@ -414,9 +431,6 @@ def test_independent_checker_rejects_actual_structural_collateral(tmp_path, monk
                 node.attrib.pop(space)
         else:
             inject_paragraph_structure(root, fault)
-    rewrite(output, mutate)
-    new_sha = hashlib.sha256(output.read_bytes()).hexdigest()
-
     def rebind(value, old, new):
         if isinstance(value, dict):
             return {key: rebind(item, old, new) for key, item in value.items()}
@@ -424,12 +438,23 @@ def test_independent_checker_rejects_actual_structural_collateral(tmp_path, monk
             return [rebind(item, old, new) for item in value]
         return new if value == old else value
 
-    events[:] = rebind(events, old_sha, new_sha)
-    actual = checker.extract_redlines(str(output))
-    extraction = completed(events, "extract_redlines", path=str(output))[0]["result"]["structured_content"]
-    for old, new in zip(extraction["change_units"], actual["change_units"]):
-        events[:] = rebind(events, old["anchor"]["unit_fingerprint_sha256"], new["anchor"]["unit_fingerprint_sha256"])
-    completed(events, "extract_redlines", path=str(output))[0]["result"]["structured_content"].update(actual)
+    directions = ("source", "output") if fault.startswith("context_") else ("output",)
+    for direction in directions:
+        path = baseline[direction + "_path"]
+        old_sha = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+        rewrite(path, mutate)
+        new_sha = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+        events[:] = rebind(events, old_sha, new_sha)
+        baseline = rebind(baseline, old_sha, new_sha)
+        actual = checker.extract_redlines(path)
+        extraction = completed(events, "extract_redlines", path=path)[0]["result"]["structured_content"]
+        for old, new in zip(extraction["change_units"], actual["change_units"]):
+            old_fingerprint, new_fingerprint = old["anchor"]["unit_fingerprint_sha256"], new["anchor"]["unit_fingerprint_sha256"]
+            events[:] = rebind(events, old_fingerprint, new_fingerprint)
+            baseline = rebind(baseline, old_fingerprint, new_fingerprint)
+        completed(events, "extract_redlines", path=path)[0]["result"]["structured_content"].update(actual)
+    proof = completed(events, "preflight_edits")[0]["result"]["structured_content"]["preflight_proof"]
+    events[:] = rebind(events, proof["edits_sha256"], checker._digest(baseline["expected_edits"]))
     proof = completed(events, "preflight_edits")[0]["result"]["structured_content"]["preflight_proof"]
     events[:] = rebind(events, proof["proof_sha256"], checker._digest({
         key: value for key, value in proof.items() if key != "proof_sha256"}))
@@ -450,7 +475,7 @@ def test_independent_checker_rejects_actual_structural_collateral(tmp_path, monk
     for event in events:
         if event["type"] == "item.completed" and event["item"].get("tool") in checker._RESULT_VALIDATORS:
             checker._RESULT_VALIDATORS[event["item"]["tool"]].validate(event["item"]["result"]["structured_content"])
-    if fault == "space_equivalent":
+    if fault in {"space_equivalent", "context_away"}:
         assert checker.validate_evidence(events, baseline)["status"] == "passed"
         return
     message = "table or document skeleton changed" if fault == "legacy_tail" else "unaccounted paragraph structure"
