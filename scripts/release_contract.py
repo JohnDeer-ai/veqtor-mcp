@@ -81,7 +81,8 @@ RUNTIME_SOURCE_FILES = (
 
 # Development-only files do not enter the frozen v0.4 runtime/artifact inventory.
 # A future release must explicitly decide whether to promote these additions.
-DEVELOPMENT_RUNTIME_SOURCE_FILES = (*RUNTIME_SOURCE_FILES, "src/veqtor_docx/_paragraph_edits.py")
+DEVELOPMENT_RUNTIME_SOURCE_FILES = (*RUNTIME_SOURCE_FILES, "src/veqtor_docx/_paragraph_edits.py",
+    "src/veqtor_mcp/_positions_contract.py", "src/veqtor_mcp/positions.py")
 
 MCPB_REQUIRED_TOOLS = (
     "list_rounds",

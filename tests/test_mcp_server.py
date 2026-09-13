@@ -57,6 +57,8 @@ EXPECTED_TOOL_NAMES = (
     "apply_edits",
     "verify_quote",
     "export_decision_record",
+    "read_deal_positions",
+    "mutate_deal_positions",
 )
 
 
@@ -1252,7 +1254,9 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
     async with Client(mcp) as session:
         tools = {tool.name: tool for tool in (await session.list_tools()).tools}
 
-    assert set(tools) == records.WRITABLE_TOOL_NAMES
+    assert set(tools) == records.WRITABLE_TOOL_NAMES | {"read_deal_positions", "mutate_deal_positions"}
+    for name in ("read_deal_positions", "mutate_deal_positions"):
+        expected_output_core[name] = {"state", "revision", "positions", "history", "source_observations", "server_session_id"}
     assert set(server._RESULT_MODELS) == set(tools)
     assert all(callable(getattr(server, name)) for name in tools)
     for name, tool in tools.items():
@@ -1267,6 +1271,16 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
         )
         assert tool.output_schema["type"] == "object"
         assert expected_output_core[name] <= set(tool.output_schema["properties"])
+        if name in {"read_deal_positions", "mutate_deal_positions"}:
+            assert tool.output_schema["additionalProperties"] is False
+            assert tool.output_schema["properties"]["record_id"] == {"type": "null"}
+            assert tool.output_schema["properties"]["record_status"] == {"const": "disabled"}
+            assert "record_error" not in tool.output_schema["properties"]
+            assert tool.annotations.read_only_hint is (name == "read_deal_positions")
+            assert tool.annotations.idempotent_hint is (name == "read_deal_positions")
+            assert tool.annotations.destructive_hint is False
+            assert tool.annotations.open_world_hint is False
+            continue
         assert tool.output_schema["properties"]["producer"] == {
             "type": "object",
             "properties": {
@@ -1308,9 +1322,9 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
         assert tool.annotations is not None
         # Every tool can append local provenance (export appends an access
         # event), so complete calls are neither read-only nor idempotent.
-        assert tool.annotations.read_only_hint is False
+        assert tool.annotations.read_only_hint is (tool.name == "read_deal_positions")
         assert tool.annotations.destructive_hint is False
-        assert tool.annotations.idempotent_hint is False
+        assert tool.annotations.idempotent_hint is (tool.name == "read_deal_positions")
         assert tool.annotations.open_world_hint is False
 
     for name in ("preflight_edits", "apply_edits"):
@@ -2391,7 +2405,7 @@ async def test_tools_are_exposed_and_callable(demo_dir: Path) -> None:
                 flags=re.MULTILINE,
             )
         )
-        assert runtime_tools == records.WRITABLE_TOOL_NAMES
+        assert runtime_tools == records.WRITABLE_TOOL_NAMES | {"read_deal_positions", "mutate_deal_positions"}
         assert documented_tools == runtime_tools
         export_tool = next(
             tool for tool in tools.tools if tool.name == "export_decision_record"
@@ -3292,3 +3306,30 @@ async def test_decoder_limit_failures_are_controlled_tool_errors(
     assert "decision-record operation refused" in error_text
     assert not any(reason in error_text for reason in reasons)
     assert raw_detail not in error_text
+
+
+@pytest.mark.anyio
+async def test_deal_positions_native_mcp_schemas_readback_and_safe_refusals(tmp_path) -> None:
+    """SDK transport regression; native Codex acceptance remains a separate gate."""
+    pid = "pos_" + "1" * 32
+    content = dict(title="Synthetic issue", desired_outcome="Retain 30 days", fallback=None,
+        fallback_conditions=None, rationale=None, related_position_ids=[], sources=[],
+        content_origin="model_proposal", business_decision="pending")
+    async with Client(mcp) as session:
+        empty = _payload(await session.call_tool("read_deal_positions", {"folder": str(tmp_path)}))
+        assert empty["state"] == "uninitialized" and not list(tmp_path.iterdir())
+        saved = _payload(await session.call_tool("mutate_deal_positions", dict(folder=str(tmp_path),
+            expected_revision=None, operations=[dict(op="create", position_id=pid, content=content)])))
+        assert saved["positions"][0]["content"] == content and saved["record_status"] == "disabled"
+        full = _payload(await session.call_tool("read_deal_positions", dict(folder=str(tmp_path), include_history=True)))
+        assert full["positions"] == saved["positions"] and len(full["history"]) == 1
+        for operation in [dict(op="confirm", position_id=pid, expected_version=1, user_confirmed=1, statement="PRIVATE_ASSERTION"),
+            dict(op="update", position_id=pid, expected_version=1, content={**content, "PRIVATE_FIELD": "PRIVATE_TEXT"})]:
+            error = _error_text(await session.call_tool("mutate_deal_positions", dict(folder=str(tmp_path),
+                expected_revision=saved["revision"], operations=[operation])))
+            assert "invalid_request" in error and "PRIVATE_" not in error
+        conflict = _error_text(await session.call_tool("mutate_deal_positions", dict(folder=str(tmp_path),
+            expected_revision=None, operations=[dict(op="create", position_id=pid, content=content)])))
+        assert "revision_conflict" in conflict and str(tmp_path) not in conflict
+        observed = _payload(await session.call_tool("read_deal_positions", dict(folder=str(tmp_path))))
+        assert observed["revision"] == saved["revision"] and observed["positions"] == saved["positions"]

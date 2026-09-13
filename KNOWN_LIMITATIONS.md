@@ -2,8 +2,8 @@
 
 # Known limitations
 
-This file describes development source `0.4.1.dev1` and its nine-tool MCP
-contract `veqtor.mcp.v0.4.1`. Legacy calls remain compatible with public `0.4.0`. All nine tools expose
+This file describes development source `0.4.2.dev0` and its eleven-tool MCP
+contract `veqtor.mcp.v0.4.2`. Legacy calls remain compatible with public `0.4.0`. All eleven tools expose
 the same contract-wide metadata value. Development source and test results do
 not establish a new publication or exact-candidate client acceptance. The
 frozen v0.4 release contract, historical golden records and published artifacts
@@ -11,7 +11,7 @@ are unchanged; v0.3 remains a historical eight-tool artifact.
 
 The [Codex guide](docs/CODEX.md) records historical public 0.4.0 CLI write and
 desktop read observations, plus a distinct unpublished error-transport patch.
-These are not tests of `0.4.1.dev1`. The development adapter keeps controlled
+These are not tests of `0.4.2.dev0`. The development adapter keeps controlled
 refusal codes and safe hints, and sanitizes SDK input-validation errors before
 tool entry. NR-01 adds bounded clean-paragraph replace/delete-only; native client
 and rendered-Word acceptance must still be established on the exact final build.
@@ -200,7 +200,7 @@ permissions.
   same source bytes, build, configured author and edits. Apply can still fail if
   the source changes, the output exists, or publication encounters permissions,
   storage or filesystem races.
-- Under MCP contracts `veqtor.mcp.v0.2` through `veqtor.mcp.v0.4.1`,
+- Under MCP contracts `veqtor.mcp.v0.2` through `veqtor.mcp.v0.4.2`,
   `apply_edits` requires the complete `preflight_proof` returned by a successful
   preflight. The proof binds the source SHA-256, canonical edits digest,
   configured author, producer build and candidate SHA-256; it does not bind the
@@ -305,3 +305,28 @@ creation/movement, Accept/Reject and NR-02 remain outside scope.
 The separate [NR-01 native profile](docs/CODEX.md#nr-01-native-profile) checks
 complete affected paragraphs and exact deletions. Python tests and historical
 native logs cannot establish native or visual acceptance of this build.
+
+## Independent deal positions (NR-02 development)
+
+Positions use a private local bounded snapshot: at most 50 positions, 500 history
+transitions and 2 MiB. Reads return full wording and optionally full history;
+limits refuse rather than trim conditions or discard earlier decisions. Source
+checks have their own finite budget and disclose `not_checked` when not done.
+The exact [contract](NR-02_DEAL_POSITIONS.md) defines all limits and refusals.
+
+Confirmation is a client assertion about exact content, not authentication or
+corporate approval. Business questions can remain pending on confirmed content.
+Source-free intentions are allowed without claiming documentary support. Source
+freshness never chooses the current agreement, performs semantic rebinding or
+proves legal protection. Links record dependencies without evaluating them.
+
+Snapshot/lock paths require local POSIX semantics and private metadata permissions;
+symlink components, hardlinked/special files and workspace replacement refuse.
+A post-replacement durability error can mean `commit_uncertain`; reread revision
+before retrying. Back up/move the whole matter while idle. Copies are independent,
+not synchronized, and there is no recovery from malicious edits, corrupted stores,
+hard deletion, cloud/team service, automatic history pruning or DOCX application.
+The new tools do not write provenance; their `record_status` is always `disabled`,
+regardless of `VEQTOR_DISABLE_DECISION_RECORD`. Existing exports retain their old
+privacy meaning. Neither source code tests nor previous NR-01 evidence establish
+native acceptance of this new installed build. NR-03 is outside this change.

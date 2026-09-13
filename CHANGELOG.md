@@ -6,6 +6,22 @@ All notable changes to Veqtor MCP are documented here.
 Publication dates are authoritative in each version's immutable GitHub Release
 through its `published_at` timestamp.
 
+## 0.4.2.dev0
+
+Unreleased development build. Package/producer identity is `0.4.2.dev0`;
+the eleven-tool public schema is `veqtor.mcp.v0.4.2`. Frozen v0.4 artifacts
+and historical provenance goldens remain unchanged.
+
+- Add independent portable local deal positions with explicit exact-version
+  confirmation, confirmation reset on update, withdrawal and complete history.
+- Add full bounded reads and atomic expected-revision batches under a separate
+  cross-process lock, including first creation and uncertain-commit recovery.
+- Verify new documentary bindings against exact bytes/references; disclose
+  source freshness independently from saved intentions and business decisions.
+- Keep position storage independent of optional provenance and DOCX writes.
+- Add a separate native Codex acceptance profile with predeclared complete
+  values, fresh client/server sessions, conflicts and relocation checks.
+
 ## 0.4.1.dev1
 
 Unreleased development build. Package/producer identity is `0.4.1.dev1`;

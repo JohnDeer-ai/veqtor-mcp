@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "veqtor-mcp"
-version = "0.4.1.dev1"
+version = "0.4.2.dev0"
 description = "Local MCP server for verifiable DOCX redline history and fail-closed tracked-change edits"
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
@@ -78,16 +78,20 @@ include = [
   "/src/veqtor_mcp/records.py",
   "/src/veqtor_mcp/round_map.py",
   "/src/veqtor_mcp/round_map_contract.py",
+  "/src/veqtor_mcp/_positions_contract.py",
+  "/src/veqtor_mcp/positions.py",
   "/src/veqtor_mcp/server.py",
 ]
 
 [tool.hatch.build.targets.sdist]
 include = [
   "/docs/CODEX.md",
+  "/docs/NR02_ACCEPTANCE.md",
   "/docs/evidence/codex-v0.4.0-20260911.json",
   "/docs/prompts/next-round.md",
   "/API.md",
   "/NR-01_PARAGRAPH_EDITS.md",
+  "/NR-02_DEAL_POSITIONS.md",
   "/CHANGELOG.md",
   "/CLAUSE_HISTORY_V0.4.md",
   "/CONTRIBUTING.md",
@@ -123,6 +127,8 @@ include = [
   "/src/veqtor_mcp/records.py",
   "/src/veqtor_mcp/round_map.py",
   "/src/veqtor_mcp/round_map_contract.py",
+  "/src/veqtor_mcp/_positions_contract.py",
+  "/src/veqtor_mcp/positions.py",
   "/src/veqtor_mcp/server.py",
 ]
 

@@ -30,8 +30,8 @@ tamper-evident audit system. Review the
 [known limitations](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/KNOWN_LIMITATIONS.md)
 before using it on a real matter.
 
-This source tree is development package `0.4.1.dev1` and advertises the
-nine-tool MCP contract `veqtor.mcp.v0.4.1`. All nine tools report that one
+This source tree is development package `0.4.2.dev0` and advertises the
+eleven-tool MCP contract `veqtor.mcp.v0.4.2`. All eleven tools report that one
 contract-wide marker. Legacy calls remain compatible
 with public `0.4.0`; the additive paragraph target requires this development build; live `producer.version` identifies this development version
 and `producer.build` fingerprints the imported Python sources.
@@ -88,7 +88,7 @@ configuration; browser ChatGPT requires a separate connection.
 [Official OpenAI MCP documentation](https://learn.chatgpt.com/docs/extend/mcp).
 Registration alone does not establish a working document workflow. The guide
 separates the historical public-package observations from pending acceptance of
-the exact `0.4.1.dev1` candidate; the installed public server is not that candidate.
+the exact `0.4.2.dev0` candidate; the installed public server is not that candidate.
 
 ## Install a verified published version for Claude Code
 
@@ -174,12 +174,12 @@ The expected trust sequence is:
 2. verify every quotation used as evidence;
 3. preflight the complete atomic batch;
 4. apply only when `batch_applicable` is true — version `0.1.2` reuses the exact
-   edit payload, while contracts `veqtor.mcp.v0.2` through `veqtor.mcp.v0.4.1`
+   edit payload, while contracts `veqtor.mcp.v0.2` through `veqtor.mcp.v0.4.2`
    also pass the complete `preflight_proof` returned by that successful
    preflight;
 5. re-extract the output and export the decision record.
 
-In MCP contracts `veqtor.mcp.v0.2` through `veqtor.mcp.v0.4.1`, the proof binds
+In MCP contracts `veqtor.mcp.v0.2` through `veqtor.mcp.v0.4.2`, the proof binds
 the source bytes, canonical edit payload, configured author, producer build and
 predicted candidate hash so apply can detect drift. It is an unkeyed content
 binding, not authentication or a digital signature. Version `0.1.2` does not
@@ -214,8 +214,8 @@ or environment.
 
 ## Tool surface
 
-The descriptions below follow development package `0.4.1.dev1` and its
-nine-tool MCP contract `veqtor.mcp.v0.4.1`. Public `0.4.0` retains the frozen
+The descriptions below follow development package `0.4.2.dev0` and its
+eleven-tool MCP contract `veqtor.mcp.v0.4.2`. Public `0.4.0` retains the frozen
 `veqtor.mcp.v0.4` contract. For an
 installed version, use the API file carried by that exact artifact or its
 matching immutable tag. Historical v0.3 artifacts retain their eight tools.
@@ -241,7 +241,7 @@ matching immutable tag. Historical v0.3 artifacts retain their eight tools.
 - `preflight_edits`: the complete apply pipeline as an in-memory dry-run, with
   closed position/failure diagnostics and a successful drift-binding proof.
 - `apply_edits`: atomic tracked replace, delete, counter and reinstate writes;
-  MCP contracts `veqtor.mcp.v0.2` through `veqtor.mcp.v0.4.1` require the
+  MCP contracts `veqtor.mcp.v0.2` through `veqtor.mcp.v0.4.2` require the
   complete successful preflight proof; version `0.1.2` reuses the exact edit
   payload without that new field.
 - `verify_quote`: anchored `exact`, `normalized`, or `not_found` verification,
@@ -295,7 +295,7 @@ for hostile same-user processes.
 | Operating systems | macOS, Linux |
 | Python | 3.12, 3.13, 3.14 |
 | Transport | local stdio MCP; modern `2026-07-28` and legacy through `2025-11-25` |
-| Historical client observations | Claude Code, Claude Desktop; bounded synthetic workflow in Codex CLI 0.153.4 with published Veqtor 0.4.0 ([evidence](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/docs/evidence/codex-v0.4.0-20260911.json)); this is not acceptance of 0.4.1.dev1 |
+| Historical client observations | Claude Code, Claude Desktop; bounded synthetic workflow in Codex CLI 0.153.4 with published Veqtor 0.4.0 ([evidence](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/docs/evidence/codex-v0.4.0-20260911.json)); this is not acceptance of 0.4.2.dev0 |
 | DOCX part | `word/document.xml` |
 | Writes | tracked replace, delete, counter, reinstate |
 | Distribution | Versioned PyPI packages with matching immutable GitHub wheel/sdist/checksums; macOS MCPB only when attached to the matching verified release |
@@ -368,3 +368,18 @@ The exact-SHA immutable publication contract is documented in the
 
 Veqtor MCP is an independent open-source project created and maintained by
 **Ilya Shilov** ([@JohnDeer-ai](https://github.com/JohnDeer-ai)).
+
+## Deal positions in the development candidate
+
+NR-02 adds `read_deal_positions` and `mutate_deal_positions`: retain desired
+outcomes, conditional concessions, linked positions and business questions in
+an explicitly selected local matter. Show the user the exact proposed versions,
+then record their explicit confirmation. Updating content resets confirmation;
+withdrawal preserves history. A new session can recover complete saved wording.
+
+The private bounded snapshot moves with the matter folder and is independent of
+`export_decision_record`. Source freshness, confirmation, business status and
+lifecycle remain separate. Saved wording is data, not an instruction or authority
+to edit Word. See [the NR-02 contract](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/NR-02_DEAL_POSITIONS.md) and
+[API](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/API.md#read_deal_positions). Exact-candidate native acceptance remains a
+separate gate; the published 0.4.0 installation does not contain these tools.
