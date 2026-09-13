@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Synthetic artifact/receipt controls, never installed/native acceptance evidence."""
 from copy import deepcopy
+import base64
+import csv
 import hashlib
 import io
 import json
@@ -8,6 +10,7 @@ from pathlib import Path
 import sys
 import tarfile
 import zipfile
+from types import SimpleNamespace
 
 import pytest
 
@@ -18,34 +21,87 @@ import capture_position_session as capture  # noqa: E402
 from test_position_acceptance import build  # noqa: E402
 
 
-def test_install_checker_positive_and_weaker_artifact_substitutes(tmp_path, monkeypatch):
+def wheel_record(values):
+    record = next(n for n in values if n.endswith(".dist-info/RECORD"))
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    for name, data in sorted(values.items()):
+        encoded = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode()
+        writer.writerow((name, "", "") if name == record else (name, "sha256=" + encoded, str(len(data))))
+    return values | {record: buffer.getvalue().encode()}
+
+
+@pytest.fixture
+def artifact_case(tmp_path, monkeypatch):
+    """Synthetic unit fixture only; real archive/install controls are separate."""
     root = tmp_path / "source"
-    installed = tmp_path / "installed"
+    environment = tmp_path / "environment"
+    installed = environment / "lib/site-packages"
     root.mkdir()
-    installed.mkdir()
+    installed.mkdir(parents=True)
     files = {"veqtor_mcp/__init__.py": b"# synthetic MCP source\n",
              "veqtor_docx/__init__.py": b"# synthetic DOCX source\n"}
     for name, data in files.items():
         for parent in (root / "src", installed):
             (parent / name).parent.mkdir(exist_ok=True, parents=True)
             (parent / name).write_bytes(data)
-    (root / "pyproject.toml").write_text('''[project]
+    (root / "pyproject.toml").write_text('''[build-system]
+requires = ["hatchling==1.31.0"]
+build-backend = "hatchling.build"
+[project]
+name = "veqtor-mcp"
 version = "0.4.2.dev0"
+description = "Synthetic unit fixture"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.12,<3.15"
+dependencies = ["jsonschema>=4.20,<5"]
+[project.scripts]
+veqtor-demo-rounds = "veqtor_docx.synthetic:main"
+veqtor-mcp = "veqtor_mcp.server:main"
 [tool.hatch.build.targets.wheel]
 include = ["/src/veqtor_mcp/__init__.py", "/src/veqtor_docx/__init__.py"]
 [tool.hatch.build.targets.sdist]
-include = ["/pyproject.toml", "/src/veqtor_mcp/__init__.py", "/src/veqtor_docx/__init__.py"]
+include = ["/pyproject.toml", "/README.md", "/LICENSE", "/NOTICE", "/src/veqtor_mcp/__init__.py", "/src/veqtor_docx/__init__.py"]
 ''')
+    source = {"README.md": b"# Synthetic unit fixture\n", "LICENSE": b"Synthetic licence\n",
+              "NOTICE": b"Synthetic notice\n", ".gitignore": b"*.pyc\n"}
+    for name, data in source.items():
+        (root / name).write_bytes(data)
+    metadata = b"""Metadata-Version: 2.4
+Name: veqtor-mcp
+Version: 0.4.2.dev0
+Summary: Synthetic unit fixture
+License-Expression: Apache-2.0
+License-File: LICENSE
+License-File: NOTICE
+Requires-Python: <3.15,>=3.12
+Requires-Dist: jsonschema<5,>=4.20
+Description-Content-Type: text/markdown
+
+# Synthetic unit fixture
+"""
     sd = tmp_path / "synthetic.tar.gz"
-    with tarfile.open(sd, "w:gz") as archive:
-        for name, data in {**{"src/" + n: d for n, d in files.items()},
-                           "pyproject.toml": (root / "pyproject.toml").read_bytes(), "PKG-INFO": b"synthetic"}.items():
-            member = tarfile.TarInfo("veqtor_mcp-0.4.2.dev0/" + name)
-            member.size = len(data)
-            archive.addfile(member, io.BytesIO(data))
+    sdist_files = {**source, **{"src/" + n: d for n, d in files.items()},
+                   "pyproject.toml": (root / "pyproject.toml").read_bytes(), "PKG-INFO": metadata}
+
+    def write_sdist(values):
+        with tarfile.open(sd, "w:gz") as archive:
+            for name, data in values.items():
+                member = tarfile.TarInfo("veqtor_mcp-0.4.2.dev0/" + name)
+                member.size = len(data)
+                archive.addfile(member, io.BytesIO(data))
+
+    write_sdist(sdist_files)
     dist = "veqtor_mcp-0.4.2.dev0.dist-info"
-    wheel_files = files | {f"{dist}/{n}": b"synthetic metadata" for n in
-        ("METADATA", "WHEEL", "RECORD", "entry_points.txt", "licenses/LICENSE", "licenses/NOTICE")}
+    generated = {"METADATA": metadata, "RECORD": b"",
+        "WHEEL": b"Wheel-Version: 1.0\nGenerator: hatchling 1.31.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+        "entry_points.txt": b"[console_scripts]\nveqtor-demo-rounds = veqtor_docx.synthetic:main\nveqtor-mcp = veqtor_mcp.server:main\n",
+        "licenses/LICENSE": source["LICENSE"], "licenses/NOTICE": source["NOTICE"]}
+    wheel_files = wheel_record(files | {f"{dist}/{n}": data for n, data in generated.items()})
+    for name, data in wheel_files.items():
+        (installed / name).parent.mkdir(exist_ok=True, parents=True)
+        (installed / name).write_bytes(data)
     wheel = tmp_path / "synthetic.whl"
 
     def write_wheel(values):
@@ -59,13 +115,25 @@ include = ["/pyproject.toml", "/src/veqtor_mcp/__init__.py", "/src/veqtor_docx/_
     build_id = "source-snapshot-v1-sha256:" + hashlib.sha256(json.dumps(manifest, sort_keys=True,
         separators=(",", ":")).encode()).hexdigest()
     probe = dict(version="0.4.2.dev0", distribution_version="0.4.2.dev0", build=build_id,
+        prefix=str(environment), base_prefix="/synthetic/base-python", executable=str(environment / "bin/python"),
+        distribution_path=str(installed / dist),
         roots={n: str(installed / n) for n in ("veqtor_mcp", "veqtor_docx")},
         tools=["list_rounds", "extract_redlines", "inspect_document", "map_rounds", "trace_paragraph_history",
                "preflight_edits", "apply_edits", "verify_quote", "export_decision_record",
                "read_deal_positions", "mutate_deal_positions"])
-    monkeypatch.setattr(install, "git", lambda _, *args: "" if args[0] == "status" else "a" * 40 if args[-1] == "HEAD" else "b" * 40)
+    monkeypatch.setattr(install, "git", lambda _, *args: "" if args[0] == "status" else ".gitignore" if args[0] == "ls-files"
+        else "a" * 40 if args[-1] == "HEAD" else "b" * 40)
     monkeypatch.setattr(install.subprocess, "check_output", lambda *a, **kw: json.dumps(probe).encode())
-    args = (root, "a" * 40, "b" * 40, wheel, sd, tmp_path / "env/bin/python")
+    args = (root, "a" * 40, "b" * 40, wheel, sd, environment / "bin/python")
+    return SimpleNamespace(root=root, installed=installed, files=files, wheel_files=wheel_files,
+        sdist_files=sdist_files, wheel=wheel, sdist=sd, dist=dist, write_wheel=write_wheel,
+        write_sdist=write_sdist, probe=probe, args=args, build_id=build_id)
+
+
+def test_install_checker_positive_and_weaker_artifact_substitutes(artifact_case):
+    case = artifact_case
+    args, wheel_files, probe = case.args, case.wheel_files, case.probe
+    write_wheel, installed, files, build_id = case.write_wheel, case.installed, case.files, case.build_id
     assert install.verify(*args)["producer"]["build"] == build_id
     for replacement in ({k: v for k, v in wheel_files.items() if k != "veqtor_mcp/__init__.py"},
                         wheel_files | {"private-client.docx": b"private"},
