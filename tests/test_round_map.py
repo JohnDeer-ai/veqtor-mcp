@@ -3987,7 +3987,7 @@ ACCEPTANCE_CLAUSE_NODEIDS: dict[str, tuple[str, ...]] = {
             module="tests/test_decision_records.py",
         ),
         _nodeid(
-            "test_development_wheel_smoke_binds_metadata_and_nine_tool_v04_surface",
+            "test_development_wheel_smoke_binds_metadata_and_public_behavior",
             module="tests/test_release_workflow.py",
         ),
         _nodeid(
@@ -4319,7 +4319,7 @@ ACCEPTANCE_CLAUSE_NODEIDS.update(
         ),
         "26.d": (
             _nodeid(
-                "test_development_wheel_smoke_binds_metadata_and_nine_tool_v04_surface",
+                "test_development_wheel_smoke_binds_metadata_and_public_behavior",
                 module="tests/test_release_workflow.py",
             ),
         ),
