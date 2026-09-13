@@ -23,7 +23,7 @@ def content(**changes):
         business_decision="not_required", sources=[]) | changes
 
 
-def build(tmp_path, monkeypatch):
+def build(tmp_path, monkeypatch, *, observer=None):
     original = tmp_path / "matter"
     files = generate_demo_rounds(original, profile="paragraph-edits")
     first = files[0]
@@ -42,6 +42,7 @@ def build(tmp_path, monkeypatch):
     for source in files:
         shutil.copy2(source, Path(folders["first"]) / source.name)
     expected = {"schema_version": checker.BASELINE_SCHEMA, "producer": server._producer(), "folders": folders,
+        "client_selection": {"model": "gpt-6-astra", "reasoning_effort": "ultra"},
         "initial_positions": deepcopy(initial), "updated_content": content(desired_outcome="45 days"),
         "confirmation_statement": "User explicitly confirmed these exact version 1 positions.",
         "conflict_contents": [content(desired_outcome="A: 60 days"), content(desired_outcome="B: 75 days")],
@@ -53,6 +54,8 @@ def build(tmp_path, monkeypatch):
     def session(name):
         events[name] = [{"type": "thread.started", "thread_id": "synthetic-" + name}, {"type": "turn.started"}]
         sessions[name] = f"{len(sessions) + 1:032x}"
+        if observer is not None:
+            observer(name, "before", expected)
 
     def call(name, tool, **args):
         monkeypatch.setattr(positions, "SERVER_SESSION_ID", sessions[name])
@@ -66,6 +69,8 @@ def build(tmp_path, monkeypatch):
             out = None
             result = dict(is_error=True, content=[dict(type="text", text=str(exc))])
         seq.append({"type": "item.completed", "item": dict(**identity, status="completed", result=result, error=None)})
+        if observer is not None:
+            observer(name, "after", expected)
         return out
 
     def read(name, folder):
@@ -104,10 +109,10 @@ def build(tmp_path, monkeypatch):
     read("missing", folders["moved"])
     moved_rev = rev
     for version, name in [(1, "journal_disabled"), (2, "journal_corrupt")]:
-        session(name)
         if name == "journal_corrupt":
             (Path(folders["moved"]) / ".veqtor" / "decision-records.jsonl").write_bytes(b"NR-02 synthetic corrupt journal\n")
         monkeypatch.setenv("VEQTOR_DISABLE_DECISION_RECORD", "1" if name == "journal_disabled" else "0")
+        session(name)
         moved_rev = write(name, folders["moved"], moved_rev,
             [dict(op="update", position_id=ids[2], expected_version=version, content=contents[2])])["revision"]
         read(name, folders["moved"])

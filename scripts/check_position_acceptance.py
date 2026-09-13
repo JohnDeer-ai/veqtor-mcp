@@ -21,11 +21,19 @@ import jsonschema
 from veqtor_mcp._positions_contract import CONTENT, POSITION, RESULT
 
 TOOLS = {"read_deal_positions", "mutate_deal_positions"}
-BASELINE_SCHEMA = "veqtor_position_baseline.v1"
+BASELINE_SCHEMA = "veqtor_position_baseline.v2"
+REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra")
 SESSIONS = {"save", "confirm", "update", "restart", "withdraw", "moved", "changed", "missing",
             "journal_disabled", "journal_corrupt", "other", "conflict_a", "conflict_b", "conflict_final",
             "first_a", "first_b", "first_final", "retry", "copy_independent"}
 _RESULT = jsonschema.Draft202012Validator(RESULT)
+SESSION_FOLDERS = {
+    **dict.fromkeys(("save", "confirm", "update", "restart", "withdraw"), "original"),
+    **dict.fromkeys(("moved", "changed", "missing", "journal_disabled", "journal_corrupt", "copy_independent"), "moved"),
+    **dict.fromkeys(("conflict_a", "conflict_b", "conflict_final", "retry"), "conflict"),
+    **dict.fromkeys(("first_a", "first_b", "first_final"), "first"),
+    "other": "other",
+}
 
 
 class EvidenceError(ValueError):
@@ -60,11 +68,21 @@ def decode(raw):
         raise EvidenceError("invalid JSON evidence") from None
 
 
+def client_selection(model, reasoning_effort):
+    require(isinstance(model, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,127}", model)
+        and reasoning_effort in REASONING_EFFORTS, "explicit model and reasoning effort required")
+    return {"model": model, "reasoning_effort": reasoning_effort}
+
+
 def baseline(value):
     require(isinstance(value, dict) and set(value) == {"schema_version", "producer", "folders",
-        "initial_positions", "updated_content", "confirmation_statement", "conflict_contents", "source_files", "selected_current_file"},
+        "initial_positions", "updated_content", "confirmation_statement", "conflict_contents", "source_files", "selected_current_file", "client_selection"},
         "baseline fields differ")
     require(value["schema_version"] == BASELINE_SCHEMA, "baseline schema differs")
+    selection = value["client_selection"]
+    require(isinstance(selection, dict) and set(selection) == {"model", "reasoning_effort"},
+        "baseline model/effort selection absent")
+    client_selection(selection["model"], selection["reasoning_effort"])
     require(set(value["producer"]) == {"name", "version", "build"} and value["producer"]["name"] == "veqtor-mcp"
         and value["producer"]["version"] == "0.4.2.dev0"
         and re.fullmatch(r"source-snapshot-v1-sha256:[0-9a-f]{64}", value["producer"]["build"]), "producer differs")
@@ -95,6 +113,7 @@ def baseline(value):
         "independent conflict alternatives absent")
     sources = value["source_files"]
     require(isinstance(sources, dict) and sources and all(not Path(n).is_absolute() and ".." not in Path(n).parts
+        and Path(n).as_posix() == n and Path(n).suffix.lower() == ".docx"
         and re.fullmatch(r"[0-9a-f]{64}", h) for n, h in sources.items()), "synthetic source baseline absent")
     bindings = [s for row in rows for s in row["content"]["sources"]]
     require(bindings and any(s["reference"] is not None for s in bindings)
@@ -342,7 +361,43 @@ def validate_evidence(events_by_name, expected):
             "log_authenticity": False}
 
 
-def check_bundle(directory):
+def _check_documents(name, receipt, expected):
+    """Require the complete declared DOCX set in every selected matter/stage."""
+    before, after = receipt.get("docx_before"), receipt.get("docx_after")
+    require(isinstance(before, dict) and before == after, "native session modified DOCX or inventory absent")
+    require(all(isinstance(path, str) and Path(path).is_absolute() and Path(path).suffix.lower() == ".docx"
+        and isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest) for path, digest in before.items()),
+        "invalid DOCX inventory entry")
+    require(set(SESSION_FOLDERS) == SESSIONS and name in SESSION_FOLDERS, "document stage mapping incomplete")
+    selected = SESSION_FOLDERS[name]
+    folder = Path(expected["folders"][selected])
+    declared = {} if selected == "other" else {str(folder / n): h for n, h in expected["source_files"].items()}
+    bound = {str(folder / s["path"]) for row in expected["initial_positions"] for s in row["content"]["sources"]}
+    if name in {"missing", "journal_disabled", "journal_corrupt", "copy_independent"}:
+        declared = {path: h for path, h in declared.items() if path not in bound}
+    observed = {path: h for path, h in before.items() if Path(path).is_relative_to(folder)}
+    require(set(observed) == set(declared), "complete stage DOCX inventory differs")
+    for path, digest in declared.items():
+        if name == "changed" and path in bound:
+            require(observed[path] != digest, "changed-source setup absent")
+        else:
+            require(observed[path] == digest, "stage DOCX bytes differ")
+
+
+def _check_relocation(receipt, moved_payload):
+    # The full moved native state is already independently validated against the
+    # predeclared values/history. Bind the observer's actual snapshot bytes too.
+    store = {"schema_version": "deal_positions_store.v1", **{key: moved_payload[key]
+        for key in ("matter_id", "revision", "positions", "history")}}
+    expected = {
+        "original": {"root_state": "absent", "store_state": "absent", "store_sha256": None},
+        "moved": {"root_state": "directory", "store_state": "regular", "store_sha256": sha(canonical(store))},
+    }
+    require(receipt.get("relocation_before") == expected and receipt.get("relocation_after") == expected,
+        "complete root/store relocation evidence absent or differs")
+
+
+def check_bundle(directory, *, model, reasoning_effort):
     """Validate capture receipts as well as semantic native evidence.
 
     The capture command is independently recorded by the launcher, not the model.
@@ -352,6 +407,8 @@ def check_bundle(directory):
     directory = Path(directory)
     raw = (directory / "baseline.json").read_bytes()
     expected = baseline(decode(raw))
+    selection = client_selection(model, reasoning_effort)
+    require(expected["client_selection"] == selection, "baseline differs from required model/effort selection")
     installation = decode((directory / "installation.json").read_bytes())
     require(installation.get("schema_version") == "veqtor_position_install.v1"
         and installation.get("producer") == expected["producer"] and installation.get("source_files"),
@@ -378,18 +435,19 @@ def check_bundle(directory):
         command = receipt.get("command")
         require(isinstance(command, list) and command and Path(command[0]).is_absolute()
             and receipt.get("server_python") == installation["python"], "native isolated launch receipt absent")
+        require(receipt.get("client_selection") == selection, "capture model/effort selection differs or is absent")
         expected_command = [command[0], "exec", "--json", "--skip-git-repo-check", "--ignore-user-config", "--ephemeral",
             "-c", "mcp_servers.veqtor_nr02.command=" + json.dumps(installation["python"]),
             "-c", 'mcp_servers.veqtor_nr02.args=["-I","-m","veqtor_mcp.server"]',
             "-c", 'mcp_servers.veqtor_nr02.env.VEQTOR_TRACKED_CHANGE_AUTHOR="Veqtor Acceptance"',
-            "-c", 'mcp_servers.veqtor_nr02.env.VEQTOR_DISABLE_DECISION_RECORD=' + json.dumps("1" if name == "journal_disabled" else "0"), "-"]
+            "-c", 'mcp_servers.veqtor_nr02.env.VEQTOR_DISABLE_DECISION_RECORD=' + json.dumps("1" if name == "journal_disabled" else "0"),
+            "--model", model, "-c", "model_reasoning_effort=" + json.dumps(reasoning_effort), "-"]
         require(command == expected_command, "exact isolated producer command differs or has extra overrides")
         if name == "restart":
             require(prompt.decode() == restart_prompt(expected), "restart prompt carried prior dialogue/content")
         if name == "moved":
             require(prompt.decode() == current_document_prompt(expected), "explicit alternate current-document scenario absent")
-        require(receipt.get("docx_before") == receipt.get("docx_after")
-            and isinstance(receipt.get("docx_before"), dict), "native session modified DOCX")
+        _check_documents(name, receipt, expected)
         if name == "journal_disabled":
             require('mcp_servers.veqtor_nr02.env.VEQTOR_DISABLE_DECISION_RECORD="1"' in command,
                 "provenance was not disabled in the native process")
@@ -412,25 +470,6 @@ def check_bundle(directory):
     require(receipts["conflict_final"]["finished_ns"] < receipts["retry"]["started_ns"], "retry preceded final read")
     require(max(receipts["conflict_final"]["finished_ns"], receipts["journal_corrupt"]["finished_ns"]) <
         receipts["copy_independent"]["started_ns"], "independent-copy reread preceded changes")
-    bound_names = {s["path"] for row in expected["initial_positions"] for s in row["content"]["sources"]}
-    for name in SESSIONS:
-        before = receipts[name]["docx_before"]
-        if name in {"save", "confirm", "update", "restart", "withdraw"}:
-            folder = expected["folders"]["original"]
-            require(all(before.get(str(Path(folder) / n)) == h for n, h in expected["source_files"].items()),
-                "original source evidence differs")
-        elif name in {"moved", "changed", "missing", "journal_disabled", "journal_corrupt"}:
-            folder = expected["folders"]["moved"]
-            require(not any(Path(p).is_relative_to(expected["folders"]["original"]) for p in before),
-                "old matter was not moved")
-            for n, h in expected["source_files"].items():
-                path = str(Path(folder) / n)
-                if name == "moved" or n not in bound_names:
-                    require(before.get(path) == h, "moved or alternate current document differs")
-                elif name == "changed":
-                    require(path in before and before[path] != h, "changed-source setup absent")
-                else:
-                    require(path not in before, "missing-source setup absent")
     # The installed files must still match the captured exact source manifest.
     actual = {}
     for package, root in installation["installed_roots"].items():
@@ -438,6 +477,9 @@ def check_bundle(directory):
             actual[f"{package}/{path.relative_to(root).as_posix()}"] = sha(path.read_bytes())
     require(actual == installation["source_files"], "installed sources drifted")
     report = validate_evidence(runs, expected)
+    moved = native_calls(runs["moved"], expected["producer"])[2][0]["payload"]
+    _check_relocation(receipts["moved"], moved)
+    report["client_selection"] = selection
     report.update(commit=installation["commit"], tree=installation["tree"], producer=installation["producer"])
     return report
 
@@ -458,9 +500,11 @@ def current_document_prompt(expected):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bundle", required=True)
+    parser.add_argument("--model", required=True)
+    parser.add_argument("--reasoning-effort", required=True, choices=REASONING_EFFORTS)
     args = parser.parse_args()
     try:
-        print(json.dumps(check_bundle(args.bundle), sort_keys=True))
+        print(json.dumps(check_bundle(args.bundle, model=args.model, reasoning_effort=args.reasoning_effort), sort_keys=True))
     except (EvidenceError, OSError, KeyError, TypeError, ValueError):
         print("NR-02 native evidence rejected", file=sys.stderr)
         return 1

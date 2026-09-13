@@ -14,6 +14,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parents[1] / "scripts"))
 import check_position_install as install  # noqa: E402
 import check_position_acceptance as checker  # noqa: E402
+import capture_position_session as capture  # noqa: E402
 from test_position_acceptance import build  # noqa: E402
 
 
@@ -92,7 +93,18 @@ include = ["/pyproject.toml", "/src/veqtor_mcp/__init__.py", "/src/veqtor_docx/_
 @pytest.fixture
 def bundle(tmp_path, monkeypatch):
     # Synthetic envelopes and observer receipts test the gate's structure.
-    events, expected = build(tmp_path, monkeypatch)
+    observations = {}
+
+    def observe(name, phase, expected):
+        facts = observations.setdefault(name, {})
+        # Observe the real synthetic filesystem at each session boundary, rather
+        # than manufacturing inventories only for a subset of the scenarios.
+        facts[f"docx_{phase}"] = capture.docx_hashes(expected)
+        facts[f"journal_{phase}"] = capture.journal_hash(expected)
+        if name == "moved":
+            facts[f"relocation_{phase}"] = capture.relocation_state(expected)
+
+    events, expected = build(tmp_path, monkeypatch, observer=observe)
     directory = tmp_path / "bundle"
     directory.mkdir()
     raw = json.dumps(expected).encode()
@@ -111,44 +123,32 @@ def bundle(tmp_path, monkeypatch):
     ordering = ["save", "confirm", "update", "restart", "withdraw", "moved", "changed", "missing",
                 "journal_disabled", "journal_corrupt", "other", "conflict_a", "conflict_b", "conflict_final",
                 "retry", "first_a", "first_b", "first_final", "copy_independent"]
-    sources = expected["source_files"]
-    bound = {s["path"] for r in expected["initial_positions"] for s in r["content"]["sources"]}
     for index, name in enumerate(ordering):
         data = b"\n".join(json.dumps(e).encode() for e in events[name])
         prompt = checker.restart_prompt(expected).encode() if name == "restart" else b"Synthetic capture fixture"
         if name == "moved":
             prompt = checker.current_document_prompt(expected).encode()
-        before = {}
-        if name in ordering[:5]:
-            before = {str(Path(expected["folders"]["original"]) / n): h for n, h in sources.items()}
-        elif name in {"moved", "changed", "missing", "journal_disabled", "journal_corrupt"}:
-            before = {str(Path(expected["folders"]["moved"]) / n): h for n, h in sources.items()}
-            if name == "changed":
-                before.update({str(Path(expected["folders"]["moved"]) / n): "c" * 64 for n in bound})
-            elif name != "moved":
-                for n in bound:
-                    before.pop(str(Path(expected["folders"]["moved"]) / n))
         command = ["/synthetic/codex", "exec", "--json", "--skip-git-repo-check", "--ignore-user-config", "--ephemeral",
             "-c", 'mcp_servers.veqtor_nr02.command="/synthetic/installed/python"',
             "-c", 'mcp_servers.veqtor_nr02.args=["-I","-m","veqtor_mcp.server"]',
             "-c", 'mcp_servers.veqtor_nr02.env.VEQTOR_TRACKED_CHANGE_AUTHOR="Veqtor Acceptance"',
-            "-c", 'mcp_servers.veqtor_nr02.env.VEQTOR_DISABLE_DECISION_RECORD=' + json.dumps("1" if name == "journal_disabled" else "0"), "-"]
+            "-c", 'mcp_servers.veqtor_nr02.env.VEQTOR_DISABLE_DECISION_RECORD=' + json.dumps("1" if name == "journal_disabled" else "0"),
+            "--model", "gpt-6-astra", "-c", 'model_reasoning_effort="ultra"', "-"]
         first_ns = start + index * 10000
         if name in {"conflict_b", "first_b"}:
             first_ns -= 9000
         receipt = dict(baseline_sha256=checker.sha(raw), installation_sha256=checker.sha(installed_raw),
             events_sha256=checker.sha(data), prompt_sha256=checker.sha(prompt), exit_code=0,
             started_ns=first_ns, finished_ns=first_ns + 5000, command=command,
-            server_python=installation["python"], docx_before=before, docx_after=deepcopy(before),
-            journal_before=checker.sha(b"NR-02 synthetic corrupt journal\n"),
-            journal_after=checker.sha(b"NR-02 synthetic corrupt journal\n"))
+            server_python=installation["python"], client_selection=deepcopy(expected["client_selection"]),
+            **observations[name])
         for suffix, payload in [("jsonl", data), ("prompt.txt", prompt), ("receipt.json", json.dumps(receipt).encode())]:
             (directory / f"{name}.{suffix}").write_bytes(payload)
     return directory
 
 
 def test_complete_bundle_positive_control(bundle):
-    assert checker.check_bundle(bundle)["status"] == "passed"
+    assert checker.check_bundle(bundle, model="gpt-6-astra", reasoning_effort="ultra")["status"] == "passed"
 
 
 @pytest.mark.parametrize("mutation", ["baseline_time", "stale_install", "extra_override", "no_overlap", "wrong_prompt",
@@ -192,4 +192,4 @@ def test_missing_or_weaker_observer_evidence_fails(bundle, mutation):
     if mutation != "missing_receipt":
         path.write_text(json.dumps(receipt))
     with pytest.raises((checker.EvidenceError, OSError)):
-        checker.check_bundle(bundle)
+        checker.check_bundle(bundle, model="gpt-6-astra", reasoning_effort="ultra")

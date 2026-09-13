@@ -94,3 +94,11 @@ restart reads, fresh client and server sessions, history, concurrent conflicts
 including initialization, relocation and source observations. Missing evidence
 or prose/weaker substitutes cannot pass. Review precedes final package, full
 suite, compatibility and native gates; unit tests do not claim those gates.
+
+Native acceptance baseline v2 predeclares the selected model and reasoning effort;
+prepare/capture/check interfaces all require those values explicitly. Capture
+retains isolation while binding the exact model/effort and installed MCP command
+in every receipt. Every selected matter/stage requires the complete expected
+DOCX inventory, including unbound files. The moved stage records old-root/store
+absence and exact moved snapshot hashes before and after the native read; later
+path recreation cannot stand in for or invalidate those historical observations.

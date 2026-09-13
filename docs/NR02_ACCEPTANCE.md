@@ -26,7 +26,8 @@ uv run --frozen python scripts/check_position_install.py \
   --sdist /private/gates/veqtor_mcp-0.4.2.dev0.tar.gz \
   --python /private/gates/environment/bin/python > /private/gates/installation.json
 uv run --frozen python scripts/prepare_position_acceptance.py \
-  --bundle /private/gates/native --installation /private/gates/installation.json
+  --bundle /private/gates/native --installation /private/gates/installation.json \
+  --model gpt-6-astra --reasoning-effort ultra
 ```
 
 The installation check requires clean exact H/T, the complete development source
@@ -35,7 +36,10 @@ checkout, all eleven tools, every installed Python source byte, and its producer
 fingerprint. It does not modify frozen v0.4 artifact manifests or goldens.
 `prepare_position_acceptance.py` explicitly generates synthetic DOCX setup and
 writes a private baseline **before** any position save. Five complete values,
-IDs, source hashes/refs, the update and both conflict alternatives are predeclared.
+IDs, the complete DOCX catalog (including unbound documents), source refs, the
+update, both conflict alternatives and the selected model/effort are predeclared.
+The closed baseline is `veqtor_position_baseline.v2`; earlier incomplete baselines
+and receipts do not satisfy this protocol.
 No expected wording is copied from a tool response. Keep the installation report
 and baseline intact; receipts bind their hashes and pre-run baseline time.
 
@@ -46,13 +50,21 @@ verify the selected executable's `exec --help`. The capture script requires the
 native options `--json`, `--skip-git-repo-check`, `--ignore-user-config` and
 `--ephemeral`. Authentication stays available, but user MCP configuration and
 previous dialogues are not loaded. Each launch starts a new client and installed
-server process with the single `veqtor_nr02` registration. No model override is
-made. Use native MCP calls only; shell/file actions by the model fail the checker.
+server process with the single `veqtor_nr02` registration. Because user configuration
+is ignored, preparation, capture and verification each require explicit `--model`
+and `--reasoning-effort` values. For this authorized run use `gpt-6-astra` and
+`ultra`. Capture requires them to match the predeclared baseline, passes them as
+`--model gpt-6-astra -c model_reasoning_effort="ultra"`, and records both values
+in the receipt. Verification binds them to its own required selection and checks
+the entire command, including the exact installed MCP target and fresh-session
+flags. Omitted, changed or defaulted selection cannot pass. Use native MCP calls
+only; shell/file actions by the model fail the checker.
 
 ```bash
 uv run --frozen python scripts/capture_position_session.py \
   --bundle /private/gates/native --name save \
-  --codex /absolute/native/codex --prompt-file /private/gates/prompts/save.txt
+  --codex /absolute/native/codex --model gpt-6-astra --reasoning-effort ultra \
+  --prompt-file /private/gates/prompts/save.txt
 ```
 
 Write each prompt from the fixed scenario below and `baseline.json`. Give the
@@ -61,7 +73,12 @@ result may supply **only revision/identity**, never expected wording. Every read
 must explicitly send `include_history: true, check_sources: true`. Never replace
 full readback with a final narrative, journal export, snippet or save response.
 The capture writes private raw JSONL, prompt, stderr and a receipt binding the
-command, installed report, baseline, timestamps and before/after DOCX hashes.
+command, explicit model/effort, installed report, baseline, timestamps and
+before/after DOCX hashes. For `moved`, it additionally observes the original and
+moved root/store states immediately before and after the native process. The
+original root and store must be absent in both observations, and the moved
+snapshot must have the same hash as the full independently checked native state.
+Inaccessible paths and symlinks are not evidence of absence.
 It creates files exclusively: retry a failed scenario in a fresh bundle.
 
 The fixed scenario uses IDs in baseline order (1–5):
@@ -109,16 +126,29 @@ moved `.veqtor/decision-records.jsonl` with exactly these synthetic bytes:
 The receipt requires that journal hash to remain unchanged during the position
 commit/read. The authoritative store is never altered during this setup.
 
-Every native capture requires identical before/after DOCX hashes. The checker
-also verifies independent baseline source bytes before normal/move stages,
-changed/absent old files after labelled setup, and unchanged alternative files.
+Every native capture requires identical before/after DOCX hashes and the complete
+stage-appropriate catalog for its selected matter, including unbound files. This
+applies equally to first creation, conflicts, final reads, retry and independent
+copies. Empty dictionaries, omission of one unbound file, and unrelated or remaining
+documents cannot substitute for a missing required file. The checker requires
+original baseline bytes except for explicitly changed/deleted bound sources;
+unbound alternative documents remain mandatory. The separate `other` matter
+must have an empty selected-matter DOCX catalog.
+
+Whole-folder relocation is proved by the stage-time root/store observations and
+the full native moved read, not by the absence of old DOCX names alone. Copying
+and removing only old DOCX while leaving the original store must fail. A later
+independent recreation of the old path does not invalidate recorded proof of its
+absence during the move stage; verification does not infer past absence from
+current filesystem state.
 All copied matters are independent: no synchronization or inferred current-file
 selection is part of this feature.
 
 ## Checker and non-native failure gates
 
 ```bash
-uv run --frozen python scripts/check_position_acceptance.py --bundle /private/gates/native
+uv run --frozen python scripts/check_position_acceptance.py --bundle /private/gates/native \
+  --model gpt-6-astra --reasoning-effort ultra
 ```
 
 The checker requires all 19 sessions, paired ordered native MCP starts/results,

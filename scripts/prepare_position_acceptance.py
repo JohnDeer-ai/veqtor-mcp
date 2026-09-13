@@ -10,10 +10,11 @@ import shutil
 from veqtor_docx import inspect_document
 from veqtor_docx.synthetic import generate_demo_rounds
 from capture_position_session import private_write
-from check_position_acceptance import BASELINE_SCHEMA, baseline, sha
+from check_position_acceptance import BASELINE_SCHEMA, REASONING_EFFORTS, baseline, client_selection, sha
 
 
-def prepare(directory, installation_path):
+def prepare(directory, installation_path, *, model, reasoning_effort):
+    selection = client_selection(model, reasoning_effort)
     directory, installation_path = Path(directory).absolute(), Path(installation_path)
     installation = json.loads(installation_path.read_bytes())
     source_root = Path(installation["source_root"]).resolve()
@@ -48,6 +49,7 @@ def prepare(directory, installation_path):
         content("Model proposal", "Consider a quarterly reconciliation call.", content_origin="model_proposal"),
     ]
     expected = {"schema_version": BASELINE_SCHEMA, "producer": installation["producer"], "folders": folders,
+        "client_selection": selection,
         "initial_positions": [dict(position_id=pid, version=1, content=c, confirmation=None, lifecycle="active")
                               for pid, c in zip(ids, contents)],
         "updated_content": content("Payment", "Pay within 45 days after receipt."),
@@ -64,8 +66,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bundle", required=True)
     parser.add_argument("--installation", required=True)
+    parser.add_argument("--model", required=True)
+    parser.add_argument("--reasoning-effort", required=True, choices=REASONING_EFFORTS)
     args = parser.parse_args()
-    print(prepare(args.bundle, args.installation))
+    print(prepare(args.bundle, args.installation, model=args.model, reasoning_effort=args.reasoning_effort))
 
 
 if __name__ == "__main__":
