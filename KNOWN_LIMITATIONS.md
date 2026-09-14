@@ -326,7 +326,27 @@ A post-replacement durability error can mean `commit_uncertain`; reread revision
 before retrying. Back up/move the whole matter while idle. Copies are independent,
 not synchronized, and there is no recovery from malicious edits, corrupted stores,
 hard deletion, cloud/team service, automatic history pruning or DOCX application.
-The new tools do not write provenance; their `record_status` is always `disabled`,
+The position tools do not write provenance; their `record_status` is always `disabled`,
 regardless of `VEQTOR_DISABLE_DECISION_RECORD`. Existing exports retain their old
 privacy meaning. Neither source code tests nor previous NR-01 evidence establish
-native acceptance of this new installed build. NR-03 is outside this change.
+native acceptance of an installed build.
+
+## Repeated next-round workflow (NR-03 development)
+
+The [canonical workflow](docs/prompts/next-round.md) connects existing position
+storage and supported DOCX edits; it adds no server API or storage transaction.
+It covers selected issues and user decisions, not a complete audit or mechanical
+proof of legal equivalence. Position confirmation, pending business questions,
+lifecycle and permission for exact wording remain separate. Source checks never
+rebind old anchors automatically. Fresh client-side reads detect observed drift
+but cannot guarantee atomic consistency between a position store and DOCX.
+
+Missing previous files or positions limit the brief; an unsupported mandatory
+edit blocks the output unless explicitly excluded. No edits means no new Word.
+Journal failure is reported separately from an already completed document write.
+Native repeated-round checks, independent brief assessment, adversarial scenarios
+and all-page visible-markup inspection are separate gates in
+[NR03_ACCEPTANCE.md](docs/NR03_ACCEPTANCE.md). The checker reports only the
+mechanical evidence it actually verifies, not a general acceptance verdict.
+No NR-03 final native/visual acceptance is claimed by these source instructions.
+The portable Claude prompt has not been established by a Codex run.

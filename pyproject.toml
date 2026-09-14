@@ -85,13 +85,18 @@ include = [
 
 [tool.hatch.build.targets.sdist]
 include = [
+  "/.agents/skills/veqtor-next-round/SKILL.md",
   "/docs/CODEX.md",
+  "/docs/NR03_ACCEPTANCE.md",
+  "/docs/NR03_SCENARIO.md",
+  "/docs/NR03_USER_REPLIES.md",
   "/docs/NR02_ACCEPTANCE.md",
   "/docs/evidence/codex-v0.4.0-20260911.json",
   "/docs/prompts/next-round.md",
   "/API.md",
   "/NR-01_PARAGRAPH_EDITS.md",
   "/NR-02_DEAL_POSITIONS.md",
+  "/NR-03_NEXT_ROUND.md",
   "/CHANGELOG.md",
   "/CLAUSE_HISTORY_V0.4.md",
   "/CONTRIBUTING.md",

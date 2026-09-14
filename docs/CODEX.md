@@ -2,15 +2,17 @@
 
 # Prepare the next negotiation round in Codex
 
-Connect Veqtor to local Codex, point it at the latest Word file, and state your
-negotiation positions. Codex can use Veqtor to read the wording, check evidence,
-prepare supported tracked changes, and create a new DOCX for your review.
+The development next-round workflow starts from an incoming Word file, your
+previous sent file when available, and saved negotiation positions. It produces
+a selected-issue brief, asks for missing decisions and creates a separate Word
+counterproposal with tracked changes for your review.
 
 The public installation instructions use package `0.4.0` and the nine-tool
 contract `veqtor.mcp.v0.4`. This source tree is development `0.4.2.dev0` with
 additive schema `veqtor.mcp.v0.4.2`, legacy compatibility and a distinct producer
-version/build. It adds NR-01 paragraph edits alongside the error-transport
-adapter and is not a new published release.
+version/build. It includes NR-01 paragraph edits and NR-02 saved positions
+alongside the error-transport adapter. The NR-03 workflow connects those
+capabilities; this is not a new published release.
 Use the matching [PyPI version](https://pypi.org/project/veqtor-mcp/0.4.0/) and
 [immutable GitHub release](https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/v0.4.0).
 Veqtor supports macOS and Linux with Python 3.12–3.14. Windows is outside the
@@ -90,7 +92,9 @@ browse. Use `selection={"paragraph_ref": returned_reference}` or
 `selection={"section_ref": returned_reference}` with the complete reference.
 A bare reference or paragraph index is not the read-selection object.
 
-Then use the [next-round prompt](prompts/next-round.md), setting:
+For this public `0.4.0` example, ask Veqtor to prepare the following two tracked
+changes together, verifying the exact source anchors, preflighting the complete
+batch and passing unchanged edits plus the full proof to apply:
 
 - source: `round-4-counterparty-reply.docx` in the demo folder;
 - new output: `round-5-our-counter.docx` in the same folder;
@@ -109,12 +113,43 @@ does not prove that Codex used the MCP tools. A client check must show actual
 Veqtor tool calls and the resulting file. The synthetic example also does not
 establish suitability for every real contract or independent-user acceptance.
 
-## Use it for a matter
+## Use saved positions for the next round (NR-03 development)
 
-Keep a private folder with the current DOCX and the earlier rounds you want
-considered. Give Codex the exact current file, a new output path, your positions,
-and any approved conditional concessions. Use the
-[next-round prompt](prompts/next-round.md) as a reusable starting point.
+Use an installed, verified development candidate exposing all eleven tools,
+including `read_deal_positions` and `mutate_deal_positions`. The public `0.4.0`
+registration above cannot run this complete workflow. Candidate installation and
+isolated native checks are described in [NR03_ACCEPTANCE.md](NR03_ACCEPTANCE.md);
+they do not change your permanent public MCP configuration.
+
+The source checkout and development sdist include the canonical
+[next-round prompt](prompts/next-round.md) and the thin
+[veqtor-next-round skill](../.agents/skills/veqtor-next-round/SKILL.md). With a
+local Codex task rooted at that checkout, invoke `$veqtor-next-round`. Alternatively,
+provide the exact skill path and ask Codex to read its linked workflow. Keep both
+files in the same relative layout if you copy them into another workflow folder;
+copying SKILL.md alone loses the canonical instructions. No personal skill
+installation or configuration change is required to use the explicit path.
+
+Provide the matter folder, incoming DOCX, previous sent DOCX if available, selected
+issues and a new output path. For example:
+
+> Use the Veqtor next-round workflow for this matter folder. Review payment and
+> liability in the incoming Word against our previous sent file and saved positions.
+> Give me the selected-issue brief and concrete wording for any missing decisions;
+> create the counterproposal at the new output path after those decisions.
+
+Supply absolute paths with that request. You need not repeat saved positions.
+With no store, describe your goals in ordinary language when asked; retaining a
+position and confirming its exact version are explicit decisions. With no previous
+file, the brief explains the narrower comparison. For each issue you can edit,
+leave unchanged, defer or handle it manually. An unsupported mandatory item must
+be expressly excluded before the rest can be written. No changes means no new file.
+
+For local Claude, paste the same canonical prompt and fill in its inputs. This
+portable variant has the same Veqtor requirements; native Codex checks alone do
+not establish that Claude has completed it. In a later fresh session, select the
+new incoming file, actual previous output and same matter folder; the workflow
+loads positions again without the old chat.
 
 The result should identify the new Word file, explain the changes briefly,
 and list decisions or document work still needed. Read the resulting file in
@@ -123,8 +158,10 @@ not establish that a commercial protection still works as intended.
 
 The present editing scope matters:
 
-- Writes require anchors from existing redlines. Veqtor cannot directly edit
-  an arbitrary paragraph that has no usable change-unit anchor.
+- This development build supports exact replace/delete in supported clean body
+  and table paragraphs using fresh inspection refs. Pending or unsupported
+  paragraph structures are refused. Public `0.4.0` instead requires a usable
+  existing redline anchor.
 - Supported operations are tracked replace, delete, counter, and reinstate;
   there is no general standalone insertion or Word Accept/Reject operation.
 - Counter and reinstate preserve the counterparty's pending markup.
