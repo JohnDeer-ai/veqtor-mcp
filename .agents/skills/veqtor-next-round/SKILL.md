@@ -2,7 +2,7 @@
 name: veqtor-next-round
 description: Prepare a selected-issue negotiation brief and tracked Word counterproposal with local Veqtor MCP, reusing saved positions in a later round.
 metadata:
-  version: nr03-next-round.v1
+  version: nr03-next-round.v2
 ---
 
 # Veqtor next round
@@ -12,6 +12,10 @@ Resolve that path relative to this skill directory; when distributing the skill,
 keep the same layout with the canonical file. If unavailable, report the missing
 workflow instead of reconstructing its rules. The canonical prompt is also the
 portable local Claude entrypoint.
+
+When both files have already been supplied in full, use those delivered contents
+without reopening paths or discovering other files. Native acceptance additionally
+supplies an explicit MCP-only action boundary; its external observer renders Word.
 
 Use the user's matter folder, incoming DOCX, optional previously sent DOCX, selected
 issues and new output path. Begin by reading saved positions through Veqtor; ask

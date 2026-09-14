@@ -13,8 +13,10 @@ from veqtor_docx._ooxml import W_NS, w
 from veqtor_mcp import positions
 
 from check_codex_acceptance import _digest, _file_sha256, _require
+from nr03_delivery import DELIVERY_VERSION, EXPORT_PAGE_LIMIT
 
-VERSION = "nr03-next-round.v1"
+VERSION = "nr03-next-round.v2"
+ORACLE_VERSION = "nr03-scenario.v2"
 SERVER = "veqtor_nr03"
 AUTHOR = "Veqtor Acceptance"
 MODEL = "gpt-6-astra"
@@ -22,7 +24,7 @@ EFFORTS = ("high", "xhigh")
 STAGES = ("a-brief", "a-write", "b-brief", "b-write")
 WORKFLOW_FILES = (".agents/skills/veqtor-next-round/SKILL.md", "docs/prompts/next-round.md")
 ORACLE_FILES = ("NR-03_NEXT_ROUND.md", "docs/NR03_SCENARIO.md", "docs/NR03_USER_REPLIES.md",
-                "scripts/nr03_scenario.py")
+                "scripts/nr03_scenario.py", "scripts/nr03_delivery.py", "scripts/check_next_round_journal.py")
 IDS = [f"pos_{i:032x}" for i in range(1, 6)]
 SELECTED = (2, 4, 5, 6, 7, 8, 9)
 C3 = "2. Confidential information shall be protected for three years after termination."
@@ -90,8 +92,9 @@ def intents(source_hash):
 
 
 def edit_specs(round_name):
-    # Order is not dictated to the client. The observer binds actual order to proof
-    # only after comparing the complete edits, including exact target identities.
+    # One deterministic fixture choice, not required client substring boundaries.
+    # Authorization freezes targets and full before/after text; the observer then
+    # binds the actual ordered batch and revision payloads to the entire proof.
     if round_name == "b":
         return [(2, "paragraph", "two years", "three years")]
     return [(4, "paragraph", "60 days", "45 days"), (5, "legacy", "100%", "150%"),
@@ -211,9 +214,12 @@ def seed_store(matter, *, variant="main"):
 
 
 def oracle():
-    return dict(version=VERSION, selected_indices=list(SELECTED),
+    return dict(version=ORACLE_VERSION, selected_indices=list(SELECTED),
+        acceptance_delivery=DELIVERY_VERSION, export_page_limit=EXPORT_PAGE_LIMIT,
+        journal_validation="complete-cursor-bound-pages.v1",
         full_texts={n: texts(n) for n in ("previous", "incoming-a", "counter-a", "incoming-b", "counter-b")},
-        edits={n: [list(row) for row in edit_specs(n)] for n in ("a", "b")},
+        edit_authorization="exact-target-full-before-after.v1",
+        edit_targets={n: [[index, kind] for index, kind, *_ in edit_specs(n)] for n in ("a", "b")},
         header=HEADER, footer=FOOTER, author=AUTHOR,
         initial_content=intents("0" * 64), confirmation=CONFIRM)
 

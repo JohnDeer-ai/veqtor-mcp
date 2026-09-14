@@ -77,7 +77,7 @@ def test_f04_prepared_author_isolation_restores_prior_cache(tmp_path, monkeypatc
     assert server._tracked_change_author() == ("Earlier cached author" if warmed else "Prior environment author")
 
 
-def native_stage(bundle, b, installation, stage, monkeypatch):
+def native_stage(bundle, b, installation, stage, monkeypatch, *, edit_transform=None, export_page_size=20):
     r, phase = stage.split("-")
     thread = f"synthetic-client-{r}"
     monkeypatch.setattr(positions, "SERVER_SESSION_ID", ("1" if r == "a" else "2") * 32)
@@ -111,6 +111,8 @@ def native_stage(bundle, b, installation, stage, monkeypatch):
     else:
         units = add("extract_redlines", path=source)["change_units"]
         edits = checker.expected_edits(source, r)
+        if edit_transform:
+            edit_transform(edits, rows)
         # Deliberately reverse the order: intended target/wording set is fixed,
         # but a workflow is free to choose an order before preflight.
         edits.reverse()
@@ -132,7 +134,13 @@ def native_stage(bundle, b, installation, stage, monkeypatch):
             add("inspect_document", path=output, mode="read", selection={"paragraph_ref": row["paragraph_ref"]})
             add("verify_quote", path=output, anchor=row["paragraph_ref"], quote=row["text"], paragraph_projection="accepted_current_v1")
             add("verify_quote", path=output, anchor=unit["anchor"], quote=edit["delete_text"])
-        add("export_decision_record", workspace=b["matter"], max_records=500)
+        cursor = None
+        while True:
+            page = add("export_decision_record", workspace=b["matter"], max_records=export_page_size,
+                       **({"before_record_id": cursor} if cursor else {}))
+            if not page["truncated"]:
+                break
+            cursor = page["next_before_record_id"]
     events.append(dict(type="item.completed", item=dict(id="message", type="agent_message", text="Synthetic memo/result. Human assessment remains open.")))
     events.append(dict(type="turn.completed"))
     event_path = bundle / f"{stage}.jsonl"

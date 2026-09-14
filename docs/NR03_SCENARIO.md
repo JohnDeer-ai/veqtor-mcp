@@ -1,14 +1,22 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# NR-03 independent synthetic scenario v1
+# NR-03 independent synthetic scenario v2
 
-Preimplementation oracle, frozen before native MCP answers. All parties, terms
+Pre-capture oracle, frozen before each new native run. All parties, terms
 and files are invented for workflow testing, not legal guidance or client data.
 This file specifies complete semantic fixture contents; materialized DOCX/JSON
 bytes and their immutable hash manifest will be prepared outside checkout before
 native capture. Preparation is synthetic, not native acceptance. The native model
 receives the delivered workflow and ordinary user input, not this oracle, expected
 outputs, fixture-generation code or preselected MCP calls/anchors.
+
+Oracle v2 corrects F05–F07/E1 for future frozen runs: user-authorized targets and complete
+exact before/after texts determine the permitted changes. Client substring
+boundaries are not predetermined. Workflow v2 delivers the strict MCP-only acceptance
+boundary and bounded, fully checked action-record pagination. Original v1 baselines
+and failed native captures remain immutable and retain their original failed or
+unclosed status; they must not be relabeled using this revised oracle. A new
+baseline freezes this oracle version and its source hashes before new capture.
 
 ## Documents and full paragraph texts
 
@@ -81,7 +89,12 @@ followed by one pending insertion of `100%`, revision id `10`, author
 is clean. This tests a supported legacy counter alongside clean body/table edits.
 
 After round one, preserve that exact prior insertion, now with the nested counter
-deletion required by the existing API. The complete new revision payloads are:
+deletion required by the existing API. Exactly one supported replacement per
+authorized target must produce the complete before/after paragraph texts above,
+including the full guarantee condition together with the payment concession.
+The exact source-bound paragraph ref or legacy anchor must match that target.
+The following payloads are one deterministic fixture choice, not mandatory
+substring boundaries for the client:
 
 | Target | New deletion | New insertion | Shape |
 | --- | --- | --- | --- |
@@ -95,19 +108,32 @@ insertion. All new revisions use `Veqtor Acceptance`, no date and unique support
 IDs distinct from `10`. Exact lexical ID allocation is an implementation detail:
 independently record the IDs returned by apply and require the complete actual
 output multiset (kind, ID, author, date, text and paragraph/nesting) to match those
-IDs and the predeclared payloads. Do not infer expected text from output. Reject
-extra/missing revisions and changes to the original insertion beyond the required
-counter nesting. No rewrite/replacement of entire unrelated paragraphs is allowed.
+IDs and the actual authorized preflight/apply payloads. Before checking execution,
+require each nonempty deletion to occur exactly once in the frozen full source
+paragraph and its literal replacement to yield the exact frozen full result.
+For example, P4 `60` → `45`, `60 days` → `45 days`, or complete T60 → T45 are
+permitted only with the same exact target, complete guarantee and other required
+edits. Legacy edits must also pass the existing exact-unit read, quote and revision
+checks. Missing, duplicate or extra targets and any other result fail.
 
-`incoming-b.docx` is a synthetic follow-on snapshot prepared with the fixed
-counter-a text/revision structure above and only C3 → C2 in clean P2. It retains
-all round-one revision facts; before starting round two, independently compare
-them with the actual counter-a. If byte details such as allocated IDs are needed,
-the preparation template may bind those opaque IDs from actual first output,
-but never derive legal/text expectations from it. Freeze and hash the resulting
-incoming-b before its native session. Its only native change is `two years` →
-`three years` in P2, adding exactly two revisions by `Veqtor Acceptance`; preserve
-all nine incoming revision elements and every other paragraph. This avoids trying
+Keep exact native reads and verification of the actual deletion, identical
+ordered edits and entire proof in preflight/apply, exact new/prior revision
+identities, full output readback and independent formatting/collateral checks.
+Matching final text alone is insufficient. Do not infer expected text from output.
+Reject extra/missing revisions and changes to the original insertion beyond the
+required counter nesting. No rewrite/replacement of entire unrelated paragraphs
+is allowed.
+
+`incoming-b.docx` is a synthetic follow-on snapshot prepared from the verified
+actual counter-a with the fixed full text and revision guarantees above, and only
+C3 → C2 in clean P2. It retains all round-one revision facts; before starting round
+two, independently compare
+them with the actual counter-a, including its authorized substring payloads and
+allocated IDs; never derive full legal/text expectations from it. Freeze and hash
+the resulting incoming-b before its native session. Its only native change is
+C2 → C3 in P2 (for example, `two years` → `three years`), adding exactly two
+revisions by `Veqtor Acceptance`; preserve all nine incoming revision elements and
+every other paragraph. This avoids trying
 to edit the first round's own pending revisions using a clean paragraph target.
 
 ## Complete initial saved positions

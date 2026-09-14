@@ -2,7 +2,7 @@
 
 # Prepare the next negotiation round
 
-Workflow version: `nr03-next-round.v1`. For local Codex or Claude with Veqtor
+Workflow version: `nr03-next-round.v2`. For local Codex or Claude with Veqtor
 connected; NR-01 paragraph edits and NR-02 positions require development
 `0.4.2.dev0` / `veqtor.mcp.v0.4.2` or a subsequently verified compatible build.
 The published `0.4.0` nine-tool installation does not supply this whole workflow.
@@ -116,10 +116,23 @@ uses the actual output file hash and SHA-256 of the empty string for its text ha
 it must resolve through a direct read. Never replace full readback with a snippet.
 Check each issue's final wording, dependent conditions and unaffected agreed text.
 
-Export available action records from the exact matter folder, paging as needed.
-The action journal is separate from saved positions and best-effort: a failed or
-unavailable export does not undo an already successful write, and a journal entry
-cannot substitute for checking the actual file. Report both outcomes accurately.
+Export available action records from the exact matter folder with max_records
+at most 20 per page. Start without before_record_id, then use each returned
+next_before_record_id as the next before_record_id until truncated=false and
+next_before_record_id=null. Keep every complete page. This limit reduces response
+size; even one large record may exceed a client's transport capacity. Require the
+actual complete, consistent result payloads; a summary or surviving structured
+fragment cannot replace a missing/clipped text result. The API truncated flag
+describes pagination, not transport completeness.
+
+Distinguish a complete export, an actual API export failure/unavailable journal,
+and missing, truncated or otherwise unverifiable transport evidence. The action
+journal is separate from saved positions and best-effort. An export problem does
+not undo a successful Word write; retain that result and report the journal/evidence
+limitation accurately without claiming complete export. Preserve anomalous responses.
+Do not initialize/repair the journal, resend the contract, repeat the document write
+or silently replace a clipped response with later evidence. A journal entry cannot
+substitute for checking the actual file.
 
 Return the actual new Word link only if created, what changed/was left, open business
 questions, exclusions/manual work and which checks passed or failed. State whether

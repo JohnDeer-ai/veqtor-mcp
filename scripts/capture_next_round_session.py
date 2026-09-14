@@ -11,6 +11,7 @@ import time
 from capture_position_session import private_write
 from check_codex_acceptance import _file_sha256, _require
 from nr03_scenario import AUTHOR, EFFORTS, MODEL, SERVER, STAGES, WORKFLOW_FILES
+from nr03_delivery import delivered_prompt
 from position_source_launch import SERVER_ARGS
 from prepare_next_round_acceptance import state, write_json
 
@@ -54,15 +55,7 @@ def prompt_for(directory, stage, baseline):
     user = stimulus(directory, stage, baseline)
     if stage.endswith("write"):
         return user
-    # Loading the exact shipped skill and resolving its sole workflow reference is
-    # deterministic delivery, not a replacement task or predetermined MCP script.
-    parts = ["Use this delivered Veqtor skill and its complete resolved canonical workflow. "
-             "The user request follows. Use MCP for matter operations; the observer handles rendering separately."]
-    for name in WORKFLOW_FILES:
-        raw = (Path(directory) / "workflow" / name).read_text()
-        parts.append(f"<delivered-file path={json.dumps(name)}>\n{raw}\n</delivered-file>")
-    parts.append("<user-request>\n" + user + "\n</user-request>")
-    return "\n\n".join(parts)
+    return delivered_prompt(directory, user, WORKFLOW_FILES)
 
 
 def command_for(codex, python, stage, *, model, reasoning_effort, thread_id=None, journal_disabled=False):

@@ -11,7 +11,7 @@ construct synthetic envelopes around real local tool results; they test the chec
 not native Codex behavior. The checker never decides legal equivalence.
 
 The server/API/storage identity remains `0.4.2.dev0` / `veqtor.mcp.v0.4.2`.
-The workflow has separate version `nr03-next-round.v1` and hashes for both the
+The workflow has separate version `nr03-next-round.v2` and hashes for both the
 canonical prompt and thin skill. All code and commands below are maintainer
 acceptance tooling in the source checkout; the sdist also delivers the prompt,
 skill and their documents, while the wheel remains the MCP runtime.
@@ -169,6 +169,39 @@ P0–P2, required checks on current H/B/M, DCO/policy, mergeability and actual
 non-Draft PR. No merge, release, external send or later NR stage is implied.
 
 ## Operator-controlled observation capture
+
+Both main and observation starters use the same versioned acceptance-client
+delivery: the exact two workflow files are included in full with their paths and
+hashes. All client tool actions, including output/existence checks, use Veqtor MCP
+only. Shell, Python, filesystem/skill/renderer discovery, unrelated access/settings
+and send are forbidden; the external observer renders. Resumed turns retain that
+boundary through their verified original conversation and receipt ancestry. Do not
+resume an old rejected parent or add an environment-only shell exception.
+
+Workflow v2 requests at most 20 action records per page and follows the actual
+returned before-record cursors to termination. NR-03 checks complete native payload
+pairs, page order/counts/cursors and full preflight/apply provenance across pages.
+Record IDs need not be contiguous: access events are deliberately excluded. The
+NR-01/NR-02 checkers and server API remain unchanged. The NR-03 document adapter
+pins its existing NR-01/legacy dependency hashes. It runs NR-01 against unchanged
+document-tool events, propagates every document failure, and replaces only the
+known final same-page journal predicate with its complete page check; it then
+repeats final source/output hashes and checks the position store again. A dependency
+change requires review before this adapter can run. No merged export event is
+fabricated for NR-01, and the resulting report is explicitly an NR-03 report.
+
+The 20-record bound is a campaign size precaution, not a universal transport
+guarantee. Missing/clipped/inconsistent text or structured payloads fail the strict
+turn even if a surviving object says truncated=false. Keep the successful Word
+result separate from incomplete journal evidence or an actual API export failure;
+do not repair/initialize the journal or repeat the document write. Preserve original
+failed captures/baselines. Only newly frozen bundles/conversations can exercise the
+reviewed recovery; old observations retain their original status and hashes.
+
+Synthetic delivery/page controls establish checker behavior only. Closure still
+requires new genuine native pages, injection turns with zero non-MCP actions and
+unchanged injected data, and multi-turn cases reaching their planned refusal,
+reread and exclusion steps, followed by actual-output-dependent and visual gates.
 
 For the additional conversational/timed cases, prepare a separate variant matter.
 Create a private JSON plan before any native answer for that observation with

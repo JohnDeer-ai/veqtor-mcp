@@ -18,6 +18,7 @@ import time
 from check_codex_acceptance import _file_sha256, _json, _read, _require
 from capture_next_round_session import command_for
 from nr03_scenario import EFFORTS, MODEL, WORKFLOW_FILES
+from nr03_delivery import delivered_prompt, validate_export_limits
 from nr03_fault import FAULT, fault_args
 from prepare_next_round_acceptance import installed, read_json, state, write_json
 
@@ -80,8 +81,9 @@ def resume_parent(folder, plan, frozen, parent, producer):
                  and receipt["plan_sha256"] == plan_hash
                  and receipt["installation_sha256"] == frozen["installation_sha256"],
                  "observation parent did not complete this frozen plan")
-        thread, _, _ = parse_native([_json(line) for line in raw.decode().splitlines()], producer,
-                                    require_tool_calls=False)
+        thread, calls, _ = parse_native([_json(line) for line in raw.decode().splitlines()], producer,
+                                        require_tool_calls=False)
+        validate_export_limits(calls)
         _require(receipt.get("resumed_thread_id") == original_thread,
                  "observation requested thread differs from the original conversation")
         _require(original_thread is None or thread == original_thread,
@@ -116,8 +118,7 @@ def capture(bundle, step_id, codex, *, model, reasoning_effort):
     if step["resume"] is not None:
         resume, parent_hash, cwd = resume_parent(folder, plan, frozen, step["resume"], report["producer"])
     else:
-        prompt = "Use this delivered Veqtor skill and resolved workflow for the user request below.\n\n" + "\n\n".join(
-            (bundle / "workflow" / name).read_text() for name in WORKFLOW_FILES) + "\n\n" + prompt
+        prompt = delivered_prompt(bundle, prompt, WORKFLOW_FILES)
     command = command_for(codex, report["python"], "a-write" if resume else "a-brief",
         model=model, reasoning_effort=reasoning_effort, thread_id=resume,
         journal_disabled=b["variant"] == "journal-unavailable")

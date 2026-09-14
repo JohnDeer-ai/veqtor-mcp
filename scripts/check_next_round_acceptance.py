@@ -8,7 +8,6 @@ cannot authenticate an operator or log, or decide legal equivalence.
 from __future__ import annotations
 
 import argparse
-from collections import Counter
 from copy import deepcopy
 import hashlib
 import json
@@ -26,6 +25,8 @@ from check_codex_acceptance import (
     EvidenceError, REQUIRED_TOOLS, _digest, _file_sha256, _json, _read, _require,
 )
 from capture_next_round_session import command_for, prompt_for
+from check_next_round_journal import validate_document_and_journal
+from nr03_delivery import validate_export_limits
 from nr03_scenario import (
     AUTHOR, C2, C3, CONFIRM, EFFORTS, IDS, MODEL, ORACLE_FILES, SELECTED, SERVER, VERSION, WORKFLOW_FILES,
     assert_oracle, document, edit_specs, intents, source_manifest, texts,
@@ -204,6 +205,7 @@ def load_stage(directory, stage, b, installation):
                  and second["prepared_ns"] < receipt["started_ns"], "second input was not frozen before native session")
     decoded = [_json(line) for line in events.decode().splitlines()]
     thread, calls, messages = parse_native(decoded, installation["producer"])
+    validate_export_limits(calls)
     if resumed:
         _require(thread == resumed, "write resumed another brief")
     return dict(receipt=receipt, events=decoded, thread=thread, calls=calls, messages=messages)
@@ -272,6 +274,7 @@ def actual_texts(path):
 
 
 def expected_edits(source, round_name):
+    """One fixture edit choice; its exact addresses also bind authorized targets."""
     rows = inspect_document(source, mode="browse", max_items=100)["paragraphs"]
     refs = {row["paragraph_ref"]["paragraph_index"]: row["paragraph_ref"] for row in rows}
     units = extract_redlines(source)["change_units"]
@@ -281,6 +284,37 @@ def expected_edits(source, round_name):
             "anchor": next(u["anchor"] for u in units if u["reference"]["paragraph_index"] == index and u["new_text"] == old)}
         edits.append(dict(address, delete_text=old, insert_text=new))
     return edits
+
+
+def authorize_edits(source, round_name, edits):
+    """Bind each input edit to a frozen target and exact full before/after text.
+
+    Substring boundaries are chosen by the client. They are not inferred from
+    the output or a claim of legal equivalence. NR-01 subsequently requires the
+    actual delete quote, ordered preflight/apply batch and entire proof, exact
+    new/prior revisions, full output reads and independent formatting/collateral.
+    """
+    before, after = (texts(name) for name in (
+        "incoming-a" if round_name == "a" else "incoming-b", f"counter-{round_name}"))
+
+    def address(edit):
+        return _digest({key: value for key, value in edit.items() if key not in {"delete_text", "insert_text"}})
+
+    targets = {address(edit): index for (index, *_), edit in zip(
+        edit_specs(round_name), expected_edits(source, round_name))}
+    _require(isinstance(edits, list) and len(edits) == len(targets),
+             "authorized complete edit set differs from frozen decisions/targets")
+    for edit in edits:
+        _require(isinstance(edit, dict), "authorized edit is malformed")
+        index = targets.pop(address(edit), None)
+        _require(index is not None, "authorized target missing, repeated or different")
+        old, new = edit.get("delete_text"), edit.get("insert_text")
+        _require(isinstance(old, str) and old and isinstance(new, str), "authorized exact replacement text missing")
+        start = before[index].find(old)
+        _require(start >= 0 and before[index].find(old, start + 1) < 0,
+                 "authorized deletion is not unique in full source paragraph")
+        _require(before[index][:start] + new + before[index][start + len(old):] == after[index],
+                 "authorized full before/after result differs from frozen decision")
 
 
 def scope(calls, b, r):
@@ -326,10 +360,8 @@ def check_round(directory, r, *, loaded=None):
         for index in SELECTED:
             _require(exact_read_quote(brief["calls"], path, index, texts(name)[index], upper=brief["messages"][-1]["event_index"]),
                      "selected-issue brief lacks full verified current/previous evidence")
-    intended = expected_edits(source, r)
     ordered = pres[0]["arguments"].get("edits")
-    _require(isinstance(ordered, list) and Counter(map(_digest, ordered)) == Counter(map(_digest, intended)),
-             "authorized complete edit set differs from frozen decisions/targets")
+    authorize_edits(source, r, ordered)
     source_hashes = b["initial_state"]["docx"].copy()
     if r == "b":
         second = read_json(directory / "round-b-baseline.json")
@@ -359,12 +391,15 @@ def check_round(directory, r, *, loaded=None):
     _require(write["receipt"]["after"] == final, "post-write inventory contains partial/extra/mutated data")
     rows = [dict(paragraph_index=i, before=texts(before_name)[i], after=texts(after_name)[i])
             for i, *_ in edit_specs(r)]
-    report = paragraphs.validate_evidence(document_only(write["events"]), dict(
+    report = validate_document_and_journal(document_only(write["events"]), dict(
         schema_version=paragraphs.BASELINE_SCHEMA, server_name=SERVER, producer=installation["producer"],
         source_sha256=source_hashes, source_path=source, output_path=output, output_absent_before=True,
-        expected_edits=ordered, expected_paragraphs=rows, tracked_change_author=AUTHOR))
+        expected_edits=ordered, expected_paragraphs=rows, tracked_change_author=AUTHOR), write["calls"], write["thread"])
+    _require(_file_sha256(str(Path(b["matter"]) / ".veqtor" / "deal-positions.json")) == initial["store_sha256"],
+             "saved store drifted during evidence verification")
     # NR-01 independently checks structure/text/revisions, including markup from
-    # earlier rounds on untouched paragraphs, and the final compact action records.
+    # earlier rounds on untouched paragraphs. NR-03 checks complete cursor-bound
+    # action-record pages without altering NR-01's independent same-page profile.
     return dict(round=r, client_thread=brief["thread"], server_sessions=sorted({first_read} | write_sessions),
                 output=output, output_sha256=report["output_sha256"], mechanical=report,
                 brief_message_sha256=_digest(brief["messages"]), result_message_sha256=_digest(write["messages"]))
