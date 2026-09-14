@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""NR03-F01/F02 regressions: synthetic capture and causal evidence, never native acceptance."""
+"""NR03-F01/F02/F03 regressions: synthetic capture/evidence, never native acceptance."""
 from copy import deepcopy
 import json
 from types import SimpleNamespace
@@ -67,6 +67,130 @@ def test_f01_no_tool_refusal_can_resume_explicit_exclusion(prepared, monkeypatch
     assert receipt["acceptance_assessed"] is False
     with pytest.raises(checker.EvidenceError, match="required tool calls"):
         checker.parse_native(parent, report["producer"])
+
+
+@pytest.mark.parametrize("with_tools", [False, True])
+def test_f03_foreign_parent_cannot_launch_exclusion(prepared, monkeypatch, tmp_path, with_tools):
+    bundle, b, _ = prepared
+    monkeypatch.setattr(observation, "installed", lambda value: value)
+    plan = dict(scenario="foreign native conversation after requested resume",
+        expected=dict(result="refuse before launching exclusion"),
+        steps=[dict(id="brief", resume=None, prompt="Read saved positions."),
+               dict(id="mandatory", resume="brief", prompt="The header change is mandatory; no partial output."),
+               dict(id="exclude", resume="mandatory", prompt="Exclude the header and proceed with the agreed batch.")])
+    path = tmp_path / "plan.json"
+    json_write(path, plan)
+    observation.freeze(bundle, path)
+    launches = []
+
+    def emit(command, *, input, cwd, stdout, stderr, check):
+        index = len(launches)
+        launches.append(command)
+        payload = server.read_deal_positions(folder=b["matter"], check_sources=True) if with_tools or index == 0 else None
+        events = turn("synthetic-root-A" if index == 0 else "synthetic-foreign-B", payload=payload, folder=b["matter"])
+        stdout.write(("\n".join(json.dumps(e) for e in events) + "\n").encode())
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(observation.subprocess, "run", emit)
+    for step in ("brief", "mandatory"):
+        assert observation.capture(bundle, step, "/synthetic/codex", model=MODEL, reasoning_effort="high") == 0
+    assert launches[1][-2] == "synthetic-root-A"
+    with pytest.raises(checker.EvidenceError, match="observation.*thread"):
+        observation.capture(bundle, "exclude", "/synthetic/codex", model=MODEL, reasoning_effort="high")
+    assert len(launches) == 2
+    assert not (bundle / "observations/exclude.prompt.txt").exists()
+    assert prep.state(b["matter"]) == b["initial_state"]
+
+
+@pytest.mark.parametrize("fault", [None, "foreign_ancestor", "forged_resume", "replaced_root",
+                                  "broken_ancestor_link", "resumed_root", "missing_ancestor"])
+def test_f03_original_conversation_survives_multiple_no_tool_followups(prepared, monkeypatch, tmp_path, fault):
+    bundle, b, _ = prepared
+    monkeypatch.setattr(observation, "installed", lambda value: value)
+    ids = ["brief", "mandatory", "clarify", "exclude"]
+    plan = dict(scenario="original conversation through multiple no-tool followups",
+        expected=dict(result="preserve original conversation and reject incomplete or changed ancestry"),
+        steps=[dict(id=name, resume=ids[i - 1] if i else None, prompt="Synthetic user followup: " + name)
+               for i, name in enumerate(ids)])
+    path = tmp_path / "plan.json"
+    json_write(path, plan)
+    observation.freeze(bundle, path)
+    folder = bundle / "observations"
+    launches = []
+
+    def emit(command, *, input, cwd, stdout, stderr, check):
+        launches.append(command)
+        stdout.write(("\n".join(json.dumps(e) for e in turn("synthetic-root-A")) + "\n").encode())
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(observation.subprocess, "run", emit)
+    for name in ids[:-1]:
+        assert observation.capture(bundle, name, "/synthetic/codex", model=MODEL, reasoning_effort="high") == 0
+    if fault is not None:
+        ancestor = "brief" if fault in {"replaced_root", "resumed_root"} else "mandatory"
+        receipt_path = folder / f"{ancestor}.receipt.json"
+        receipt = prep.read_json(receipt_path)
+        if fault in {"foreign_ancestor", "forged_resume", "replaced_root"}:
+            events_path = folder / f"{ancestor}.jsonl"
+            events = [json.loads(line) for line in events_path.read_text().splitlines()]
+            events[0]["thread_id"] = "synthetic-foreign-B"
+            events_path.write_text("\n".join(json.dumps(e) for e in events) + "\n")
+            receipt["events_sha256"] = checker._file_sha256(str(events_path))
+            if fault == "forged_resume":
+                # Self-consistent intermediate request/result cannot replace the original identity.
+                receipt["resumed_thread_id"] = receipt["command"][-2] = "synthetic-foreign-B"
+        elif fault == "broken_ancestor_link":
+            receipt["parent_receipt_sha256"] = "0" * 64
+        elif fault == "resumed_root":
+            receipt["resumed_thread_id"] = "synthetic-root-A"
+        else:
+            (folder / "mandatory.jsonl").unlink()
+        json_write(receipt_path, receipt)
+        # Keep downstream hashes valid so a shallow check of the direct parent
+        # still sees a complete A turn, an A resume target and matching evidence.
+        for index in range(ids.index(ancestor) + 1, 3):
+            child = folder / f"{ids[index]}.receipt.json"
+            value = prep.read_json(child)
+            value["parent_receipt_sha256"] = checker._file_sha256(str(folder / f"{ids[index - 1]}.receipt.json"))
+            json_write(child, value)
+        with pytest.raises(checker.EvidenceError):
+            observation.capture(bundle, "exclude", "/synthetic/codex", model=MODEL, reasoning_effort="high")
+        assert len(launches) == 3
+        assert not (folder / "exclude.prompt.txt").exists()
+    else:
+        assert observation.capture(bundle, "exclude", "/synthetic/codex", model=MODEL, reasoning_effort="high") == 0
+        assert len(launches) == 4
+    assert all(command[-2] == "synthetic-root-A" for command in launches[1:])
+    assert prep.state(b["matter"]) == b["initial_state"]
+
+
+def test_f03_independent_roots_and_declared_branches_remain_valid(prepared, monkeypatch, tmp_path):
+    bundle, b, _ = prepared
+    monkeypatch.setattr(observation, "installed", lambda value: value)
+    parents = [("root-a", None), ("first-a", "root-a"), ("root-b", None), ("first-b", "root-b"),
+               ("branch-a", "root-a"), ("next-a", "first-a")]
+    plan = dict(scenario="independent roots and branches", expected=dict(result="resume each declared original conversation"),
+                steps=[dict(id=name, resume=parent, prompt="Synthetic followup: " + name) for name, parent in parents])
+    path = tmp_path / "plan.json"
+    json_write(path, plan)
+    observation.freeze(bundle, path)
+    launches = []
+
+    def emit(command, *, input, cwd, stdout, stderr, check):
+        index = len(launches)
+        thread = "synthetic-root-B" if index in (2, 3) else "synthetic-root-A"
+        launches.append(command)
+        if parents[index][1] is not None:
+            assert command[-2] == thread
+        assert cwd.name == ("client-root-b" if index in (2, 3) else "client-root-a")
+        stdout.write(("\n".join(json.dumps(e) for e in turn(thread)) + "\n").encode())
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(observation.subprocess, "run", emit)
+    for name, _ in parents:
+        assert observation.capture(bundle, name, "/synthetic/codex", model=MODEL, reasoning_effort="high") == 0
+    assert len(launches) == len(parents)
+    assert prep.state(b["matter"]) == b["initial_state"]
 
 
 def move_document_start(events, boundary):
@@ -151,7 +275,7 @@ def test_f01_malformed_refusal_parent_cannot_launch_exclusion(prepared, monkeypa
     assert prep.state(b["matter"]) == b["initial_state"]
 
 
-def test_f01_f02_combined_parser_and_order_guarantees_with_controls(evidence):
+def test_f01_f02_f03_combined_chain_parser_and_order_guarantees_with_controls(evidence, monkeypatch, tmp_path):
     bundle, b, report = evidence
     assert checker.check_bundle(bundle)["status"] == "mechanical_evidence_passed"
     originals = {path: path.read_bytes() for path in bundle.iterdir() if path.is_file()}
@@ -179,7 +303,18 @@ def test_f01_f02_combined_parser_and_order_guarantees_with_controls(evidence):
 
     cases = [no_tools, lambda e: move_document_start(e, "item.started"),
              lambda e: move_document_start(e, "item.completed"), failed_early_document]
-    for mutation in cases:
+    monkeypatch.setattr(observation, "installed", lambda value: value)
+    plan = dict(scenario="combined foreign conversation, no-tool and early-document variants",
+        expected=dict(result="refuse foreign continuation and main evidence with missing or late recovery"),
+        steps=[dict(id=f"{stage}-{i}", resume=f"{parent}-{i}" if parent else None,
+                    prompt="Synthetic combined check: " + stage)
+               for i in range(len(cases)) for stage, parent in (("brief", None), ("parent", "brief"), ("exclude", "parent"))])
+    plan_path = tmp_path / "combined-plan.json"
+    json_write(plan_path, plan)
+    observation.freeze(bundle, plan_path)
+    valid_events = [json.loads(line) for line in (bundle / "b-brief.jsonl").read_text().splitlines()]
+    matter_before = prep.state(b["matter"])
+    for index, mutation in enumerate(cases):
         restore()
         mutate_events(bundle, "b-brief", mutation)
         raw = [json.loads(line) for line in (bundle / "b-brief.jsonl").read_text().splitlines()]
@@ -190,6 +325,25 @@ def test_f01_f02_combined_parser_and_order_guarantees_with_controls(evidence):
             assert calls[0]["tool"] == "read_deal_positions"  # Completion order still looks plausible.
         with pytest.raises(checker.EvidenceError):
             checker.check_bundle(bundle)
+        foreign_events = deepcopy(raw)
+        foreign_events[0]["thread_id"] = "synthetic-foreign-B"
+        launches = []
+
+        def emit(command, *, input, cwd, stdout, stderr, check):
+            events = foreign_events if launches else valid_events
+            launches.append(command)
+            stdout.write(("\n".join(json.dumps(e) for e in events) + "\n").encode())
+            return SimpleNamespace(returncode=0)
+
+        monkeypatch.setattr(observation.subprocess, "run", emit)
+        for stage in ("brief", "parent"):
+            assert observation.capture(bundle, f"{stage}-{index}", "/synthetic/codex", model=MODEL, reasoning_effort="high") == 0
+        assert launches[1][-2] == valid_events[0]["thread_id"]
+        with pytest.raises(checker.EvidenceError, match="observation.*thread"):
+            observation.capture(bundle, f"exclude-{index}", "/synthetic/codex", model=MODEL, reasoning_effort="high")
+        assert len(launches) == 2
+        assert not (bundle / f"observations/exclude-{index}.prompt.txt").exists()
+        assert prep.state(b["matter"]) == matter_before
 
     restore()
     # Independent document reads may overlap once position recovery is complete.

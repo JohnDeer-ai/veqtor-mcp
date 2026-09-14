@@ -55,8 +55,46 @@ def freeze(bundle, plan_file):
         (folder / ("client-" + step["id"])).mkdir(mode=0o700)
 
 
-def capture(bundle, step_id, codex, *, model, reasoning_effort):
+def resume_parent(folder, plan, frozen, parent, producer):
+    """Bind every completed ancestor to the original native conversation."""
     from check_next_round_acceptance import parse_native
+    by_id = {step["id"]: step for step in plan["steps"]}
+    chain = []
+    while parent is not None:
+        chain.append(parent)
+        parent = by_id[parent]["resume"]
+    cwd = folder / ("client-" + chain[-1])
+    plan_hash = _file_sha256(str(folder / "plan.json"))
+    original_thread = None
+    parent_hash = None
+    for ancestor in reversed(chain):
+        receipt_path = folder / f"{ancestor}.receipt.json"
+        events_path = folder / f"{ancestor}.jsonl"
+        _require(all(path.is_file() and not path.is_symlink() for path in (receipt_path, events_path)),
+                 "observation ancestor evidence is missing or is a symlink")
+        receipt_raw = _read(receipt_path)
+        receipt = _json(receipt_raw.decode())
+        raw = _read(events_path)
+        _require(receipt["events_sha256"] == hashlib.sha256(raw).hexdigest()
+                 and receipt["exit_code"] == 0 and receipt["step"] == ancestor
+                 and receipt["plan_sha256"] == plan_hash
+                 and receipt["installation_sha256"] == frozen["installation_sha256"],
+                 "observation parent did not complete this frozen plan")
+        thread, _, _ = parse_native([_json(line) for line in raw.decode().splitlines()], producer,
+                                    require_tool_calls=False)
+        _require(receipt.get("resumed_thread_id") == original_thread,
+                 "observation requested thread differs from the original conversation")
+        _require(original_thread is None or thread == original_thread,
+                 "observation returned thread differs from the requested resume target")
+        _require(receipt.get("parent_receipt_sha256") == parent_hash,
+                 "observation parent receipt chain differs")
+        _require(receipt["cwd"] == str(cwd), "observation parent working directory differs")
+        original_thread = thread
+        parent_hash = hashlib.sha256(receipt_raw).hexdigest()
+    return original_thread, parent_hash, cwd
+
+
+def capture(bundle, step_id, codex, *, model, reasoning_effort):
     bundle = Path(bundle).absolute()
     folder = bundle / "observations"
     frozen = read_json(folder / "plan.json")
@@ -76,23 +114,7 @@ def capture(bundle, step_id, codex, *, model, reasoning_effort):
     parent_hash = None
     cwd = folder / ("client-" + step_id)
     if step["resume"] is not None:
-        parent = step["resume"]
-        parent_receipt = read_json(folder / f"{parent}.receipt.json")
-        raw = _read(folder / f"{parent}.jsonl")
-        _require(parent_receipt["events_sha256"] == hashlib.sha256(raw).hexdigest()
-                 and parent_receipt["exit_code"] == 0 and parent_receipt["step"] == parent
-                 and parent_receipt["plan_sha256"] == _file_sha256(str(folder / "plan.json"))
-                 and parent_receipt["installation_sha256"] == frozen["installation_sha256"],
-                 "observation parent did not complete this frozen plan")
-        resume, _, _ = parse_native([_json(line) for line in raw.decode().splitlines()], report["producer"],
-                                    require_tool_calls=False)
-        parent_hash = _file_sha256(str(folder / f"{parent}.receipt.json"))
-        by_id = {s["id"]: s for s in plan["steps"]}
-        root_step = by_id[parent]
-        while root_step["resume"] is not None:
-            root_step = by_id[root_step["resume"]]
-        cwd = folder / ("client-" + root_step["id"])
-        _require(parent_receipt["cwd"] == str(cwd), "observation parent working directory differs")
+        resume, parent_hash, cwd = resume_parent(folder, plan, frozen, step["resume"], report["producer"])
     else:
         prompt = "Use this delivered Veqtor skill and resolved workflow for the user request below.\n\n" + "\n\n".join(
             (bundle / "workflow" / name).read_text() for name in WORKFLOW_FILES) + "\n\n" + prompt
