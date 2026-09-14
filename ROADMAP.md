@@ -26,11 +26,11 @@ document facts and deterministic writes; it does not claim legal correctness.
 - Bounded DOCX/ZIP processing and versioned installation from PyPI, with the
   same verified wheel, sdist and checksum manifest on GitHub Releases.
 
-## Public 0.4.0 and development 0.4.1.dev1
+## Public 0.4.0 and development 0.4.2.dev0
 
-Development package `0.4.1.dev1` advertises the nine-tool MCP contract
-`veqtor.mcp.v0.4.1`. The contract version is a surface-wide API-schema identifier:
-all nine tools report v0.4.1, including tools whose behavior is unchanged.
+Development package `0.4.2.dev0` advertises the eleven-tool MCP contract
+`veqtor.mcp.v0.4.2`. The contract version is a surface-wide API-schema identifier:
+all eleven tools report v0.4.2, including tools whose behavior is unchanged.
 Public `0.4.0` retains its frozen `veqtor.mcp.v0.4` contract.
 The development changes add Codex setup, a reusable next-round prompt, native
 evidence checks and safe error transport, including SDK validation before tool
@@ -77,11 +77,11 @@ digital signature, a trusted timestamp or tamper evidence.
 ## Next
 
 - Extend supported OOXML layouts based on reproducible public issues.
-- Complete independent review and exact-candidate native Codex/render checks
-  for `0.4.1.dev1`; then run the required development packaging and audit gates.
+- Complete independent review and exact-candidate native Codex position checks
+  for `0.4.2.dev0`; then run the required development packaging and audit gates.
   The installed public MCP and earlier observations cannot close those gates.
-- Validate the bounded NR-01 ordinary-paragraph edit candidate described below;
-  keep broader next-round and position-memory work separately authorized.
+- Validate NR-02 independent portable deal positions, exact-version confirmation,
+  recovery and conflicts under the closed NR-02 contract. NR-03 needs a separate cycle.
 - Evaluate a separately specified Stage 3D clean-sendable-redline workflow only
   after external-user validation of the read-only Stage 3C evidence surface.
 - Refine installation, diagnostics and examples from external-user feedback.
@@ -147,10 +147,18 @@ Public priorities are driven by reproducible
 [GitHub Issues](https://github.com/JohnDeer-ai/veqtor-mcp/issues). Never attach
 real client documents or confidential matter text to an issue.
 
-## NR-01 development candidate
+## NR-01 paragraph capability
 
-`0.4.1.dev1` adds closed paragraph targets under `veqtor.mcp.v0.4.1` for supported
+`0.4.2.dev0` retains closed paragraph targets under `veqtor.mcp.v0.4.2` for supported
 clean body/table replace and delete-only. It preserves legacy operations and
-frozen v0.4 release identity. Independent review, full development gates and
-exact-build native/rendered acceptance are required before readiness. NR-02
-position memory is a separate decision and is not started by this change.
+frozen v0.4 release identity. These paragraph operations were introduced in NR-01;
+NR-02 adds local position storage without new DOCX mutations. Its native
+position acceptance does not require repeating the whole NR-01 rendered-Word
+profile unless an affected change justifies that additional gate.
+
+## NR-02 development candidate
+
+The [closed deal-position contract](NR-02_DEAL_POSITIONS.md) adds two tools for
+complete local intentions and atomic revision-bound updates. It retains all prior
+DOCX operations and frozen release artifacts. The next-round comparison, semantic
+rebinding and automatic Word application remain outside NR-02.

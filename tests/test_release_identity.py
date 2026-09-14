@@ -184,8 +184,9 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
     assert len(DEVELOPMENT_RUNTIME_SOURCE_FILES) == len(development_runtime)
     assert development_runtime == discovered_runtime
     assert frozen_runtime < discovered_runtime
-    assert discovered_runtime - frozen_runtime == {"/src/veqtor_docx/_paragraph_edits.py"}
-    assert config["project"]["version"] == "0.4.1.dev1"
+    assert discovered_runtime - frozen_runtime == {"/src/veqtor_docx/_paragraph_edits.py",
+        "/src/veqtor_mcp/_positions_contract.py", "/src/veqtor_mcp/positions.py"}
+    assert config["project"]["version"] == "0.4.2.dev0"
     assert config["project"]["version"] != VERSION
     assert VERSION == "0.4.0"
     assert wheel_includes == discovered_runtime

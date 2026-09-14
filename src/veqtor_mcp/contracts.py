@@ -39,7 +39,7 @@ from ._history_contract import (
     PARAGRAPH_HISTORY_SEED_SCHEMA,
 )
 
-MCP_CONTRACT_SCHEMA_VERSION = "veqtor.mcp.v0.4.1"
+MCP_CONTRACT_SCHEMA_VERSION = "veqtor.mcp.v0.4.2"
 MCP_CONTRACT_META_KEY = "veqtor.pro/contractSchemaVersion"
 MCP_CONTRACT_SCHEMA_EXTENSION = "x-veqtor-contract-schema-version"
 RECORD_ID_PATTERN = r"^dr_[0-9]+(?![\s\S])"
@@ -71,7 +71,7 @@ def contract_meta() -> dict[str, str]:
 def local_journaling_annotations(title: str) -> ToolAnnotations:
     """Describe a local tool whose otherwise factual call appends provenance.
 
-    Every current tool can append a local decision-record or access-event
+    Every tool using these annotations can append a local decision-record or access-event
     entry.  It would therefore be misleading to mark even extraction and
     verification calls as read-only or idempotent at the complete tool level.
     None of the tools overwrites source data, and none reaches an open-world

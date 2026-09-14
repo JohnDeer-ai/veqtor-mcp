@@ -13,7 +13,7 @@ import pytest
 import veqtor_docx
 from veqtor_docx.apply import ApplyError
 from veqtor_mcp import server
-from veqtor_mcp.contracts import contract_meta, local_journaling_annotations
+from veqtor_mcp.contracts import contract_meta
 
 
 @pytest.fixture
@@ -172,7 +172,7 @@ async def test_sanitized_workspace_suggestion_is_preserved(tmp_path: Path) -> No
 
 
 @pytest.mark.anyio
-async def test_all_nine_registered_schemas_match_unwrapped_functions() -> None:
+async def test_all_registered_schemas_match_unwrapped_functions() -> None:
     original = MCPServer("unwrapped-contract-probe")
     actual_tools = {tool.name: tool for tool in await server.mcp.list_tools()}
     assert set(actual_tools) == set(server._RESULT_MODELS)
@@ -180,7 +180,7 @@ async def test_all_nine_registered_schemas_match_unwrapped_functions() -> None:
         function = getattr(server, name)
         assert not hasattr(function, "__wrapped__")
         original.tool(
-            annotations=local_journaling_annotations(actual.annotations.title),
+            annotations=actual.annotations,
             meta=contract_meta(),
             structured_output=True,
         )(function)

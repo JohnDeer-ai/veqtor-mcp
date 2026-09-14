@@ -24,7 +24,9 @@ from veqtor_mcp.records import SOURCE_SNAPSHOT_IDENTITY
 from veqtor_mcp.server import mcp
 
 
-EXPECTED_TOOL_NAMES = (
+# Keep the historical release surface separate from the development contract.
+# Neither expectation is derived from the installed server's observed tools.
+FROZEN_V04_TOOL_NAMES = (
     "list_rounds",
     "extract_redlines",
     "inspect_document",
@@ -35,6 +37,36 @@ EXPECTED_TOOL_NAMES = (
     "verify_quote",
     "export_decision_record",
 )
+NR02_TOOL_NAMES = (
+    "list_rounds",
+    "extract_redlines",
+    "inspect_document",
+    "map_rounds",
+    "trace_paragraph_history",
+    "preflight_edits",
+    "apply_edits",
+    "verify_quote",
+    "export_decision_record",
+    "read_deal_positions",
+    "mutate_deal_positions",
+)
+EXPECTED_TOOL_NAMES_BY_VERSION = {
+    "0.4.0": FROZEN_V04_TOOL_NAMES,
+    "0.4.2.dev0": NR02_TOOL_NAMES,
+}
+
+
+def _assert_tool_inventory(result) -> tuple[str, ...]:
+    assert __version__ in EXPECTED_TOOL_NAMES_BY_VERSION, (
+        f"No explicit installed-wheel tool contract for {__version__}"
+    )
+    names = tuple(tool.name for tool in result.tools)
+    expected = EXPECTED_TOOL_NAMES_BY_VERSION[__version__]
+    assert names == expected, (
+        f"Installed {__version__} tool inventory differs: "
+        f"expected {expected!r}, observed {names!r}"
+    )
+    return names
 
 
 def _payload(result) -> dict:
@@ -132,7 +164,7 @@ async def _dual_era_stdio_smoke() -> dict[str, str]:
             async with Client(stdio_client(parameters), mode=mode) as client:
                 negotiated[mode] = client.protocol_version
                 tools = await client.list_tools()
-                assert tuple(tool.name for tool in tools.tools) == EXPECTED_TOOL_NAMES
+                _assert_tool_inventory(tools)
                 listed = _payload(
                     await client.call_tool(
                         "list_rounds",
@@ -167,8 +199,7 @@ async def smoke() -> dict:
             assert matter.is_dir()
         async with Client(mcp) as session:
             tools = await session.list_tools()
-            names = tuple(tool.name for tool in tools.tools)
-            assert names == EXPECTED_TOOL_NAMES
+            names = _assert_tool_inventory(tools)
             listed = _payload(
                 await session.call_tool("list_rounds", {"folder": str(matter)})
             )

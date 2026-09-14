@@ -385,7 +385,8 @@ def test_public_checklists_separate_development_from_frozen_release_commands(
     assert "development-only" in frozen
 
 
-def test_development_wheel_smoke_binds_metadata_and_nine_tool_v04_surface() -> None:
+def test_development_wheel_smoke_binds_metadata_and_public_behavior() -> None:
+    # Inventory controls execute the actual validator in test_installed_wheel_smoke.
     smoke = (ROOT / "scripts" / "installed_wheel_smoke.py").read_text()
 
     assert 'distribution("veqtor-mcp")' in smoke

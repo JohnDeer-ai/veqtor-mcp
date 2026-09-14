@@ -7,8 +7,8 @@ negotiation positions. Codex can use Veqtor to read the wording, check evidence,
 prepare supported tracked changes, and create a new DOCX for your review.
 
 The public installation instructions use package `0.4.0` and the nine-tool
-contract `veqtor.mcp.v0.4`. This source tree is development `0.4.1.dev1` with
-additive schema `veqtor.mcp.v0.4.1`, legacy compatibility and a distinct producer
+contract `veqtor.mcp.v0.4`. This source tree is development `0.4.2.dev0` with
+additive schema `veqtor.mcp.v0.4.2`, legacy compatibility and a distinct producer
 version/build. It adds NR-01 paragraph edits alongside the error-transport
 adapter and is not a new published release.
 Use the matching [PyPI version](https://pypi.org/project/veqtor-mcp/0.4.0/) and
@@ -141,7 +141,7 @@ does not upload whole documents in the background. Text returned through MCP
 enters the Codex conversation and may be sent to the model provider. Local
 execution therefore does not mean the model never receives contract text.
 
-By default, tool calls also write a private `.veqtor` journal in the matter
+By default, the nine document/provenance tool calls also write a private `.veqtor` journal in the matter
 folder. Its raw contents can include paths and matter text; keep it private.
 The exported decision record is local provenance, not a persistent set of
 approved negotiation positions or proof of human approval.
@@ -203,11 +203,11 @@ They do not establish native acceptance of the subsequent `0.4.1.dev0` changes.
 
 ## Development candidate acceptance
 
-Acceptance of `0.4.1.dev1` is pending independent review and the final gates.
+Acceptance of `0.4.2.dev0` is pending independent review and the final gates.
 After Reviewer PASS, run the required full tests, locked runtime audit and
 wheel/sdist checks from the exact reviewed commit and tree. Keep gate evidence
 outside the repository; do not modify the frozen v0.4 release manifest to admit
-the development sdist's three Codex documents.
+the development-only documents.
 
 For the native test, select the exact candidate in that run's configuration.
 Codex supports per-run `-c key=value` overrides; see
@@ -227,11 +227,12 @@ Apply this only to the isolated test configuration or per-run overrides.
 Keep the user's public registration separate. Record the selected command,
 exact Git commit/tree, wheel/sdist hashes and source snapshot build. Compare
 the candidate's `doctor` build with `producer.build` from every successful
-native call and require `producer.version` to be `0.4.1.dev1`. Source identity
+native call and require `producer.version` to be `0.4.2.dev0`. Source identity
 alone does not verify wheel packaging; inspect the exact built artifacts too.
 
-Use synthetic documents and actual `codex exec --json` calls for all nine
-tools, one complete two-edit batch, exact current-projection readback and
+The retained NR-00/NR-01 profiles use synthetic documents and actual
+`codex exec --json` calls for their nine document/provenance tools,
+one complete two-edit batch, exact current-projection readback and
 decision-record export. Capture a baseline before writing. Run invalid-proof,
 binding-mismatch and existing-output refusals in a separate negative scenario;
 the positive checker deliberately rejects every failed preflight/apply attempt.
@@ -271,8 +272,8 @@ they contain paths and document text.
 
 ## NR-01 native profile
 
-The development package `0.4.1.dev1` advertises `veqtor.mcp.v0.4.1`. Its new
-paragraph target and delete-only scenario uses a separate checker. The original
+The development package `0.4.2.dev0` advertises `veqtor.mcp.v0.4.2`. The retained
+NR-01 paragraph target and delete-only scenario uses a separate checker. The original
 `check_codex_acceptance.py` and its nine-tool v1 profile stay unchanged.
 
 Generate the two deterministic synthetic sources outside the checkout:
@@ -346,3 +347,14 @@ baselines and logs outside public sources. After independent PASS, render and
 inspect every page with the documents skill using the bundled renderer. Native
 client evidence and visual layout are separate gates; neither is asserted by
 this development implementation or a Python test result.
+
+## NR-02 native position profile
+
+NR-02 uses a separate [exact installed-candidate acceptance protocol](NR02_ACCEPTANCE.md).
+It predeclares five complete positions before saving and requires native full
+structured save/update/restart reads, exact-version confirmation/history, concurrent
+conflicts (including first creation), relocation, source status and independent
+copies. New Codex and installed server processes supply separate session IDs.
+Raw receipts and synthetic matters stay outside the checkout. Full suite, package,
+audit, SDK compatibility and native gates follow independent PASS. NR-02 adds no
+DOCX mutation, so full NR-01 visual/lifecycle acceptance is not automatically repeated.
