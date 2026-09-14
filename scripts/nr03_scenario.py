@@ -24,7 +24,8 @@ EFFORTS = ("high", "xhigh")
 STAGES = ("a-brief", "a-write", "b-brief", "b-write")
 WORKFLOW_FILES = (".agents/skills/veqtor-next-round/SKILL.md", "docs/prompts/next-round.md")
 ORACLE_FILES = ("NR-03_NEXT_ROUND.md", "docs/NR03_SCENARIO.md", "docs/NR03_USER_REPLIES.md",
-                "scripts/nr03_scenario.py", "scripts/nr03_delivery.py", "scripts/check_next_round_journal.py")
+                "scripts/nr03_scenario.py", "scripts/nr03_delivery.py", "scripts/check_next_round_journal.py",
+                "scripts/nr03_creation_probe.py")
 IDS = [f"pos_{i:032x}" for i in range(1, 6)]
 SELECTED = (2, 4, 5, 6, 7, 8, 9)
 C3 = "2. Confidential information shall be protected for three years after termination."

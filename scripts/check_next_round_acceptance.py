@@ -394,7 +394,8 @@ def check_round(directory, r, *, loaded=None):
     report = validate_document_and_journal(document_only(write["events"]), dict(
         schema_version=paragraphs.BASELINE_SCHEMA, server_name=SERVER, producer=installation["producer"],
         source_sha256=source_hashes, source_path=source, output_path=output, output_absent_before=True,
-        expected_edits=ordered, expected_paragraphs=rows, tracked_change_author=AUTHOR), write["calls"], write["thread"])
+        expected_edits=ordered, expected_paragraphs=rows, tracked_change_author=AUTHOR), write["calls"], write["thread"],
+        creation_state=dict(initial=initial, before=write["receipt"]["before"]))
     _require(_file_sha256(str(Path(b["matter"]) / ".veqtor" / "deal-positions.json")) == initial["store_sha256"],
              "saved store drifted during evidence verification")
     # NR-01 independently checks structure/text/revisions, including markup from

@@ -197,12 +197,33 @@ returned before-record cursors to termination. NR-03 checks complete native payl
 pairs, page order/counts/cursors and full preflight/apply provenance across pages.
 Record IDs need not be contiguous: access events are deliberately excluded. The
 NR-01/NR-02 checkers and server API remain unchanged. The NR-03 document adapter
-pins its existing NR-01/legacy dependency hashes. It runs NR-01 against unchanged
-document-tool events, propagates every document failure, and replaces only the
-known final same-page journal predicate with its complete page check; it then
+pins its existing NR-01/legacy dependency hashes. It runs the unchanged substantive
+NR-01 checks against original document-tool events and replaces the known final
+same-page journal predicate with its complete page check; it then
 repeats final source/output hashes and checks the position store again. A dependency
 change requires review before this adapter can run. No merged export event is
 fabricated for NR-01, and the resulting report is explicitly an NR-03 report.
+
+NR-03 document report v3 also records one narrowly admitted pre-creation probe.
+An unresolved failed `inspect_document(path=<selected output>, mode="outline")`
+with the observed `file_unreadable` envelope may precede the single successful
+preflight and create-if-absent apply. The error text does not establish absence:
+the independently frozen full inventory and receipt before-state must agree and
+exclude that exact destination. The apply must create that destination with the
+authorized edits, exact proof, actual candidate/output bytes and subsequent full
+native paragraph reads, quotes, revision extraction and deletion verification.
+Missing or weaker evidence, another path, a later failure, repeated writes or
+failed preflight/apply attempts refuse. All other failed reads retain the original
+tool/scope/mode retry rule.
+
+This profile uses the frozen NR-01 validator's identical code object with an
+isolated parser dependency; it does not modify NR-01's globals, code or entrypoint.
+All original substantive checks still execute, followed by the full NR-03 page
+gate and final hashes. The report retains the original failed call and binds its
+timing, inventories, preflight/apply identities and output hash. It is not an
+error-string waiver or a rewritten transcript. Synthetic F09 controls establish
+checker behavior only; an original refused capture keeps its original status and
+does not become native acceptance for a later candidate.
 
 The 20-record bound is a campaign size precaution, not a universal transport
 guarantee. Missing/clipped/inconsistent text or structured payloads fail the strict

@@ -13,6 +13,7 @@ from veqtor_mcp import records
 import check_paragraph_acceptance as paragraphs
 from check_codex_acceptance import EvidenceError, _digest, _file_sha256, _require
 from nr03_delivery import EXPORT_PAGE_LIMIT
+from nr03_creation_probe import creation_probe_profile
 
 FROZEN_DEPENDENCIES = {
     "check_paragraph_acceptance.py": "ca9df9ca03b88c0c10c7b99e2c531275c01917097964b7f0bcf1b6337bfe5965",
@@ -127,18 +128,22 @@ def validate_export_pages(calls, workspace, producer):
                 wanted_pages=wanted_pages, log_authenticity_verified=False)
 
 
-def validate_document_and_journal(events, baseline, calls, thread_id):
-    """Keep NR-01's document checks intact, replacing only its same-page policy.
+def validate_document_and_journal(events, baseline, calls, thread_id, *, creation_state=None):
+    """Keep all NR-01 substantive checks with explicit NR-03 profile policies.
 
     NR-01 receives the original document-tool events unchanged. A frozen, specific
-    final refusal can reach this adapter; every earlier refusal propagates. The
+    final refusal can reach this adapter; all substantive refusals propagate. The
     new page gate must independently pass, then NR-01's final hash checks run again.
     This is an NR-03 report, not a claim that NR-01's single-page profile passed.
+    One independently bound pre-creation probe can use an isolated parser profile;
+    its original failed event stays intact and all substantive checks still run.
     """
     require_frozen_dependencies()
+    validator, creation_probe = creation_probe_profile(
+        events, baseline, creation_state, paragraphs.validate_evidence)
     legacy_report = None
     try:
-        legacy_report = paragraphs.validate_evidence(events, baseline)
+        legacy_report = validator(events, baseline)
     except EvidenceError as exc:
         if str(exc) != SAME_PAGE_REFUSAL:
             raise
@@ -158,4 +163,5 @@ def validate_document_and_journal(events, baseline, calls, thread_id):
         _require(_file_sha256(path) == sha, "source drifted during evidence verification")
     _require(_file_sha256(baseline["output_path"]) == legacy_report["output_sha256"],
              "output drifted during evidence verification")
-    return dict(legacy_report, schema_version="nr03-document-evidence.v2", status="passed", journal=journal)
+    return dict(legacy_report, schema_version="nr03-document-evidence.v3", status="passed", journal=journal,
+                creation_probe=creation_probe)
