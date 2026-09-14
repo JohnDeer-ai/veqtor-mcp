@@ -178,6 +178,20 @@ and send are forbidden; the external observer renders. Resumed turns retain that
 boundary through their verified original conversation and receipt ancestry. Do not
 resume an old rejected parent or add an environment-only shell exception.
 
+Before an observation continuation creates any prompt/event files or launches,
+validate every ancestor's original prompt as a regular non-symlink file: its bytes
+must match both its receipt hash and that frozen step's exact expected input.
+Roots contain the complete candidate boundary and resolved workflow files with
+the ordinary stimulus; follow-ups contain only their own frozen user message.
+A missing input is not regenerated and a rehashed wrong input is not accepted.
+Validate each complete recorded command against its candidate installation,
+frozen model/effort, isolation/MCP settings, original requested resume identity
+and that ancestor's exact predeclared fault (including absence on other steps).
+Keep the strict raw parser, per-turn export bound, original conversation/cwd and
+complete receipt-hash chain; a valid intermediate no-tool refusal does not exempt
+earlier ancestors from these checks. This proves evidence consistency, not log
+authenticity or retrospective acceptance of an old capture.
+
 Workflow v2 requests at most 20 action records per page and follows the actual
 returned before-record cursors to termination. NR-03 checks complete native payload
 pairs, page order/counts/cursors and full preflight/apply provenance across pages.

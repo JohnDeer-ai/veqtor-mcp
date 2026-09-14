@@ -56,8 +56,25 @@ def freeze(bundle, plan_file):
         (folder / ("client-" + step["id"])).mkdir(mode=0o700)
 
 
-def resume_parent(folder, plan, frozen, parent, producer):
-    """Bind every completed ancestor to the original native conversation."""
+def step_fault(plan, step_id):
+    fault = plan.get("fault")
+    return fault if fault is not None and fault["step"] == step_id else None
+
+
+def step_command(codex, installation, baseline, plan, step_id, resumed):
+    """Use this step's frozen selection and fault, never a later step's settings."""
+    command = command_for(codex, installation["python"], "a-write" if resumed is not None else "a-brief",
+        **baseline["client_selection"], thread_id=resumed,
+        journal_disabled=baseline["variant"] == "journal-unavailable")
+    if step_fault(plan, step_id) is not None:
+        for i, argument in enumerate(command):
+            if argument.startswith("mcp_servers.veqtor_nr03.args="):
+                command[i] = "mcp_servers.veqtor_nr03.args=" + json.dumps(fault_args(baseline["matter"]), separators=(",", ":"))
+    return command
+
+
+def resume_parent(folder, plan, frozen, parent, baseline, installation):
+    """Bind every ancestor's delivered input and launch to its original turn."""
     from check_next_round_acceptance import parse_native
     by_id = {step["id"]: step for step in plan["steps"]}
     chain = []
@@ -71,17 +88,24 @@ def resume_parent(folder, plan, frozen, parent, producer):
     for ancestor in reversed(chain):
         receipt_path = folder / f"{ancestor}.receipt.json"
         events_path = folder / f"{ancestor}.jsonl"
-        _require(all(path.is_file() and not path.is_symlink() for path in (receipt_path, events_path)),
+        prompt_path = folder / f"{ancestor}.prompt.txt"
+        _require(all(path.is_file() and not path.is_symlink() for path in (receipt_path, events_path, prompt_path)),
                  "observation ancestor evidence is missing or is a symlink")
         receipt_raw = _read(receipt_path)
         receipt = _json(receipt_raw.decode())
         raw = _read(events_path)
+        prompt = _read(prompt_path)
+        expected = by_id[ancestor]["prompt"]
+        if by_id[ancestor]["resume"] is None:
+            expected = delivered_prompt(folder.parent, expected, WORKFLOW_FILES)
+        _require(receipt.get("prompt_sha256") == hashlib.sha256(prompt).hexdigest()
+                 and prompt == expected.encode(), "observation ancestor delivered input differs from its frozen step")
         _require(receipt["events_sha256"] == hashlib.sha256(raw).hexdigest()
                  and receipt["exit_code"] == 0 and receipt["step"] == ancestor
                  and receipt["plan_sha256"] == plan_hash
                  and receipt["installation_sha256"] == frozen["installation_sha256"],
                  "observation parent did not complete this frozen plan")
-        thread, calls, _ = parse_native([_json(line) for line in raw.decode().splitlines()], producer,
+        thread, calls, _ = parse_native([_json(line) for line in raw.decode().splitlines()], installation["producer"],
                                         require_tool_calls=False)
         validate_export_limits(calls)
         _require(receipt.get("resumed_thread_id") == original_thread,
@@ -91,6 +115,12 @@ def resume_parent(folder, plan, frozen, parent, producer):
         _require(receipt.get("parent_receipt_sha256") == parent_hash,
                  "observation parent receipt chain differs")
         _require(receipt["cwd"] == str(cwd), "observation parent working directory differs")
+        command = receipt.get("command")
+        _require(isinstance(command, list) and command and all(isinstance(part, str) for part in command)
+                 and Path(command[0]).is_absolute(), "observation ancestor native command absent or invalid")
+        _require("fault" in receipt and receipt["fault"] == step_fault(plan, ancestor)
+                 and command == step_command(command[0], installation, baseline, plan, ancestor, original_thread),
+                 "observation ancestor launch/fault differs from its frozen step")
         original_thread = thread
         parent_hash = hashlib.sha256(receipt_raw).hexdigest()
     return original_thread, parent_hash, cwd
@@ -116,18 +146,11 @@ def capture(bundle, step_id, codex, *, model, reasoning_effort):
     parent_hash = None
     cwd = folder / ("client-" + step_id)
     if step["resume"] is not None:
-        resume, parent_hash, cwd = resume_parent(folder, plan, frozen, step["resume"], report["producer"])
+        resume, parent_hash, cwd = resume_parent(folder, plan, frozen, step["resume"], b, report)
     else:
         prompt = delivered_prompt(bundle, prompt, WORKFLOW_FILES)
-    command = command_for(codex, report["python"], "a-write" if resume else "a-brief",
-        model=model, reasoning_effort=reasoning_effort, thread_id=resume,
-        journal_disabled=b["variant"] == "journal-unavailable")
-    fault = plan.get("fault")
-    injected = fault is not None and fault["step"] == step_id
-    if injected:
-        for i, argument in enumerate(command):
-            if argument.startswith("mcp_servers.veqtor_nr03.args="):
-                command[i] = "mcp_servers.veqtor_nr03.args=" + json.dumps(fault_args(b["matter"]), separators=(",", ":"))
+    command = step_command(codex, report, b, plan, step_id, resume)
+    fault = step_fault(plan, step_id)
     from capture_position_session import private_write
     private_write(folder / f"{step_id}.prompt.txt", prompt.encode())
     before = state(b["matter"])
@@ -145,7 +168,7 @@ def capture(bundle, step_id, codex, *, model, reasoning_effort):
         events_sha256=_file_sha256(str(folder / f"{step_id}.jsonl")),
         installation_sha256=_file_sha256(str(bundle / "installation.json")),
         started_ns=started, finished_ns=time.time_ns(), before=before, after=state(b["matter"]),
-        exit_code=result.returncode, fault=fault if injected else None, acceptance_assessed=False))
+        exit_code=result.returncode, fault=fault, acceptance_assessed=False))
     return result.returncode
 
 
