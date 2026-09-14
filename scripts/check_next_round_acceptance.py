@@ -36,8 +36,12 @@ POSITION_RESULT = jsonschema.Draft202012Validator(_positions_contract.RESULT)
 ALLOWED = REQUIRED_TOOLS | {"read_deal_positions", "mutate_deal_positions"}
 
 
-def parse_native(events, producer):
-    """Strict raw turn parser; no shell actions, paired calls, matching dual payloads."""
+def parse_native(events, producer, *, require_tool_calls=True):
+    """Validate a complete turn; calls retain completion order and dispatch times.
+
+    Observation-only continuations may contain a user-facing refusal/question
+    without tools. Main success evidence still requires tools by default.
+    """
     thread = None
     started = done = False
     pending, seen, calls, messages = {}, set(), [], []
@@ -100,8 +104,10 @@ def parse_native(events, producer):
         _require(validator is None or validator.is_valid(payload), "native result violates public contract")
         call.update(failed=False, payload=payload)
         calls.append(call)
-    _require(done and calls and messages, "native turn lacks calls or final user-facing content")
-    _require(messages[-1]["event_index"] > max(c["completed_at"] for c in calls), "no result message after native work")
+    _require(done and messages, "native turn lacks completion or final user-facing content")
+    _require(calls or not require_tool_calls, "native turn lacks required tool calls")
+    _require(messages[-1]["event_index"] > max((c["completed_at"] for c in calls), default=-1),
+             "no result message after native work")
     return thread, calls, messages
 
 
@@ -300,7 +306,11 @@ def check_round(directory, r, *, loaded=None):
     _require(not any(c["tool"] in {"preflight_edits", "apply_edits", "mutate_deal_positions"} for c in brief["calls"]),
              "mutation/preflight before the scripted decision")
     scope(brief["calls"] + write["calls"], b, r)
-    first_read = full_position_read(brief["calls"][0], b)
+    first_dispatched = min(brief["calls"], key=lambda call: call["started_at"])
+    first_read = full_position_read(first_dispatched, b)
+    _require(all(first_dispatched["completed_at"] < call["started_at"]
+                 for call in brief["calls"] if call["tool"] != "read_deal_positions"),
+             "position recovery must finish before document work starts")
     position_reads = [c for c in write["calls"] if c["tool"] == "read_deal_positions"]
     _require(position_reads, "no fresh positions check after user decision")
     write_sessions = {full_position_read(c, b) for c in position_reads}

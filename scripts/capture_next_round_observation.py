@@ -84,7 +84,8 @@ def capture(bundle, step_id, codex, *, model, reasoning_effort):
                  and parent_receipt["plan_sha256"] == _file_sha256(str(folder / "plan.json"))
                  and parent_receipt["installation_sha256"] == frozen["installation_sha256"],
                  "observation parent did not complete this frozen plan")
-        resume, _, _ = parse_native([_json(line) for line in raw.decode().splitlines()], report["producer"])
+        resume, _, _ = parse_native([_json(line) for line in raw.decode().splitlines()], report["producer"],
+                                    require_tool_calls=False)
         parent_hash = _file_sha256(str(folder / f"{parent}.receipt.json"))
         by_id = {s["id"]: s for s in plan["steps"]}
         root_step = by_id[parent]
