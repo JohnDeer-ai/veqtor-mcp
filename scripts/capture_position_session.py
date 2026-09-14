@@ -10,6 +10,8 @@ import stat
 import subprocess
 import time
 
+from position_source_launch import SERVER_OVERRIDE
+
 from check_position_acceptance import (
     SESSIONS, REASONING_EFFORTS, baseline, client_selection, decode, require,
     restart_prompt, current_document_prompt, sha,
@@ -79,7 +81,7 @@ def capture(directory, name, codex, prompt, *, model, reasoning_effort):
     # A distinct server name and per-run command override leave user settings intact.
     command = [str(Path(codex).absolute()), "exec", "--json", "--skip-git-repo-check", "--ignore-user-config", "--ephemeral",
         "-c", "mcp_servers.veqtor_nr02.command=" + json.dumps(installation["python"]),
-        "-c", 'mcp_servers.veqtor_nr02.args=["-I","-m","veqtor_mcp.server"]',
+        "-c", SERVER_OVERRIDE,
         "-c", 'mcp_servers.veqtor_nr02.env.VEQTOR_TRACKED_CHANGE_AUTHOR="Veqtor Acceptance"',
         "-c", 'mcp_servers.veqtor_nr02.env.VEQTOR_DISABLE_DECISION_RECORD=' + json.dumps("1" if name == "journal_disabled" else "0"),
         "--model", model, "-c", "model_reasoning_effort=" + json.dumps(reasoning_effort),

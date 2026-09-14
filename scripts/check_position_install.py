@@ -17,6 +17,7 @@ import zipfile
 # These two helpers derive content from the supplied project/README and member
 # bytes. They do not invoke the frozen release identity or its inventories.
 from check_release_artifacts import _metadata_contract, _verify_wheel_record
+from position_source_launch import SOURCE_ONLY_BOOTSTRAP
 
 
 CORE_DISTRIBUTION_FILES = ("METADATA", "WHEEL", "entry_points.txt", "licenses/LICENSE", "licenses/NOTICE")
@@ -175,7 +176,8 @@ async def main():
 asyncio.run(main())
 '''
     # Isolated interpreter ignores ambient Python path and current checkout.
-    observed = json.loads(subprocess.check_output([str(python), "-I", "-B", "-c", probe], cwd=wheel.parent))
+    observed = json.loads(subprocess.check_output(
+        [str(python), "-I", "-B", "-c", SOURCE_ONLY_BOOTSTRAP + probe], cwd=wheel.parent))
     require(observed["version"] == observed["distribution_version"] == config["project"]["version"],
             "installed distribution version differs")
     require(len(observed["tools"]) == 11 and set(observed["tools"]) == {"list_rounds", "extract_redlines", "inspect_document", "map_rounds",

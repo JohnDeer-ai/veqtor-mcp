@@ -198,7 +198,7 @@ def bundle(tmp_path, monkeypatch):
             prompt = checker.current_document_prompt(expected).encode()
         command = ["/synthetic/codex", "exec", "--json", "--skip-git-repo-check", "--ignore-user-config", "--ephemeral",
             "-c", 'mcp_servers.veqtor_nr02.command="/synthetic/installed/python"',
-            "-c", 'mcp_servers.veqtor_nr02.args=["-I","-m","veqtor_mcp.server"]',
+            "-c", capture.SERVER_OVERRIDE,
             "-c", 'mcp_servers.veqtor_nr02.env.VEQTOR_TRACKED_CHANGE_AUTHOR="Veqtor Acceptance"',
             "-c", 'mcp_servers.veqtor_nr02.env.VEQTOR_DISABLE_DECISION_RECORD=' + json.dumps("1" if name == "journal_disabled" else "0"),
             "--model", "gpt-6-astra", "-c", 'model_reasoning_effort="ultra"', "-"]

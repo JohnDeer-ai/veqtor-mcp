@@ -431,6 +431,65 @@ def test_source_budgets_return_not_checked_without_hiding_intentions(tmp_path, m
     assert read(tmp_path)["revision"] == saved["revision"]
 
 
+@pytest.mark.parametrize("failure", ["mtime", "read_error", "path_replaced", "growth"])
+def test_failed_source_reads_consume_the_real_100_mib_budget(tmp_path, monkeypatch, failure):
+    assert (p.MAX_SOURCE_BYTES, p.MAX_SOURCE_TOTAL) == (20 * 1024 * 1024, 100 * 1024 * 1024)
+    payload = b"x" * p.MAX_SOURCE_BYTES
+    digest = hashlib.sha256(payload).hexdigest()
+    files = [tmp_path / f"source-{i}.bin" for i in range(6)]
+    for path in files:
+        path.write_bytes(payload)
+    revision = None
+    for batch in (range(3), range(3, 6)):
+        revision = mutate(tmp_path, revision, *(create(i, sources=[dict(path=files[i].name,
+            file_sha256=digest, reference=None)]) for i in batch))["revision"]
+    saved = snapshot(tmp_path).read_bytes()
+    assert [s["status"] for s in read(tmp_path, check_sources=True)["source_observations"]] == ["same_bytes"] * 5 + ["not_checked"]
+    inodes = {path.stat().st_ino: path for path in files}
+    consumed = dict.fromkeys(inodes, 0)
+    real_read, real_named_same = os.read, p._named_same
+
+    def observed_read(fd, count):
+        info = os.fstat(fd)
+        if info.st_ino in inodes and failure == "read_error" and consumed[info.st_ino] == 19 * 1024 * 1024:
+            raise OSError("synthetic read failure after real reads")
+        chunk = real_read(fd, count)
+        if info.st_ino in inodes:
+            first = consumed[info.st_ino] == 0
+            consumed[info.st_ino] += len(chunk)
+            if chunk and first:
+                if failure == "mtime":
+                    os.utime(fd, ns=(info.st_atime_ns, info.st_mtime_ns + 1000000000))
+                elif failure == "growth":
+                    with inodes[info.st_ino].open("ab") as stream:
+                        stream.write(b"x")
+        return chunk
+
+    def replace_after_read(parent, name, fd):
+        info = os.fstat(fd)
+        if failure == "path_replaced" and info.st_ino in inodes:
+            path = inodes[info.st_ino]
+            path.rename(path.with_suffix(".moved"))
+            path.write_bytes(payload)
+        return real_named_same(parent, name, fd)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(os, "read", observed_read)
+        patch.setattr(p, "_named_same", replace_after_read)
+        result = read(tmp_path, check_sources=True)
+    expected_bytes = (95 if failure == "read_error" else 100) * 1024 * 1024
+    assert sum(consumed.values()) == expected_bytes <= p.MAX_SOURCE_TOTAL
+    assert consumed[files[-1].stat().st_ino] == 0
+    status = "not_checked" if failure == "growth" else "unavailable"
+    assert [s["status"] for s in result["source_observations"]] == [status] * 5 + ["not_checked"]
+    assert len(result["positions"]) == 6 and snapshot(tmp_path).read_bytes() == saved
+    for path in files:
+        if failure == "growth":
+            path.write_bytes(payload)
+        assert path.read_bytes() == payload
+    assert [s["status"] for s in read(tmp_path, check_sources=True)["source_observations"]] == ["same_bytes"] * 5 + ["not_checked"]
+
+
 def test_symlink_ancestors_source_hardlinks_and_private_metadata(tmp_path):
     real = tmp_path / "real"
     real.mkdir()

@@ -6,6 +6,7 @@ commit, tree, wheel, sdist, python and lock. Inputs remain read-only; all varian
 and the runtime copy are placed under pytest's external temporary directory.
 """
 import hashlib
+import asyncio
 import json
 import os
 from pathlib import Path
@@ -21,6 +22,7 @@ import pytest
 
 from test_position_install_contract import ARCHIVE_CASES, INSTALLED_CASES, archive_variant, corrupt_installed, installed_target
 from test_position_gate_artifacts import install
+from position_source_launch import SERVER_ARGS, SOURCE_ONLY_BOOTSTRAP
 
 
 pytestmark = pytest.mark.skipif(not os.environ.get("VEQTOR_POSITION_INSTALL_FIXTURE"),
@@ -114,7 +116,8 @@ print(json.dumps(dict(python=platform.python_version(), marker_environment=marke
         sdist_files = {m.name.split("/", 1)[1]: archive.extractfile(m).read() for m in archive.getmembers() if m.isfile()}
     case = SimpleNamespace(root=root, wheel=wheel, sdist=sdist, wheel_files=wheel_files, sdist_files=sdist_files,
         installed=Path(positive["installed_distribution"]).parent, dist=Path(positive["installed_distribution"]).name,
-        args=(root, config["commit"], config["tree"], wheel, sdist, python), positive=positive, directory=directory)
+        args=(root, config["commit"], config["tree"], wheel, sdist, python), positive=positive, directory=directory,
+        canonical=canonical)
     yield case
     assert canonical("genuine-positive-after") == positive
     assert inventory(original_runtime) == original
@@ -156,3 +159,93 @@ def test_genuine_installed_corruptions_fail(real_case, tmp_path, mutation):
         else:
             path.parent.rmdir()
     assert install.verify(*real_case.args) == real_case.positive
+
+
+@pytest.mark.parametrize("mode", ["TIMESTAMP", "UNCHECKED_HASH"])
+def test_genuine_stale_bytecode_cannot_change_checked_or_native_producer(real_case, tmp_path, mode):
+    """Actual installed product/CLI/stdio: no probe, Git, source or MCP mocks."""
+    from mcp import StdioServerParameters
+    from mcp.client import Client
+    from mcp.client.stdio import stdio_client
+
+    python = str(real_case.args[-1])
+    source = real_case.installed / "veqtor_mcp/positions.py"
+    raw = source.read_bytes()
+    changed = raw.replace(b"if len(current) > 50 or", b"if len(current) > 49 or")
+    assert changed != raw and len(changed) == len(raw)
+    cache = Path(subprocess.check_output([python, "-I", "-B", "-c",
+        "import importlib.util,sys; print(importlib.util.cache_from_source(sys.argv[1]))", str(source)]).decode().strip())
+    saved = cache.read_bytes() if cache.exists() else None
+    previous = tmp_path / "previous-positions.py"
+    previous.write_bytes(changed)
+    os.utime(previous, ns=(source.stat().st_atime_ns, source.stat().st_mtime_ns))
+    body = dict(title="Payment", desired_outcome="Pay within 30 days.", fallback=None,
+        fallback_conditions=None, rationale=None, related_position_ids=[], content_origin="model_proposal",
+        business_decision="not_required", sources=[])
+    operations = [dict(op="create", position_id=f"pos_{i:032x}", content=body) for i in range(50)]
+    probe = """import json, pathlib, sys
+from veqtor_mcp import server
+folder = pathlib.Path(sys.argv[1]); folder.mkdir()
+operations = json.loads(sys.argv[2]); revision = None
+for batch in (operations[:20], operations[20:40], operations[40:49]):
+    revision = server.mutate_deal_positions(str(folder), revision, batch)['revision']
+try:
+    result = server.mutate_deal_positions(str(folder), revision, operations[49:])
+    observed = dict(status='ok', positions=len(result['positions']))
+except Exception as exc:
+    observed = dict(status='refused', error=str(exc), positions=len(server.read_deal_positions(str(folder))['positions']))
+print(json.dumps(observed))
+"""
+    def behavior(label, prefix=""):
+        return json.loads(subprocess.check_output([python, "-I", "-B", "-c", prefix + probe,
+            str(tmp_path / label), json.dumps(operations)]))
+
+    async def native():
+        matter = tmp_path / "native-stdio"
+        matter.mkdir()
+        parameters = StdioServerParameters(command=python, args=SERVER_ARGS,
+            env={"VEQTOR_TRACKED_CHANGE_AUTHOR": "Veqtor bytecode regression", "VEQTOR_DISABLE_DECISION_RECORD": "1"})
+        payloads = []
+        async with Client(stdio_client(parameters), mode="auto") as client:
+            revision = None
+            for batch in (operations[:20], operations[20:40], operations[40:49], operations[49:]):
+                result = await client.call_tool("mutate_deal_positions", dict(folder=str(matter),
+                    expected_revision=revision, operations=batch))
+                assert not result.is_error
+                data = result.structured_content
+                assert isinstance(data, dict), result
+                payloads.append(data)
+                revision = data["revision"]
+            result = await client.call_tool("read_deal_positions", dict(folder=str(matter)))
+            assert not result.is_error
+            payloads.append(result.structured_content)
+        (tmp_path / "native-payloads.json").write_text(json.dumps(payloads, indent=2) + "\n")
+        return dict(status="ok", positions=len(payloads[-1]["positions"]))
+
+    clean = behavior("clean")
+    try:
+        subprocess.run([python, "-I", "-B", "-c",
+            "import py_compile,sys; py_compile.compile(sys.argv[1],cfile=sys.argv[2],dfile=sys.argv[3],"
+            "doraise=True,invalidation_mode=getattr(py_compile.PycInvalidationMode,sys.argv[4]))",
+            str(previous), str(cache), str(source), mode], check=True)
+        stale_cache = cache.read_bytes()
+        stale = behavior("stale-unprotected")
+        checked = install.verify(*real_case.args)
+        assert real_case.canonical("genuine-stale-" + mode) == checked
+        protected = behavior("source-only", SOURCE_ONLY_BOOTSTRAP)
+        native_result = asyncio.run(native())
+        assert source.read_bytes() == raw and cache.read_bytes() == stale_cache
+        assert checked == real_case.positive
+        assert stale["status"] == "refused" and stale["positions"] == 49 and "resource_limit_exceeded" in stale["error"]
+        assert clean == protected == native_result == dict(status="ok", positions=50)
+    finally:
+        if saved is None:
+            cache.unlink(missing_ok=True)
+        else:
+            cache.write_bytes(saved)
+    restored = behavior("restored")
+    assert restored == clean and install.verify(*real_case.args) == real_case.positive
+    (tmp_path / "bytecode-result.json").write_text(json.dumps(dict(mode=mode, clean=clean,
+        stale_unprotected=stale, source_only=protected, native_stdio=native_result, restored=restored,
+        installation=checked, source_unchanged=True, stale_cache_preserved_during_checks=True,
+        original_cache_restored=True), indent=2) + "\n")

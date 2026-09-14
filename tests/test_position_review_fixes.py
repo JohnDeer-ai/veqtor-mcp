@@ -242,7 +242,7 @@ def test_r3_real_capture_interface_emits_selected_command_and_receipt(prepared, 
     assert receipt["command"] == commands[0]
     assert commands[0][-5:] == ["--model", "gpt-6-astra", "-c", 'model_reasoning_effort="ultra"', "-"]
     assert 'mcp_servers.veqtor_nr02.command="/synthetic/installed/python"' in commands[0]
-    assert 'mcp_servers.veqtor_nr02.args=["-I","-m","veqtor_mcp.server"]' in commands[0]
+    assert capture.SERVER_OVERRIDE in commands[0]
     assert "--ignore-user-config" in commands[0] and "--ephemeral" in commands[0]
     checker._check_documents("save", receipt, expected)
 

@@ -162,22 +162,27 @@ def _named_same(parent, name, fd):
         _fail("workspace_changed")
 
 
-def _read_file(fd, limit, *, private):
+def _read_file(fd, limit, *, private, on_read=None):
     before = _regular(fd, private=private)
     if before.st_size > limit:
         _fail("resource_limit_exceeded")
     chunks = []
-    remaining = limit + 1
+    # A final size/stamp check detects growth without reading a sentinel byte
+    # beyond the caller's byte budget.
+    remaining = limit
     while remaining:
         chunk = os.read(fd, min(65536, remaining))
         if not chunk:
             break
+        if on_read is not None:
+            on_read(len(chunk))
         chunks.append(chunk)
         remaining -= len(chunk)
     data = b"".join(chunks)
-    if len(data) > limit:
+    after = os.fstat(fd)
+    if after.st_size > limit:
         _fail("resource_limit_exceeded")
-    if _stamp(before) != _stamp(os.fstat(fd)):
+    if len(data) != before.st_size or _stamp(before) != _stamp(after):
         _fail("workspace_changed")
     return data, _stamp(before)
 
@@ -380,6 +385,10 @@ class _Sources:
         self.total = 0
         self.verified = set()
 
+    def _charge(self, count):
+        # Reads remain charged if later I/O, stability or path checks refuse.
+        self.total += count
+
     def payload(self, path):
         if path in self.cache:
             value = self.cache[path]
@@ -397,7 +406,8 @@ class _Sources:
                 os.close(parent)
                 parent = child
             fd = os.open(parts[-1], _FILE_FLAGS, dir_fd=parent)
-            data, _ = _read_file(fd, min(MAX_SOURCE_BYTES, MAX_SOURCE_TOTAL - self.total), private=False)
+            data, _ = _read_file(fd, min(MAX_SOURCE_BYTES, MAX_SOURCE_TOTAL - self.total),
+                                 private=False, on_read=self._charge)
             _named_same(parent, parts[-1], fd)
             # Reopen the complete relative chain to detect directory replacement.
             check = os.dup(self.root)
@@ -411,7 +421,6 @@ class _Sources:
                 _named_same(check, parts[-1], fd)
             finally:
                 os.close(check)
-            self.total += len(data)
             self.cache[path] = data
             return data
         except (OSError, PositionError) as exc:

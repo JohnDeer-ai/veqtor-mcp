@@ -18,6 +18,8 @@ import sys
 
 import jsonschema
 
+from position_source_launch import SERVER_OVERRIDE
+
 from veqtor_mcp._positions_contract import CONTENT, POSITION, RESULT
 
 TOOLS = {"read_deal_positions", "mutate_deal_positions"}
@@ -438,7 +440,7 @@ def check_bundle(directory, *, model, reasoning_effort):
         require(receipt.get("client_selection") == selection, "capture model/effort selection differs or is absent")
         expected_command = [command[0], "exec", "--json", "--skip-git-repo-check", "--ignore-user-config", "--ephemeral",
             "-c", "mcp_servers.veqtor_nr02.command=" + json.dumps(installation["python"]),
-            "-c", 'mcp_servers.veqtor_nr02.args=["-I","-m","veqtor_mcp.server"]',
+            "-c", SERVER_OVERRIDE,
             "-c", 'mcp_servers.veqtor_nr02.env.VEQTOR_TRACKED_CHANGE_AUTHOR="Veqtor Acceptance"',
             "-c", 'mcp_servers.veqtor_nr02.env.VEQTOR_DISABLE_DECISION_RECORD=' + json.dumps("1" if name == "journal_disabled" else "0"),
             "--model", model, "-c", "model_reasoning_effort=" + json.dumps(reasoning_effort), "-"]

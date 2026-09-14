@@ -52,7 +52,8 @@ and 5 sources/position; title 200 chars, outcome/fallback/conditions/rationale
 4000 chars each, confirmation statement 2000 chars, relative paths 500 chars.
 Snapshot/request JSON: at most 2 MiB UTF-8 each, depth 20 and 50000 nodes.
 Source checks: at most 20 distinct files / 100 MiB total / 20 MiB per file per
-call; reference inspection also obeys existing DOCX limits. A full result may
+call, including bytes read before an I/O or stability refusal; reference
+inspection also obeys existing DOCX limits. A full result may
 duplicate current/history and source status but is bounded by 8 MiB. Exceeding
 any limit refuses without deleting history or altering the store.
 
@@ -102,3 +103,7 @@ in every receipt. Every selected matter/stage requires the complete expected
 DOCX inventory, including unbound files. The moved stage records old-root/store
 absence and exact moved snapshot hashes before and after the native read; later
 path recreation cannot stand in for or invalidate those historical observations.
+
+Installation probes and captured MCP servers compile Python source directly;
+timestamp-valid and unchecked-hash bytecode caches cannot substitute another
+producer. The bundle checker requires this exact source-only launch in receipts.
