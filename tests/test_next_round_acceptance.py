@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Real synthetic payloads/files in fabricated envelopes test the checker, not Codex."""
 from copy import deepcopy
+from functools import cache
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 import time
@@ -28,6 +30,9 @@ def json_write(path, value):
 @pytest.fixture
 def prepared(tmp_path, monkeypatch):
     monkeypatch.setenv("VEQTOR_TRACKED_CHANGE_AUTHOR", AUTHOR)
+    # Isolate lazy process configuration without clearing or warming the prior
+    # cache; monkeypatch restores that exact cache object during teardown.
+    monkeypatch.setattr(server, "_tracked_change_author", cache(server._tracked_change_author.__wrapped__))
     monkeypatch.delenv("VEQTOR_DISABLE_DECISION_RECORD", raising=False)
     # Package/source installation has its own real gate. No test ever labels this
     # substituted receipt native or installed-build evidence.
@@ -40,6 +45,36 @@ def prepared(tmp_path, monkeypatch):
     bundle = tmp_path / "bundle"
     b = prep.prepare(bundle, installation, model=MODEL, reasoning_effort="high")
     return bundle, b, report
+
+
+@pytest.mark.parametrize("warmed", [False, True], ids=["cold-cache", "warm-cache"])
+def test_f04_prepared_author_isolation_restores_prior_cache(tmp_path, monkeypatch, warmed):
+    # Preserve the real process cache while simulating an earlier test's cache
+    # and a later environment change that must not replace a cached author.
+    prior_cache = cache(server._tracked_change_author.__wrapped__)
+    monkeypatch.setattr(server, "_tracked_change_author", prior_cache)
+    monkeypatch.setenv(server.TRACKED_CHANGE_AUTHOR_ENV, "Earlier cached author")
+    if warmed:
+        assert server._tracked_change_author() == "Earlier cached author"
+    prior_info = prior_cache.cache_info()
+    monkeypatch.setenv(server.TRACKED_CHANGE_AUTHOR_ENV, "Prior environment author")
+
+    # Exercise the fixture itself and its monkeypatch teardown in one test.
+    with monkeypatch.context() as fixture_patch:
+        _, baseline, _ = prepared.__wrapped__(tmp_path, fixture_patch)
+        source = baseline["inputs"]["a"]["source"]
+        proof = server.preflight_edits(source_path=source, edits=checker.expected_edits(source, "a"))
+        assert proof["batch_applicable"] is True
+        assert proof["tracked_change_author"] == AUTHOR
+        assert proof["preflight_proof"]["tracked_change_author"] == AUTHOR
+        assert server._tracked_change_author is not prior_cache
+        fixture_patch.setenv(server.TRACKED_CHANGE_AUTHOR_ENV, "Later fixture environment")
+        assert server._tracked_change_author() == AUTHOR
+
+    assert server._tracked_change_author is prior_cache
+    assert prior_cache.cache_info() == prior_info
+    assert os.environ[server.TRACKED_CHANGE_AUTHOR_ENV] == "Prior environment author"
+    assert server._tracked_change_author() == ("Earlier cached author" if warmed else "Prior environment author")
 
 
 def native_stage(bundle, b, installation, stage, monkeypatch):
