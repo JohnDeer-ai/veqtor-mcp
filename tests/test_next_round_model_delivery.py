@@ -191,3 +191,76 @@ def test_ambiguous_identical_batch_payloads_and_arbitrary_nested_text_refuse():
     value = dict(status="fulfilled", value=[dict(type="text", text=json.dumps(calls[0]["payload"]))])
     assert not payloads(json.dumps(dict(unrelated=value)))
     assert not payloads(json.dumps(dict(status="fulfilled", value=value)))
+
+
+def notified_session():
+    """Explicit synthetic qualified occurrences, never original runtime evidence."""
+    from nr03_app_server import PROFILE
+    calls = example_calls()
+    session = exec_session(calls)
+    for n, call in enumerate(calls):
+        core = session[n + 3]["payload"]["item"]
+        call["source_occurrence"] = dict(profile=PROFILE, thread_id="synthetic", turn_id="turn",
+            item_id=call["id"], core_item=deepcopy(core), core_line=n + 4)
+    session[-3]["payload"].update(id="empty-completion", output=[])
+    for n, call in enumerate(calls):
+        session.insert(len(session) - 2, dict(type="response_item", payload=dict(type="custom_tool_call_output",
+            id=f"notification-{n}", call_id="outer", name="exec", output=json.dumps(call["payload"]),
+            internal_chat_message_metadata_passthrough=dict(turn_id="turn", create_time=1000.0 + n))))
+    return calls, session
+
+
+@pytest.mark.parametrize("fault", ["missing", "duplicate", "duplicate_value_new_id", "duplicate_id_different_value",
+    "missing_id", "wrong_name", "wrong_turn", "extra_metadata", "typed_time", "clipped", "summary", "block_metadata",
+    "before_core", "missing_core", "typed_args", "late", "equal_producers"])
+def test_distinct_notification_occurrences_are_independent_and_fail_closed(fault):
+    calls, session = notified_session()
+    expected = {c["id"] for c in calls}
+    positive = delivery(calls, session)
+    assert set(positive) == expected
+    assert {r["output_id"] for r in positive.values()} == {f"notification-{n}" for n in range(3)}
+    bad, changed = deepcopy(session), deepcopy(calls)
+    at = next(n for n, row in enumerate(bad) if row.get("payload", {}).get("id") == "notification-0")
+    out = bad[at]["payload"]
+    missing = {calls[0]["id"]}
+    if fault == "missing":
+        bad.pop(at)
+    elif fault in {"duplicate", "duplicate_value_new_id"}:
+        duplicate = deepcopy(bad[at])
+        if fault == "duplicate_value_new_id":
+            duplicate["payload"]["id"] = "different-original-output-id"
+        bad.insert(at, duplicate)
+    elif fault == "duplicate_id_different_value":
+        bad[at + 1]["payload"]["id"] = out["id"]
+        missing.add(calls[1]["id"])
+    elif fault == "missing_id":
+        del out["id"]
+    elif fault == "wrong_name":
+        out["name"] = "other"
+    elif fault in {"wrong_turn", "extra_metadata", "typed_time"}:
+        key, value = {"wrong_turn": ("turn_id", "foreign"), "extra_metadata": ("unknown", None), "typed_time": ("create_time", True)}[fault]
+        out["internal_chat_message_metadata_passthrough"][key] = value
+    elif fault == "clipped":
+        out["output"] = out["output"][:-1]
+    elif fault == "summary":
+        out["output"] = '{"record_id":"summary"}'
+    elif fault == "block_metadata":
+        out["output"] = json.dumps(dict(content=[dict(type="text", text=out["output"], _meta={"unknown": True})]))
+    elif fault == "before_core":
+        bad.insert(3, bad.pop(at))
+        missing = expected
+    elif fault == "missing_core":
+        bad.pop(3)
+    elif fault == "typed_args":
+        bad[3]["payload"]["item"]["arguments"]["mode"] = True
+    elif fault == "late":
+        moved = bad.pop(at)
+        bad.insert(len(bad) - 1, moved)
+    else:
+        changed[1]["payload"] = deepcopy(changed[0]["payload"])
+        core = bad[4]["payload"]["item"]
+        core["result"] = deepcopy(bad[3]["payload"]["item"]["result"])
+        changed[1]["source_occurrence"]["core_item"] = deepcopy(core)
+        missing.add(calls[1]["id"])
+    assert set(delivery(changed, bad)) == expected - missing
+    assert set(delivery(calls, session)) == expected

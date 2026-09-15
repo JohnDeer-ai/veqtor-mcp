@@ -93,9 +93,33 @@ or privacy check. Both startup and later original-exchange validation use this
 same rule. This representation is pinned to the build above, not a generic
 normalization policy for future clients.
 
-A resumed turn gets an exact private copy of its own earlier complete prefix;
-the earlier evidence is not opened for append. The original resulting session
-prefix is copied through the actual matching `task_complete` before cleanup.
+New native threads explicitly request `historyMode: legacy`. This is the pinned
+client's supported file-backed history contract. Its default can be paginated;
+copying a paginated prefix without the authoritative native store is invalid.
+Old paginated captures cannot be converted or used as parents by this profile.
+
+After the direct client and recorders settle, capture retains both the original
+full rollout (`<stage>.resume.jsonl`) and its exact prefix through the actual
+matching `task_complete`. The receipt binds their byte hashes and lengths,
+original relative `sessions/YYYY/MM/DD/rollout-...-<thread>.jsonl` path, explicit
+legacy metadata, thread, cwd and build. Before any resume process, the current
+qualified native parent receipt and both original files must agree. Missing,
+foreign, stale, paginated and symlinked state refuse. A fresh private root gets
+only an exact copy of that genuine legacy rollout under its original relative
+path; no SQLite rows, index or history are manufactured. The resume request and
+reply must select that same path and thread. The resulting complete original
+state must retain all restored parent bytes and bind the exact parent receipt.
+Earlier evidence is never opened for append.
+
+Resume can emit MCP startup before its reply. The explicit request fixes the
+expected identity before receiving that notification. The pinned client's
+`thread_lifecycle.rs::send_thread_goal_snapshot_notification` emits
+`thread/goal/cleared` for an absent goal. Only its exact empty snapshot is
+accepted once, after the resume reply and before a turn request, with the same
+thread and ordered original envelope. Goal updates, unknown fields, foreign
+threads, duplicate or out-of-order snapshots refuse. This is a passive resume
+snapshot, not an authorization to create or clear a goal.
+
 Missing persisted completion refuses. `thread/read`, final snapshots and
 backfill cannot supply missing original starts or manufacture model outputs.
 
@@ -106,6 +130,15 @@ receipt context. The outer context continues to bind frozen installation,
 business stimulus, workflow, baseline, selected files, ancestry and before/after
 state. Complete actual turn context in the prefix must agree with model/effort.
 The existing delivery binding additionally binds that prefix to the receipt.
+
+Each original output occurrence under one exec is assessed independently,
+including distinct notifications following an empty completion output. It must
+follow its own unique source-qualified inner invocation and precede the final
+message. The binding retains output ID, occurrence index and line/block/item
+location. Complete-payload equality precedes label and metadata checks;
+duplicates and equal-payload ambiguity never select the first match. Separate
+outputs are never concatenated. A missing or corrupt page cannot gain credit
+from final prose or another page, while unrelated unique pages remain valid.
 
 ## Cooperative owner for the revision-conflict update
 

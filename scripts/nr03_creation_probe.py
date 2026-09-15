@@ -32,6 +32,32 @@ def initial_navigation(args, output):
 
 
 def tool_error(call, code):
+    if code == "workspace_uninitialized":
+        from nr03_model_delivery import decoded
+        if (call.get("tool") != "export_decision_record" or call.get("failed") is not True
+                or call.get("error") is not None):
+            return False
+        result = call.get("result")
+        if (not isinstance(result, dict) or set(result) != {"structured_content", "content"}
+                or result["structured_content"] is not None):
+            return False
+        content = result["content"]
+        if (not isinstance(content, list) or len(content) != 1 or not isinstance(content[0], dict)
+                or set(content[0]) != {"type", "text"} or content[0]["type"] != "text"):
+            return False
+        prefix = "Error executing tool export_decision_record: workspace_uninitialized: "
+        text = content[0]["text"]
+        if not isinstance(text, str) or not text.startswith(prefix):
+            return False
+        value = decoded(text[len(prefix):])
+        if (not isinstance(value, dict) or set(value) != {"error_code", "workspace_discovery"}
+                or value["error_code"] != code):
+            return False
+        discovery = value["workspace_discovery"]
+        expected = dict(candidate_count=0, classification_complete=True, entry_limit=500,
+                        max_depth=1, scope="direct_children", time_limit_seconds=1.0)
+        return (isinstance(discovery, dict) and set(discovery) == set(expected)
+                and all(type(discovery[k]) is type(v) and discovery[k] == v for k, v in expected.items()))
     return call["error"] is None and call["result"] == dict(structured_content=None,
         content=[dict(type="text", text=f"Error executing tool {call['tool']}: {code}: operation refused")])
 
@@ -61,7 +87,11 @@ def classify_failures(events, baseline, creation_state, *, unavailable_workspace
         if recovered is not None:
             route = "ordinary_recovered"
         elif unavailable_workspace is not None and call["tool"] == "export_decision_record":
-            _require(call["arguments"].get("workspace") == unavailable_workspace
+            from nr03_delivery import EXPORT_PAGE_LIMIT
+            args = call["arguments"]
+            _require(set(args) <= {"workspace", "max_records", "before_record_id"}
+                     and args.get("workspace") == unavailable_workspace and args.get("before_record_id") is None
+                     and type(args.get("max_records")) is int and 1 <= args["max_records"] <= EXPORT_PAGE_LIMIT
                      and tool_error(call, "workspace_uninitialized"),
                      "unavailable journal error or workspace differs")
             route = "expected_unavailable_export"

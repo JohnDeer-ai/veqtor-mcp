@@ -211,6 +211,8 @@ def load_stage(directory, stage, b, installation):
     parsed = parse_capture(directory, stage, receipt, installation["producer"])
     thread, calls = parsed["thread"], parsed["calls"]
     if resumed and "source" in receipt:
+        from nr03_resume_state import validate_ancestry
+        validate_ancestry(receipt["source"], read_json(directory / f"{r}-brief.receipt.json")["source"])
         parent_path = directory / f"{r}-brief.session.jsonl"
         current_path = directory / f"{stage}.session.jsonl"
         _require(parent_path.is_file() and current_path.read_bytes().startswith(parent_path.read_bytes())

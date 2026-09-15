@@ -98,6 +98,7 @@ def resume_parent(folder, plan, frozen, parent, baseline, installation):
     parent_hash = None
     parent_source_prefix = None
     parent_source_turn = None
+    parent_source = None
     for ancestor in reversed(chain):
         receipt_path = folder / f"{ancestor}.receipt.json"
         events_path = folder / f"{ancestor}.jsonl"
@@ -121,6 +122,10 @@ def resume_parent(folder, plan, frozen, parent, baseline, installation):
         parsed = parse_capture(folder, ancestor, receipt, installation["producer"], require_tool_calls=False)
         thread, calls = parsed["thread"], parsed["calls"]
         if "source" in receipt:
+            from nr03_resume_state import validate_ancestry
+            if original_thread is not None:
+                validate_ancestry(receipt["source"], parent_source)
+            parent_source = receipt["source"]
             current_prefix = (folder / f"{ancestor}.session.jsonl").read_bytes()
             _require(original_thread is None or (parent_source_prefix is not None and current_prefix.startswith(parent_source_prefix)
                      and receipt["source"]["turn_id"] != parent_source_turn), "source observation parent prefix differs")
@@ -198,7 +203,8 @@ def capture(bundle, step_id, codex, *, model, reasoning_effort, source_profile=P
         code, source = result.returncode, None
     else:
         code, source = app_capture(folder, step_id, command, config, prompt, cwd, b["client_selection"], resumed=resume,
-            parent_prefix=folder / f"{step['resume']}.session.jsonl" if resume else None, owner=owner)
+            parent_prefix=folder / f"{step['resume']}.session.jsonl" if resume else None,
+            parent_source=read_json(folder / f"{step['resume']}.receipt.json")["source"] if resume else None, owner=owner)
     receipt = dict(schema_version="veqtor_next_round_observation_capture.v2" if source is not None else "veqtor_next_round_observation_capture.v1",
         plan_sha256=_file_sha256(str(folder / "plan.json")), step=step_id, command=command, cwd=str(cwd),
         resumed_thread_id=resume, parent_receipt_sha256=parent_hash,

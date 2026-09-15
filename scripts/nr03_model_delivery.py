@@ -6,6 +6,7 @@ this module never manufactures client output from a raw MCP transcript.
 """
 import json
 import math
+from collections import Counter
 from pathlib import Path
 
 from check_codex_acceptance import _digest, _file_sha256, _require
@@ -264,40 +265,59 @@ def validate_model_delivery(calls, session, *, thread, cwd, final_text, diagnost
             finals.append(dict(text=text, line=starts[-1] + i + 2))
     _require(finals and finals[-1]["text"] == final_text, "model final message differs from raw native turn")
     _require(len(bindings) == len(set(bindings)), "raw result has multiple inner producers")
+    output_ids = Counter(o["item"].get("id") for p in pending.values() for o in p["outputs"]
+                         if isinstance(o["item"].get("id"), str))
     proposals = {}
     for outer, parent in pending.items():
-        if len(parent["outputs"]) != 1:
-            diagnostics.append(dict(reason="missing_or_duplicate_output", model_call_id=outer))
+        if not parent["outputs"]:
+            diagnostics.append(dict(reason="missing_output", model_call_id=outer))
             continue
-        item, line = parent["outputs"][0]["item"], parent["outputs"][0]["line"]
-        if item["type"] != parent["action"]["type"] + "_output" or line >= finals[-1]["line"]:
-            diagnostics.append(dict(reason="wrong_or_late_output", model_call_id=outer, line=line))
+        if len(parent["outputs"]) > 1 and not (qualified and parent["exec"]):
+            diagnostics.append(dict(reason="unqualified_multiple_outputs", model_call_id=outer))
             continue
-        candidates = list(parent["inner"]) if parent["exec"] else [
-            call["id"] for call in successful.values() if direct_call(parent["action"], call)
-            and (not qualified or parent["line"] < call["source_occurrence"]["core_line"] < line)]
-        items = result_items(item.get("output"))
-        if not items:
-            diagnostics.append(dict(reason="unsupported_malformed_or_incomplete_output", model_call_id=outer, line=line))
-        for result in items:
-            digest = _digest(result["payload"])
-            matches = [ident for ident in candidates if _digest(successful[ident]["payload"]) == digest]
-            if len(matches) != 1:
-                diagnostics.append(dict(reason="missing_or_ambiguous_complete_correspondence", model_call_id=outer, line=line))
+        for output_index, output in enumerate(parent["outputs"]):
+            item, line = output["item"], output["line"]
+            if qualified and len(parent["outputs"]) > 1:
+                ident = item.get("id")
+                metadata = item.get("internal_chat_message_metadata_passthrough")
+                if (not isinstance(ident, str) or not ident or output_ids[ident] != 1
+                        or item.get("name", "exec") != "exec"
+                        or (metadata is not None and (not isinstance(metadata, dict)
+                            or set(metadata) != {"turn_id", "create_time"} or metadata["turn_id"] != turn
+                            or type(metadata["create_time"]) not in (int, float)
+                            or not math.isfinite(metadata["create_time"]) or metadata["create_time"] <= 0))):
+                    diagnostics.append(dict(reason="ambiguous_or_foreign_output_identity", model_call_id=outer, line=line))
+                    continue
+            if item["type"] != parent["action"]["type"] + "_output" or line >= finals[-1]["line"]:
+                diagnostics.append(dict(reason="wrong_or_late_output", model_call_id=outer, line=line))
                 continue
-            ident = matches[0]
-            # Never consume a candidate to break a later tie. Multiplicity is
-            # checked globally, including differently labelled equal outputs.
-            label = checked_labels(result["labels"], successful[ident], paths)
-            terminal_valid = terminal_matches(result, successful[ident])
-            proposals.setdefault(ident, []).append(dict(sha256=digest, line=line, model_call_id=outer, native_call_id=ident,
-                action_line=parent["line"], native_line=parent["inner"].get(ident, {}).get("line"),
-                inner_call_id=parent["inner"].get(ident, {}).get("id"), labels=result["labels"], label_binding=label,
-                output_block=result["output_block"], output_item=result["output_item"], payload_index=result["payload_index"],
-                wrappers=result["wrappers"], terminal_valid=terminal_valid,
-                source_occurrence=successful[ident].get("source_occurrence"),
-                attribution=("qualified_original_inner_mcp" if parent["exec"] else "qualified_original_direct") if qualified
-                    else "legacy_unique_inner_value" if parent["exec"] else "legacy_unique_direct_value"))
+            candidates = [ident for ident, occurrence in parent["inner"].items()
+                          if parent["line"] < occurrence["line"] < line] if parent["exec"] else [
+                call["id"] for call in successful.values() if direct_call(parent["action"], call)
+                and (not qualified or parent["line"] < call["source_occurrence"]["core_line"] < line)]
+            items = result_items(item.get("output"))
+            if not items:
+                diagnostics.append(dict(reason="unsupported_malformed_or_incomplete_output", model_call_id=outer, line=line))
+            for result in items:
+                digest = _digest(result["payload"])
+                matches = [ident for ident in candidates if _digest(successful[ident]["payload"]) == digest]
+                if len(matches) != 1:
+                    diagnostics.append(dict(reason="missing_or_ambiguous_complete_correspondence", model_call_id=outer, line=line))
+                    continue
+                ident = matches[0]
+                # Never consume a candidate to break a later tie. Multiplicity is
+                # checked globally, including differently labelled equal outputs.
+                label = checked_labels(result["labels"], successful[ident], paths)
+                terminal_valid = terminal_matches(result, successful[ident])
+                proposals.setdefault(ident, []).append(dict(sha256=digest, line=line, model_call_id=outer, native_call_id=ident,
+                    output_id=item.get("id"), output_occurrence=output_index,
+                    action_line=parent["line"], native_line=parent["inner"].get(ident, {}).get("line"),
+                    inner_call_id=parent["inner"].get(ident, {}).get("id"), labels=result["labels"], label_binding=label,
+                    output_block=result["output_block"], output_item=result["output_item"], payload_index=result["payload_index"],
+                    wrappers=result["wrappers"], terminal_valid=terminal_valid,
+                    source_occurrence=successful[ident].get("source_occurrence"),
+                    attribution=("qualified_original_inner_mcp" if parent["exec"] else "qualified_original_direct") if qualified
+                        else "legacy_unique_inner_value" if parent["exec"] else "legacy_unique_direct_value"))
     delivered = {}
     for ident, matches in proposals.items():
         if len(matches) == 1 and matches[0]["label_binding"] is not None and matches[0]["terminal_valid"]:

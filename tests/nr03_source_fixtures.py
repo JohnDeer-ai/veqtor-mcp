@@ -139,7 +139,7 @@ def supplement(events, old_session, receipt, config):
     if receipt.get("resumed_thread_id"):
         params.update(threadId=thread, path=runtime+"/resume.jsonl", excludeTurns=True)
     else:
-        params.update(ephemeral=False)
+        params.update(ephemeral=False, historyMode="legacy")
     request(3, "thread/resume" if receipt.get("resumed_thread_id") else "thread/start", params,
         dict(thread=dict(id=thread, path=runtime+"/session.jsonl"), model=selection["model"], reasoningEffort=selection["reasoning_effort"],
              cwd=receipt["cwd"], approvalPolicy="never", instructionSources=[]))

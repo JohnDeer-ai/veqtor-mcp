@@ -127,7 +127,7 @@ def native_stage(bundle, b, installation, stage, monkeypatch, *, edit_transform=
             assert getattr(exc, "code", None) == "workspace_uninitialized", str(exc)
             events.append(dict(type="item.completed", item=dict(deepcopy(identity), status="failed", error=None,
                 result=dict(structured_content=None, content=[dict(type="text", text=
-                    "Error executing tool export_decision_record: workspace_uninitialized: operation refused")]))))
+                    "Error executing tool export_decision_record: " + str(exc))]))))
             return None
         events.append(dict(type="item.completed", item=dict(deepcopy(identity), status="completed", error=None,
             result=dict(structured_content=deepcopy(payload), content=[dict(type="text", text=json.dumps(payload))]))))

@@ -62,7 +62,9 @@ def disabled_events(events, workspace):
     pair = failed_pair(workspace, tool="export_decision_record", ident="expected-export")
     for e in pair:
         e["item"]["arguments"] = dict(workspace=workspace, max_records=20)
-    pair[1]["item"]["result"]["content"][0]["text"] = "Error executing tool export_decision_record: workspace_uninitialized: operation refused"
+    pair[1]["item"]["result"]["content"][0]["text"] = ('Error executing tool export_decision_record: workspace_uninitialized: '
+        + json.dumps(dict(error_code="workspace_uninitialized", workspace_discovery=dict(candidate_count=0,
+            classification_complete=True, entry_limit=500, max_depth=1, scope="direct_children", time_limit_seconds=1.0))))
     value[-2:-2] = pair
     return value
 
@@ -271,7 +273,7 @@ def test_adverse_journal_and_provenance_negatives(component, record_property):
         "early_export": "actual expected export failure",
         "wrong_error": "unavailable journal error or workspace differs",
         "wrong_workspace": "unavailable journal error or workspace differs",
-        "unbounded_export": "adverse export workspace or bounded first-page arguments differ",
+        "unbounded_export": "unavailable journal error or workspace differs",
         "disabled_record_error": "native result violates public contract",
         "written": "adverse result lacks disabled/null/no-error provenance",
     }.items():

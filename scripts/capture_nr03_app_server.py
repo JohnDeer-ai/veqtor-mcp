@@ -110,14 +110,19 @@ def validate_exchange(methods, responses, source, receipt):
     request, result = responses[thread_method][1]["params"], responses[thread_method][2]
     expected = dict(model=selection["model"], cwd=receipt["cwd"], approvalPolicy="never", sandbox="danger-full-access")
     if resumed:
-        expected.update(threadId=resumed, path=str(Path(source["runtime_root"]) / "resume.jsonl"), excludeTurns=True)
+        relative = source["parent_state"]["relative_rollout_path"] if source["evidence_kind"] == "native" else "resume.jsonl"
+        expected.update(threadId=resumed, path=str(Path(source["runtime_root"]) / relative), excludeTurns=True)
     else:
-        expected.update(ephemeral=False)
+        expected.update(ephemeral=False, historyMode="legacy")
     _require(request == expected and result.get("thread", {}).get("id") == source["thread_id"]
              and (not resumed or resumed == source["thread_id"])
              and result.get("model") == selection["model"] and result.get("reasoningEffort") == selection["reasoning_effort"]
              and result.get("cwd") == receipt["cwd"] and result.get("approvalPolicy") == "never"
              and result.get("instructionSources") == [], "source thread launch/actual configuration differs")
+    if source["evidence_kind"] == "native":
+        path = str(Path(source["runtime_root"]) / source["persisted_state"]["relative_rollout_path"])
+        _require(result["thread"].get("historyMode") == "legacy" and result["thread"].get("path") == path
+                 and (not resumed or path == expected["path"]), "source persisted thread selection differs")
     turn_request, turn_response = responses["turn/start"][1]["params"], responses["turn/start"][2]
     _require(set(turn_request) == {"threadId", "input", "model", "effort"}
              and turn_request["threadId"] == source["thread_id"] and turn_request["model"] == selection["model"]
@@ -340,8 +345,12 @@ def close_direct(process):
     return code
 
 
-def capture(folder, stage, command, config, prompt, cwd, selection, *, resumed=None, parent_prefix=None, owner=None):
-    """Keep a complete prefix before deleting the private per-process runtime."""
+def capture(folder, stage, command, config, prompt, cwd, selection, *, resumed=None, parent_prefix=None, parent_source=None, owner=None):
+    """Keep the complete prefix and original supported state before cleanup."""
+    from nr03_resume_state import companion, parent_state, restore_state, state_binding, validate_parent_prefix
+    # Refuse missing, stale, foreign or paginated parents before any process.
+    parent_raw, parent_binding = parent_state(parent_prefix, parent_source, thread=resumed, cwd=cwd,
+        selection=selection) if resumed else (None, None)
     codex = Path(command[0])
     _require(_file_sha256(str(codex)) == BUILD["sha256"], "source executable hash differs from qualified build")
     _require(BUILD["commit"].encode() in codex.read_bytes(), "source embedded commit absent")
@@ -363,8 +372,7 @@ def capture(folder, stage, command, config, prompt, cwd, selection, *, resumed=N
         _require(auth.is_file(), "source isolated file authentication unavailable")
         private_write(runtime / "auth.json", auth.read_bytes())
         if resumed:
-            _require(parent_prefix is not None, "source resume prefix missing")
-            private_write(runtime / "resume.jsonl", Path(parent_prefix).read_bytes())
+            restored_path = restore_state(runtime, parent_raw, parent_binding)
         env = {k: os.environ[k] for k in ("PATH", "TMPDIR", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR") if k in os.environ}
         # This is the supported child configuration-root parameter, not a shell
         # variable reassignment or permanent setting. No parent CODEX_* inherited.
@@ -401,19 +409,22 @@ def capture(folder, stage, command, config, prompt, cwd, selection, *, resumed=N
             stream.publish(folder)
             params = dict(model=selection["model"], cwd=str(cwd), approvalPolicy="never", sandbox="danger-full-access")
             if resumed:
-                params.update(threadId=resumed, path=str(runtime / "resume.jsonl"), excludeTurns=True)
+                params.update(threadId=resumed, path=str(restored_path), excludeTurns=True)
             else:
-                params.update(ephemeral=False)
+                params.update(ephemeral=False, historyMode="legacy")
             stream.send("thread/resume" if resumed else "thread/start", params, 3)
             reply = stream.response(3)
             thread = reply["thread"]["id"]
             _require((not resumed or thread == resumed) and reply.get("instructionSources") == []
+                     and reply["thread"].get("historyMode") == "legacy"
                      and reply.get("model") == selection["model"] and reply.get("reasoningEffort") == selection["reasoning_effort"],
                      "source thread isolation/model differs before model turn")
             prefix_path = Path(reply["thread"]["path"])
             _require(prefix_path.is_absolute() and ".." not in prefix_path.parts and prefix_path != runtime
                      and prefix_path.is_relative_to(runtime) and prefix_path.resolve().is_relative_to(runtime)
                      and not prefix_path.is_symlink(), "source session escaped private runtime")
+            if resumed:
+                _require(prefix_path == restored_path, "source resumed a different persisted state path")
             stream.runtime_inventory()
             stream.send("turn/start", dict(threadId=thread, input=[dict(type="text", text=prompt, text_elements=[])],
                 model=selection["model"], effort=selection["reasoning_effort"]), 4)
@@ -463,10 +474,15 @@ def capture(folder, stage, command, config, prompt, cwd, selection, *, resumed=N
         end = [i for i, raw in enumerate(entries) if (r := lines(raw)[0]).get("type") == "event_msg"
                and r.get("payload", {}).get("type") == "task_complete" and r["payload"].get("turn_id") == turn]
         _require(end, "source original complete model prefix unavailable")
-        private_write(folder / f"{stage}.session.jsonl", b"".join(entries[:end[-1] + 1]))
+        prefix = b"".join(entries[:end[-1] + 1])
+        persisted = state_binding(session, prefix, str(prefix_path.relative_to(runtime)), thread=thread, cwd=cwd)
+        if resumed:
+            validate_parent_prefix(session, parent_binding, thread=thread, cwd=cwd)
+        private_write(folder / f"{stage}.session.jsonl", prefix)
+        private_write(companion(folder / f"{stage}.session.jsonl"), session)
         source = dict(profile=PROFILE, build=deepcopy(BUILD), evidence_kind="native", run_id=run, connection_id=connection,
             executable_path=str(codex), runtime_root=str(runtime), launch_config=config, selection=selection,
-            thread_id=thread, turn_id=turn, policy_sha256=policy_hashes())
+            thread_id=thread, turn_id=turn, policy_sha256=policy_hashes(), persisted_state=persisted, parent_state=parent_binding)
         if owner_metadata is not None:
             source["owner"] = owner_metadata
         for name, suffix in (("events", "jsonl"), ("requests", "requests.jsonl"), ("transport", "transport.jsonl"),

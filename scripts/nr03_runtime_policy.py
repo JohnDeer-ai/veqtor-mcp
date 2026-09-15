@@ -3,7 +3,7 @@
 from check_codex_acceptance import _digest, _require
 from nr03_scenario import SERVER
 
-NOTIFICATIONS = {"remoteControl/status/changed", "mcpServer/startupStatus/updated"}
+NOTIFICATIONS = {"remoteControl/status/changed", "mcpServer/startupStatus/updated", "thread/goal/cleared"}
 TOOLS = {"list_rounds", "extract_redlines", "inspect_document", "map_rounds",
          "trace_paragraph_history", "preflight_edits", "apply_edits", "verify_quote",
          "export_decision_record", "read_deal_positions", "mutate_deal_positions"}
@@ -50,6 +50,7 @@ class RuntimeBoundary:
         self.inventory = False
         self.last_emitted = 0
         self.turn = None
+        self.empty_goal_snapshot = False
 
     def request(self, row):
         _require(isinstance(row, dict), "source runtime malformed request")
@@ -66,6 +67,10 @@ class RuntimeBoundary:
             self.require_ready()
         if method in {"thread/start", "thread/resume"}:
             _require("config/read" in self.replies, "source thread before qualified config")
+        if method == "thread/resume":
+            # The pinned client may emit MCP startup before the resume reply.
+            # Its identity is already fixed by the explicit original request.
+            self.bind_thread(row.get("params", {}).get("threadId"))
         if method != "initialized":
             ident = row.get("id")
             _require(type(ident) is int and ident not in self.requests, "source runtime request identity differs")
@@ -139,6 +144,11 @@ class RuntimeBoundary:
                      "source remote state is not qualified disabled")
             _require(self.remote is None or _digest(self.remote) == _digest(params), "source remote identity changed")
             self.remote = dict(params)
+        elif method == "thread/goal/cleared":
+            _require(set(params) == {"threadId"} and params["threadId"] == self.thread
+                     and "thread/resume" in self.replies and "turn/start" not in self.methods
+                     and not self.empty_goal_snapshot, "source empty resume goal snapshot differs")
+            self.empty_goal_snapshot = True
         else:
             _require(set(params) == {"threadId", "name", "status", "error", "failureReason"}
                      and self.thread is not None and params["threadId"] == self.thread

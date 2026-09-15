@@ -127,7 +127,8 @@ def capture(directory, stage, codex, *, model, reasoning_effort, source_profile=
         code, source = result.returncode, None
     else:
         code, source = app_capture(directory, stage, command, config, prompt, directory / f"client-{round_name}", selection,
-            resumed=thread_id, parent_prefix=directory / f"{round_name}-brief.session.jsonl" if thread_id else None)
+            resumed=thread_id, parent_prefix=directory / f"{round_name}-brief.session.jsonl" if thread_id else None,
+            parent_source=parent["source"] if thread_id else None)
     finished = time.time_ns()
     receipt = dict(
         schema_version="veqtor_next_round_capture.v2" if source is not None else "veqtor_next_round_capture.v1", stage=stage, command=command,

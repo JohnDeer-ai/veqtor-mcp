@@ -22,6 +22,56 @@ prepared = base.prepared
 probe = creation.probe
 
 
+@pytest.mark.parametrize("fault", ["missing_full", "missing_binding", "changed_full", "wrong_reply_path", "paginated_reply",
+    "missing_legacy_request", "foreign_metadata", "stale_parent"])
+def test_native_state_is_required_by_full_source_parser(source_case, fault):
+    """Native-shaped synthetic control, not an original native capture."""
+    from nr03_resume_state import state_binding
+    from nr03_app_server import parse_protocol
+    fixture, producer = deepcopy(source_case)
+    rows = lines(fixture["session"].encode())
+    rows[0]["payload"]["history_mode"] = "legacy"
+    fixture["session"] = encode(rows)
+    scope = fixture["receipt"]["source"]
+    relative = "sessions/2026/09/15/rollout-synthetic-" + scope["thread_id"] + ".jsonl"
+    full = fixture["session"].encode() + b'{"type":"metadata","payload":{"synthetic":true}}\n'
+    scope.update(evidence_kind="native", parent_state=None, persisted_state=state_binding(full,
+        fixture["session"].encode(), relative, thread=scope["thread_id"], cwd=fixture["receipt"]["cwd"]))
+    raw = lines(fixture["raw"].encode())
+    thread = next(r["result"]["thread"] for r in raw if r.get("id") == 3)
+    thread.update(historyMode="legacy", path=scope["runtime_root"] + "/" + relative)
+    fixture["raw"] = encode(raw)
+    source.rebind(fixture)
+    def assess(f, state):
+        return parse_protocol(*(f[k].encode() for k in ("raw", "requests", "transport", "session")),
+            f["receipt"]["source"], receipt=f["receipt"], producer=producer, persisted_raw=state)
+    assert len(assess(fixture, full)["calls"]) == 5
+    bad, state = deepcopy(fixture), full
+    if fault == "missing_full":
+        state = None
+    elif fault == "missing_binding":
+        del bad["receipt"]["source"]["persisted_state"]
+    elif fault == "changed_full":
+        state = full.replace(b'"synthetic":true', b'"synthetic":false')
+    elif fault in {"wrong_reply_path", "paginated_reply"}:
+        raw = lines(bad["raw"].encode())
+        thread = next(r["result"]["thread"] for r in raw if r.get("id") == 3)
+        thread["path" if fault == "wrong_reply_path" else "historyMode"] = "/foreign" if fault == "wrong_reply_path" else "paginated"
+        bad["raw"] = encode(raw)
+    elif fault == "missing_legacy_request":
+        requests = lines(bad["requests"].encode())
+        del next(r["params"] for r in requests if r.get("method") == "thread/start")["historyMode"]
+        bad["requests"] = encode(requests)
+    elif fault == "foreign_metadata":
+        state = full.replace(b'"history_mode":"legacy"', b'"history_mode":"paginated"')
+    else:
+        bad["receipt"]["source"]["parent_state"] = deepcopy(scope["persisted_state"])
+    source.rebind(bad)
+    with pytest.raises(base.checker.EvidenceError):
+        assess(bad, state)
+    assert len(assess(fixture, full)["calls"]) == 5
+
+
 def snapshot(folder):
     return {p: p.read_bytes() for p in folder.iterdir() if p.is_file()}
 

@@ -17,7 +17,8 @@ PROFILE = "nr03-app-server-original.v1"
 BUILD = dict(version="0.154.0-alpha.6.2", commit="b5bffd3ec4db487e7e3dec59663875b0ef7b72ca",
              sha256="ecad78dbf98adb89ec475edac86630406cbe59d9f3070b17d88065f136b94bcb")
 POLICY_FILES = ("scripts/nr03_app_server.py", "scripts/capture_nr03_app_server.py",
-                "scripts/nr03_runtime_policy.py", "scripts/nr03_capture_owner.py", "scripts/nr03_model_delivery.py", "docs/NR03_SOURCE_PROFILE.md")
+                "scripts/nr03_runtime_policy.py", "scripts/nr03_capture_owner.py", "scripts/nr03_resume_state.py",
+                "scripts/nr03_model_delivery.py", "docs/NR03_SOURCE_PROFILE.md")
 PASSIVE = {"thread/status/changed", "thread/tokenUsage/updated", "account/rateLimits/updated",
            "model/rerouted", "item/agentMessage/delta", "item/reasoning/summaryTextDelta",
            "item/reasoning/summaryPartAdded", "item/reasoning/textDelta", "item/mcpToolCall/progress"}
@@ -120,13 +121,13 @@ def core_inventory(session, thread, turn, cwd, selection):
     return inventory
 
 
-def parse_protocol(raw, requests, transport, session_raw, source, *, receipt, producer, require_tool_calls=True):
+def parse_protocol(raw, requests, transport, session_raw, source, *, receipt, producer, require_tool_calls=True, persisted_raw=None):
     """Same validator for native and explicitly synthetic protocol fixtures."""
     from check_next_round_acceptance import parse_native
     fields = {"profile", "build", "policy_sha256", "evidence_kind", "run_id", "connection_id", "executable_path",
               "runtime_root", "launch_config", "selection", "thread_id", "turn_id", "context_sha256",
               "events_sha256", "requests_sha256", "transport_sha256", "session_sha256"}
-    _require(isinstance(source, dict) and fields <= set(source) <= fields | {"stderr_sha256", "owner"}
+    _require(isinstance(source, dict) and fields <= set(source) <= fields | {"stderr_sha256", "owner", "persisted_state", "parent_state"}
              and isinstance(source["selection"], dict) and set(source["selection"]) == {"model", "reasoning_effort"}
              and isinstance(source["launch_config"], dict) and isinstance(source["runtime_root"], str)
              and Path(source["runtime_root"]).is_absolute(), "source binding envelope unsupported")
@@ -166,6 +167,13 @@ def parse_protocol(raw, requests, transport, session_raw, source, *, receipt, pr
     thread, turn = source.get("thread_id"), source.get("turn_id")
     _require(all(isinstance(v, str) and v for v in (thread, turn)), "source thread/turn absent")
     selection = source["selection"]
+    if source["evidence_kind"] == "native":
+        from nr03_resume_state import validate_parent_prefix, validate_state
+        validate_state(persisted_raw, session_raw, source.get("persisted_state"), thread=thread, cwd=receipt["cwd"])
+        if receipt.get("resumed_thread_id"):
+            validate_parent_prefix(persisted_raw, source.get("parent_state"), thread=thread, cwd=receipt["cwd"])
+        else:
+            _require("parent_state" in source and source["parent_state"] is None, "source initial state has a parent")
     core = core_inventory(session, thread, turn, receipt["cwd"], selection)
     pending_requests, responses, sent_methods = {}, {}, []
     pending, completed, events, locations = {}, {}, [], {}
@@ -343,6 +351,9 @@ def parse_capture(directory, stage, receipt, producer, *, require_tool_calls=Tru
         return dict(thread=thread, calls=calls, messages=messages, events=events, source=None)
     source = receipt["source"]
     data = {}
+    if source.get("evidence_kind") == "native":
+        from nr03_resume_state import companion, regular_bytes
+        data["persisted_raw"] = regular_bytes(companion(directory / f"{stage}.session.jsonl"))
     for kind, suffix in (("requests", "requests.jsonl"), ("transport", "transport.jsonl"), ("session_raw", "session.jsonl")):
         path = directory / f"{stage}.{suffix}"
         _require(path.is_file() and not path.is_symlink(), "source evidence file missing or symlink")
