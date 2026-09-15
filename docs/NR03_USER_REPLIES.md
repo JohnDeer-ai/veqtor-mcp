@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# NR-03 scripted user stimuli v1
+# NR-03 scripted user stimuli v2
 
 These synthetic user messages are frozen separately from the expected results.
 The test operator provides them at the specified decision boundary, not as
@@ -8,6 +8,16 @@ developer instructions or an MCP call sequence. Bracketed paths are the only
 runtime substitutions. Preserve the actual sent messages in private receipts.
 The starter contains issue selectors, not saved positions. The native client must
 load the delivered skill/canonical prompt; oracle files are not client inputs.
+
+## Complete journal requirement for each new journal-bearing stage
+
+Append this exact clarification to each main A/B brief and decision. For future
+adverse or dependent observation plans, include it in each journal-bearing step
+before freezing the plan. This prospective v2 input never changes an existing
+bundle or cures a failed delivery. Page validation and all business decisions
+remain unchanged; each failed occurrence remains evidence.
+
+> For this new run, I need a complete, readable action journal. Obtain fresh pages containing at most one record each, and make each full page available separately before continuing. Cover the whole journal through its final page. If any page cannot be read in full, preserve that failed occurrence and report incomplete journal evidence. Do not replay saved output, repeat the document write, or claim that a later export made an earlier clipped occurrence complete.
 
 ## Round one starter
 

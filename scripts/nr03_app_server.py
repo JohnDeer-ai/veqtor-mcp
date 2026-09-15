@@ -17,7 +17,7 @@ PROFILE = "nr03-app-server-original.v1"
 BUILD = dict(version="0.154.0-alpha.6.2", commit="b5bffd3ec4db487e7e3dec59663875b0ef7b72ca",
              sha256="ecad78dbf98adb89ec475edac86630406cbe59d9f3070b17d88065f136b94bcb")
 POLICY_FILES = ("scripts/nr03_app_server.py", "scripts/capture_nr03_app_server.py",
-                "scripts/nr03_model_delivery.py", "docs/NR03_SOURCE_PROFILE.md")
+                "scripts/nr03_runtime_policy.py", "scripts/nr03_capture_owner.py", "scripts/nr03_model_delivery.py", "docs/NR03_SOURCE_PROFILE.md")
 PASSIVE = {"thread/status/changed", "thread/tokenUsage/updated", "account/rateLimits/updated",
            "model/rerouted", "item/agentMessage/delta", "item/reasoning/summaryTextDelta",
            "item/reasoning/summaryPartAdded", "item/reasoning/textDelta", "item/mcpToolCall/progress"}
@@ -126,7 +126,7 @@ def parse_protocol(raw, requests, transport, session_raw, source, *, receipt, pr
     fields = {"profile", "build", "policy_sha256", "evidence_kind", "run_id", "connection_id", "executable_path",
               "runtime_root", "launch_config", "selection", "thread_id", "turn_id", "context_sha256",
               "events_sha256", "requests_sha256", "transport_sha256", "session_sha256"}
-    _require(isinstance(source, dict) and fields <= set(source) <= fields | {"stderr_sha256"}
+    _require(isinstance(source, dict) and fields <= set(source) <= fields | {"stderr_sha256", "owner"}
              and isinstance(source["selection"], dict) and set(source["selection"]) == {"model", "reasoning_effort"}
              and isinstance(source["launch_config"], dict) and isinstance(source["runtime_root"], str)
              and Path(source["runtime_root"]).is_absolute(), "source binding envelope unsupported")
@@ -139,6 +139,9 @@ def parse_protocol(raw, requests, transport, session_raw, source, *, receipt, pr
              "source executable identity differs")
     _require(source.get("context_sha256") == _digest({k: v for k, v in receipt.items() if k != "source"}),
              "source run context binding differs")
+    if "owner" in source:
+        from nr03_capture_owner import validate_source_owner
+        validate_source_owner(source["owner"], source, receipt)
     for name, data in (("events", raw), ("requests", requests), ("transport", transport), ("session", session_raw)):
         _require(source.get(name + "_sha256") == hashlib.sha256(data).hexdigest(), "source " + name + " byte binding differs")
     received, sent, timeline, session = lines(raw), lines(requests), lines(transport), lines(session_raw)
@@ -167,10 +170,13 @@ def parse_protocol(raw, requests, transport, session_raw, source, *, receipt, pr
     pending_requests, responses, sent_methods = {}, {}, []
     pending, completed, events, locations = {}, {}, [], {}
     started = done = initialized = False
+    from nr03_runtime_policy import NOTIFICATIONS, RuntimeBoundary
+    boundary = RuntimeBoundary(source["launch_config"], source["runtime_root"], thread=thread)
     for direction, row, line in ordered:
         if direction == "sent":
+            boundary.request(row)
             method, ident = row.get("method"), row.get("id")
-            _require(method in {"initialize", "initialized", "config/read", "thread/start", "thread/resume", "turn/start"},
+            _require(method in {"initialize", "initialized", "config/read", "thread/start", "thread/resume", "mcpServerStatus/list", "turn/start"},
                      "source unsupported client request")
             if method == "initialized":
                 _require("id" not in row and "initialize" in responses and not initialized, "source initialization differs")
@@ -183,7 +189,7 @@ def parse_protocol(raw, requests, transport, session_raw, source, *, receipt, pr
                 pending_requests[ident] = row
             sent_methods.append(method)
             continue
-        _require("error" not in row and not ("method" in row and "id" in row), "source protocol error or server request")
+        boundary.receive(row)
         if "id" in row:
             req = pending_requests.pop(row["id"], None)
             _require(req is not None and isinstance(row.get("result"), dict) and req["method"] not in responses,
@@ -263,11 +269,14 @@ def parse_protocol(raw, requests, transport, session_raw, source, *, receipt, pr
                 events.append(dict(type=method.replace("/", "."), item=dict(type="agent_message", id=ident, text=item.get("text"))))
             elif kind == "functionCallOutput":
                 _require(item.get("name") in {"exec", "functions.exec"}, "source forbidden function output")
+        elif method in NOTIFICATIONS:
+            pass  # Complete original envelope was validated by the shared boundary.
         elif method in PASSIVE:
             _require(method != "model/rerouted", "source model rerouted")
         else:
             _require(False, "source unsupported notification: " + str(method))
     _require(done and set(core) == set(completed) and not pending_requests, "source inventory/transport incomplete")
+    boundary.require_ready()
     from capture_nr03_app_server import validate_exchange
     validate_exchange(sent_methods, responses, source, receipt)
     parsed_thread, calls, messages = parse_native(events, producer, require_tool_calls=require_tool_calls)

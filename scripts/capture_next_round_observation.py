@@ -12,6 +12,8 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
+import socket
 import subprocess
 import time
 
@@ -145,7 +147,7 @@ def resume_parent(folder, plan, frozen, parent, baseline, installation):
     return original_thread, parent_hash, cwd
 
 
-def capture(bundle, step_id, codex, *, model, reasoning_effort, source_profile=PROFILE):
+def capture(bundle, step_id, codex, *, model, reasoning_effort, source_profile=PROFILE, owner=None):
     from capture_nr03_app_server import bind_delivery, capture as app_capture, launch_config
     bundle = Path(bundle).absolute()
     folder = bundle / "observations"
@@ -180,6 +182,13 @@ def capture(bundle, step_id, codex, *, model, reasoning_effort, source_profile=P
     started = time.time_ns()
     config = launch_config(report["python"], **b["client_selection"], journal_disabled=b["variant"] == "journal-unavailable",
         server_args=fault_args(b["matter"]) if fault is not None else None)
+    requires_owner = plan["expected"].get("case", {}).get("id") == "revision-conflict" and step_id == "update"
+    _require(not requires_owner or owner is not None, "revision-conflict update requires cooperative owner")
+    if owner is not None:
+        from nr03_capture_owner import observation_context
+        _require(source_profile == PROFILE and requires_owner and resume is not None
+                 and owner.context == observation_context(bundle, step_id, report, parent_hash, prompt,
+                     owner.context["helpers_sha256"]), "observation owner current inputs differ")
     if source_profile is None:
         # Explicit legacy controls retain their original transport, without K credit.
         fd = os.open(folder / f"{step_id}.jsonl", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -189,7 +198,7 @@ def capture(bundle, step_id, codex, *, model, reasoning_effort, source_profile=P
         code, source = result.returncode, None
     else:
         code, source = app_capture(folder, step_id, command, config, prompt, cwd, b["client_selection"], resumed=resume,
-            parent_prefix=folder / f"{step['resume']}.session.jsonl" if resume else None)
+            parent_prefix=folder / f"{step['resume']}.session.jsonl" if resume else None, owner=owner)
     receipt = dict(schema_version="veqtor_next_round_observation_capture.v2" if source is not None else "veqtor_next_round_observation_capture.v1",
         plan_sha256=_file_sha256(str(folder / "plan.json")), step=step_id, command=command, cwd=str(cwd),
         resumed_thread_id=resume, parent_receipt_sha256=parent_hash,
@@ -217,12 +226,27 @@ def main():
     run.add_argument("--codex", required=True)
     run.add_argument("--model", choices=(MODEL,), required=True)
     run.add_argument("--reasoning-effort", choices=EFFORTS, required=True)
+    run.add_argument("--owner-fd", type=int)
+    run.add_argument("--owner-context")
     args = parser.parse_args()
     if args.action == "freeze":
         freeze(args.bundle, args.plan)
         print("Synthetic observation plan frozen; no acceptance claimed.")
         return 0
-    return capture(args.bundle, args.step, args.codex, model=args.model, reasoning_effort=args.reasoning_effort)
+    _require((args.owner_fd is None) == (args.owner_context is None), "owner capability/context must be paired")
+    owner = None
+    if args.owner_fd is not None:
+        from nr03_capture_owner import OwnerChannel
+        owner = OwnerChannel(socket.socket(fileno=args.owner_fd), read_json(args.owner_context))
+    prior = signal.getsignal(signal.SIGTERM)
+    if owner is not None:
+        signal.signal(signal.SIGTERM, lambda *_: owner.cancel())
+    try:
+        return capture(args.bundle, args.step, args.codex, model=args.model, reasoning_effort=args.reasoning_effort, owner=owner)
+    finally:
+        signal.signal(signal.SIGTERM, prior)
+        if owner is not None:
+            owner.channel.close()
 
 
 if __name__ == "__main__":

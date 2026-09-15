@@ -20,6 +20,17 @@ def encode(rows):
     return "".join(json.dumps(row, separators=(",", ":")) + "\n" for row in rows)
 
 
+def runtime_inventory():
+    """Independent synthetic definition of the pinned selected-server inventory."""
+    names = ("list_rounds", "extract_redlines", "inspect_document", "map_rounds", "trace_paragraph_history",
+             "preflight_edits", "apply_edits", "verify_quote", "export_decision_record",
+             "read_deal_positions", "mutate_deal_positions")
+    return dict(data=[dict(name="veqtor_nr03", runtimeStatus="connected", pluginId=None,
+        serverInfo=dict(name="veqtor", title=None, version="0.4.2.dev0", description=None, icons=None, websiteUrl=None),
+        tools={n: dict(name=n, inputSchema=dict(type="object")) for n in names}, toolsError=None,
+        resources=[], resourceTemplates=[], authStatus="unsupported")], nextCursor=None)
+
+
 def materialize_v2(folder, stages, *, observation=False):
     """Enter real v2 consumers with explicitly synthetic originals in temp fixtures."""
     from capture_nr03_app_server import bind_delivery
@@ -111,10 +122,15 @@ def supplement(events, old_session, receipt, config):
         wire("sent", dict(id=ident, method=method, params=params))
         wire("received", dict(id=ident, result=result))
     request(1, "initialize", initialize_request(), dict(userAgent="synthetic app server profile fixture"))
+    wire("received", dict(method="remoteControl/status/changed", emittedAtMs=1,
+        params=dict(status="disabled", serverName="synthetic-host", installationId="synthetic-installation", environmentId=None)))
     wire("sent", dict(method="initialized"))
     # Pinned installed config/read expands effective MCP defaults, but leaves
     # original session flags unchanged. Do not derive this from the validator.
     effective = deepcopy(config)
+    effective["features"] = dict(network_proxy=None, apps=False, remote_control=False, remote_plugin=False,
+        auth_elicitation=True, background_paginated_rollout_migration=False, mcp_2026_07_28=False, memories=False,
+        mentions_v2=True, tool_suggest=True, windows_sandbox_service=False)
     effective["mcp_servers"]["veqtor_nr03"].update(enabled=True, environment_id="local", tool_timeout_sec=None)
     request(2, "config/read", dict(includeLayers=True, cwd=receipt["cwd"]), dict(config=effective, origins={}, layers=[
         dict(name=dict(type="sessionFlags"), version="synthetic", config=config),
@@ -127,6 +143,10 @@ def supplement(events, old_session, receipt, config):
     request(3, "thread/resume" if receipt.get("resumed_thread_id") else "thread/start", params,
         dict(thread=dict(id=thread, path=runtime+"/session.jsonl"), model=selection["model"], reasoningEffort=selection["reasoning_effort"],
              cwd=receipt["cwd"], approvalPolicy="never", instructionSources=[]))
+    for time, status in ((2, "starting"), (3, "ready")):
+        wire("received", dict(method="mcpServer/startupStatus/updated", emittedAtMs=time,
+            params=dict(threadId=thread, name="veqtor_nr03", status=status, error=None, failureReason=None)))
+    request(5, "mcpServerStatus/list", dict(threadId=thread, cursor=None, limit=100, detail="full"), runtime_inventory())
     request(4, "turn/start", dict(threadId=thread, model=selection["model"], effort=selection["reasoning_effort"],
         input=[dict(type="text", text=receipt.pop("fixture_prompt"), text_elements=[])]), dict(turn=dict(id=turn, status="inProgress")))
     for event in events[1:]:

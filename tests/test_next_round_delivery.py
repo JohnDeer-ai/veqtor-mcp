@@ -14,6 +14,28 @@ from nr03_scenario import MODEL, SERVER, WORKFLOW_FILES
 prepared = nr03.prepared
 
 
+def test_e1_v2_prospective_stimuli_bind_exact_natural_clarification(prepared, tmp_path):
+    bundle, baseline, _ = prepared
+    text = (bundle / "user-replies.md").read_text()
+    assert "# NR-03 scripted user stimuli v2" in text
+    clarification = capture.quoted_section(text, "Complete journal requirement for each new journal-bearing stage")
+    assert clarification.startswith("For this new run, I need a complete, readable action journal.")
+    assert "at most one record each" in clarification and "each full page available separately before continuing" in clarification
+    for stage in ("a-brief", "a-write", "b-brief", "b-write"):
+        message = capture.stimulus(bundle, stage, baseline)
+        assert message.count(clarification) == 1 and message.endswith(clarification)
+    plan = dict(scenario="prospective journal-bearing observation", expected=dict(complete_delivery_required=True),
+        steps=[dict(id="brief", resume=None, prompt=capture.journal_stimulus(bundle, "Review the selected issues."))])
+    path = tmp_path / "new-plan.json"
+    json_write(path, plan)
+    observation.freeze(bundle, path)
+    assert prep.read_json(bundle / "observations/plan.json")["plan"] == plan
+    # This is an input version, not a page predicate waiver or API setting.
+    validate_export_limits([dict(tool="export_decision_record", arguments=dict(max_records=20))])
+    with pytest.raises(checker.EvidenceError):
+        capture.journal_stimulus(bundle, plan["steps"][0]["prompt"])
+
+
 def test_f06_main_and_observation_deliver_identical_restriction_and_resolved_files(prepared, monkeypatch, tmp_path):
     bundle, b, report = prepared
     user = capture.stimulus(bundle, "a-brief", b)

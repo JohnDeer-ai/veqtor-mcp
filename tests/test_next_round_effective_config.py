@@ -19,6 +19,9 @@ DEFAULTS = dict(enabled=True, environment_id="local", tool_timeout_sec=None)
 def effective(config):
     # Independent fixture representation observed from pinned installed config/read.
     value = deepcopy(config)
+    value["features"] = dict(network_proxy=None, apps=False, remote_control=False, remote_plugin=False,
+        auth_elicitation=True, background_paginated_rollout_migration=False, mcp_2026_07_28=False, memories=False,
+        mentions_v2=True, tool_suggest=True, windows_sandbox_service=False)
     value["mcp_servers"]["veqtor_nr03"].update(DEFAULTS)
     return value
 

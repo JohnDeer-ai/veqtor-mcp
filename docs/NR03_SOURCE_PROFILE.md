@@ -31,7 +31,7 @@ documented TOML `-c` overrides. Exec-only ignore flags are not supported here.
 Only the child environment selects a fresh private `CODEX_HOME`. The parent
 environment, persistent config and authentication are unchanged. A file-backend
 auth snapshot lives only in the private temporary runtime, outside the checkout
-and evidence; it is deleted with that runtime, including any token refresh. It
+and evidence; it is removed from the still-owned canonical root during cleanup. It
 is never copied into evidence or placed in commands/receipts. Missing file auth
 refuses; no alternate keyring/login flow is inferred.
 
@@ -50,6 +50,37 @@ configuration gate retain the public capture but cannot produce passing evidence
 A refusal at the private gate has no passing source receipt or model turn. This deliberately narrow
 profile may refuse new notifications from even the pinned build until separately
 reviewed; it never skips them silently.
+
+The input explicitly sets `features.apps=false`, `features.remote_plugin=false`
+and `features.remote_control=false`, using the supported
+[configuration settings](https://learn.chatgpt.com/docs/config-file/config-reference).
+The complete pinned effective features map additionally contains
+`network_proxy=null`, `auth_elicitation=true`,
+`background_paginated_rollout_migration=false`, `mcp_2026_07_28=false`,
+`memories=false`, `mentions_v2=true`, `tool_suggest=true` and
+`windows_sandbox_service=false`. Unknown or changed flags refuse. A declared
+single MCP config alone does not establish the actual runtime boundary.
+
+Before `turn/start`, original selected-thread startup must progress from
+`starting` to `ready`. The recorded full `mcpServerStatus/list` response must have
+one connected `veqtor_nr03`, no next cursor, plugin, resource, template or error,
+the pinned Veqtor producer metadata and exactly the eleven supported tools.
+There is no `codex_apps` exception. A complete inventory cannot erase an earlier
+unexpected-server notification. The [App Server interface](https://learn.chatgpt.com/docs/app-server)
+supplies this original runtime inventory without starting a model turn.
+
+`nr03_runtime_policy.py` validates the same complete ordered exchange in the
+live recorder, full parser and external observer. The two qualified notification
+envelopes contain exactly method, params and a positive integer `emittedAtMs`;
+their emission clocks must not regress. Remote status has exactly status,
+serverName, installationId and environmentId: only `disabled`, stable nonempty
+string identities and null environment are admitted. Selected-server startup
+has exactly threadId, name, status, error and failureReason: it must identify the
+current loaded thread and selected server, with null error/failureReason.
+Repeated identical disabled/ready status is permitted; restart, failed,
+cancelled, unknown or authority-changing states refuse. No notification is
+removed or granted model-result credit. Original occurrence/value attribution,
+fourteen-obligation coverage and complete journal presentation remain separate.
 
 The pinned client's `config/read` effective MCP map contains exactly the single
 selected `veqtor_nr03` server: original `command`, `args` and `env`, plus
@@ -75,6 +106,43 @@ receipt context. The outer context continues to bind frozen installation,
 business stimulus, workflow, baseline, selected files, ancestry and before/after
 state. Complete actual turn context in the prefix must agree with model/effort.
 The existing delivery binding additionally binds that prefix to the receipt.
+
+## Cooperative owner for the revision-conflict update
+
+Only this externally timed observation step requires the explicit inherited
+AF_UNIX socket capability. Capture creates a fresh mode-0700 root and actual
+run/connection/nonce, then sends one `nr03-capture-owner.v1` WAIT_OWNER before
+both Codex `--version` and app-server creation. Static executable/hash reads may
+precede it. Each direction sends one bounded JSON line followed by write EOF;
+duplicates, partial messages, missing EOF, timeout or cancellation refuse.
+
+The context binds current H/T, source-policy/helper hashes, installation,
+baseline, frozen plan, own parent receipt and prompt. The wait also binds creator
+PID/parent/UID and the canonical root's device/inode/UID/mode. The separately
+released external wrapper rechecks the real current-A/release/parent/install
+gates and arms its owned observer against that explicit root. Only a complete
+current original watch acknowledgement with matching context/run/connection,
+nonce, root, live owned observer and unexpired clock can release capture. The
+observer acknowledges its watch after closing the original watch file. Capture
+rechecks watch bytes and root identity and accepts one RELEASE or ABORT.
+
+Before release, refusal creates zero Codex children, including version probes.
+The main owner thread serializes its decision; a partial release send or later
+cancellation is conservatively post-release. SIGTERM marks cancellation through
+the explicit owner; capture polls it at protocol waits and before submissions.
+No SIGSTOP/SIGCONT, sender pause after R0, tool script or timing manufacture is
+used. Actual R0, publication-before-stale, conflict and delivered R1 remain
+mandatory. Owner metadata is bound separately inside the source receipt and
+never substitutes for raw/request/transport/session evidence.
+
+Capture owns its direct Popen and recorder, including construction failure,
+stdin/close errors, terminate/kill fallback and reader completion. This is not
+an all-descendants guarantee. Failed private originals remain quarantined;
+successful runs or proven pre-native aborts may remove the still-owned root.
+An unproven child/reader cleanup or replaced/nonprivate root is never recursively
+deleted. No automatic retry, original-evidence replacement or later upgrade of
+an old refused run is permitted. The four independent cases do not depend on
+this cooperative owner.
 
 ## Inventory and result conversion
 

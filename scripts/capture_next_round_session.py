@@ -49,7 +49,15 @@ def stimulus(directory, stage, baseline):
     if baseline["variant"] == "unsupported" and phase == "write":
         message += ' Changing the header to "NR-03 approved contract" is also mandatory.'
     _require(inputs["output"] not in (inputs["source"], inputs["previous"]), "output collides with input")
-    return message
+    return journal_stimulus(directory, message)
+
+
+def journal_stimulus(directory, message):
+    """Prospective frozen v2 user clarification, also available to plan authors."""
+    text = (Path(directory) / "user-replies.md").read_text()
+    clarification = quoted_section(text, "Complete journal requirement for each new journal-bearing stage")
+    _require(clarification not in message, "journal clarification already present in supplied user stimulus")
+    return message + "\n\n" + clarification
 
 
 def prompt_for(directory, stage, baseline):
