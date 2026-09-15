@@ -10,30 +10,67 @@ from pathlib import Path
 from check_codex_acceptance import _digest, _file_sha256, _require
 
 
-def payloads(output):
-    if isinstance(output, str):
-        segments = [output]
-    elif isinstance(output, list):
-        segments = [row.get("text", "") for row in output if row.get("type") in {"input_text", "text"}]
-    else:
+def decoded(text):
+    try:
+        return json.loads(text) if isinstance(text, str) else None
+    except ValueError:
+        return None
+
+
+def text_payloads(content):
+    """Complete text-block arrays only; never search arbitrary nested objects."""
+    if not isinstance(content, list) or not content or not all(
+        isinstance(row, dict) and row.get("type") == "text" for row in content
+    ):
         return []
+    values = [decoded(row.get("text")) for row in content]
+    return values if all(isinstance(v, dict) and "producer" in v for v in values) else []
+
+
+def result_payloads(value):
+    if isinstance(value, dict) and "producer" in value:
+        return [value]
+    if isinstance(value, list):
+        return text_payloads(value)
+    if not isinstance(value, dict) or "content" not in value or value.get("isError") or value.get("is_error"):
+        return []
+    values = text_payloads(value["content"])
+    for key in ("structured_content", "structuredContent"):
+        if key in value and (len(values) != 1 or _digest(value[key]) != _digest(values[0])):
+            return []
+    return values
+
+
+def payloads(output):
+    """Recognize direct/MCP/content and explicit Promise.allSettled envelopes."""
+    segments = [output] if isinstance(output, str) else [
+        row.get("text") for row in output if isinstance(row, dict) and row.get("type") in {"input_text", "text"}
+    ] if isinstance(output, list) else []
     found = []
     for text in segments:
-        try:
-            value = json.loads(text)
-            if isinstance(value, dict) and "content" in value:
-                content = value["content"]
-                if len(content) != 1 or content[0].get("type") != "text":
-                    continue
-                inner = json.loads(content[0]["text"])
-                if any(value[k] != inner for k in ("structured_content", "structuredContent") if k in value):
-                    continue
-                value = inner
-            if isinstance(value, dict) and "producer" in value:
-                found.append(value)
-        except (ValueError, TypeError, KeyError):
-            continue
+        value = decoded(text)
+        settled = value if isinstance(value, list) else [value]
+        if settled and all(isinstance(v, dict) and set(v) == {"status", "value"}
+                           and v["status"] == "fulfilled" for v in settled):
+            for row in settled:
+                found.extend(result_payloads(row["value"]))
+        else:
+            found.extend(result_payloads(value))
     return found
+
+
+def direct_call(action, call):
+    args = decoded(action.get("arguments") if action.get("type") == "function_call" else action.get("input"))
+    return (action.get("name") in {call["tool"], f"mcp__{call['server']}__{call['tool']}"}
+            and isinstance(args, dict) and _digest(args) == _digest(call["arguments"]))
+
+
+def native_call(item, call):
+    values = result_payloads(item.get("result"))
+    return (item.get("status") == "completed" and item.get("error") is None
+            and all(item.get(k) == call[k] for k in ("server", "tool"))
+            and _digest(item.get("arguments")) == _digest(call["arguments"])
+            and len(values) == 1 and _digest(values[0]) == _digest(call["payload"]))
 
 
 def validate_model_delivery(calls, session, *, thread, cwd, final_text):
@@ -47,21 +84,61 @@ def validate_model_delivery(calls, session, *, thread, cwd, final_text):
     _require(starts and ends and starts[-1] < ends[-1] == len(session) - 1,
              "model delivery lacks an exact complete current-turn prefix")
     active = session[starts[-1] + 1:ends[-1]]
-    pending, visible, finals = {}, [], []
+    turn = session[starts[-1]]["payload"].get("turn_id")
+    pending, visible, finals, inner_seen, bound_raw = {}, [], [], set(), set()
+    successful = {c["id"]: c for c in calls if not c["failed"]}
     for i, row in enumerate(active):
+        line = starts[-1] + i + 2
+        item = row.get("payload", {})
+        if row.get("type") == "event_msg" and item.get("type") == "item_completed" and item.get("item", {}).get("type") == "McpToolCall":
+            inner = item["item"]
+            ident = inner.get("id")
+            _require(isinstance(ident, str) and ident not in inner_seen, "model inner native attribution is ambiguous")
+            inner_seen.add(ident)
+            # Serialized runtime invocation records provide evaluated arguments;
+            # do not execute or infer them from arbitrary JavaScript source.
+            opened = [p for p in pending.values() if not p["closed"]]
+            if (len(opened) == 1 and opened[0]["exec"] and turn is not None
+                    and item.get("thread_id") == thread and item.get("turn_id") == turn):
+                pool = [successful[ident]] if ident in successful else successful.values()
+                matches = [c["id"] for c in pool if native_call(inner, c)]
+                # CLI item IDs may differ from session MCP IDs. Require a unique
+                # complete operation/arguments/result correspondence, not ID equality.
+                if len(matches) == 1:
+                    raw_id = matches[0]
+                    _require(raw_id not in bound_raw, "raw result has multiple inner producers")
+                    bound_raw.add(raw_id)
+                    opened[0]["inner"][raw_id] = dict(line=line, id=ident)
+            continue
         if row.get("type") != "response_item":
             continue
-        item = row.get("payload", {})
         kind = item.get("type")
         if kind in {"function_call", "custom_tool_call"}:
             ident = item.get("call_id")
             _require(isinstance(ident, str) and ident not in pending, "model tool attribution is ambiguous")
-            pending[ident] = i
+            pending[ident] = dict(action=item, line=line, inner={}, closed=False,
+                exec=kind == "custom_tool_call" and item.get("name") == "exec"
+                     and isinstance(item.get("input"), str) and bool(item["input"].strip()))
         elif kind in {"function_call_output", "custom_tool_call_output"}:
             _require(item.get("call_id") in pending, "model result lacks its corresponding call")
-            for payload in payloads(item.get("output")):
-                visible.append(dict(sha256=_digest(payload), line=starts[-1] + i + 2,
-                                    model_call_id=item["call_id"]))
+            parent = pending[item["call_id"]]
+            if not parent["closed"] and kind == parent["action"]["type"] + "_output":
+                pool = [successful[item["call_id"]]] if item["call_id"] in successful else successful.values()
+                candidates = list(parent["inner"]) if parent["exec"] else [
+                    call["id"] for call in pool if direct_call(parent["action"], call)]
+                for payload in payloads(item.get("output")):
+                    digest = _digest(payload)
+                    matches = [ident for ident in candidates if _digest(successful[ident]["payload"]) == digest]
+                    # Equal results from multiple inner calls are not uniquely
+                    # attributable by value; never guess or replay an output.
+                    if len(matches) == 1:
+                        ident = matches[0]
+                        candidates.remove(ident)
+                        visible.append(dict(sha256=digest, line=line, model_call_id=item["call_id"], native_call_id=ident,
+                            action_line=parent["line"], native_line=parent["inner"].get(ident, {}).get("line"),
+                            inner_call_id=parent["inner"].get(ident, {}).get("id"),
+                            attribution="original_inner_mcp" if parent["exec"] else "direct_operation_arguments"))
+            parent["closed"] = True
         elif kind == "message" and item.get("role") == "assistant":
             text = "".join(c.get("text", "") for c in item.get("content", [])
                            if c.get("type") in {"output_text", "text"})
@@ -74,7 +151,8 @@ def validate_model_delivery(calls, session, *, thread, cwd, final_text):
     for call in calls:
         if call["failed"]:
             continue
-        match = next((v for v in visible if v["sha256"] == _digest(call["payload"])), None)
+        match = next((v for v in visible if v["native_call_id"] == call["id"]
+                      and v["sha256"] == _digest(call["payload"])), None)
         if match is not None:
             visible.remove(match)
             delivered[call["id"]] = match

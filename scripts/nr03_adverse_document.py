@@ -35,10 +35,12 @@ def require_disabled(payload):
 
 def validate_unavailable_exports(calls, failures, workspace, *, require_final=True):
     exports = [c for c in calls + failures if c["tool"] == "export_decision_record"]
-    last = max(c["completed_at"] for c in calls
-               if c["tool"] in {"inspect_document", "verify_quote", "extract_redlines"})
-    _require(exports and (not require_final or any(c["started_at"] > last for c in exports)),
-             "actual expected export failure after document verification is missing")
+    _require(exports, "actual expected export failure after document verification is missing")
+    if require_final:
+        verified = [c["completed_at"] for c in calls if not c["failed"]
+                    and c["tool"] in {"inspect_document", "verify_quote", "extract_redlines"}]
+        _require(verified and any(c["started_at"] > max(verified) for c in exports),
+                 "actual expected export failure after document verification is missing")
     for call in exports:
         args = call["arguments"]
         _require(set(args) <= {"workspace", "max_records", "before_record_id"}

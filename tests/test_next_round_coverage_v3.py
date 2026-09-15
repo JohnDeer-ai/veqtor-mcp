@@ -86,7 +86,8 @@ def model_session(events, *, custom=False):
     for c in calls:
         kind = "custom_tool_call" if custom else "function_call"
         value = json.dumps(c["payload"])
-        session += [dict(type="response_item", payload=dict(type=kind, call_id=c["id"], name=c["tool"])),
+        session += [dict(type="response_item", payload=dict(type=kind, call_id=c["id"], name=c["tool"],
+                        **{"input" if custom else "arguments": json.dumps(c["arguments"])})),
                     dict(type="response_item", payload=dict(type=kind+"_output", call_id=c["id"],
                         output=[dict(type="input_text", text=value)] if custom else value))]
     session += [dict(type="response_item", payload=dict(type="message", role="assistant",

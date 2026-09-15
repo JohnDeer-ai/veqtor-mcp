@@ -54,10 +54,36 @@ preserves the original client session prefix ending at that turn's task_complete
 and supplies `<stage>.delivery.json` with exactly `schema_version` =
 `nr03-model-delivery.v3`, absolute `session_path`, `session_sha256` and
 `receipt_sha256`. `nr03_model_delivery` checks identity, current turn, final message,
-original call/output attribution and full matching payloads. Never construct this
+original call/output attribution and full matching payloads. Direct calls require
+the exact operation and JSON arguments as well as the complete result. For the
+`exec` surface, preserve the original current-turn `item_completed` / `McpToolCall`
+runtime records (thread, turn, server, tool, evaluated arguments, ID and result),
+between their single unambiguous producing action and its model-facing output.
+Outer exec IDs, inner MCP IDs and CLI capture IDs may differ: correspondence must
+be unique by operation, exact arguments and complete result; retain each ID in the
+report. Ambiguous repeated results, overlapping producers and replayed outputs
+cannot establish delivery. Runtime invocation records supply evaluated arguments;
+the validator does not execute or infer arbitrary JavaScript, or verify log
+authenticity. A matching digest alone, or a contradictory operation/argument
+record, is insufficient.
+
+Supported complete output forms are direct producer JSON, consistent MCP content
+envelopes, complete text-block arrays, and explicit `Promise.allSettled`
+`{"status":"fulfilled","value":...}` entries (separate blocks or an array).
+Arbitrary nested objects, rejected entries, incomplete text, metadata and clipped
+results are not payload evidence. Every credited result also requires its original
+producing-call correspondence; recognizing a payload shape alone awards no PASS.
+Never construct this
 artifact by synthesizing client output from MCP logs. Raw completeness with clipped
 or metadata-only model output refuses. Journal presentation remains separately
 assessed; complete Word evidence cannot turn a limitation into a complete export.
+
+An intermediate journal-only turn may contain solely the genuine bounded expected
+export failure. It does not require unrelated document reads in that turn. The
+final write retains its separate mandatory export attempt after complete document
+verification; an ancestor export never satisfies that final requirement. Every
+attempt still requires the selected workspace, bounded first-page arguments and
+the exact expected error; successful or unrelated exports refuse adverse policy.
 
 Run `check_next_round_observation.py --bundle … --step …` only on a separately
 released new candidate observation. Its result is component-only: actual business
