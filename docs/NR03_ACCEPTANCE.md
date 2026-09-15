@@ -68,9 +68,15 @@ frozen before the second session. No expected wording is learned from MCP answer
 
 ## Real workflow capture, with a decision between turns
 
-Use a working native Codex executable supporting `exec --json`, `exec resume`,
-`--ignore-user-config` and the recorded configuration overrides. Local CLI help
-should be checked before capture. Each brief starts a new conversation. Only its
+New captures use the separately versioned [original App Server source profile](NR03_SOURCE_PROFILE.md):
+the pinned native executable, `app-server --stdio`, supported configuration
+overrides and a private child-only runtime. Exec-only ignore flags are not used.
+The capture preserves all original protocol bytes and the complete model-session
+prefix, with configuration checked privately before publication or a model turn.
+Legacy CLI fixtures remain explicitly selectable in the Python helper for their
+existing controls; there is no automatic fallback or occurrence-ID qualification
+for old CLI bytes. Check the installed help/schema and obtain the separate native
+campaign release before capture. Each brief starts a new conversation. Only its
 own write turn resumes that brief. The second brief never resumes the first round.
 The full delivered skill and resolved canonical prompt bytes are supplied at each
 fresh start; this is deterministic workflow delivery, not a prescribed MCP sequence.

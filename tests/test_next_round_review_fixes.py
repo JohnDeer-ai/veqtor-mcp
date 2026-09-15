@@ -52,7 +52,7 @@ def test_f01_no_tool_refusal_can_resume_explicit_exclusion(prepared, monkeypatch
 
     monkeypatch.setattr(observation.subprocess, "run", emit)
     for step in ("brief", "mandatory", "exclude"):
-        assert observation.capture(bundle, step, "/synthetic/codex", model=MODEL, reasoning_effort="high") == 0
+        assert observation.capture(bundle, step, "/synthetic/codex", model=MODEL, reasoning_effort="high", source_profile=None) == 0
     assert len(launches) == 3
     assert launches[1][0][-2] == launches[2][0][-2] == "synthetic-same-conversation"
     assert launches[2][1].decode() == plan["steps"][2]["prompt"]
@@ -93,10 +93,10 @@ def test_f03_foreign_parent_cannot_launch_exclusion(prepared, monkeypatch, tmp_p
 
     monkeypatch.setattr(observation.subprocess, "run", emit)
     for step in ("brief", "mandatory"):
-        assert observation.capture(bundle, step, "/synthetic/codex", model=MODEL, reasoning_effort="high") == 0
+        assert observation.capture(bundle, step, "/synthetic/codex", model=MODEL, reasoning_effort="high", source_profile=None) == 0
     assert launches[1][-2] == "synthetic-root-A"
     with pytest.raises(checker.EvidenceError, match="observation.*thread"):
-        observation.capture(bundle, "exclude", "/synthetic/codex", model=MODEL, reasoning_effort="high")
+        observation.capture(bundle, "exclude", "/synthetic/codex", model=MODEL, reasoning_effort="high", source_profile=None)
     assert len(launches) == 2
     assert not (bundle / "observations/exclude.prompt.txt").exists()
     assert prep.state(b["matter"]) == b["initial_state"]
@@ -125,7 +125,7 @@ def test_f03_original_conversation_survives_multiple_no_tool_followups(prepared,
 
     monkeypatch.setattr(observation.subprocess, "run", emit)
     for name in ids[:-1]:
-        assert observation.capture(bundle, name, "/synthetic/codex", model=MODEL, reasoning_effort="high") == 0
+        assert observation.capture(bundle, name, "/synthetic/codex", model=MODEL, reasoning_effort="high", source_profile=None) == 0
     if fault is not None:
         ancestor = "brief" if fault in {"replaced_root", "resumed_root"} else "mandatory"
         receipt_path = folder / f"{ancestor}.receipt.json"
@@ -154,11 +154,11 @@ def test_f03_original_conversation_survives_multiple_no_tool_followups(prepared,
             value["parent_receipt_sha256"] = checker._file_sha256(str(folder / f"{ids[index - 1]}.receipt.json"))
             json_write(child, value)
         with pytest.raises(checker.EvidenceError):
-            observation.capture(bundle, "exclude", "/synthetic/codex", model=MODEL, reasoning_effort="high")
+            observation.capture(bundle, "exclude", "/synthetic/codex", model=MODEL, reasoning_effort="high", source_profile=None)
         assert len(launches) == 3
         assert not (folder / "exclude.prompt.txt").exists()
     else:
-        assert observation.capture(bundle, "exclude", "/synthetic/codex", model=MODEL, reasoning_effort="high") == 0
+        assert observation.capture(bundle, "exclude", "/synthetic/codex", model=MODEL, reasoning_effort="high", source_profile=None) == 0
         assert len(launches) == 4
     assert all(command[-2] == "synthetic-root-A" for command in launches[1:])
     assert prep.state(b["matter"]) == b["initial_state"]
@@ -188,7 +188,7 @@ def test_f03_independent_roots_and_declared_branches_remain_valid(prepared, monk
 
     monkeypatch.setattr(observation.subprocess, "run", emit)
     for name, _ in parents:
-        assert observation.capture(bundle, name, "/synthetic/codex", model=MODEL, reasoning_effort="high") == 0
+        assert observation.capture(bundle, name, "/synthetic/codex", model=MODEL, reasoning_effort="high", source_profile=None) == 0
     assert len(launches) == len(parents)
     assert prep.state(b["matter"]) == b["initial_state"]
 
@@ -267,9 +267,9 @@ def test_f01_malformed_refusal_parent_cannot_launch_exclusion(prepared, monkeypa
         return SimpleNamespace(returncode=0)
 
     monkeypatch.setattr(observation.subprocess, "run", emit)
-    assert observation.capture(bundle, "mandatory", "/synthetic/codex", model=MODEL, reasoning_effort="high") == 0
+    assert observation.capture(bundle, "mandatory", "/synthetic/codex", model=MODEL, reasoning_effort="high", source_profile=None) == 0
     with pytest.raises(checker.EvidenceError):
-        observation.capture(bundle, "exclude", "/synthetic/codex", model=MODEL, reasoning_effort="high")
+        observation.capture(bundle, "exclude", "/synthetic/codex", model=MODEL, reasoning_effort="high", source_profile=None)
     assert len(launches) == 1
     assert not (bundle / "observations/exclude.prompt.txt").exists()
     assert prep.state(b["matter"]) == b["initial_state"]
@@ -337,10 +337,10 @@ def test_f01_f02_f03_combined_chain_parser_and_order_guarantees_with_controls(ev
 
         monkeypatch.setattr(observation.subprocess, "run", emit)
         for stage in ("brief", "parent"):
-            assert observation.capture(bundle, f"{stage}-{index}", "/synthetic/codex", model=MODEL, reasoning_effort="high") == 0
+            assert observation.capture(bundle, f"{stage}-{index}", "/synthetic/codex", model=MODEL, reasoning_effort="high", source_profile=None) == 0
         assert launches[1][-2] == valid_events[0]["thread_id"]
         with pytest.raises(checker.EvidenceError, match="observation.*thread"):
-            observation.capture(bundle, f"exclude-{index}", "/synthetic/codex", model=MODEL, reasoning_effort="high")
+            observation.capture(bundle, f"exclude-{index}", "/synthetic/codex", model=MODEL, reasoning_effort="high", source_profile=None)
         assert len(launches) == 2
         assert not (bundle / f"observations/exclude-{index}.prompt.txt").exists()
         assert prep.state(b["matter"]) == matter_before

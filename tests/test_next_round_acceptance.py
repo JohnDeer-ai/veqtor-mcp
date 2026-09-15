@@ -48,6 +48,9 @@ def synthetic_delivery(bundle, stage):
     path.write_text("\n".join(json.dumps(row) for row in session)+"\n")
     json_write(bundle / f"{stage}.delivery.json", dict(schema_version="nr03-model-delivery.v3", session_path=str(path),
         session_sha256=checker._file_sha256(str(path)), receipt_sha256=checker._file_sha256(str(bundle / f"{stage}.receipt.json"))))
+    if (bundle / f"{stage}.source-fixture-config.json").exists():
+        from nr03_source_fixtures import attach
+        attach(bundle, stage)
 
 
 @pytest.fixture
@@ -456,8 +459,8 @@ def test_observation_capture_freezes_inputs_and_records_actual_resume(prepared, 
         stdout.write(("\n".join(json.dumps(e) for e in events) + "\n").encode())
         return SimpleNamespace(returncode=0)
     monkeypatch.setattr(observation.subprocess, "run", run)
-    assert observation.capture(bundle, "brief", "/synthetic/codex", model=MODEL, reasoning_effort="high") == 0
-    assert observation.capture(bundle, "decision", "/synthetic/codex", model=MODEL, reasoning_effort="high") == 0
+    assert observation.capture(bundle, "brief", "/synthetic/codex", model=MODEL, reasoning_effort="high", source_profile=None) == 0
+    assert observation.capture(bundle, "decision", "/synthetic/codex", model=MODEL, reasoning_effort="high", source_profile=None) == 0
     assert "resume" not in launches[0][0] and "resume" in launches[1][0]
     assert launches[1][1].decode() == plan["steps"][1]["prompt"]
     assert launches[0][2] == launches[1][2]

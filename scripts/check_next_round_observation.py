@@ -56,10 +56,11 @@ def check_independent_write(bundle, step_id):
         _require(type(receipt["started_ns"]) is int and type(receipt["finished_ns"]) is int
                  and last < receipt["started_ns"] < receipt["finished_ns"], "observation phase order differs")
         last = receipt["finished_ns"]
-        events = [json.loads(line) for line in (folder / f"{ident}.jsonl").read_text().splitlines()]
-        thread, calls, messages = check.parse_native(events, installation["producer"], require_tool_calls=ident in {step_id, chain[-1]})
+        from nr03_app_server import parse_capture
+        parsed_source = parse_capture(folder, ident, receipt, installation["producer"], require_tool_calls=ident in {step_id, chain[-1]})
+        events, calls, messages = (parsed_source[key] for key in ("events", "calls", "messages"))
         check.scope(calls, b, "a")
-        item = dict(receipt=receipt, events=events, thread=thread, calls=calls, messages=messages)
+        item = dict(receipt=receipt, **parsed_source)
         deliveries[ident] = load_model_delivery(folder, ident, item)
         parsed[ident] = item
         _require(receipt["before"] == initial, "original complete before-state differs")

@@ -21,6 +21,7 @@ from nr03_scenario import EFFORTS, MODEL, WORKFLOW_FILES
 from nr03_delivery import delivered_prompt, validate_export_limits
 from nr03_fault import FAULT, fault_args
 from prepare_next_round_acceptance import installed, read_json, state, write_json
+from nr03_app_server import PROFILE
 
 
 def validate_plan(value):
@@ -61,8 +62,16 @@ def step_fault(plan, step_id):
     return fault if fault is not None and fault["step"] == step_id else None
 
 
-def step_command(codex, installation, baseline, plan, step_id, resumed):
+def step_command(codex, installation, baseline, plan, step_id, resumed, source_profile=None):
     """Use this step's frozen selection and fault, never a later step's settings."""
+    if source_profile is not None:
+        from nr03_app_server import PROFILE
+        from capture_nr03_app_server import command_for as app_command, launch_config
+        _require(source_profile == PROFILE, "unsupported observation source profile")
+        config = launch_config(installation["python"], **baseline["client_selection"],
+            journal_disabled=baseline["variant"] == "journal-unavailable",
+            server_args=fault_args(baseline["matter"]) if step_fault(plan, step_id) is not None else None)
+        return app_command(codex, config)
     command = command_for(codex, installation["python"], "a-write" if resumed is not None else "a-brief",
         **baseline["client_selection"], thread_id=resumed,
         journal_disabled=baseline["variant"] == "journal-unavailable")
@@ -75,7 +84,7 @@ def step_command(codex, installation, baseline, plan, step_id, resumed):
 
 def resume_parent(folder, plan, frozen, parent, baseline, installation):
     """Bind every ancestor's delivered input and launch to its original turn."""
-    from check_next_round_acceptance import parse_native
+    from nr03_app_server import parse_capture
     by_id = {step["id"]: step for step in plan["steps"]}
     chain = []
     while parent is not None:
@@ -85,6 +94,8 @@ def resume_parent(folder, plan, frozen, parent, baseline, installation):
     plan_hash = _file_sha256(str(folder / "plan.json"))
     original_thread = None
     parent_hash = None
+    parent_source_prefix = None
+    parent_source_turn = None
     for ancestor in reversed(chain):
         receipt_path = folder / f"{ancestor}.receipt.json"
         events_path = folder / f"{ancestor}.jsonl"
@@ -105,8 +116,15 @@ def resume_parent(folder, plan, frozen, parent, baseline, installation):
                  and receipt["plan_sha256"] == plan_hash
                  and receipt["installation_sha256"] == frozen["installation_sha256"],
                  "observation parent did not complete this frozen plan")
-        thread, calls, _ = parse_native([_json(line) for line in raw.decode().splitlines()], installation["producer"],
-                                        require_tool_calls=False)
+        parsed = parse_capture(folder, ancestor, receipt, installation["producer"], require_tool_calls=False)
+        thread, calls = parsed["thread"], parsed["calls"]
+        if "source" in receipt:
+            current_prefix = (folder / f"{ancestor}.session.jsonl").read_bytes()
+            _require(original_thread is None or (parent_source_prefix is not None and current_prefix.startswith(parent_source_prefix)
+                     and receipt["source"]["turn_id"] != parent_source_turn), "source observation parent prefix differs")
+            parent_source_prefix, parent_source_turn = current_prefix, receipt["source"]["turn_id"]
+        else:
+            parent_source_prefix = parent_source_turn = None
         validate_export_limits(calls)
         _require(receipt.get("resumed_thread_id") == original_thread,
                  "observation requested thread differs from the original conversation")
@@ -119,14 +137,16 @@ def resume_parent(folder, plan, frozen, parent, baseline, installation):
         _require(isinstance(command, list) and command and all(isinstance(part, str) for part in command)
                  and Path(command[0]).is_absolute(), "observation ancestor native command absent or invalid")
         _require("fault" in receipt and receipt["fault"] == step_fault(plan, ancestor)
-                 and command == step_command(command[0], installation, baseline, plan, ancestor, original_thread),
+                 and command == step_command(command[0], installation, baseline, plan, ancestor, original_thread,
+                                              source_profile=receipt.get("source", {}).get("profile")),
                  "observation ancestor launch/fault differs from its frozen step")
         original_thread = thread
         parent_hash = hashlib.sha256(receipt_raw).hexdigest()
     return original_thread, parent_hash, cwd
 
 
-def capture(bundle, step_id, codex, *, model, reasoning_effort):
+def capture(bundle, step_id, codex, *, model, reasoning_effort, source_profile=PROFILE):
+    from capture_nr03_app_server import bind_delivery, capture as app_capture, launch_config
     bundle = Path(bundle).absolute()
     folder = bundle / "observations"
     frozen = read_json(folder / "plan.json")
@@ -147,29 +167,43 @@ def capture(bundle, step_id, codex, *, model, reasoning_effort):
     cwd = folder / ("client-" + step_id)
     if step["resume"] is not None:
         resume, parent_hash, cwd = resume_parent(folder, plan, frozen, step["resume"], b, report)
+        if source_profile is not None:
+            _require(read_json(folder / f"{step['resume']}.receipt.json").get("source", {}).get("profile") == PROFILE,
+                     "new source capture cannot resume legacy evidence")
     else:
         prompt = delivered_prompt(bundle, prompt, WORKFLOW_FILES)
-    command = step_command(codex, report, b, plan, step_id, resume)
+    command = step_command(codex, report, b, plan, step_id, resume, source_profile=source_profile)
     fault = step_fault(plan, step_id)
     from capture_position_session import private_write
     private_write(folder / f"{step_id}.prompt.txt", prompt.encode())
     before = state(b["matter"])
     started = time.time_ns()
-    # Stream events to an exclusive private file so an external observer can act
-    # after an actual native read. No race is inferred solely from process overlap.
-    fd = os.open(folder / f"{step_id}.jsonl", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    err_fd = os.open(folder / f"{step_id}.stderr.txt", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "wb") as output, os.fdopen(err_fd, "wb") as errors:
-        result = subprocess.run(command, input=prompt.encode(), cwd=cwd, stdout=output, stderr=errors, check=False)
-    write_json(folder / f"{step_id}.receipt.json", dict(schema_version="veqtor_next_round_observation_capture.v1",
+    config = launch_config(report["python"], **b["client_selection"], journal_disabled=b["variant"] == "journal-unavailable",
+        server_args=fault_args(b["matter"]) if fault is not None else None)
+    if source_profile is None:
+        # Explicit legacy controls retain their original transport, without K credit.
+        fd = os.open(folder / f"{step_id}.jsonl", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        err_fd = os.open(folder / f"{step_id}.stderr.txt", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as output, os.fdopen(err_fd, "wb") as errors:
+            result = subprocess.run(command, input=prompt.encode(), cwd=cwd, stdout=output, stderr=errors, check=False)
+        code, source = result.returncode, None
+    else:
+        code, source = app_capture(folder, step_id, command, config, prompt, cwd, b["client_selection"], resumed=resume,
+            parent_prefix=folder / f"{step['resume']}.session.jsonl" if resume else None)
+    receipt = dict(schema_version="veqtor_next_round_observation_capture.v2" if source is not None else "veqtor_next_round_observation_capture.v1",
         plan_sha256=_file_sha256(str(folder / "plan.json")), step=step_id, command=command, cwd=str(cwd),
         resumed_thread_id=resume, parent_receipt_sha256=parent_hash,
         prompt_sha256=_file_sha256(str(folder / f"{step_id}.prompt.txt")),
         events_sha256=_file_sha256(str(folder / f"{step_id}.jsonl")),
         installation_sha256=_file_sha256(str(bundle / "installation.json")),
         started_ns=started, finished_ns=time.time_ns(), before=before, after=state(b["matter"]),
-        exit_code=result.returncode, fault=fault, acceptance_assessed=False))
-    return result.returncode
+        exit_code=code, fault=fault, acceptance_assessed=False)
+    if source is not None:
+        receipt["source"] = source
+        bind_delivery(folder, step_id, receipt)
+    else:
+        write_json(folder / f"{step_id}.receipt.json", receipt)
+    return code
 
 
 def main():

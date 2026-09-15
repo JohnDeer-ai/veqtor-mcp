@@ -14,6 +14,7 @@ from nr03_scenario import AUTHOR, EFFORTS, MODEL, SERVER, STAGES, WORKFLOW_FILES
 from nr03_delivery import delivered_prompt
 from position_source_launch import SERVER_ARGS
 from prepare_next_round_acceptance import state, write_json
+from nr03_app_server import PROFILE
 
 
 def quoted_section(text, title):
@@ -58,10 +59,16 @@ def prompt_for(directory, stage, baseline):
     return delivered_prompt(directory, user, WORKFLOW_FILES)
 
 
-def command_for(codex, python, stage, *, model, reasoning_effort, thread_id=None, journal_disabled=False):
+def command_for(codex, python, stage, *, model, reasoning_effort, thread_id=None, journal_disabled=False, source_profile=None):
     _require(model == MODEL and reasoning_effort in EFFORTS, "NR-03 model/effort outside authorized policy")
     is_write = stage.endswith("write")
     _require(is_write == (thread_id is not None), "resume must identify exactly its own brief session")
+    if source_profile is not None:
+        from nr03_app_server import PROFILE
+        from capture_nr03_app_server import command_for as app_command, launch_config
+        _require(source_profile == PROFILE, "unsupported capture source profile")
+        return app_command(codex, launch_config(python, model=model, reasoning_effort=reasoning_effort,
+                                                journal_disabled=journal_disabled))
     command = [str(Path(codex).absolute()), "exec"] + (["resume"] if is_write else [])
     command += ["--json", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules",
         "--model", model, "-c", "model_reasoning_effort=" + json.dumps(reasoning_effort),
@@ -74,7 +81,8 @@ def command_for(codex, python, stage, *, model, reasoning_effort, thread_id=None
     return command
 
 
-def capture(directory, stage, codex, *, model, reasoning_effort):
+def capture(directory, stage, codex, *, model, reasoning_effort, source_profile=PROFILE):
+    from capture_nr03_app_server import bind_delivery, capture as app_capture, launch_config
     from check_next_round_acceptance import load_baseline, load_stage
     directory = Path(directory).absolute()
     baseline, installation = load_baseline(directory)
@@ -91,22 +99,30 @@ def capture(directory, stage, codex, *, model, reasoning_effort):
         _require(baseline["variant"] in {"main", "unsupported", "existing-output", "journal-unavailable",
                  "document-injection", "position-injection"}, "variant requires observed missing decision; do not inject main approval")
         parent = load_stage(directory, f"{round_name}-brief", baseline, installation)
+        if source_profile is not None:
+            _require((parent.get("source") or {}).get("profile") == PROFILE, "new source capture cannot resume legacy evidence")
         thread_id = parent["thread"]
         parent_receipt = _file_sha256(str(directory / f"{round_name}-brief.receipt.json"))
     prompt = prompt_for(directory, stage, baseline)
     command = command_for(codex, installation["python"], stage, model=model, reasoning_effort=reasoning_effort,
-                          thread_id=thread_id, journal_disabled=baseline["variant"] == "journal-unavailable")
+                          thread_id=thread_id, journal_disabled=baseline["variant"] == "journal-unavailable", source_profile=source_profile)
     # Exclusive creation prevents overwriting earlier evidence or accidental reruns.
     private_write(directory / f"{stage}.prompt.txt", prompt.encode())
     before = state(baseline["matter"])
     started = time.time_ns()
-    result = subprocess.run(command, input=prompt.encode(), cwd=directory / f"client-{round_name}",
-                            capture_output=True, check=False)
+    config = launch_config(installation["python"], **selection, journal_disabled=baseline["variant"] == "journal-unavailable")
+    if source_profile is None:
+        # Explicit legacy fixture/capture compatibility; never source-qualified.
+        result = subprocess.run(command, input=prompt.encode(), cwd=directory / f"client-{round_name}", capture_output=True, check=False)
+        private_write(directory / f"{stage}.jsonl", result.stdout)
+        private_write(directory / f"{stage}.stderr.txt", result.stderr)
+        code, source = result.returncode, None
+    else:
+        code, source = app_capture(directory, stage, command, config, prompt, directory / f"client-{round_name}", selection,
+            resumed=thread_id, parent_prefix=directory / f"{round_name}-brief.session.jsonl" if thread_id else None)
     finished = time.time_ns()
-    private_write(directory / f"{stage}.jsonl", result.stdout)
-    private_write(directory / f"{stage}.stderr.txt", result.stderr)
-    write_json(directory / f"{stage}.receipt.json", dict(
-        schema_version="veqtor_next_round_capture.v1", stage=stage, command=command,
+    receipt = dict(
+        schema_version="veqtor_next_round_capture.v2" if source is not None else "veqtor_next_round_capture.v1", stage=stage, command=command,
         cwd=str(directory / f"client-{round_name}"), client_selection=selection,
         baseline_sha256=_file_sha256(str(directory / "baseline.json")),
         second_baseline_sha256=_file_sha256(str(directory / "round-b-baseline.json")) if round_name == "b" else None,
@@ -115,8 +131,13 @@ def capture(directory, stage, codex, *, model, reasoning_effort):
         events_sha256=_file_sha256(str(directory / f"{stage}.jsonl")),
         workflow_sha256=baseline["workflow_sha256"],
         parent_receipt_sha256=parent_receipt, resumed_thread_id=thread_id,
-        started_ns=started, finished_ns=finished, exit_code=result.returncode, before=before, after=state(baseline["matter"])))
-    return result.returncode
+        started_ns=started, finished_ns=finished, exit_code=code, before=before, after=state(baseline["matter"]))
+    if source is not None:
+        receipt["source"] = source
+        bind_delivery(directory, stage, receipt)
+    else:
+        write_json(directory / f"{stage}.receipt.json", receipt)
+    return code
 
 
 def main():

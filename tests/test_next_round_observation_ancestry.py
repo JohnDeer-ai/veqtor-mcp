@@ -47,7 +47,7 @@ def setup_chain(prepared, monkeypatch, tmp_path, *, captured=3, fault_step=None,
 
     monkeypatch.setattr(observation.subprocess, "run", emit)
     for name in IDS[:captured]:
-        assert observation.capture(bundle, name, "/synthetic/codex", model=MODEL, reasoning_effort="high") == 0
+        assert observation.capture(bundle, name, "/synthetic/codex", model=MODEL, reasoning_effort="high", source_profile=None) == 0
     return bundle, baseline, report, plan, launches
 
 
@@ -63,7 +63,7 @@ def rechain(folder, changed, captured):
 def assert_refuses_before_creation(bundle, baseline, launches, captured):
     target = IDS[captured]
     with pytest.raises(checker.EvidenceError, match="observation ancestor"):
-        observation.capture(bundle, target, "/synthetic/codex", model=MODEL, reasoning_effort="high")
+        observation.capture(bundle, target, "/synthetic/codex", model=MODEL, reasoning_effort="high", source_profile=None)
     assert len(launches) == captured
     assert not list((bundle / "observations").glob(target + ".*"))
     assert prep.state(baseline["matter"]) == baseline["initial_state"]
@@ -107,7 +107,7 @@ def test_f08_every_ancestor_requires_its_exact_regular_input(prepared, monkeypat
         if damage == "missing_prompt":
             assert not prompt_path.exists()  # The validator must not regenerate input evidence.
     else:
-        assert observation.capture(bundle, IDS[captured], "/synthetic/codex", model=MODEL, reasoning_effort="high") == 0
+        assert observation.capture(bundle, IDS[captured], "/synthetic/codex", model=MODEL, reasoning_effort="high", source_profile=None) == 0
         assert len(launches) == captured + 1
         assert launches[-1]["prompt"] == plan["steps"][captured]["prompt"].encode()
         assert all(x["cwd"] == launches[0]["cwd"] for x in launches)
@@ -137,7 +137,7 @@ def test_f08_self_consistent_input_cannot_replace_frozen_content(prepared, monke
     prompt_path.write_bytes(prompt)
     json_write(receipt_path, receipt)
     rechain(folder, ancestor, 3)
-    assert observation.capture(bundle, "exclude", "/synthetic/codex", model=MODEL, reasoning_effort="high") == 0
+    assert observation.capture(bundle, "exclude", "/synthetic/codex", model=MODEL, reasoning_effort="high", source_profile=None) == 0
 
 
 @pytest.mark.parametrize("ancestor", ["brief", "mandatory"])
@@ -170,7 +170,7 @@ def test_f08_complete_ancestor_launcher_is_required(prepared, monkeypatch, tmp_p
         assert_refuses_before_creation(bundle, baseline, launches, 3)
     json_write(path, receipt)
     rechain(folder, ancestor, 3)
-    assert observation.capture(bundle, "exclude", "/synthetic/codex", model=MODEL, reasoning_effort="high") == 0
+    assert observation.capture(bundle, "exclude", "/synthetic/codex", model=MODEL, reasoning_effort="high", source_profile=None) == 0
 
 
 @pytest.mark.parametrize("fault_step", IDS)
@@ -199,7 +199,7 @@ def test_f08_fault_belongs_only_to_its_original_frozen_step(prepared, monkeypatc
             assert_refuses_before_creation(bundle, baseline, launches, 3)
             for name, raw in originals.items():
                 (folder / f"{name}.receipt.json").write_bytes(raw)
-    assert observation.capture(bundle, "exclude", "/synthetic/codex", model=MODEL, reasoning_effort="high") == 0
+    assert observation.capture(bundle, "exclude", "/synthetic/codex", model=MODEL, reasoning_effort="high", source_profile=None) == 0
     for index, entry in enumerate(launches):
         args = next(part for part in entry["command"] if part.startswith("mcp_servers.veqtor_nr03.args="))
         assert ("_nr03_fault_fired" in args) == (IDS[index] == fault_step)

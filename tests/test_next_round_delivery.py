@@ -32,8 +32,8 @@ def test_f06_main_and_observation_deliver_identical_restriction_and_resolved_fil
 
     monkeypatch.setattr(observation, "installed", lambda value: value)
     monkeypatch.setattr(observation.subprocess, "run", run)
-    assert capture.capture(bundle, "a-brief", "/synthetic/codex", model=MODEL, reasoning_effort="high") == 0
-    assert observation.capture(bundle, "brief", "/synthetic/codex", model=MODEL, reasoning_effort="high") == 0
+    assert capture.capture(bundle, "a-brief", "/synthetic/codex", model=MODEL, reasoning_effort="high", source_profile=None) == 0
+    assert observation.capture(bundle, "brief", "/synthetic/codex", model=MODEL, reasoning_effort="high", source_profile=None) == 0
     expected = delivered_prompt(bundle, user, WORKFLOW_FILES)
     assert delivered == [expected, expected]
     for path in (bundle / "a-brief.prompt.txt", bundle / "observations/brief.prompt.txt"):
@@ -61,9 +61,9 @@ def test_f06_delivery_rejects_a_changed_resolved_workflow(prepared, monkeypatch,
     monkeypatch.setattr(observation.subprocess, "run", lambda *args, **kwargs: launches.append(args))
     with pytest.raises(checker.EvidenceError, match="workflow"):
         if surface == "main":
-            capture.capture(bundle, "a-brief", "/synthetic/codex", model=MODEL, reasoning_effort="high")
+            capture.capture(bundle, "a-brief", "/synthetic/codex", model=MODEL, reasoning_effort="high", source_profile=None)
         else:
-            observation.capture(bundle, "brief", "/synthetic/codex", model=MODEL, reasoning_effort="high")
+            observation.capture(bundle, "brief", "/synthetic/codex", model=MODEL, reasoning_effort="high", source_profile=None)
     assert launches == []
 
 
@@ -104,11 +104,11 @@ def test_e1_export_bound_is_checked_before_resuming_a_brief(prepared, monkeypatc
     monkeypatch.setattr(observation, "installed", lambda value: value)
     monkeypatch.setattr(observation.subprocess, "run", run)
     if surface == "main-brief":
-        capture.capture(bundle, "a-brief", "/synthetic/codex", model=MODEL, reasoning_effort="high")
+        capture.capture(bundle, "a-brief", "/synthetic/codex", model=MODEL, reasoning_effort="high", source_profile=None)
         with pytest.raises(checker.EvidenceError, match="20-record page bound"):
             checker.load_stage(bundle, "a-brief", b, report)
     else:
-        observation.capture(bundle, "brief", "/synthetic/codex", model=MODEL, reasoning_effort="high")
+        observation.capture(bundle, "brief", "/synthetic/codex", model=MODEL, reasoning_effort="high", source_profile=None)
         with pytest.raises(checker.EvidenceError, match="20-record page bound"):
-            observation.capture(bundle, "decision", "/synthetic/codex", model=MODEL, reasoning_effort="high")
+            observation.capture(bundle, "decision", "/synthetic/codex", model=MODEL, reasoning_effort="high", source_profile=None)
         assert not (bundle / "observations/decision.prompt.txt").exists()

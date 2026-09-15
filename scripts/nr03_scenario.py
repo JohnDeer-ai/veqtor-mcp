@@ -27,6 +27,9 @@ ORACLE_FILES = ("NR-03_NEXT_ROUND.md", "docs/NR03_SCENARIO.md", "docs/NR03_USER_
                 "scripts/nr03_scenario.py", "scripts/nr03_delivery.py", "scripts/check_next_round_journal.py",
                 "scripts/nr03_creation_probe.py", "scripts/nr03_coverage.py", "scripts/nr03_model_delivery.py",
                 "scripts/nr03_adverse_document.py", "scripts/check_next_round_observation.py",
+                "scripts/nr03_app_server.py", "scripts/capture_nr03_app_server.py", "docs/NR03_SOURCE_PROFILE.md",
+                "scripts/capture_next_round_session.py", "scripts/capture_next_round_observation.py",
+                "scripts/check_next_round_acceptance.py",
                 "docs/NR03_ADVERSE_OBLIGATIONS.md")
 DOCUMENT_POLICIES = {name: "positive_complete_journal" for name in
                      ("main", "unsupported", "document-injection", "position-injection")}

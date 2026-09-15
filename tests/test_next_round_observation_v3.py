@@ -47,6 +47,8 @@ def make_observation(tmp_path, monkeypatch, variant):
         base.json_write(folder / f"{step}.receipt.json", receipt)
         parent = base.checker._file_sha256(str(folder / f"{step}.receipt.json"))
         base.synthetic_delivery(folder, step)
+        from nr03_source_fixtures import attach, config_for
+        attach(folder, step, config=config_for(installation, b))
     return bundle, b, installation
 
 
@@ -74,13 +76,13 @@ def test_bound_adverse_dispatch_and_ancestry_causal_negatives(tmp_path, monkeypa
     cases = {
         "undeclared_policy": "missing or different predeclared document policy",
         "wrong_policy": "missing or different predeclared document policy",
-        "wrong_launch": "ancestor launch/fault differs",
+        "wrong_launch": "source fixture server launch differs from original",
         "wrong_parent": "parent receipt chain differs",
         "wrong_workspace": "parent working directory differs",
         "wrong_before": "original complete before-state differs",
         "wrong_after": "write changed source/store or unexpected output inventory",
         "wrong_phase": "observation phase order differs",
-        "clipped_delivery": "required model-facing evidence is clipped",
+        "clipped_delivery": "required model-facing evidence not established",
     }
     for fault, cause in cases.items():
         try:
@@ -126,6 +128,8 @@ def test_bound_adverse_dispatch_and_ancestry_causal_negatives(tmp_path, monkeypa
                 session_path.write_text("\n".join(json.dumps(r) for r in session)+"\n")
                 binding["session_sha256"] = base.checker._file_sha256(str(session_path))
                 base.json_write(binding_path, binding)
+                from nr03_source_fixtures import attach
+                attach(folder, "decision")
             with pytest.raises(base.checker.EvidenceError, match=cause) as caught:
                 check_independent_write(bundle, "decision")
             causes.append(dict(fault=fault, cause=str(caught.value)))
@@ -168,6 +172,8 @@ def insert_journal_only(bundle, b, installation):
         before=b["initial_state"], after=b["initial_state"])
     base.json_write(folder / f"{ident}.receipt.json", middle)
     base.synthetic_delivery(folder, ident)
+    from nr03_source_fixtures import attach, config_for
+    attach(folder, ident, config=config_for(installation, b))
     last["plan_sha256"] = first["plan_sha256"]
     last["parent_receipt_sha256"] = base.checker._file_sha256(str(folder / f"{ident}.receipt.json"))
     assert middle["finished_ns"] < last["started_ns"]
@@ -239,19 +245,25 @@ def exec_delivery(folder, stage):
     session = old[:2]
     session[1]["payload"]["turn_id"] = "synthetic-turn"
     thread = session[0]["payload"]["id"]
+    originals = {e["item"]["id"]: e["item"] for e in [json.loads(line) for line in (folder / f"{stage}.jsonl").read_text().splitlines()]
+                 if e.get("type") == "item.completed" and e.get("item", {}).get("type") == "mcp_tool_call"}
     for i in range(2, len(old)-2, 2):
         action, output = old[i]["payload"], old[i+1]["payload"]
         args, payload = json.loads(action["arguments"]), json.loads(output["output"])
         content = [dict(type="text", text=json.dumps(payload))]
+        original = originals[action["call_id"]]
+        core_result = deepcopy(original["result"])
+        core_result["structuredContent"] = core_result.pop("structured_content", None)
         outer_id = "outer-" + action["call_id"]
         session += [dict(type="response_item", payload=dict(type="custom_tool_call", name="exec", call_id=outer_id,
                         input=f"const r = await tools.mcp__{base.SERVER}__{action['name']}({json.dumps(args)}); text(r);")),
                     dict(type="event_msg", payload=dict(type="item_completed", thread_id=thread, turn_id="synthetic-turn",
                         item=dict(type="McpToolCall", id=action["call_id"], server=base.SERVER, tool=action["name"], arguments=args,
-                            status="completed" if payload else "failed", result=dict(content=content, structuredContent=payload)))),
+                            status=original["status"], result=core_result, error=original.get("error")))),
                     dict(type="response_item", payload=dict(type="custom_tool_call_output", call_id=outer_id,
                         output=[dict(type="input_text", text=json.dumps(dict(status="fulfilled", value=content)))]))]
     session += old[-2:]
+    session[-1]["payload"]["turn_id"] = "synthetic-turn"
     path.write_text("\n".join(json.dumps(e) for e in session) + "\n")
     binding_path = folder / f"{stage}.delivery.json"
     binding = base.prep.read_json(binding_path)
@@ -288,8 +300,10 @@ def test_full_wrappers_refuse_false_attribution_and_accept_exec_shape(tmp_path, 
             binding = base.prep.read_json(binding_path)
             binding["session_sha256"] = base.checker._file_sha256(str(path))
             base.json_write(binding_path, binding)
+            from nr03_source_fixtures import attach
+            attach(folder, "decision")
             if fault:
-                with pytest.raises(base.checker.EvidenceError, match="required model-facing evidence") as caught:
+                with pytest.raises(base.checker.EvidenceError, match="required model-facing evidence|model forbidden|source terminal differs|source start operation") as caught:
                     check_independent_write(bundle, "decision")
                 causes.append(dict(surface=surface, fault=fault, cause=str(caught.value)))
             else:

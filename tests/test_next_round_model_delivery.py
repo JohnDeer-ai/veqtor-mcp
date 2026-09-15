@@ -157,8 +157,8 @@ def test_exec_correspondence_and_complete_delivery_causal_negatives(fault, recor
         bad.insert(3, dict(type="response_item", payload=dict(type="custom_tool_call", name="exec", call_id="overlap", input="text('unrelated');")))
     elif fault == "replayed_turn":
         bad.insert(len(bad)-2, dict(type="event_msg", payload=dict(type="task_started", turn_id="new-turn")))
-    if fault == "missing_action":
-        with pytest.raises(base.checker.EvidenceError, match="corresponding call") as caught:
+    if fault in {"missing_action", "replayed_turn"}:
+        with pytest.raises(base.checker.EvidenceError, match="corresponding call" if fault == "missing_action" else "completion turn differs") as caught:
             delivery(calls, bad)
         result = str(caught.value)
     else:

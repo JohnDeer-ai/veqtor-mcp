@@ -98,7 +98,19 @@ def model_session(events, *, custom=False):
 
 def assess(events, files, session=None):
     _, calls, messages = parsed(events)
-    delivered = validate_model_delivery(calls, model_session(events) if session is None else session,
+    session = model_session(events) if session is None else session
+    from nr03_source_fixtures import supplement, launch_config
+    from nr03_app_server import parse_protocol, lines
+    receipt = dict(command=["/synthetic/codex"], cwd="/synthetic", resumed_thread_id=None,
+                   prompt_sha256=base.checker._digest("unused"), fixture_prompt="synthetic coverage stimulus")
+    import hashlib
+    receipt["prompt_sha256"] = hashlib.sha256(receipt["fixture_prompt"].encode()).hexdigest()
+    fixture = supplement(events, session, receipt, launch_config("/synthetic/python", model=base.MODEL, reasoning_effort="high", journal_disabled=True))
+    qualified = parse_protocol(*(fixture[k].encode() for k in ("raw", "requests", "transport", "session")),
+        fixture["receipt"]["source"], receipt=fixture["receipt"], producer=calls[0]["payload"]["producer"])
+    for c, q in zip(calls, qualified["calls"]):
+        c.update(source_occurrence=q["source_occurrence"], core_result=q["core_result"])
+    delivered = validate_model_delivery(calls, lines(fixture["session"].encode()),
         thread="synthetic-v3-coverage", cwd="/synthetic", final_text=messages[-1]["text"])
     return brief_coverage(calls, files, upper=messages[-1]["event_index"], delivered_ids=delivered)
 
@@ -224,7 +236,7 @@ def test_complete_raw_does_not_prove_model_delivery(files, form, fault):
     else:
         bad = [r for r in bad if not (r.get("payload", {}).get("type") == "function_call"
                                      and r["payload"]["call_id"] == required["id"])]
-    cause = {"wrong_session": "session identity", "missing_call": "corresponding call"}.get(fault, "brief model delivery incomplete")
+    cause = {"wrong_session": "source prefix session/build", "missing_call": "corresponding call"}.get(fault, "brief model delivery incomplete")
     with pytest.raises(base.checker.EvidenceError, match=cause):
         assess(events, files, bad)
     assert assess(events, files, session)["model_delivery"] == "PASS"

@@ -172,7 +172,11 @@ def load_stage(directory, stage, b, installation):
     expected_fields = {"schema_version", "stage", "command", "cwd", "client_selection", "baseline_sha256",
         "second_baseline_sha256", "installation_sha256", "prompt_sha256", "events_sha256", "workflow_sha256",
         "parent_receipt_sha256", "resumed_thread_id", "started_ns", "finished_ns", "exit_code", "before", "after"}
-    _require(set(receipt) == expected_fields and receipt["schema_version"] == "veqtor_next_round_capture.v1"
+    source_profile = receipt.get("source", {}).get("profile")
+    if "source" in receipt:
+        expected_fields.add("source")
+    _require(set(receipt) == expected_fields and receipt["schema_version"] ==
+             ("veqtor_next_round_capture.v2" if "source" in receipt else "veqtor_next_round_capture.v1")
              and receipt["stage"] == stage and receipt["exit_code"] == 0, "invalid stage receipt")
     for field in ("started_ns", "finished_ns"):
         _require(type(receipt[field]) is int, "stage timing is not an integer")
@@ -195,7 +199,7 @@ def load_stage(directory, stage, b, installation):
     command = receipt["command"]
     _require(isinstance(command, list) and command and Path(command[0]).is_absolute(), "native command absent")
     _require(command == command_for(command[0], installation["python"], stage,
-             **b["client_selection"], thread_id=resumed, journal_disabled=b["variant"] == "journal-unavailable")
+             **b["client_selection"], thread_id=resumed, journal_disabled=b["variant"] == "journal-unavailable", source_profile=source_profile)
              and receipt["cwd"] == str(directory / f"client-{r}"), "different native launch/resume/configuration")
     if r == "a":
         _require(receipt["second_baseline_sha256"] is None, "unexpected second-round binding")
@@ -203,12 +207,19 @@ def load_stage(directory, stage, b, installation):
         second = read_json(directory / "round-b-baseline.json")
         _require(receipt["second_baseline_sha256"] == _file_sha256(str(directory / "round-b-baseline.json"))
                  and second["prepared_ns"] < receipt["started_ns"], "second input was not frozen before native session")
-    decoded = [_json(line) for line in events.decode().splitlines()]
-    thread, calls, messages = parse_native(decoded, installation["producer"])
+    from nr03_app_server import parse_capture
+    parsed = parse_capture(directory, stage, receipt, installation["producer"])
+    thread, calls = parsed["thread"], parsed["calls"]
+    if resumed and "source" in receipt:
+        parent_path = directory / f"{r}-brief.session.jsonl"
+        current_path = directory / f"{stage}.session.jsonl"
+        _require(parent_path.is_file() and current_path.read_bytes().startswith(parent_path.read_bytes())
+                 and receipt["source"]["turn_id"] != read_json(directory / f"{r}-brief.receipt.json")["source"]["turn_id"],
+                 "source resumed prefix does not preserve original parent")
     validate_export_limits(calls)
     if resumed:
         _require(thread == resumed, "write resumed another brief")
-    return dict(receipt=receipt, events=decoded, thread=thread, calls=calls, messages=messages)
+    return dict(receipt=receipt, **parsed)
 
 
 def full_position_read(call, b):
