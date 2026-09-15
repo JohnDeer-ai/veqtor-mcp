@@ -15,8 +15,8 @@ from veqtor_mcp import positions
 from check_codex_acceptance import _digest, _file_sha256, _require
 from nr03_delivery import DELIVERY_VERSION, EXPORT_PAGE_LIMIT
 
-VERSION = "nr03-next-round.v2"
-ORACLE_VERSION = "nr03-scenario.v2"
+VERSION = "nr03-next-round.v3"
+ORACLE_VERSION = "nr03-scenario.v3"
 SERVER = "veqtor_nr03"
 AUTHOR = "Veqtor Acceptance"
 MODEL = "gpt-6-astra"
@@ -25,7 +25,12 @@ STAGES = ("a-brief", "a-write", "b-brief", "b-write")
 WORKFLOW_FILES = (".agents/skills/veqtor-next-round/SKILL.md", "docs/prompts/next-round.md")
 ORACLE_FILES = ("NR-03_NEXT_ROUND.md", "docs/NR03_SCENARIO.md", "docs/NR03_USER_REPLIES.md",
                 "scripts/nr03_scenario.py", "scripts/nr03_delivery.py", "scripts/check_next_round_journal.py",
-                "scripts/nr03_creation_probe.py")
+                "scripts/nr03_creation_probe.py", "scripts/nr03_coverage.py", "scripts/nr03_model_delivery.py",
+                "scripts/nr03_adverse_document.py", "scripts/check_next_round_observation.py",
+                "docs/NR03_ADVERSE_OBLIGATIONS.md")
+DOCUMENT_POLICIES = {name: "positive_complete_journal" for name in
+                     ("main", "unsupported", "document-injection", "position-injection")}
+DOCUMENT_POLICIES["journal-unavailable"] = "expected_unavailable_journal"
 IDS = [f"pos_{i:032x}" for i in range(1, 6)]
 SELECTED = (2, 4, 5, 6, 7, 8, 9)
 C3 = "2. Confidential information shall be protected for three years after termination."
@@ -217,7 +222,8 @@ def seed_store(matter, *, variant="main"):
 def oracle():
     return dict(version=ORACLE_VERSION, selected_indices=list(SELECTED),
         acceptance_delivery=DELIVERY_VERSION, export_page_limit=EXPORT_PAGE_LIMIT,
-        journal_validation="complete-cursor-bound-pages.v1",
+        journal_validation="complete-cursor-bound-pages.v1", document_policies=DOCUMENT_POLICIES.copy(),
+        brief_coverage="nr03-brief-coverage.v3", creation_discovery="nr03-creation-discovery.v3",
         full_texts={n: texts(n) for n in ("previous", "incoming-a", "counter-a", "incoming-b", "counter-b")},
         edit_authorization="exact-target-full-before-after.v1",
         edit_targets={n: [[index, kind] for index, kind, *_ in edit_specs(n)] for n in ("a", "b")},

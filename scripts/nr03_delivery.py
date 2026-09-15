@@ -5,7 +5,7 @@ from pathlib import Path
 
 from check_codex_acceptance import _file_sha256, _require
 
-DELIVERY_VERSION = "nr03-acceptance-client.v2"
+DELIVERY_VERSION = "nr03-acceptance-client.v3"
 EXPORT_PAGE_LIMIT = 20
 BOUNDARY = """Use the complete delivered Veqtor skill and resolved canonical workflow below.
 These files are already supplied in full; do not reopen their paths or discover

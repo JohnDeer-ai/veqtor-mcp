@@ -27,8 +27,35 @@ def json_write(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2))
 
 
+def synthetic_delivery(bundle, stage):
+    """Fabricated client envelopes for checker controls; NEVER native evidence."""
+    events = [json.loads(line) for line in (bundle / f"{stage}.jsonl").read_text().splitlines()]
+    receipt = prep.read_json(bundle / f"{stage}.receipt.json")
+    session = [dict(type="session_meta", payload=dict(id=events[0]["thread_id"], cwd=receipt["cwd"], synthetic=True)),
+               dict(type="event_msg", payload=dict(type="task_started"))]
+    for event in events:
+        item = event.get("item", {})
+        if event["type"] == "item.completed" and item.get("type") == "mcp_tool_call":
+            session += [dict(type="response_item", payload=dict(type="function_call", call_id=item["id"], name=item["tool"],
+                        arguments=json.dumps(item["arguments"]))),
+                        dict(type="response_item", payload=dict(type="function_call_output", call_id=item["id"],
+                        output=json.dumps((item.get("result") or {}).get("structured_content"))))]
+        elif item.get("type") == "agent_message":
+            session.append(dict(type="response_item", payload=dict(type="message", role="assistant",
+                            content=[dict(type="output_text", text=item["text"])])))
+    session.append(dict(type="event_msg", payload=dict(type="task_complete")))
+    path = bundle / f"{stage}.synthetic-client.jsonl"
+    path.write_text("\n".join(json.dumps(row) for row in session)+"\n")
+    json_write(bundle / f"{stage}.delivery.json", dict(schema_version="nr03-model-delivery.v3", session_path=str(path),
+        session_sha256=checker._file_sha256(str(path)), receipt_sha256=checker._file_sha256(str(bundle / f"{stage}.receipt.json"))))
+
+
 @pytest.fixture
 def prepared(tmp_path, monkeypatch):
+    return prepare_fixture(tmp_path, monkeypatch)
+
+
+def prepare_fixture(tmp_path, monkeypatch, variant="main"):
     monkeypatch.setenv("VEQTOR_TRACKED_CHANGE_AUTHOR", AUTHOR)
     # Isolate lazy process configuration without clearing or warming the prior
     # cache; monkeypatch restores that exact cache object during teardown.
@@ -43,7 +70,7 @@ def prepared(tmp_path, monkeypatch):
     installation = tmp_path / "install.json"
     json_write(installation, report)
     bundle = tmp_path / "bundle"
-    b = prep.prepare(bundle, installation, model=MODEL, reasoning_effort="high")
+    b = prep.prepare(bundle, installation, model=MODEL, reasoning_effort="high", variant=variant)
     return bundle, b, report
 
 
@@ -77,7 +104,8 @@ def test_f04_prepared_author_isolation_restores_prior_cache(tmp_path, monkeypatc
     assert server._tracked_change_author() == ("Earlier cached author" if warmed else "Prior environment author")
 
 
-def native_stage(bundle, b, installation, stage, monkeypatch, *, edit_transform=None, export_page_size=20):
+def native_stage(bundle, b, installation, stage, monkeypatch, *, edit_transform=None, export_page_size=20,
+                 allow_unavailable_journal=False):
     r, phase = stage.split("-")
     thread = f"synthetic-client-{r}"
     monkeypatch.setattr(positions, "SERVER_SESSION_ID", ("1" if r == "a" else "2") * 32)
@@ -86,9 +114,18 @@ def native_stage(bundle, b, installation, stage, monkeypatch, *, edit_transform=
     started = time.time_ns()
 
     def add(tool, **args):
-        payload = getattr(server, tool)(**args)
         identity = dict(id=str(len(events)), type="mcp_tool_call", server=SERVER, tool=tool, arguments=args)
         events.append(dict(type="item.started", item=dict(deepcopy(identity), status="in_progress", result=None, error=None)))
+        try:
+            payload = getattr(server, tool)(**args)
+        except Exception as exc:
+            if not allow_unavailable_journal or tool != "export_decision_record":
+                raise
+            assert getattr(exc, "code", None) == "workspace_uninitialized", str(exc)
+            events.append(dict(type="item.completed", item=dict(deepcopy(identity), status="failed", error=None,
+                result=dict(structured_content=None, content=[dict(type="text", text=
+                    "Error executing tool export_decision_record: workspace_uninitialized: operation refused")]))))
+            return None
         events.append(dict(type="item.completed", item=dict(deepcopy(identity), status="completed", error=None,
             result=dict(structured_content=deepcopy(payload), content=[dict(type="text", text=json.dumps(payload))]))))
         return payload
@@ -138,6 +175,8 @@ def native_stage(bundle, b, installation, stage, monkeypatch, *, edit_transform=
         while True:
             page = add("export_decision_record", workspace=b["matter"], max_records=export_page_size,
                        **({"before_record_id": cursor} if cursor else {}))
+            if page is None and allow_unavailable_journal:
+                break
             if not page["truncated"]:
                 break
             cursor = page["next_before_record_id"]
@@ -150,7 +189,8 @@ def native_stage(bundle, b, installation, stage, monkeypatch, *, edit_transform=
     resume = thread if phase == "write" else None
     receipt = dict(schema_version="veqtor_next_round_capture.v1", stage=stage,
         command=capture.command_for("/synthetic/codex", installation["python"], stage,
-            model=MODEL, reasoning_effort="high", thread_id=resume), cwd=str(bundle / f"client-{r}"),
+            model=MODEL, reasoning_effort="high", thread_id=resume,
+            journal_disabled=b["variant"] == "journal-unavailable"), cwd=str(bundle / f"client-{r}"),
         client_selection=b["client_selection"], baseline_sha256=checker._file_sha256(str(bundle / "baseline.json")),
         second_baseline_sha256=checker._file_sha256(str(bundle / "round-b-baseline.json")) if r == "b" else None,
         installation_sha256=b["installation_sha256"], prompt_sha256=hashlib.sha256(prompt.encode()).hexdigest(),
@@ -159,6 +199,7 @@ def native_stage(bundle, b, installation, stage, monkeypatch, *, edit_transform=
         resumed_thread_id=resume, started_ns=started, finished_ns=time.time_ns(), exit_code=0,
         before=before, after=prep.state(b["matter"]))
     json_write(bundle / f"{stage}.receipt.json", receipt)
+    synthetic_delivery(bundle, stage)
     return events
 
 
@@ -209,6 +250,8 @@ def mutate_events(bundle, stage, mutate):
         rec = prep.read_json(follow)
         rec["parent_receipt_sha256"] = checker._file_sha256(str(receipt_path))
         json_write(follow, rec)
+        synthetic_delivery(bundle, stage.replace("brief", "write"))
+    synthetic_delivery(bundle, stage)
 
 
 @pytest.mark.parametrize("fault", ["no_store_read", "partial_store", "missing_condition", "source_not_checked",

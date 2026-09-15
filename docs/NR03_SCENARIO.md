@@ -249,3 +249,21 @@ plausible substitutes: Q4 decision absent; second-round NR-02 read absent;
 old client history reused; wrong workflow or producer; stale other-file ref;
 output absent after preflight; full read replaced with matching search snippet.
 None can pass merely because final prose says the workflow succeeded.
+
+## Prospective version 3 evidence policy
+
+The original fourteen direct-paragraph pairs and failed v2 captures are immutable.
+Version 3 retains indices 2,4,5,6,7,8,9 in each selected file: confidentiality;
+payment concession; liability; complete guarantee condition; pending exclusivity;
+inventory counterpart; and the distinct data-security audit control. Unchanged and
+deferred issues retain their obligations. This observer map is never a native
+starter, a supplied reference list, or a prescribed call sequence.
+
+The ordinary delivered workflow explains linked and distinguishing provisions in
+each fresh round. `nr03-brief-coverage.v3` accepts complete direct, section or mixed
+forms with full model-facing delivery and exact per-paragraph quotes. Frozen write
+validation still requires direct source/output paragraph reads. Creation discovery
+and explicit journal dispatch follow [the complete obligation map](NR03_ADVERSE_OBLIGATIONS.md).
+All new identities are frozen prospectively; natural business starters and decisions
+are unchanged. A new sequential A/B campaign and affected adverse cases require
+Root release; no current candidate or historical evidence is upgraded by this policy.

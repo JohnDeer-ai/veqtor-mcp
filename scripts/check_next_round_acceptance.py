@@ -28,7 +28,7 @@ from capture_next_round_session import command_for, prompt_for
 from check_next_round_journal import validate_document_and_journal
 from nr03_delivery import validate_export_limits
 from nr03_scenario import (
-    AUTHOR, C2, C3, CONFIRM, EFFORTS, IDS, MODEL, ORACLE_FILES, SELECTED, SERVER, VERSION, WORKFLOW_FILES,
+    AUTHOR, C2, C3, CONFIRM, EFFORTS, IDS, MODEL, ORACLE_FILES, SERVER, VERSION, WORKFLOW_FILES,
     assert_oracle, document, edit_specs, intents, source_manifest, texts,
 )
 from prepare_next_round_acceptance import SCHEMA, installed, read_json
@@ -220,11 +220,12 @@ def full_position_read(call, b):
         _require(result[key] == expected[key], "complete saved positions or source observations differ")
     _require(result["history"] == (expected["history"] if args.get("include_history", False) else [])
              and result["history_included"] == args.get("include_history", False), "history read is incomplete")
-    _require(result["record_status"] == "disabled" and result["record_id"] is None, "position journal semantics differ")
+    _require(result["record_status"] == "disabled" and result["record_id"] is None
+             and "record_error" not in result, "position journal semantics differ")
     return result["server_session_id"]
 
 
-def exact_read_quote(calls, path, index, text, *, upper=float("inf")):
+def exact_read_quote(calls, path, index, text, *, upper=float("inf"), section_page=None, return_evidence=False):
     sha = _file_sha256(path)
     ref = dict(schema_version="paragraph_ref.v1", ref_type="paragraph", file_sha256=sha,
                part_name="word/document.xml", paragraph_index=index,
@@ -238,6 +239,11 @@ def exact_read_quote(calls, path, index, text, *, upper=float("inf")):
              and len(c["payload"].get("paragraphs", [])) == 1
              and c["payload"]["paragraphs"][0].get("paragraph_ref") == ref
              and c["payload"]["paragraphs"][0].get("text") == text]
+    if section_page is not None:
+        # Only the v3 complete-chain helper supplies this alternative. The
+        # default invocation remains the old direct-paragraph predicate.
+        reads = [section_page] if any(row.get("paragraph_ref") == ref and row.get("text") == text
+            for row in section_page["payload"].get("paragraphs", [])) else []
     for c in calls:
         if c["failed"] or c["tool"] != "verify_quote":
             continue
@@ -258,6 +264,8 @@ def exact_read_quote(calls, path, index, text, *, upper=float("inf")):
         if all(m.get(k) == v for k, v in dict(path=path, part_name="word/document.xml", revision_ids=[],
                 side="paragraph_current", paragraph_index=index, paragraph_text_sha256=ref["paragraph_text_sha256"],
                 projection_text_sha256=ref["paragraph_text_sha256"], projection_mode="accepted_current_v1").items()):
+            if return_evidence:
+                return [next(read["id"] for read in reads if read["completed_at"] < c["started_at"]), c["id"]]
             return True
     return False
 
@@ -335,11 +343,19 @@ def check_round(directory, r, *, loaded=None):
     b, installation = loaded or load_baseline(directory)
     _require(b["variant"] == "main" and r in {"a", "b"}, "positive checker only accepts main two-round scenario")
     brief, write = [load_stage(directory, f"{r}-{phase}", b, installation) for phase in ("brief", "write")]
+    from nr03_model_delivery import load_model_delivery
+    brief_delivery = load_model_delivery(directory, f"{r}-brief", brief)
+    write_delivery = load_model_delivery(directory, f"{r}-write", write)
     _require(brief["thread"] == write["thread"]
              and brief["receipt"]["finished_ns"] < write["receipt"]["started_ns"], "write does not follow its completed brief")
     _require(not any(c["tool"] in {"preflight_edits", "apply_edits", "mutate_deal_positions"} for c in brief["calls"]),
              "mutation/preflight before the scripted decision")
     scope(brief["calls"] + write["calls"], b, r)
+    from nr03_creation_probe import classify_failures
+    _, _, _, brief_failures, _ = classify_failures(document_only(brief["events"]),
+        dict(producer=installation["producer"], server_name=SERVER, output_path=b["inputs"][r]["output"]), None)
+    _require(not any(c["failed"] and c["tool"] in {"read_deal_positions", "mutate_deal_positions"}
+                     for c in brief["calls"]), "brief contains an unresolved position failure")
     first_dispatched = min(brief["calls"], key=lambda call: call["started_at"])
     first_read = full_position_read(first_dispatched, b)
     _require(all(first_dispatched["completed_at"] < call["started_at"]
@@ -356,10 +372,9 @@ def check_round(directory, r, *, loaded=None):
     after_name = f"counter-{r}"
     for path, name in ((source, before_name), (previous, previous_name), (output, after_name)):
         _require(actual_texts(path) == texts(name), "complete actual document differs from independent text oracle")
-    for path, name in ((source, before_name), (previous, previous_name)):
-        for index in SELECTED:
-            _require(exact_read_quote(brief["calls"], path, index, texts(name)[index], upper=brief["messages"][-1]["event_index"]),
-                     "selected-issue brief lacks full verified current/previous evidence")
+    from nr03_coverage import brief_coverage
+    coverage = brief_coverage(brief["calls"], [(source, texts(before_name)), (previous, texts(previous_name))],
+                             upper=brief["messages"][-1]["event_index"], delivered_ids=brief_delivery["calls"])
     ordered = pres[0]["arguments"].get("edits")
     authorize_edits(source, r, ordered)
     source_hashes = b["initial_state"]["docx"].copy()
@@ -402,7 +417,9 @@ def check_round(directory, r, *, loaded=None):
     # earlier rounds on untouched paragraphs. NR-03 checks complete cursor-bound
     # action-record pages without altering NR-01's independent same-page profile.
     return dict(round=r, client_thread=brief["thread"], server_sessions=sorted({first_read} | write_sessions),
-                output=output, output_sha256=report["output_sha256"], mechanical=report,
+                output=output, output_sha256=report["output_sha256"], mechanical=report, brief_coverage=coverage,
+                model_delivery=dict(brief=brief_delivery, write=write_delivery),
+                brief_failure_ledger=brief_failures,
                 brief_message_sha256=_digest(brief["messages"]), result_message_sha256=_digest(write["messages"]))
 
 

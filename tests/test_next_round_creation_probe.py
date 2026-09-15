@@ -35,6 +35,7 @@ def save_events(bundle, events):
     receipt = nr03.prep.read_json(bundle / "a-write.receipt.json")
     receipt["events_sha256"] = checker._file_sha256(str(path))
     json_write(bundle / "a-write.receipt.json", receipt)
+    nr03.synthetic_delivery(bundle, "a-write")
 
 
 @pytest.fixture
@@ -126,8 +127,8 @@ def test_f09_ordinary_matching_mode_retry_still_uses_frozen_nr01(probe):
     assert checker.check_round(bundle, "a")["mechanical"]["creation_probe"]["id"] == "creation-probe"
 
 
-FAULTS = ["source_probe", "previous_probe", "other_output_probe", "other_probe_mode", "extra_probe_argument",
-          "failure_after_apply", "failure_after_preflight", "second_probe", "unrelated_failed_read",
+FAULTS = ["source_probe", "previous_probe", "other_output_probe", "other_probe_mode", "invalid_probe_argument",
+          "failure_after_apply", "unrelated_failed_read",
           "failed_preflight", "failed_apply", "no_preflight", "no_apply", "repeated_apply", "repeated_preflight",
           "wrong_candidate", "wrong_output_hash", "wrong_apply_output", "wrong_proof", "wrong_edits",
           "no_post_read", "browse_not_full_read", "missing_one_full_read", "no_output_quote",
@@ -169,12 +170,12 @@ def refuse_mutant(probe, fault):
         events[:] = [e for e in events if e.get("item", {}).get("id") != item["id"]]
 
     probe_items = [e["item"] for e in events if e.get("item", {}).get("id") == "creation-probe"]
-    if fault in {"source_probe", "previous_probe", "other_output_probe", "other_probe_mode", "extra_probe_argument"}:
+    if fault in {"source_probe", "previous_probe", "other_output_probe", "other_probe_mode", "invalid_probe_argument"}:
         for item in probe_items:
             if fault == "other_probe_mode":
                 item["arguments"]["mode"] = "comments"
-            elif fault == "extra_probe_argument":
-                item["arguments"]["max_items"] = 1
+            elif fault == "invalid_probe_argument":
+                item["arguments"]["max_items"] = True
             else:
                 item["arguments"]["path"] = dict(source_probe=source, previous_probe=previous,
                                                   other_output_probe=output + ".other.docx")[fault]

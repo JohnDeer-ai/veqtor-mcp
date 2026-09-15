@@ -11,7 +11,7 @@ construct synthetic envelopes around real local tool results; they test the chec
 not native Codex behavior. The checker never decides legal equivalence.
 
 The server/API/storage identity remains `0.4.2.dev0` / `veqtor.mcp.v0.4.2`.
-The workflow has separate version `nr03-next-round.v2` and hashes for both the
+The workflow has separate version `nr03-next-round.v3` and hashes for both the
 canonical prompt and thin skill. All code and commands below are maintainer
 acceptance tooling in the source checkout; the sdist also delivers the prompt,
 skill and their documents, while the wheel remains the MCP runtime.
@@ -204,7 +204,10 @@ repeats final source/output hashes and checks the position store again. A depend
 change requires review before this adapter can run. No merged export event is
 fabricated for NR-01, and the resulting report is explicitly an NR-03 report.
 
-NR-03 document report v3 also records one narrowly admitted pre-creation probe.
+Historical workflow v2 / document report v3 recorded one narrowly admitted
+pre-creation probe, as described in the next two paragraphs. Those old outcomes
+and refused captures retain that original scope; the prospective version-3 policy
+below replaces this narrow classification for newly frozen observations only.
 An unresolved failed `inspect_document(path=<selected output>, mode="outline")`
 with the observed `file_unreadable` envelope may precede the single successful
 preflight and create-if-absent apply. The error text does not establish absence:
@@ -286,3 +289,21 @@ It does not fabricate a result or MCP call. The native client must receive actua
 steps use the ordinary server launch. Full expected histories and replies remain
 those in the scenario. The fault's local regression proves its placement and
 one-shot recovery only; actual native handling still requires this separate run.
+
+## Version 3 candidate boundary
+
+The reviewed prospective F09/F10 and adverse-composition implementation (positive
+document report `nr03-document-evidence.v4`) is specified
+in [the complete obligation map](NR03_ADVERSE_OBLIGATIONS.md). Required new checks
+include public argument classes, causal negatives from passing component controls,
+ordinary recovery plus eligible discovery plus expected export failure, complete
+fourteen-obligation direct/section/mixed coverage, original model-facing delivery,
+and frozen-helper isolation. An unrelated earlier refusal does not prove a negative.
+
+For observation plans, explicitly freeze `expected.document_policy` before launch.
+The read-only `check_next_round_observation.py` dispatches the four independent
+write cases; positive provenance and bounded export pages remain strict. It does
+not authorize dependent cases or replace human business/visual/reporting gates.
+Every new stage also requires the separately bound original client-prefix delivery
+artifact described in the obligation map. Missing/clipped delivery cannot be filled
+by a raw log, later digest or repaired conversation.

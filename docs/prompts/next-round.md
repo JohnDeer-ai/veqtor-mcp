@@ -2,7 +2,7 @@
 
 # Prepare the next negotiation round
 
-Workflow version: `nr03-next-round.v2`. For local Codex or Claude with Veqtor
+Workflow version: `nr03-next-round.v3`. For local Codex or Claude with Veqtor
 connected; NR-01 paragraph edits and NR-02 positions require development
 `0.4.2.dev0` / `veqtor.mcp.v0.4.2` or a subsequently verified compatible build.
 The published `0.4.0` nine-tool installation does not supply this whole workflow.
@@ -45,10 +45,22 @@ legal equivalence, protection and semantic correspondence are your assessments.
 "Not found" does not establish deletion. A rewritten or renumbered clause needs
 fresh evidence and, where correspondence is ambiguous, my selection before editing.
 
+In each fresh round, include the selected provision, its complete dependent
+conditions, and plausible competing or distinguishing provisions in both selected
+files. Establish that evidence even for wording left unchanged or an issue deferred,
+and even when the correspondence appears clear. Explain which provisions support
+the comparison; an unchanged disposition does not remove its evidence requirement.
+
 Discover complete references with inspect_document outline, literal_search or
 browse in each selected DOCX. Read a full paragraph with mode=read and
 selection={"paragraph_ref": the_complete_returned_reference}; section reads use
-selection={"section_ref": the_complete_returned_reference} and all needed pages.
+selection={"section_ref": the_complete_returned_reference}. For a section-based
+brief, finish its complete ordered page chain using each returned cursor through
+the terminal page. Verify each relevant paragraph's exact current text on its own
+fresh paragraph reference after its full page was read; complete the whole section
+and all those quotes before the brief. Paragraph and section reads may be combined.
+Require the complete results actually delivered to you, not a clipped fragment or
+metadata-only digest. Report any missing delivery as an evidence limitation.
 A snippet, bare reference or paragraph index is not a full paragraph read. Verify
 quotations through verify_quote with the exact document/ref and appropriate side.
 For current paragraph text use paragraph_projection="accepted_current_v1". Keep
@@ -88,7 +100,8 @@ incoming file. Never combine anchor and target, reuse other-file refs or use a f
 fallback. Preserve accumulated revisions; no automatic Accept/Reject or markup cleanup.
 
 Gather one complete batch of the authorized supported edits on nonoverlapping
-targets. Read every full input paragraph and verify each edit's exact deleted text
+targets. At this write stage, directly read each individual full input paragraph
+(even if a section was read for the brief) and verify each edit's exact deleted text
 (or reinstate text on its deletion anchor). Preflight the whole batch. Only when
 batch_applicable=true, apply the identical ordered edits to the same source with
 the entire returned preflight_proof and the new output path. Changed bindings or
@@ -106,7 +119,7 @@ or initialize over corrupt storage. An explicit document decision does not by it
 instruct you to save a new position or confirm a different version.
 
 After a successful apply, compare output_sha256 with the preflight candidate hash.
-Discover fresh output references, read the entire resulting affected paragraphs,
+Discover fresh output references, directly read each entire resulting affected paragraph,
 and verify their complete expected current text. Extract and check every new/prior
 revision against the source and decisions. Verify each exact deletion on its fresh
 output change-unit anchor after full readback and extraction. For an empty resulting

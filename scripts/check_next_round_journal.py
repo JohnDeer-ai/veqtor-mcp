@@ -135,11 +135,11 @@ def validate_document_and_journal(events, baseline, calls, thread_id, *, creatio
     final refusal can reach this adapter; all substantive refusals propagate. The
     new page gate must independently pass, then NR-01's final hash checks run again.
     This is an NR-03 report, not a claim that NR-01's single-page profile passed.
-    One independently bound pre-creation probe can use an isolated parser profile;
-    its original failed event stays intact and all substantive checks still run.
+    Eligible independently bound initial-output discoveries use an isolated
+    parser profile; all original failures and substantive checks remain intact.
     """
     require_frozen_dependencies()
-    validator, creation_probe = creation_probe_profile(
+    validator, creation_probe, failure_ledger = creation_probe_profile(
         events, baseline, creation_state, paragraphs.validate_evidence)
     legacy_report = None
     try:
@@ -163,5 +163,5 @@ def validate_document_and_journal(events, baseline, calls, thread_id, *, creatio
         _require(_file_sha256(path) == sha, "source drifted during evidence verification")
     _require(_file_sha256(baseline["output_path"]) == legacy_report["output_sha256"],
              "output drifted during evidence verification")
-    return dict(legacy_report, schema_version="nr03-document-evidence.v3", status="passed", journal=journal,
-                creation_probe=creation_probe)
+    return dict(legacy_report, schema_version="nr03-document-evidence.v4", status="passed", journal=journal,
+                creation_probe=creation_probe, failure_ledger=failure_ledger)

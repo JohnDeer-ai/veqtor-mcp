@@ -193,6 +193,7 @@ def test_f07_original_nr01_refusal_and_earlier_document_failures_stay_strict(pag
             checker.check_round(bundle, "a")
     raw_path.write_bytes(original_raw)
     receipt_path.write_bytes(original_receipt)
+    nr03.synthetic_delivery(bundle, "a-write")
     assert checker.check_round(bundle, "a")["mechanical"]["journal"]["complete_pages_verified"]
 
 

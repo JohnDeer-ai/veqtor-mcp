@@ -2,7 +2,7 @@
 name: veqtor-next-round
 description: Prepare a selected-issue negotiation brief and tracked Word counterproposal with local Veqtor MCP, reusing saved positions in a later round.
 metadata:
-  version: nr03-next-round.v2
+  version: nr03-next-round.v3
 ---
 
 # Veqtor next round
