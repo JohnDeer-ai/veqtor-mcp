@@ -51,6 +51,17 @@ A refusal at the private gate has no passing source receipt or model turn. This 
 profile may refuse new notifications from even the pinned build until separately
 reviewed; it never skips them silently.
 
+The pinned client's `config/read` effective MCP map contains exactly the single
+selected `veqtor_nr03` server: original `command`, `args` and `env`, plus
+`enabled: true`, `environment_id: "local"` and `tool_timeout_sec: null`.
+The checker validates that complete typed representation; missing, unknown or
+changed MCP fields refuse. The single active `sessionFlags` layer must still
+equal the original shorter launch configuration exactly. No returned field is
+removed or rewritten, and effective defaults do not waive any inherited-layer
+or privacy check. Both startup and later original-exchange validation use this
+same rule. This representation is pinned to the build above, not a generic
+normalization policy for future clients.
+
 A resumed turn gets an exact private copy of its own earlier complete prefix;
 the earlier evidence is not opened for append. The original resulting session
 prefix is copied through the actual matching `task_complete` before cleanup.

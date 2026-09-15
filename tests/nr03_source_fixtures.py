@@ -112,7 +112,11 @@ def supplement(events, old_session, receipt, config):
         wire("received", dict(id=ident, result=result))
     request(1, "initialize", initialize_request(), dict(userAgent="synthetic app server profile fixture"))
     wire("sent", dict(method="initialized"))
-    request(2, "config/read", dict(includeLayers=True, cwd=receipt["cwd"]), dict(config=config, origins={}, layers=[
+    # Pinned installed config/read expands effective MCP defaults, but leaves
+    # original session flags unchanged. Do not derive this from the validator.
+    effective = deepcopy(config)
+    effective["mcp_servers"]["veqtor_nr03"].update(enabled=True, environment_id="local", tool_timeout_sec=None)
+    request(2, "config/read", dict(includeLayers=True, cwd=receipt["cwd"]), dict(config=effective, origins={}, layers=[
         dict(name=dict(type="sessionFlags"), version="synthetic", config=config),
         dict(name=dict(type="user", file=runtime+"/config.toml", profile=None), version="synthetic", config={})]))
     params = dict(model=selection["model"], cwd=receipt["cwd"], approvalPolicy="never", sandbox="danger-full-access")

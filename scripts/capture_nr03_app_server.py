@@ -50,8 +50,17 @@ def initialize_request():
 
 
 def check_effective(result, config, runtime):
+    servers = config.get("mcp_servers")
+    _require(isinstance(servers, dict) and set(servers) == {SERVER}
+             and isinstance(servers[SERVER], dict) and set(servers[SERVER]) == {"command", "args", "env"},
+             "source selected MCP launch configuration differs")
+    # Pinned config/read expands this one selected stdio server. Compare the
+    # complete effective map, while sessionFlags below retain the original input.
+    # Never remove fields from the original response or accept arbitrary extras.
+    expected = dict(config, mcp_servers={SERVER: dict(servers[SERVER],
+                    enabled=True, environment_id="local", tool_timeout_sec=None)})
     actual = result.get("config")
-    _require(isinstance(actual, dict) and all(_digest(actual.get(k)) == _digest(v) for k, v in config.items()),
+    _require(isinstance(actual, dict) and all(_digest(actual.get(k)) == _digest(v) for k, v in expected.items()),
              "source effective launch configuration differs")
     _require(not actual.get("plugins") and not actual.get("hooks") and not actual.get("instructions")
              and not actual.get("developer_instructions"), "source inherited plugins/hooks/instructions")
