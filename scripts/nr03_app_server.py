@@ -243,6 +243,18 @@ def parse_protocol(raw, requests, transport, session_raw, source, *, receipt, pr
                         result["structured_content"] = result.pop("structuredContent", None)
                     converted = dict(type="mcp_tool_call", id=ident, **{k: deepcopy(item[k]) for k in ("server", "tool", "arguments")},
                                      status=item["status"], result=result, error=deepcopy(item["error"]))
+                    if item["status"] == "failed":
+                        # Only this validated source projection represents the
+                        # core failure flag via the legacy consumer's status.
+                        # Complete originals travel with the failure into its
+                        # ledger; neither source input is edited or discarded.
+                        if result is not None:
+                            result.pop("isError", None)
+                        converted["source_failure"] = dict(profile=PROFILE, run_id=source["run_id"],
+                            connection_id=source["connection_id"], thread_id=thread, turn_id=turn, item_id=ident,
+                            core_line=core[ident]["line"], end_line=line,
+                            original_core_event=deepcopy(session[core[ident]["line"] - 1]),
+                            original_app_server_notification=deepcopy(row))
                     locations[ident] = dict(profile=PROFILE, run_id=source["run_id"], connection_id=source["connection_id"],
                         thread_id=thread, turn_id=turn, item_id=ident, start_line=start, end_line=line,
                         core_line=core[ident]["line"], core_item=deepcopy(original["item"]))

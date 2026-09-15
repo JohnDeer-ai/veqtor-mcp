@@ -20,6 +20,31 @@ def encode(rows):
     return "".join(json.dumps(row, separators=(",", ":")) + "\n" for row in rows)
 
 
+def materialize_v2(folder, stages, *, observation=False):
+    """Enter real v2 consumers with explicitly synthetic originals in temp fixtures."""
+    from capture_nr03_app_server import bind_delivery
+    prefixes = {}
+    for stage in stages:
+        f = json.loads((folder / f"{stage}.source-fixture.json").read_text())
+        receipt = f["receipt"]
+        receipt["schema_version"] = ("veqtor_next_round_observation_capture.v2" if observation
+                                     else "veqtor_next_round_capture.v2")
+        if receipt.get("resumed_thread_id"):
+            parent = stages[stages.index(stage) - 1]
+            f["session"] = prefixes[parent] + encode(lines(f["session"].encode())[1:])
+            receipt["parent_receipt_sha256"] = _file_sha256(str(folder / f"{parent}.receipt.json"))
+        prefixes[stage] = f["session"]
+        for key, suffix in (("raw", "jsonl"), ("requests", "requests.jsonl"), ("transport", "transport.jsonl"), ("session", "session.jsonl")):
+            (folder / f"{stage}.{suffix}").write_text(f[key])
+        (folder / f"{stage}.stderr.txt").write_bytes(b"")
+        receipt["events_sha256"] = hashlib.sha256(f["raw"].encode()).hexdigest()
+        receipt["source"]["session_sha256"] = hashlib.sha256(f["session"].encode()).hexdigest()
+        receipt["source"]["stderr_sha256"] = hashlib.sha256(b"").hexdigest()
+        (folder / f"{stage}.receipt.json").unlink()
+        (folder / f"{stage}.delivery.json").unlink()
+        bind_delivery(folder, stage, receipt)
+
+
 def supplement(events, old_session, receipt, config):
     thread = events[0]["thread_id"]
     run, connection = str(uuid.uuid4()), str(uuid.uuid4())

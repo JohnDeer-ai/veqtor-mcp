@@ -82,6 +82,14 @@ Core durations convert from seconds/nanoseconds to integer milliseconds; full
 arguments, arrays, metadata, producer and public payloads are not normalized.
 An in-memory adapter feeds frozen document/journal consumers; it never writes a
 replacement CLI transcript. Failed envelopes cannot become successful payloads.
+After full core/App Server reconciliation, the adapter represents a failed
+core result's `isError` via the internal consumer event's `status="failed"` and
+omits only that flag from its copied result. The internal failure and every
+failure-ledger entry retain both complete original core event and App Server
+notification with their source occurrence and line bindings. The original
+prefix/raw bytes and error fields remain intact. Frozen exact error predicates,
+workspace checks, recovery rules and document/proof/state checks still apply;
+this conversion does not create an exception for legacy input or arbitrary errors.
 
 ## Model delivery grammar and occurrence ownership
 
@@ -91,6 +99,13 @@ exact `{file,result}` or `{file,index,result}` label and at most one exact
 `{status:"fulfilled",value}` wrapper, in either order. Complete separate blocks
 and one flat collection are accepted. Arbitrary recursion, repeated wrappers,
 rejected settlements, incomplete JSON and malformed collection members refuse.
+After unique correspondence, every offered text block's non-text fields must
+match the original block exactly, including field presence, typed metadata,
+annotations and any extension fields. Only the JSON text serialization may
+differ while decoding to the same complete payload. A full MCP envelope also
+permits only the declared result fields and preserves non-null envelope metadata;
+missing/null optional envelope metadata follows the pinned conversion above.
+Contradictory or unsupported fields lose only that occurrence's delivery credit.
 
 Direct original actions/outputs must have `call_id = K.item.id`, with exact
 operation/typed arguments. Exec attribution uses the original persisted inner

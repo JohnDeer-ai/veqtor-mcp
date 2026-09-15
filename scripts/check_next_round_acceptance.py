@@ -103,7 +103,7 @@ def parse_native(events, producer, *, require_tool_calls=True):
         _require(payload.get("producer") == producer, "native producer differs from installed candidate")
         validator = POSITION_RESULT if item["tool"] in {"read_deal_positions", "mutate_deal_positions"} else paragraphs._RESULT_VALIDATORS.get(item["tool"])
         _require(validator is None or validator.is_valid(payload), "native result violates public contract")
-        call.update(failed=False, payload=payload)
+        call.update(failed=False, payload=payload, result=deepcopy(result))
         calls.append(call)
     _require(done and messages, "native turn lacks completion or final user-facing content")
     _require(calls or not require_tool_calls, "native turn lacks required tool calls")

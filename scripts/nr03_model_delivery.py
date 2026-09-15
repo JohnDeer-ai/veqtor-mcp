@@ -75,7 +75,8 @@ def result_item(value, *, labelled=False, settled=False):
             return []
         return [dict(item, wrappers=["fulfilled", *item["wrappers"]])
                 for item in result_item(value["value"], labelled=labelled, settled=True)]
-    return [dict(payload=payload, labels={}, wrappers=[], terminal=value) for payload in result_payloads(value)]
+    return [dict(payload=payload, labels={}, wrappers=[], terminal=value, terminal_index=index)
+            for index, payload in enumerate(result_payloads(value))]
 
 
 def result_items(output):
@@ -99,6 +100,34 @@ def result_items(output):
 def payloads(output):
     """Payload projection for shape diagnostics only; this does not award delivery."""
     return [item["payload"] for item in result_items(output)]
+
+
+def terminal_matches(result, call):
+    """Check offered fields only after unique complete payload correspondence.
+
+    Text serialization may differ; block attributes must match the original,
+    including field presence. A block in an aggregate still belongs to its own
+    producer. Metadata never selects a producer or repairs an ambiguous batch.
+    """
+    terminal = result["terminal"]
+    if isinstance(terminal, dict) and "producer" in terminal:
+        return True
+    original = call.get("core_result", call.get("result"))
+    expected = original["content"][0] if isinstance(original, dict) else dict(type="text")
+    blocks = terminal if isinstance(terminal, list) else terminal["content"]
+    offered = blocks[result["terminal_index"]]
+    def attributes(block):
+        return {k: v for k, v in block.items() if k != "text"}
+    if _digest(attributes(offered)) != _digest(attributes(expected)):
+        return False
+    if isinstance(terminal, dict):
+        if not set(terminal) <= {"content", "structured_content", "structuredContent", "is_error", "isError", "_meta"}:
+            return False
+        # The pinned conversion maps absent optional envelope metadata to null.
+        # A non-null original cannot silently disappear from a full MCP result.
+        if _digest(terminal.get("_meta")) != _digest(original.get("_meta") if original else None):
+            return False
+    return True
 
 
 DOCUMENT_OPERANDS = {
@@ -260,26 +289,22 @@ def validate_model_delivery(calls, session, *, thread, cwd, final_text, diagnost
             # Never consume a candidate to break a later tie. Multiplicity is
             # checked globally, including differently labelled equal outputs.
             label = checked_labels(result["labels"], successful[ident], paths)
-            terminal = result["terminal"]
-            if qualified and isinstance(terminal, dict) and "content" in terminal and "producer" not in terminal:
-                original = successful[ident]["core_result"]
-                if (not set(terminal) <= {"content", "structured_content", "structuredContent", "is_error", "isError", "_meta"}
-                        or any(_digest(terminal[key]) != _digest(original.get(key)) for key in ("_meta",) if key in terminal)):
-                    label = None
+            terminal_valid = terminal_matches(result, successful[ident])
             proposals.setdefault(ident, []).append(dict(sha256=digest, line=line, model_call_id=outer, native_call_id=ident,
                 action_line=parent["line"], native_line=parent["inner"].get(ident, {}).get("line"),
                 inner_call_id=parent["inner"].get(ident, {}).get("id"), labels=result["labels"], label_binding=label,
                 output_block=result["output_block"], output_item=result["output_item"], payload_index=result["payload_index"],
-                wrappers=result["wrappers"],
+                wrappers=result["wrappers"], terminal_valid=terminal_valid,
                 source_occurrence=successful[ident].get("source_occurrence"),
                 attribution=("qualified_original_inner_mcp" if parent["exec"] else "qualified_original_direct") if qualified
                     else "legacy_unique_inner_value" if parent["exec"] else "legacy_unique_direct_value"))
     delivered = {}
     for ident, matches in proposals.items():
-        if len(matches) == 1 and matches[0]["label_binding"] is not None:
+        if len(matches) == 1 and matches[0]["label_binding"] is not None and matches[0]["terminal_valid"]:
             delivered[ident] = matches[0]
         else:
-            diagnostics.append(dict(reason="duplicate_result_observation" if len(matches) != 1 else "contradictory_or_ambiguous_label",
+            diagnostics.append(dict(reason="duplicate_result_observation" if len(matches) != 1 else
+                                    "contradictory_or_unsupported_terminal" if not matches[0]["terminal_valid"] else "contradictory_or_ambiguous_label",
                                     native_call_id=ident, observations=matches))
     return delivered
 
