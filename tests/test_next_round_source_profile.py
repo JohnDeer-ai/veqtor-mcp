@@ -252,9 +252,27 @@ def test_main_two_rounds_source_profile_real_consumers_and_journal_clipping(evid
     assert base.checker.check_bundle(bundle)["status"] == "mechanical_evidence_passed"
     stage = base.checker.load_stage(bundle, "a-write", b, installation)
     session = lines((bundle / "a-write.session.jsonl").read_bytes())
+    turn_start = max(n for n, r in enumerate(session) if r.get("payload", {}).get("type") == "task_started")
+    from nr03_model_delivery import DOCUMENT_OPERANDS
+    roles = set()
+    # Exercise every supported document operand on the same qualified complete
+    # write, including both apply operands and legacy verify anchors.
+    for call in stage["calls"]:
+        for role in DOCUMENT_OPERANDS.get(call["tool"], ()):
+            if (call["tool"], role) in roles:
+                continue
+            labelled = deepcopy(session)
+            observed = next(r["payload"] for r in labelled[turn_start:] if r.get("payload", {}).get("type") == "function_call_output"
+                            and r["payload"]["call_id"] == call["id"])
+            observed["output"] = json.dumps(dict(file=call["arguments"][role], result=call["payload"]))
+            result = validate_model_delivery(stage["calls"], labelled, thread=stage["thread"], cwd=stage["receipt"]["cwd"],
+                                             final_text=stage["messages"][-1]["text"])
+            assert result[call["id"]]["label_binding"]["file_argument"] == role
+            roles.add((call["tool"], role))
+    assert roles == {(tool, role) for tool, operands in DOCUMENT_OPERANDS.items() for role in operands}
     exports = [c for c in stage["calls"] if c["tool"] == "export_decision_record"]
     assert len(exports) > 1
-    row = next(r["payload"] for r in session if r.get("payload", {}).get("type") == "function_call_output" and r["payload"]["call_id"] == exports[0]["id"])
+    row = next(r["payload"] for r in session[turn_start:] if r.get("payload", {}).get("type") == "function_call_output" and r["payload"]["call_id"] == exports[0]["id"])
     row["output"] = '{"producer":'
     delivered = validate_model_delivery(stage["calls"], session, thread=stage["thread"], cwd=stage["receipt"]["cwd"], final_text=stage["messages"][-1]["text"])
     assert exports[0]["id"] not in delivered and exports[-1]["id"] in delivered
@@ -285,7 +303,8 @@ def test_labelled_result_finite_grammar_qualified_source(source_case, form):
 
 
 @pytest.mark.parametrize("fault", ["wrong_file", "wrong_index", "bool_index", "float_index", "relative_file", "unknown_field",
-    "repeat_label", "repeat_fulfilled", "rejected", "nested", "malformed_member", "duplicate_json", "nonfinite", "duplicate_output", "replay"])
+    "repeat_label", "repeat_fulfilled", "rejected", "nested", "malformed_member", "duplicate_json", "nonfinite", "duplicate_output", "replay",
+    "zero_label_values", "multiple_label_values", "nested_collection", "envelope_metadata"])
 def test_label_and_output_fault_is_local_to_qualified_occurrence(source_case, fault):
     f = deepcopy(source_case[0])
     parsed = assess(source_case, deliver=False)
@@ -312,6 +331,12 @@ def test_label_and_output_fault_is_local_to_qualified_occurrence(source_case, fa
         item = dict(unrelated=item)
     elif fault == "malformed_member":
         item = [item, {"wrong": "member"}]
+    elif fault in {"zero_label_values", "multiple_label_values"}:
+        item["result"] = [] if fault == "zero_label_values" else [dict(type="text", text=json.dumps(call["payload"])) for _ in range(2)]
+    elif fault == "nested_collection":
+        item = [[item]]
+    elif fault == "envelope_metadata":
+        item["result"] = dict(content=[dict(type="text", text=json.dumps(call["payload"]))], structuredContent=call["payload"], _meta={"unrelated": True})
     row["output"] = json.dumps(item)
     if fault == "duplicate_json":
         row["output"] = row["output"][:-1] + ',"index":9}'
