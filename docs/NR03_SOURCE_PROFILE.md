@@ -144,6 +144,26 @@ deleted. No automatic retry, original-evidence replacement or later upgrade of
 an old refused run is permitted. The four independent cases do not depend on
 this cooperative owner.
 
+Recorder descriptors are registered immediately after allocation, including
+before `fdopen`; original handles remain owned independently of the active
+recording map. Each recorder/pipe and wrapper socket gets its own cleanup
+attempt even when another close fails. Pending cleanup is retried on a later
+close, and primary plus cleanup failures are retained. `cleanup_proven` requires
+the reaped child, stopped reader and all promised handles to be closed. Unknown
+disposition keeps the private root quarantined with its failure details.
+
+Internal source/owner hash consistency alone does not establish campaign
+authority. Before final race credit, the external consumer independently
+validates the current candidate/installation and preparation seal, selected
+case/baseline, frozen plan, own parent and exact prompt bytes. It derives the
+expected H/T, baseline/install/plan/parent/prompt hashes, source policies and
+complete seven-helper owner set from those inputs, then compares the complete
+typed context through `validate_owner_authority`. The retained owner record
+cannot supply any expected pin. The final actor/request/watch/source checks
+use that same authority. An internally consistent record from another
+candidate, baseline or helper set therefore refuses; protocol parsing and
+model delivery alone are not a final owner/campaign verdict.
+
 ## Inventory and result conversion
 
 There must be exactly one original start and terminal per K, with full typed

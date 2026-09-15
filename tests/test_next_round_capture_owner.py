@@ -344,8 +344,10 @@ def test_direct_child_terminate_kill_and_cleanup_after_second_wait_failure(tmp_p
             child.kill()
 
     try:
-        with pytest.raises(subprocess.TimeoutExpired):
+        with pytest.raises(ExceptionGroup) as caught:
             capture.close_direct(BoundedOwned())
+        assert len(caught.value.exceptions) == 2
+        assert all(isinstance(error, subprocess.TimeoutExpired) for error in caught.value.exceptions)
     finally:
         if child.poll() is None:
             child.kill()

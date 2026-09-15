@@ -21,7 +21,7 @@ from check_codex_acceptance import _digest, _file_sha256, _require
 from nr03_app_server import BUILD, PROFILE, lines, policy_hashes
 from nr03_scenario import AUTHOR, EFFORTS, MODEL, SERVER
 from nr03_runtime_policy import RuntimeBoundary, inventory_params, validate_inventory
-from nr03_capture_owner import private_runtime
+from nr03_capture_owner import private_runtime, raise_failures
 from position_source_launch import SERVER_ARGS
 
 ISOLATED_FEATURES = dict(apps=False, remote_control=False, remote_plugin=False)
@@ -142,17 +142,45 @@ class StdioCapture:
         self.notifications = []
         self.files = {}
         self.paths = {}
+        self.owned_outputs, self.raw_fds, self.cleanup_errors = [], set(), []
         try:
             for key, suffix in (("sent", "requests.jsonl"), ("received", "jsonl"), ("timeline", "transport.jsonl")):
                 self.paths[key] = Path(folder) / f"{stage}.{suffix}"
                 fd = os.open(self.paths[key], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                self.raw_fds.add(fd)
                 self.files[key] = os.fdopen(fd, "wb")
+                self.owned_outputs.append(self.files[key])
+                self.raw_fds.remove(fd)
             self.reader = threading.Thread(target=self.read, daemon=True)
             self.reader.start()
-        except BaseException:
-            for output in self.files.values():
+        except BaseException as primary:
+            cleanup, proven = self.close_outputs()
+            primary.nr03_setup_cleanup_proven = proven
+            failure = [primary, *cleanup]
+            try:
+                raise_failures(failure)
+            except BaseException as combined:
+                combined.nr03_setup_cleanup_proven = proven
+                raise
+
+    def close_outputs(self):
+        errors = []
+        for fd in tuple(self.raw_fds):
+            try:
+                os.close(fd)
+                self.raw_fds.remove(fd)
+            except BaseException as error:
+                errors.append(error)
+        # Publication and active-map changes never discard original ownership.
+        outputs = list({id(output): output for output in [*self.owned_outputs, *self.files.values()]}.values())
+        for output in outputs:
+            if getattr(output, "closed", False):
+                continue
+            try:
                 output.close()
-            raise
+            except BaseException as error:
+                errors.append(error)
+        return errors, not self.raw_fds and all(getattr(output, "closed", False) for output in outputs)
 
     def publish(self, folder):
         """Publish every startup byte only after the effective config is safe.
@@ -167,6 +195,7 @@ class StdioCapture:
                 private_write(destination, path.read_bytes())
                 self.files[key].close()
                 self.files[key] = destination.open("ab")
+                self.owned_outputs.append(self.files[key])
             self.paths = {key: Path(folder) / path.name for key, path in self.paths.items()}
 
     def record(self, direction, raw):
@@ -247,53 +276,67 @@ class StdioCapture:
                 return row["result"]
 
     def close(self):
-        if self.closed:
-            _require(self.cleanup_proven, "source cleanup remained unproven")
-            return self.process.returncode
-        self.closed = True
-        error = None
+        errors = []
         try:
             code = close_direct(self.process)
         except BaseException as caught:
-            error = caught
+            errors.append(caught)
             code = -1
-        finally:
+        try:
             self.reader.join(timeout=10)
-            self.cleanup_proven = self.process.poll() is not None and not self.reader.is_alive()
-            # A live reader retains open private records for quarantine. Closing
-            # under a blocked reader could destroy its last original bytes.
-            if not self.reader.is_alive():
-                for output in self.files.values():
-                    output.close()
+        except BaseException as caught:
+            errors.append(caught)
+        outputs_closed = False
+        if not self.reader.is_alive():
+            output_errors, outputs_closed = self.close_outputs()
+            errors.extend(output_errors)
+            try:
                 self.process.stdout.close()
-        _require(self.cleanup_proven, "source direct child/transport cleanup unproven")
-        if error is not None:
-            raise error
-        if self.failure is not None:
-            raise self.failure
+            except BaseException as caught:
+                errors.append(caught)
+        # A live reader retains its files for quarantine; no speculative close.
+        self.cleanup_proven = (self.process.poll() is not None and not self.reader.is_alive() and outputs_closed
+            and self.process.stdout.closed and (self.process.stdin is None or self.process.stdin.closed))
+        self.closed = self.cleanup_proven
+        self.cleanup_errors.extend(errors)
+        if not self.cleanup_proven and not errors:
+            try:
+                _require(False, "source owned-resource cleanup unproven")
+            except Exception as caught:
+                self.cleanup_errors.append(caught)
+        raise_failures([self.failure, *self.cleanup_errors])
         return code
 
 
 def close_direct(process):
     """Reap exactly our Popen; terminate then kill only that owned direct child."""
-    error = None
+    errors = []
     try:
         if process.stdin is not None:
             process.stdin.close()
-    except OSError as caught:
-        error = caught
+    except BaseException as caught:
+        errors.append(caught)
     try:
         code = process.wait(timeout=10)
-    except (subprocess.TimeoutExpired, OSError) as caught:
-        error = error or caught
+    except BaseException as caught:
+        errors.append(caught)
         try:
             process.terminate()
+        except BaseException as caught:
+            errors.append(caught)
+        try:
             code = process.wait(timeout=5)
-        except (subprocess.TimeoutExpired, OSError):
-            process.kill()
-            code = process.wait(timeout=5)
-    if error is not None:
-        raise error
+        except BaseException as caught:
+            errors.append(caught)
+            try:
+                process.kill()
+            except BaseException as caught:
+                errors.append(caught)
+            try:
+                code = process.wait(timeout=5)
+            except BaseException as caught:
+                errors.append(caught)
+    raise_failures(errors)
     return code
 
 
@@ -330,78 +373,107 @@ def capture(folder, stage, command, config, prompt, cwd, selection, *, resumed=N
         startup.mkdir(mode=0o700)
         private_errors = startup / f"{stage}.stderr.txt"
         err_fd = os.open(private_errors, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(err_fd, "wb") as errors:
-            process = stream = None
-            configuration_safe = False
+        try:
+            error_stream = os.fdopen(err_fd, "wb")
+        except BaseException as primary:
+            failures = [primary]
             try:
-                cancel()
-                process = subprocess.Popen(command, cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errors)
+                os.close(err_fd)
+            except BaseException as cleanup:
                 runtime_status["cleanup_proven"] = False
-                stream = StdioCapture(process, startup, stage, run, connection, boundary=RuntimeBoundary(config, runtime), cancel_check=cancel)
-                stream.send("initialize", initialize_request(), 1)
-                stream.response(1)
-                stream.send("initialized")
-                stream.send("config/read", dict(includeLayers=True, cwd=str(cwd)), 2)
-                check_effective(stream.response(2), config, runtime)
-                configuration_safe = True
-                stream.publish(folder)
-                params = dict(model=selection["model"], cwd=str(cwd), approvalPolicy="never", sandbox="danger-full-access")
-                if resumed:
-                    params.update(threadId=resumed, path=str(runtime / "resume.jsonl"), excludeTurns=True)
-                else:
-                    params.update(ephemeral=False)
-                stream.send("thread/resume" if resumed else "thread/start", params, 3)
-                reply = stream.response(3)
-                thread = reply["thread"]["id"]
-                _require((not resumed or thread == resumed) and reply.get("instructionSources") == []
-                         and reply.get("model") == selection["model"] and reply.get("reasoningEffort") == selection["reasoning_effort"],
-                         "source thread isolation/model differs before model turn")
-                prefix_path = Path(reply["thread"]["path"])
-                _require(prefix_path.is_absolute() and ".." not in prefix_path.parts and prefix_path != runtime
-                         and prefix_path.is_relative_to(runtime) and prefix_path.resolve().is_relative_to(runtime)
-                         and not prefix_path.is_symlink(), "source session escaped private runtime")
-                stream.runtime_inventory()
-                stream.send("turn/start", dict(threadId=thread, input=[dict(type="text", text=prompt, text_elements=[])],
-                    model=selection["model"], effort=selection["reasoning_effort"]), 4)
-                turn_reply = stream.response(4)
-                turn = turn_reply["turn"]["id"]
-                while not any(row.get("method") == "turn/completed" for row in stream.notifications):
-                    stream.receive()
-                terminal = [row for row in stream.notifications if row.get("method") == "turn/completed"]
-                _require(len(terminal) == 1 and terminal[0]["params"]["threadId"] == thread
-                         and terminal[0]["params"]["turn"]["id"] == turn, "source captured turn completion differs")
-            finally:
-                try:
-                    if stream is not None:
-                        code = stream.close()
-                    elif process is not None:
-                        code = close_direct(process)
-                finally:
-                    runtime_status["cleanup_proven"] = ((process is None or process.poll() is not None)
-                        and (stream is None or stream.cleanup_proven))
-                    if stream is None and process is not None and process.poll() is not None:
-                        process.stdout.close()
-                    errors.flush()
-                    if configuration_safe:
-                        private_write(folder / f"{stage}.stderr.txt", private_errors.read_bytes())
-            # Persisted task_complete is required. Never synthesize it or use
-            # thread/read to replace a missing prefix or original start.
-            session = prefix_path.read_bytes()
-            entries = session.splitlines(keepends=True)
-            end = [i for i, raw in enumerate(entries) if (r := lines(raw)[0]).get("type") == "event_msg"
-                   and r.get("payload", {}).get("type") == "task_complete" and r["payload"].get("turn_id") == turn]
-            _require(end, "source original complete model prefix unavailable")
-            private_write(folder / f"{stage}.session.jsonl", b"".join(entries[:end[-1] + 1]))
-            source = dict(profile=PROFILE, build=deepcopy(BUILD), evidence_kind="native", run_id=run, connection_id=connection,
-                executable_path=str(codex), runtime_root=str(runtime), launch_config=config, selection=selection,
-                thread_id=thread, turn_id=turn, policy_sha256=policy_hashes())
-            if owner_metadata is not None:
-                source["owner"] = owner_metadata
-            for name, suffix in (("events", "jsonl"), ("requests", "requests.jsonl"), ("transport", "transport.jsonl"),
-                                 ("session", "session.jsonl"), ("stderr", "stderr.txt")):
-                source[name + "_sha256"] = _file_sha256(str(folder / f"{stage}.{suffix}"))
+                failures.append(cleanup)
+            raise_failures(failures)
+        errors = error_stream
+        process = stream = None
+        configuration_safe = False
+        failures, setup_clean = [], True
+        try:
             cancel()
-            runtime_status["success"] = True
+            process = subprocess.Popen(command, cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errors)
+            runtime_status["cleanup_proven"] = False
+            stream = StdioCapture(process, startup, stage, run, connection, boundary=RuntimeBoundary(config, runtime), cancel_check=cancel)
+            stream.send("initialize", initialize_request(), 1)
+            stream.response(1)
+            stream.send("initialized")
+            stream.send("config/read", dict(includeLayers=True, cwd=str(cwd)), 2)
+            check_effective(stream.response(2), config, runtime)
+            configuration_safe = True
+            stream.publish(folder)
+            params = dict(model=selection["model"], cwd=str(cwd), approvalPolicy="never", sandbox="danger-full-access")
+            if resumed:
+                params.update(threadId=resumed, path=str(runtime / "resume.jsonl"), excludeTurns=True)
+            else:
+                params.update(ephemeral=False)
+            stream.send("thread/resume" if resumed else "thread/start", params, 3)
+            reply = stream.response(3)
+            thread = reply["thread"]["id"]
+            _require((not resumed or thread == resumed) and reply.get("instructionSources") == []
+                     and reply.get("model") == selection["model"] and reply.get("reasoningEffort") == selection["reasoning_effort"],
+                     "source thread isolation/model differs before model turn")
+            prefix_path = Path(reply["thread"]["path"])
+            _require(prefix_path.is_absolute() and ".." not in prefix_path.parts and prefix_path != runtime
+                     and prefix_path.is_relative_to(runtime) and prefix_path.resolve().is_relative_to(runtime)
+                     and not prefix_path.is_symlink(), "source session escaped private runtime")
+            stream.runtime_inventory()
+            stream.send("turn/start", dict(threadId=thread, input=[dict(type="text", text=prompt, text_elements=[])],
+                model=selection["model"], effort=selection["reasoning_effort"]), 4)
+            turn_reply = stream.response(4)
+            turn = turn_reply["turn"]["id"]
+            while not any(row.get("method") == "turn/completed" for row in stream.notifications):
+                stream.receive()
+            terminal = [row for row in stream.notifications if row.get("method") == "turn/completed"]
+            _require(len(terminal) == 1 and terminal[0]["params"]["threadId"] == thread
+                     and terminal[0]["params"]["turn"]["id"] == turn, "source captured turn completion differs")
+        except BaseException as primary:
+            failures.append(primary)
+            setup_clean = getattr(primary, "nr03_setup_cleanup_proven", True)
+        finally:
+            try:
+                if stream is not None:
+                    code = stream.close()
+                elif process is not None:
+                    code = close_direct(process)
+            except BaseException as cleanup:
+                failures.append(cleanup)
+            if stream is None and process is not None and process.poll() is not None:
+                try:
+                    process.stdout.close()
+                except BaseException as cleanup:
+                    failures.append(cleanup)
+            try:
+                errors.flush()
+                if configuration_safe:
+                    private_write(folder / f"{stage}.stderr.txt", private_errors.read_bytes())
+            except BaseException as cleanup:
+                failures.append(cleanup)
+            try:
+                errors.close()
+            except BaseException as cleanup:
+                failures.append(cleanup)
+            runtime_status["cleanup_proven"] = (setup_clean and errors.closed
+                and (process is None or (process.poll() is not None and process.stdout.closed
+                    and (process.stdin is None or process.stdin.closed)))
+                and (stream is None or stream.cleanup_proven))
+            runtime_status["cleanup_failures"] = [dict(type=type(e).__name__, reason=str(e)) for e in failures]
+            raise_failures(failures)
+        # Persisted task_complete is required. Never synthesize it or use
+        # thread/read to replace a missing prefix or original start.
+        session = prefix_path.read_bytes()
+        entries = session.splitlines(keepends=True)
+        end = [i for i, raw in enumerate(entries) if (r := lines(raw)[0]).get("type") == "event_msg"
+               and r.get("payload", {}).get("type") == "task_complete" and r["payload"].get("turn_id") == turn]
+        _require(end, "source original complete model prefix unavailable")
+        private_write(folder / f"{stage}.session.jsonl", b"".join(entries[:end[-1] + 1]))
+        source = dict(profile=PROFILE, build=deepcopy(BUILD), evidence_kind="native", run_id=run, connection_id=connection,
+            executable_path=str(codex), runtime_root=str(runtime), launch_config=config, selection=selection,
+            thread_id=thread, turn_id=turn, policy_sha256=policy_hashes())
+        if owner_metadata is not None:
+            source["owner"] = owner_metadata
+        for name, suffix in (("events", "jsonl"), ("requests", "requests.jsonl"), ("transport", "transport.jsonl"),
+                             ("session", "session.jsonl"), ("stderr", "stderr.txt")):
+            source[name + "_sha256"] = _file_sha256(str(folder / f"{stage}.{suffix}"))
+        cancel()
+        runtime_status["success"] = True
     return code, source
 
 

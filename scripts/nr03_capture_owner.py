@@ -23,6 +23,17 @@ from nr03_model_delivery import decoded
 
 VERSION = "nr03-capture-owner.v1"
 MAX_MESSAGE = 131072
+OWNER_HELPERS = ("capture_owner.py", "capture_case.py", "campaign_support.py", "inspect_capture.py",
+                 "revision_conflict_actor.py", "run_source.py", "materialize_dependent.py")
+
+
+def raise_failures(errors):
+    """Keep the operation failure and every independent cleanup failure."""
+    unique = list({id(error): error for error in errors if error is not None}.values())
+    if len(unique) == 1:
+        raise unique[0]
+    if unique:
+        raise BaseExceptionGroup("NR-03 operation and owned cleanup failures", unique)
 
 
 class CaptureCancelled(Exception):
@@ -231,3 +242,18 @@ def validate_source_owner(owner, source, receipt):
     _require(type(owner["released_ns"]) is int and receipt["started_ns"] <= wait["created_ns"] <= owner["released_ns"]
              <= receipt["finished_ns"], "source owner release clock differs")
     validate_watch(wait, owner["watch"], now_ns=owner["released_ns"])
+
+
+def validate_owner_authority(owner, source, receipt, expected_context):
+    """Final consumer boundary: expected pins must come from frozen authority.
+
+    The protocol parser checks internal original consistency separately. A final
+    campaign/race consumer must call this with independently validated inputs;
+    copying the retained owner context is not an authority derivation.
+    """
+    validate_context(expected_context)
+    _require(set(expected_context["helpers_sha256"]) == set(OWNER_HELPERS),
+             "final owner authority helper set incomplete")
+    validate_source_owner(owner, source, receipt)
+    _require(_digest(owner["wait"]["context"]) == _digest(expected_context),
+             "final owner context differs from frozen authority")
