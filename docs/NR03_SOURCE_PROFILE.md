@@ -1,0 +1,232 @@
+# Original App Server source profile v1
+
+`nr03-app-server-original.v1` is a bounded input contract for NR-03. It is
+separate from legacy `codex exec --json`. Old raw/prefix pairs retain their
+original verdict. In particular, the historical A brief remains REFUSE.
+Neither the source identity relation nor a synthetic fixture proves native
+acceptance, log authenticity, legal authority, journal completeness or Word QA.
+
+## Qualified producer relationship
+
+This profile is pinned to Codex `0.154.0-alpha.6.2`, embedded source commit
+`b5bffd3ec4db487e7e3dec59663875b0ef7b72ca`, executable SHA-256
+`ecad78dbf98adb89ec475edac86630406cbe59d9f3070b17d88065f136b94bcb`.
+The launcher also checks the installed version and embedded commit. These are
+static identification checks, not a reproducible build or signed log claim.
+
+The pinned [router](https://github.com/openai/codex/blob/b5bffd3ec4db487e7e3dec59663875b0ef7b72ca/codex-rs/core/src/tools/router.rs),
+[MCP handler](https://github.com/openai/codex/blob/b5bffd3ec4db487e7e3dec59663875b0ef7b72ca/codex-rs/core/src/tools/handlers/mcp.rs),
+and [MCP lifecycle](https://github.com/openai/codex/blob/b5bffd3ec4db487e7e3dec59663875b0ef7b72ca/codex-rs/core/src/mcp_tool_call.rs)
+preserve the evaluated invocation ID. The
+[App Server item conversion and notification envelopes](https://github.com/openai/codex/blob/b5bffd3ec4db487e7e3dec59663875b0ef7b72ca/codex-rs/app-server-protocol/src/protocol/v2/item.rs)
+preserve that ID and identify the thread and turn. This establishes the key
+`K = (threadId, turnId, item.id)` within the bound connection/run. Legacy CLI
+projected IDs, equality of arbitrary strings and synthetic flags establish no
+such relation. This profile does not use trace events or a projector bridge.
+
+## Original capture and isolation
+
+The launcher uses the installed `app-server --stdio --strict-config` and
+documented TOML `-c` overrides. Exec-only ignore flags are not supported here.
+Only the child environment selects a fresh private `CODEX_HOME`. The parent
+environment, persistent config and authentication are unchanged. A file-backend
+auth snapshot lives only in the private temporary runtime, outside the checkout
+and evidence; it is removed from the still-owned canonical root during cleanup. It
+is never copied into evidence or placed in commands/receipts. Missing file auth
+refuses; no alternate keyring/login flow is inferred.
+
+Original initialization, outgoing requests, all received stdio bytes, errors,
+diagnostics and an independently hashed transport ordering journal are retained.
+Initialization suppresses no notifications. There is no MCP-only filtered log.
+Startup bytes remain private until the configuration check passes. Nonempty
+inherited layers, including disabled ones, refuse before a model turn or
+publication of those bytes; they may contain credentials. After the check the
+entire original startup prefix is moved without filtering into the ongoing
+capture. The effective configuration and layers must match the single selected MCP
+server and frozen model/effort before a model turn starts; active inherited
+configuration, plugins/hooks/instructions or loaded instruction sources refuse.
+Unknown notifications and non-MCP actions refuse. Failures after the startup
+configuration gate retain the public capture but cannot produce passing evidence.
+A refusal at the private gate has no passing source receipt or model turn. This deliberately narrow
+profile may refuse new notifications from even the pinned build until separately
+reviewed; it never skips them silently.
+
+The input explicitly sets `features.apps=false`, `features.remote_plugin=false`
+and `features.remote_control=false`, using the supported
+[configuration settings](https://learn.chatgpt.com/docs/config-file/config-reference).
+The complete pinned effective features map additionally contains
+`network_proxy=null`, `auth_elicitation=true`,
+`background_paginated_rollout_migration=false`, `mcp_2026_07_28=false`,
+`memories=false`, `mentions_v2=true`, `tool_suggest=true` and
+`windows_sandbox_service=false`. Unknown or changed flags refuse. A declared
+single MCP config alone does not establish the actual runtime boundary.
+
+Before `turn/start`, original selected-thread startup must progress from
+`starting` to `ready`. The recorded full `mcpServerStatus/list` response must have
+one connected `veqtor_nr03`, no next cursor, plugin, resource, template or error,
+the pinned Veqtor producer metadata and exactly the eleven supported tools.
+There is no `codex_apps` exception. A complete inventory cannot erase an earlier
+unexpected-server notification. The [App Server interface](https://learn.chatgpt.com/docs/app-server)
+supplies this original runtime inventory without starting a model turn.
+
+`nr03_runtime_policy.py` validates the same complete ordered exchange in the
+live recorder, full parser and external observer. The two qualified notification
+envelopes contain exactly method, params and a positive integer `emittedAtMs`;
+their emission clocks must not regress. Remote status has exactly status,
+serverName, installationId and environmentId: only `disabled`, stable nonempty
+string identities and null environment are admitted. Selected-server startup
+has exactly threadId, name, status, error and failureReason: it must identify the
+current loaded thread and selected server, with null error/failureReason.
+Repeated identical disabled/ready status is permitted; restart, failed,
+cancelled, unknown or authority-changing states refuse. No notification is
+removed or granted model-result credit. Original occurrence/value attribution,
+fourteen-obligation coverage and complete journal presentation remain separate.
+
+The pinned client's `config/read` effective MCP map contains exactly the single
+selected `veqtor_nr03` server: original `command`, `args` and `env`, plus
+`enabled: true`, `environment_id: "local"` and `tool_timeout_sec: null`.
+The checker validates that complete typed representation; missing, unknown or
+changed MCP fields refuse. The single active `sessionFlags` layer must still
+equal the original shorter launch configuration exactly. No returned field is
+removed or rewritten, and effective defaults do not waive any inherited-layer
+or privacy check. Both startup and later original-exchange validation use this
+same rule. This representation is pinned to the build above, not a generic
+normalization policy for future clients.
+
+A resumed turn gets an exact private copy of its own earlier complete prefix;
+the earlier evidence is not opened for append. The original resulting session
+prefix is copied through the actual matching `task_complete` before cleanup.
+Missing persisted completion refuses. `thread/read`, final snapshots and
+backfill cannot supply missing original starts or manufacture model outputs.
+
+The v2 stage receipt contains a versioned source binding for build/executable,
+capture/parser/policy hashes, original raw/request/ordering/prefix/stderr hashes,
+connection/run/thread/turn, effective launch selection and the entire outer
+receipt context. The outer context continues to bind frozen installation,
+business stimulus, workflow, baseline, selected files, ancestry and before/after
+state. Complete actual turn context in the prefix must agree with model/effort.
+The existing delivery binding additionally binds that prefix to the receipt.
+
+## Cooperative owner for the revision-conflict update
+
+Only this externally timed observation step requires the explicit inherited
+AF_UNIX socket capability. Capture creates a fresh mode-0700 root and actual
+run/connection/nonce, then sends one `nr03-capture-owner.v1` WAIT_OWNER before
+both Codex `--version` and app-server creation. Static executable/hash reads may
+precede it. Each direction sends one bounded JSON line followed by write EOF;
+duplicates, partial messages, missing EOF, timeout or cancellation refuse.
+
+The context binds current H/T, source-policy/helper hashes, installation,
+baseline, frozen plan, own parent receipt and prompt. The wait also binds creator
+PID/parent/UID and the canonical root's device/inode/UID/mode. The separately
+released external wrapper rechecks the real current-A/release/parent/install
+gates and arms its owned observer against that explicit root. Only a complete
+current original watch acknowledgement with matching context/run/connection,
+nonce, root, live owned observer and unexpired clock can release capture. The
+observer acknowledges its watch after closing the original watch file. Capture
+rechecks watch bytes and root identity and accepts one RELEASE or ABORT.
+
+Before release, refusal creates zero Codex children, including version probes.
+The main owner thread serializes its decision; a partial release send or later
+cancellation is conservatively post-release. SIGTERM marks cancellation through
+the explicit owner; capture polls it at protocol waits and before submissions.
+No SIGSTOP/SIGCONT, sender pause after R0, tool script or timing manufacture is
+used. Actual R0, publication-before-stale, conflict and delivered R1 remain
+mandatory. Owner metadata is bound separately inside the source receipt and
+never substitutes for raw/request/transport/session evidence.
+
+Capture owns its direct Popen and recorder, including construction failure,
+stdin/close errors, terminate/kill fallback and reader completion. This is not
+an all-descendants guarantee. Failed private originals remain quarantined;
+successful runs or proven pre-native aborts may remove the still-owned root.
+An unproven child/reader cleanup or replaced/nonprivate root is never recursively
+deleted. No automatic retry, original-evidence replacement or later upgrade of
+an old refused run is permitted. The four independent cases do not depend on
+this cooperative owner.
+
+Recorder descriptors are registered immediately after allocation, including
+before `fdopen`; original handles remain owned independently of the active
+recording map. Each recorder/pipe and wrapper socket gets its own cleanup
+attempt even when another close fails. Pending cleanup is retried on a later
+close, and primary plus cleanup failures are retained. `cleanup_proven` requires
+the reaped child, stopped reader and all promised handles to be closed. Unknown
+disposition keeps the private root quarantined with its failure details.
+
+Internal source/owner hash consistency alone does not establish campaign
+authority. Before final race credit, the external consumer independently
+validates the current candidate/installation and preparation seal, selected
+case/baseline, frozen plan, own parent and exact prompt bytes. It derives the
+expected H/T, baseline/install/plan/parent/prompt hashes, source policies and
+complete seven-helper owner set from those inputs, then compares the complete
+typed context through `validate_owner_authority`. The retained owner record
+cannot supply any expected pin. The final actor/request/watch/source checks
+use that same authority. An internally consistent record from another
+candidate, baseline or helper set therefore refuses; protocol parsing and
+model delivery alone are not a final owner/campaign verdict.
+
+## Inventory and result conversion
+
+There must be exactly one original start and terminal per K, with full typed
+operation/arguments and exact millisecond lifecycle correspondence to the
+persisted core completion. All calls, including failures and optional tools,
+must reconcile. No later value can replace a missing earlier occurrence.
+
+The pinned [result conversion](https://github.com/openai/codex/blob/b5bffd3ec4db487e7e3dec59663875b0ef7b72ca/codex-rs/app-server-protocol/src/protocol/v2/mcp.rs)
+copies `content`, `structuredContent` and `_meta`, but omits core `isError`.
+The checker retains the complete original core item/result and separately
+verifies status/error semantics. Missing optional core values map to the explicit
+null App Server fields; absent core `isError` is allowed, present values must be
+booleans. Unknown fields, nonfinite numbers and duplicate JSON keys refuse.
+Core durations convert from seconds/nanoseconds to integer milliseconds; full
+arguments, arrays, metadata, producer and public payloads are not normalized.
+An in-memory adapter feeds frozen document/journal consumers; it never writes a
+replacement CLI transcript. Failed envelopes cannot become successful payloads.
+After full core/App Server reconciliation, the adapter represents a failed
+core result's `isError` via the internal consumer event's `status="failed"` and
+omits only that flag from its copied result. The internal failure and every
+failure-ledger entry retain both complete original core event and App Server
+notification with their source occurrence and line bindings. The original
+prefix/raw bytes and error fields remain intact. Frozen exact error predicates,
+workspace checks, recovery rules and document/proof/state checks still apply;
+this conversion does not create an exception for legacy input or arbitrary errors.
+
+## Model delivery grammar and occurrence ownership
+
+Terminals are a full producer payload, a complete text-block array, or a
+consistent complete MCP result envelope. A finite item may contain at most one
+exact `{file,result}` or `{file,index,result}` label and at most one exact
+`{status:"fulfilled",value}` wrapper, in either order. Complete separate blocks
+and one flat collection are accepted. Arbitrary recursion, repeated wrappers,
+rejected settlements, incomplete JSON and malformed collection members refuse.
+After unique correspondence, every offered text block's non-text fields must
+match the original block exactly, including field presence, typed metadata,
+annotations and any extension fields. Only the JSON text serialization may
+differ while decoding to the same complete payload. A full MCP envelope also
+permits only the declared result fields and preserves non-null envelope metadata;
+missing/null optional envelope metadata follows the pinned conversion above.
+Contradictory or unsupported fields lose only that occurrence's delivery credit.
+
+Direct original actions/outputs must have `call_id = K.item.id`, with exact
+operation/typed arguments. Exec attribution uses the original persisted inner
+`McpToolCall.id = K.item.id` inside exactly one open current-turn exec before its
+output. JavaScript is never interpreted and parent aliases are never inferred.
+The complete eligible set is matched before any label is tested. Labels cannot
+break a tie; neither iteration order nor consuming a candidate can do so.
+Different K values with equal sequential results are separate occurrences;
+indistinguishable equal results in one batch remain ambiguous. Duplicate output
+observations and replay cannot create later credit.
+
+`file` must be an exact selected absolute operand or a basename unique across
+all current-turn document operands, with exactly one operand role. Index is a
+nonnegative JSON integer matching the exact paragraph reference in the relevant
+inspect selection or verify anchor. Unsupported index/ref combinations refuse.
+Labels constrain the already unique source occurrence, not its identity.
+
+Synthetic source protocol fixtures explicitly declare their provenance and
+preserve original legacy fixture bytes and action/output facts for comparison.
+Their additional lifecycle/context records describe the same invocation
+definitions. They go through the production parser and consumers without a
+synthetic bypass. They do not upgrade the preserved pair to native evidence.
+Raw complete journal pages plus a clipped model page still fail presentation,
+even if a later terminal page is visible. Native campaigns, human review,
+rendered Word inspection, exact-SHA review, merge and release remain separate.
