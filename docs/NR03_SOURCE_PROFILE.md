@@ -21,6 +21,18 @@ build and policy bindings; this update does not requalify them. Fresh startup,
 effective configuration, the complete MCP inventory and cold legacy resume must
 pass the same strict checks before using the new binary for workflow acceptance.
 
+Legacy history persists `mcp_tool_call_end` rather than the paginated
+`item_completed` MCP representation. The pinned
+[rollout policy](https://github.com/openai/codex/blob/b5bffd3ec4db487e7e3dec59663875b0ef7b72ca/codex-rs/rollout/src/policy.rs)
+specifies that distinction. The parser accepts the complete typed legacy event
+only within the selected thread's exact completed legacy turn. Its original call
+ID, evaluated arguments, result/error, read-only hint and duration must match
+the separately captured App Server start/completion pair. Duplicate, missing,
+foreign or contradictory occurrences refuse. Start/completion clocks come from
+that original transport pair and must be ordered; no persisted clocks or
+`item_completed` rows are synthesized. Model-facing output attribution still
+requires the original occurrence between its actual outer call and full result.
+
 The pinned [router](https://github.com/openai/codex/blob/b5bffd3ec4db487e7e3dec59663875b0ef7b72ca/codex-rs/core/src/tools/router.rs),
 [MCP handler](https://github.com/openai/codex/blob/b5bffd3ec4db487e7e3dec59663875b0ef7b72ca/codex-rs/core/src/tools/handlers/mcp.rs),
 and [MCP lifecycle](https://github.com/openai/codex/blob/b5bffd3ec4db487e7e3dec59663875b0ef7b72ca/codex-rs/core/src/mcp_tool_call.rs)

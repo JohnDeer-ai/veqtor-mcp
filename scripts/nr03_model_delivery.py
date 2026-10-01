@@ -220,16 +220,27 @@ def validate_model_delivery(calls, session, *, thread, cwd, final_text, diagnost
     for i, row in enumerate(active):
         line = starts[-1] + i + 2
         item = row.get("payload", {})
-        if row.get("type") == "event_msg" and item.get("type") == "item_completed" and item.get("item", {}).get("type") == "McpToolCall":
-            inner = item["item"]
+        legacy_end = qualified and row.get("type") == "event_msg" and item.get("type") == "mcp_tool_call_end"
+        if legacy_end or (row.get("type") == "event_msg" and item.get("type") == "item_completed"
+                          and item.get("item", {}).get("type") == "McpToolCall"):
+            if legacy_end:
+                from nr03_app_server import legacy_core_item
+                _require(session[0]["payload"].get("history_mode") == "legacy",
+                         "model legacy completion outside declared legacy history")
+                inner = legacy_core_item(item)
+                # The source parser binds this original event to the active
+                # thread/turn and matching original App Server lifecycle.
+                scope_matches = True
+            else:
+                inner = item["item"]
+                scope_matches = item.get("thread_id") == thread and item.get("turn_id") == turn
             ident = inner.get("id")
             _require(isinstance(ident, str) and ident not in inner_seen, "model inner native attribution is ambiguous")
             inner_seen.add(ident)
             # Serialized runtime invocation records provide evaluated arguments;
             # do not execute or infer them from arbitrary JavaScript source.
             opened = [p for p in pending.values() if not p["closed"]]
-            if (len(opened) == 1 and opened[0]["exec"] and turn is not None
-                    and item.get("thread_id") == thread and item.get("turn_id") == turn):
+            if len(opened) == 1 and opened[0]["exec"] and turn is not None and scope_matches:
                 matches = [c["id"] for c in successful.values() if native_call(inner, c)]
                 # Only the qualified original source profile enables K identity.
                 # Legacy CLI diagnostics retain unique complete value matching.

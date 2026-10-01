@@ -89,6 +89,38 @@ def core_to_app(core):
     return app
 
 
+def legacy_core_item(event):
+    """Typed in-memory projection of an original legacy McpToolCallEnd.
+
+    The pinned rollout policy persists this event instead of McpToolCall items
+    in legacy history. It retains the evaluated invocation ID and complete result.
+    Never invent an item_completed row or persisted start/completion clocks.
+    """
+    _require(isinstance(event, dict) and set(event) ==
+             {"type", "call_id", "invocation", "read_only_hint", "duration", "result"}
+             and event["type"] == "mcp_tool_call_end"
+             and isinstance(event["call_id"], str) and event["call_id"]
+             and (event["read_only_hint"] is None or type(event["read_only_hint"]) is bool),
+             "unsupported legacy MCP completion")
+    invocation, result = event["invocation"], event["result"]
+    _require(isinstance(invocation, dict) and set(invocation) == {"server", "tool", "arguments"}
+             and all(isinstance(invocation[k], str) and invocation[k] for k in ("server", "tool"))
+             and isinstance(invocation["arguments"], dict), "unsupported legacy MCP invocation")
+    _require(isinstance(result, dict) and set(result) in ({"Ok"}, {"Err"}),
+             "unsupported legacy MCP result")
+    payload, error = result.get("Ok"), result.get("Err")
+    _require((set(result) == {"Ok"} and isinstance(payload, dict))
+             or (set(result) == {"Err"} and isinstance(error, str) and error),
+             "contradictory legacy MCP result")
+    item = dict(type="McpToolCall", id=event["call_id"], **deepcopy(invocation),
+                readOnlyHint=event["read_only_hint"], duration=deepcopy(event["duration"]),
+                status="failed" if error is not None or payload.get("isError") is True else "completed",
+                result=deepcopy(payload), error={"message": error} if error is not None else None)
+    _require(item["duration"] is not None, "legacy MCP duration missing")
+    core_to_app(item)
+    return item
+
+
 def core_inventory(session, thread, turn, cwd, selection):
     _require(session[0].get("type") == "session_meta" and session[0].get("payload", {}).get("id") == thread
              and session[0]["payload"].get("cwd") == cwd
@@ -117,7 +149,13 @@ def core_inventory(session, thread, turn, cwd, selection):
             _require(type(event.get("started_at_ms")) is int and type(event.get("completed_at_ms")) is int
                      and 0 < event["started_at_ms"] <= event["completed_at_ms"], "source core timing absent or inconsistent")
             core_to_app(event["item"])
-            inventory[ident] = dict(event=event, line=n)
+            inventory[ident] = dict(event=event, item=event["item"], line=n, legacy=False)
+        elif row.get("type") == "event_msg" and event.get("type") == "mcp_tool_call_end":
+            _require(session[0]["payload"].get("history_mode") == "legacy",
+                     "legacy MCP completion outside declared legacy history")
+            item = legacy_core_item(event)
+            _require(item["id"] not in inventory, "source core occurrence duplicate or cross-thread/turn")
+            inventory[item["id"]] = dict(event=event, item=item, line=n, legacy=True)
     return inventory
 
 
@@ -238,21 +276,27 @@ def parse_protocol(raw, requests, transport, session_raw, source, *, receipt, pr
             if kind == "mcpToolCall":
                 _require(ident in core and ident not in completed, "source duplicate/unpersisted MCP occurrence")
                 original = core[ident]["event"]
+                original_item = core[ident]["item"]
                 if method == "item/started":
                     _require(ident not in pending and item.get("status") == "inProgress"
                              and item.get("result") is None and item.get("error") is None
-                             and params.get("startedAtMs") == original["started_at_ms"], "source missing/duplicate/contradictory start")
-                    expected = core_to_app(dict(original["item"], status="inProgress", result=None, error=None, duration=None))
+                             and type(params.get("startedAtMs")) is int and params["startedAtMs"] > 0
+                             and (core[ident]["legacy"] or params["startedAtMs"] == original["started_at_ms"]),
+                             "source missing/duplicate/contradictory start")
+                    expected = core_to_app(dict(original_item, status="inProgress", result=None, error=None, duration=None))
                     _require(_digest(item) == _digest(expected), "source start operation/arguments/metadata differs")
-                    pending[ident] = line
+                    pending[ident] = (line, params["startedAtMs"])
                     converted = dict(type="mcp_tool_call", id=ident, **{k: deepcopy(item[k]) for k in ("server", "tool", "arguments")},
                                      status="in_progress", result=None, error=None)
                 else:
                     start = pending.pop(ident, None)
-                    _require(start is not None and params.get("completedAtMs") == original["completed_at_ms"]
-                             and _digest(item) == _digest(core_to_app(original["item"])), "source terminal differs or original start absent")
+                    _require(start is not None and type(params.get("completedAtMs")) is int
+                             and params["completedAtMs"] >= start[1]
+                             and (core[ident]["legacy"] or params["completedAtMs"] == original["completed_at_ms"])
+                             and _digest(item) == _digest(core_to_app(original_item)),
+                             "source terminal differs or original start absent")
                     completed[ident] = item
-                    result = deepcopy(original["item"].get("result"))
+                    result = deepcopy(original_item.get("result"))
                     if result is not None:
                         result["structured_content"] = result.pop("structuredContent", None)
                     converted = dict(type="mcp_tool_call", id=ident, **{k: deepcopy(item[k]) for k in ("server", "tool", "arguments")},
@@ -270,8 +314,8 @@ def parse_protocol(raw, requests, transport, session_raw, source, *, receipt, pr
                             original_core_event=deepcopy(session[core[ident]["line"] - 1]),
                             original_app_server_notification=deepcopy(row))
                     locations[ident] = dict(profile=PROFILE, run_id=source["run_id"], connection_id=source["connection_id"],
-                        thread_id=thread, turn_id=turn, item_id=ident, start_line=start, end_line=line,
-                        core_line=core[ident]["line"], core_item=deepcopy(original["item"]))
+                        thread_id=thread, turn_id=turn, item_id=ident, start_line=start[0], end_line=line,
+                        core_line=core[ident]["line"], core_item=deepcopy(original_item))
                 events.append(dict(type=method.replace("/", "."), item=converted))
             elif kind == "agentMessage":
                 events.append(dict(type=method.replace("/", "."), item=dict(type="agent_message", id=ident, text=item.get("text"))))
@@ -290,7 +334,7 @@ def parse_protocol(raw, requests, transport, session_raw, source, *, receipt, pr
     parsed_thread, calls, messages = parse_native(events, producer, require_tool_calls=require_tool_calls)
     for call in calls:
         call["source_occurrence"] = locations[call["id"]]
-        call["core_result"] = deepcopy(core[call["id"]]["event"]["item"].get("result"))
+        call["core_result"] = deepcopy(core[call["id"]]["item"].get("result"))
     return dict(thread=parsed_thread, calls=calls, messages=messages, events=events, source=source)
 
 
