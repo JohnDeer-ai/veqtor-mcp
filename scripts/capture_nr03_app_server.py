@@ -93,6 +93,46 @@ def check_effective(result, config, runtime):
 
 
 def validate_exchange(methods, responses, source, receipt):
+    """Final exchange; native state comes only from the completed source binding."""
+    _require(source.get("evidence_kind") in {"native", "synthetic"}, "source exchange evidence kind missing")
+    native = source["evidence_kind"] == "native"
+    runtime = Path(source["runtime_root"])
+    resumed_path = str(runtime / source["parent_state"]["relative_rollout_path"]) if native and receipt.get("resumed_thread_id") else str(runtime / "resume.jsonl")
+    persisted_path = str(runtime / source["persisted_state"]["relative_rollout_path"]) if native else None
+    _validate_launch_exchange(methods, responses, source, receipt, resumed_path, persisted_path)
+
+
+def validate_provisional_exchange(methods, responses, source, receipt, *, parent_state=None):
+    """Read-only live launch check, never a completed capture/state verdict.
+
+    The owner-authorized observer supplies its independently qualified parent
+    snapshot. The in-progress child's full persisted state does not yet exist.
+    Final parsing must still validate that state, ancestry and owner authority.
+    """
+    runtime = Path(source["runtime_root"])
+    _require(runtime.is_absolute() and ".." not in runtime.parts and runtime.resolve() == runtime
+             and runtime != Path(runtime.anchor) and not runtime.is_symlink(), "source provisional runtime differs")
+    resumed = receipt.get("resumed_thread_id")
+    method = "thread/resume" if resumed else "thread/start"
+    path = Path(responses[method][2]["thread"]["path"])
+    _require(path.is_absolute() and ".." not in path.parts and path != runtime
+             and path.is_relative_to(runtime) and path.resolve().is_relative_to(runtime)
+             and not path.is_symlink(), "source provisional rollout escaped runtime")
+    resumed_path = None
+    if resumed:
+        from nr03_resume_state import validate_parent_prefix
+        _require(isinstance(parent_state, tuple) and len(parent_state) == 2
+                 and isinstance(parent_state[0], bytes), "source provisional parent snapshot missing")
+        raw, binding = parent_state
+        validate_parent_prefix(raw, binding, thread=resumed, cwd=receipt["cwd"])
+        _require(len(raw) == binding["rollout_bytes"], "source provisional parent snapshot differs")
+        resumed_path = str(runtime / binding["relative_rollout_path"])
+    else:
+        _require(parent_state is None, "source initial provisional launch has a parent")
+    _validate_launch_exchange(methods, responses, source, receipt, resumed_path, str(path))
+
+
+def _validate_launch_exchange(methods, responses, source, receipt, resumed_path, persisted_path):
     resumed = receipt.get("resumed_thread_id")
     thread_method = "thread/resume" if resumed else "thread/start"
     _require(methods == ["initialize", "initialized", "config/read", thread_method, "mcpServerStatus/list", "turn/start"],
@@ -110,8 +150,7 @@ def validate_exchange(methods, responses, source, receipt):
     request, result = responses[thread_method][1]["params"], responses[thread_method][2]
     expected = dict(model=selection["model"], cwd=receipt["cwd"], approvalPolicy="never", sandbox="danger-full-access")
     if resumed:
-        relative = source["parent_state"]["relative_rollout_path"] if source["evidence_kind"] == "native" else "resume.jsonl"
-        expected.update(threadId=resumed, path=str(Path(source["runtime_root"]) / relative), excludeTurns=True)
+        expected.update(threadId=resumed, path=resumed_path, excludeTurns=True)
     else:
         expected.update(ephemeral=False, historyMode="legacy")
     _require(request == expected and result.get("thread", {}).get("id") == source["thread_id"]
@@ -119,10 +158,9 @@ def validate_exchange(methods, responses, source, receipt):
              and result.get("model") == selection["model"] and result.get("reasoningEffort") == selection["reasoning_effort"]
              and result.get("cwd") == receipt["cwd"] and result.get("approvalPolicy") == "never"
              and result.get("instructionSources") == [], "source thread launch/actual configuration differs")
-    if source["evidence_kind"] == "native":
-        path = str(Path(source["runtime_root"]) / source["persisted_state"]["relative_rollout_path"])
-        _require(result["thread"].get("historyMode") == "legacy" and result["thread"].get("path") == path
-                 and (not resumed or path == expected["path"]), "source persisted thread selection differs")
+    if persisted_path is not None:
+        _require(result["thread"].get("historyMode") == "legacy" and result["thread"].get("path") == persisted_path
+                 and (not resumed or persisted_path == expected["path"]), "source persisted thread selection differs")
     turn_request, turn_response = responses["turn/start"][1]["params"], responses["turn/start"][2]
     _require(set(turn_request) == {"threadId", "input", "model", "effort"}
              and turn_request["threadId"] == source["thread_id"] and turn_request["model"] == selection["model"]

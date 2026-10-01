@@ -277,17 +277,21 @@ def validate_model_delivery(calls, session, *, thread, cwd, final_text, diagnost
             continue
         for output_index, output in enumerate(parent["outputs"]):
             item, line = output["item"], output["line"]
-            if qualified and len(parent["outputs"]) > 1:
+            identity_valid = True
+            if qualified:
                 ident = item.get("id")
                 metadata = item.get("internal_chat_message_metadata_passthrough")
                 if (not isinstance(ident, str) or not ident or output_ids[ident] != 1
-                        or item.get("name", "exec") != "exec"
+                        or item.get("name", parent["action"].get("name")) != parent["action"].get("name")
                         or (metadata is not None and (not isinstance(metadata, dict)
                             or set(metadata) != {"turn_id", "create_time"} or metadata["turn_id"] != turn
                             or type(metadata["create_time"]) not in (int, float)
                             or not math.isfinite(metadata["create_time"]) or metadata["create_time"] <= 0))):
                     diagnostics.append(dict(reason="ambiguous_or_foreign_output_identity", model_call_id=outer, line=line))
-                    continue
+                    # A complete contradictory duplicate must still count as an
+                    # observation of its producer. Never filter it out before
+                    # multiplicity is established below.
+                    identity_valid = False
             if item["type"] != parent["action"]["type"] + "_output" or line >= finals[-1]["line"]:
                 diagnostics.append(dict(reason="wrong_or_late_output", model_call_id=outer, line=line))
                 continue
@@ -314,16 +318,18 @@ def validate_model_delivery(calls, session, *, thread, cwd, final_text, diagnost
                     action_line=parent["line"], native_line=parent["inner"].get(ident, {}).get("line"),
                     inner_call_id=parent["inner"].get(ident, {}).get("id"), labels=result["labels"], label_binding=label,
                     output_block=result["output_block"], output_item=result["output_item"], payload_index=result["payload_index"],
-                    wrappers=result["wrappers"], terminal_valid=terminal_valid,
+                    wrappers=result["wrappers"], terminal_valid=terminal_valid, identity_valid=identity_valid,
                     source_occurrence=successful[ident].get("source_occurrence"),
                     attribution=("qualified_original_inner_mcp" if parent["exec"] else "qualified_original_direct") if qualified
                         else "legacy_unique_inner_value" if parent["exec"] else "legacy_unique_direct_value"))
     delivered = {}
     for ident, matches in proposals.items():
-        if len(matches) == 1 and matches[0]["label_binding"] is not None and matches[0]["terminal_valid"]:
+        if (len(matches) == 1 and matches[0]["identity_valid"]
+                and matches[0]["label_binding"] is not None and matches[0]["terminal_valid"]):
             delivered[ident] = matches[0]
         else:
             diagnostics.append(dict(reason="duplicate_result_observation" if len(matches) != 1 else
+                                    "ambiguous_or_foreign_output_identity" if not matches[0]["identity_valid"] else
                                     "contradictory_or_unsupported_terminal" if not matches[0]["terminal_valid"] else "contradictory_or_ambiguous_label",
                                     native_call_id=ident, observations=matches))
     return delivered

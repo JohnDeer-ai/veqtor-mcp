@@ -139,6 +139,20 @@ location. Complete-payload equality precedes label and metadata checks;
 duplicates and equal-payload ambiguity never select the first match. Separate
 outputs are never concatenated. A missing or corrupt page cannot gain credit
 from final prose or another page, while unrelated unique pages remain valid.
+Qualified ordinary and notification outputs both require a nonempty, globally
+unique original output ID and consistent optional name/turn metadata. Identity
+failure prevents credit but does not remove a complete corresponding payload
+from duplicate accounting. A contradictory duplicate cannot leave its other
+occurrence credited. Synthetic source fixtures supply explicit output IDs;
+no IDs are added to original native evidence.
+
+The read-only live observer uses `validate_provisional_exchange` for the shared
+launch checks. Before arming, its caller independently qualifies the original
+parent and retains that exact byte snapshot and binding. A resumed observation
+must match that parent and its contained rollout path. No completed child state
+is fabricated for a live observation. The final `validate_exchange` and source
+parser still require the completed native state, exact ancestry and independent
+owner authority; a provisional trigger cannot satisfy those final gates.
 
 ## Cooperative owner for the revision-conflict update
 

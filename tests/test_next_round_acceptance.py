@@ -38,7 +38,7 @@ def synthetic_delivery(bundle, stage):
         if event["type"] == "item.completed" and item.get("type") == "mcp_tool_call":
             session += [dict(type="response_item", payload=dict(type="function_call", call_id=item["id"], name=item["tool"],
                         arguments=json.dumps(item["arguments"]))),
-                        dict(type="response_item", payload=dict(type="function_call_output", call_id=item["id"],
+                        dict(type="response_item", payload=dict(type="function_call_output", id="synthetic-output-" + item["id"], call_id=item["id"],
                         output=json.dumps((item.get("result") or {}).get("structured_content"))))]
         elif item.get("type") == "agent_message":
             session.append(dict(type="response_item", payload=dict(type="message", role="assistant",

@@ -370,10 +370,10 @@ def exec_form(fixture, *, batch=False):
         elif row.get("type") == "response_item" and p.get("type") == "function_call_output":
             blocks.append(dict(type="input_text", text=p["output"]))
             if not batch:
-                result.append(dict(type="response_item", payload=dict(type="custom_tool_call_output", call_id=outer, output=blocks)))
+                result.append(dict(type="response_item", payload=dict(type="custom_tool_call_output", id=p["id"], call_id=outer, output=blocks)))
                 blocks = []
         elif batch and row.get("type") == "response_item" and p.get("type") == "message" and p.get("role") == "assistant":
-            result.append(dict(type="response_item", payload=dict(type="custom_tool_call_output", call_id=outer, output=blocks)))
+            result.append(dict(type="response_item", payload=dict(type="custom_tool_call_output", id="synthetic-batch-output", call_id=outer, output=blocks)))
             result.append(row)
         else:
             result.append(row)
