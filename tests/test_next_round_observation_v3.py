@@ -260,7 +260,7 @@ def exec_delivery(folder, stage):
                     dict(type="event_msg", payload=dict(type="item_completed", thread_id=thread, turn_id="synthetic-turn",
                         item=dict(type="McpToolCall", id=action["call_id"], server=base.SERVER, tool=action["name"], arguments=args,
                             status=original["status"], result=core_result, error=original.get("error")))),
-                    dict(type="response_item", payload=dict(type="custom_tool_call_output", call_id=outer_id,
+                    dict(type="response_item", payload=dict(type="custom_tool_call_output", call_id=outer_id, id="output-" + outer_id,
                         output=[dict(type="input_text", text=json.dumps(dict(status="fulfilled", value=content)))]))]
     session += old[-2:]
     session[-1]["payload"]["turn_id"] = "synthetic-turn"
