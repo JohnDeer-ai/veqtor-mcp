@@ -10,9 +10,16 @@ acceptance, log authenticity, legal authority, journal completeness or Word QA.
 
 This profile is pinned to Codex `0.154.0-alpha.6.2`, embedded source commit
 `b5bffd3ec4db487e7e3dec59663875b0ef7b72ca`, executable SHA-256
-`ecad78dbf98adb89ec475edac86630406cbe59d9f3070b17d88065f136b94bcb`.
+`a1d2f191e70023ed7afd619bc70530f26067a085926e03bae50cf5c0f8298bcf`.
 The launcher also checks the installed version and embedded commit. These are
 static identification checks, not a reproducible build or signed log claim.
+
+The 1 October 2026 candidate pins the installed desktop executable above. The
+earlier `ecad78db...` executable has the same displayed version and embedded
+commit, but its byte identity is different. Existing captures keep their original
+build and policy bindings; this update does not requalify them. Fresh startup,
+effective configuration, the complete MCP inventory and cold legacy resume must
+pass the same strict checks before using the new binary for workflow acceptance.
 
 The pinned [router](https://github.com/openai/codex/blob/b5bffd3ec4db487e7e3dec59663875b0ef7b72ca/codex-rs/core/src/tools/router.rs),
 [MCP handler](https://github.com/openai/codex/blob/b5bffd3ec4db487e7e3dec59663875b0ef7b72ca/codex-rs/core/src/tools/handlers/mcp.rs),

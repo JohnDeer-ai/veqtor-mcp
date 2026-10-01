@@ -15,7 +15,7 @@ from nr03_model_delivery import decoded
 
 PROFILE = "nr03-app-server-original.v1"
 BUILD = dict(version="0.154.0-alpha.6.2", commit="b5bffd3ec4db487e7e3dec59663875b0ef7b72ca",
-             sha256="ecad78dbf98adb89ec475edac86630406cbe59d9f3070b17d88065f136b94bcb")
+             sha256="a1d2f191e70023ed7afd619bc70530f26067a085926e03bae50cf5c0f8298bcf")
 POLICY_FILES = ("scripts/nr03_app_server.py", "scripts/capture_nr03_app_server.py",
                 "scripts/nr03_runtime_policy.py", "scripts/nr03_capture_owner.py", "scripts/nr03_resume_state.py",
                 "scripts/nr03_model_delivery.py", "docs/NR03_SOURCE_PROFILE.md")
