@@ -183,6 +183,7 @@ class StdioCapture:
         self.lock = threading.Lock()
         self.counts = dict(sent=0, received=0)
         self.notifications = []
+        self.compaction_deadline = None
         self.files = {}
         self.paths = {}
         self.owned_outputs, self.raw_fds, self.cleanup_errors = [], set(), []
@@ -287,8 +288,10 @@ class StdioCapture:
         self.cancel_check()
         if self.failure is not None:
             raise self.failure
-        deadline = time.monotonic() + 60
+        deadline = self.compaction_deadline if self.compaction_deadline is not None else time.monotonic() + 60
         while True:
+            self.cancel_check()
+            _require(time.monotonic() < deadline, "source transport timed out")
             try:
                 raw = self.queue.get(timeout=min(0.1, max(0.001, deadline - time.monotonic())))
                 break
@@ -302,6 +305,11 @@ class StdioCapture:
         _require("error" not in row and not ("id" in row and "method" in row), "source protocol error/server request")
         if "method" in row:
             self.notifications.append(row)
+            if row.get("params", {}).get("item", {}).get("type") == "contextCompaction":
+                if row["method"] == "item/started":
+                    self.compaction_deadline = time.monotonic() + 300
+                elif row["method"] == "item/completed":
+                    self.compaction_deadline = None
         return row
 
     def runtime_inventory(self):

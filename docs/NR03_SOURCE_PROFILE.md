@@ -173,6 +173,22 @@ is fabricated for a live observation. The final `validate_exchange` and source
 parser still require the completed native state, exact ancestry and independent
 owner authority; a provisional trigger cannot satisfy those final gates.
 
+## Native automatic context compaction
+
+Automatic Codex history compaction is a native `contextCompaction` item, not
+a document operation. The live and final boundary require an original matching
+start/completion pair in the current thread/turn, ordered positive clocks and no
+overlapping or reused compaction identity. It grants no MCP or delivery credit;
+all original calls, full model-facing results and successful turn completion
+remain required. A turn cannot complete with an open compaction.
+
+The recorder keeps its normal 60-second idle timeout, but an explicit compaction
+start grants at most 300 seconds until completion, without renewal by unrelated
+progress. Completion restores the ordinary timeout. Cancellation remains polled
+at most every 100 milliseconds. A timeout preserves failed originals and never
+creates a completed receipt. This follows the documented App Server
+[`contextCompaction` lifecycle](https://learn.chatgpt.com/docs/app-server).
+
 ## Cooperative owner for the revision-conflict update
 
 Only this externally timed observation step requires the explicit inherited

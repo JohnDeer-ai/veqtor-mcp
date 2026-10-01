@@ -271,7 +271,7 @@ def parse_protocol(raw, requests, transport, session_raw, source, *, receipt, pr
             item = params.get("item", {})
             kind, ident = item.get("type"), item.get("id")
             _require(isinstance(ident, str) and ident and kind in
-                     {"mcpToolCall", "agentMessage", "reasoning", "userMessage", "functionCallOutput"},
+                     {"mcpToolCall", "agentMessage", "reasoning", "userMessage", "functionCallOutput", "contextCompaction"},
                      "source forbidden or unsupported non-MCP action")
             if kind == "mcpToolCall":
                 _require(ident in core and ident not in completed, "source duplicate/unpersisted MCP occurrence")
@@ -321,6 +321,10 @@ def parse_protocol(raw, requests, transport, session_raw, source, *, receipt, pr
                 events.append(dict(type=method.replace("/", "."), item=dict(type="agent_message", id=ident, text=item.get("text"))))
             elif kind == "functionCallOutput":
                 _require(item.get("name") in {"exec", "functions.exec"}, "source forbidden function output")
+            elif kind == "contextCompaction":
+                # Shared live/final boundary validates its complete lifecycle.
+                # This event supplies no MCP result or model-delivery credit.
+                _require(ident not in core, "source compaction reuses MCP identity")
         elif method in NOTIFICATIONS:
             pass  # Complete original envelope was validated by the shared boundary.
         elif method in PASSIVE:

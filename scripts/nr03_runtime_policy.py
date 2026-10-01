@@ -51,6 +51,8 @@ class RuntimeBoundary:
         self.last_emitted = 0
         self.turn = None
         self.empty_goal_snapshot = False
+        self.compaction = None
+        self.compaction_ids = set()
 
     def request(self, row):
         _require(isinstance(row, dict), "source runtime malformed request")
@@ -132,6 +134,23 @@ class RuntimeBoundary:
                 _require(isinstance(value, str) and value and (self.turn is None or value == self.turn),
                          "source notification turn differs")
                 self.turn = value
+            item = params.get("item", {})
+            if method in {"item/started", "item/completed"} and item.get("type") == "contextCompaction":
+                ident = item.get("id")
+                clock = params.get("startedAtMs" if method == "item/started" else "completedAtMs")
+                _require(params.get("threadId") == self.thread and set(item) == {"type", "id"} and isinstance(ident, str) and ident
+                         and type(clock) is int and clock > 0, "source compaction envelope differs")
+                if method == "item/started":
+                    _require(self.compaction is None and ident not in self.compaction_ids,
+                             "source compaction start duplicate or overlapping")
+                    self.compaction = (ident, clock)
+                    self.compaction_ids.add(ident)
+                else:
+                    _require(self.compaction is not None and self.compaction[0] == ident
+                             and clock >= self.compaction[1], "source compaction completion differs")
+                    self.compaction = None
+            if method == "turn/completed":
+                _require(self.compaction is None, "source compaction incomplete at turn completion")
             return
         _require(set(row) == {"method", "params", "emittedAtMs"} and isinstance(params, dict)
                  and type(row["emittedAtMs"]) is int and 0 < row["emittedAtMs"] < 2**63
