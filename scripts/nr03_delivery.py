@@ -5,7 +5,7 @@ from pathlib import Path
 
 from check_codex_acceptance import _file_sha256, _require
 
-DELIVERY_VERSION = "nr03-acceptance-client.v3"
+DELIVERY_VERSION = "nr03-acceptance-client.v4"
 EXPORT_PAGE_LIMIT = 20
 BOUNDARY = """Use the complete delivered Veqtor skill and resolved canonical workflow below.
 These files are already supplied in full; do not reopen their paths or discover
@@ -19,6 +19,13 @@ The external observer performs all rendering and visible-markup inspection; leav
 that visual gate open in your result. This boundary also applies to every resumed
 turn. Select the appropriate MCP tools independently from the user request and
 workflow; no successful tool-call sequence is prescribed.
+
+Use synchronous tool delivery: at most one MCP invocation in each exec cell,
+await it and emit its complete returned object before the cell finishes. Keep
+the default 30-second exec wait; do not shorten it or use background execution,
+yield_control or wait continuations. Select each next tool only after receiving
+the preceding complete response. If an invocation nevertheless yields, preserve
+that evidence and report incomplete delivery instead of resuming it with wait.
 
 For action-record exports request max_records at most 20 and follow each returned
 next_before_record_id as before_record_id until the terminal page. The count bound

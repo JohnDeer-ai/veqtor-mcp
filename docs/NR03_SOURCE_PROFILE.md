@@ -165,6 +165,15 @@ from duplicate accounting. A contradictory duplicate cannot leave its other
 occurrence credited. Synthetic source fixtures supply explicit output IDs;
 no IDs are added to original native evidence.
 
+Acceptance-client boundary v4 requests synchronous delivery, with at most one
+MCP invocation per exec cell and the full returned object emitted before the
+cell finishes. The default 30-second exec wait must not be shortened. Background
+cells, explicit yields and `wait` continuations are outside the supported delivery
+profile. A yielded invocation therefore leaves delivery incomplete; its original
+evidence is retained. This prospective transport restriction does not prescribe
+MCP tool selection, business decisions or a successful workflow sequence. Earlier
+captures containing unsupported continuations remain unqualified.
+
 The read-only live observer uses `validate_provisional_exchange` for the shared
 launch checks. Before arming, its caller independently qualifies the original
 parent and retains that exact byte snapshot and binding. A resumed observation
