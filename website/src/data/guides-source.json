@@ -2,7 +2,7 @@
   "siteUrl": "https://veqtor.pro",
   "author": {
     "path": "/author/ilya-shilov",
-    "schemaId": "https://veqtor.pro/author/ilya-shilov#person",
+    "schemaId": "https://ilyashilov.com/#person",
     "imageUrl": "https://veqtor.pro/assets/ilya-shilov-headshot.jpg",
     "metaTitle": "Ilya Shilov, LL.M. - Commercial Lawyer and Founder of Veqtor",
     "metaDescription": "Ilya Shilov, LL.M. is a commercial lawyer focused on international licensing, M&A, IT, legal tech, and cross-border transactions. Founder of Veqtor.",
@@ -11,17 +11,17 @@
     "eyebrow": "Author",
     "h1": "Ilya Shilov, LL.M.",
     "lede": "Commercial Lawyer | International Licensing & M&A | IT, Legal Tech & Cross-Border Transactions",
-    "fallbackIntro": "Commercial Lawyer | International Licensing & M&A | IT, Legal Tech & Cross-Border Transactions. Founder of Veqtor. In commercial practice since 2016.",
+    "fallbackIntro": "Commercial Lawyer | International Licensing & M&A | IT, Legal Tech & Cross-Border Transactions. Founder of Veqtor. 11+ years in commercial law.",
     "facts": [
       "Founder, Veqtor",
-      "In commercial practice since 2016",
-      "LL.M., International Law"
+      "11+ years in commercial law",
+      "LL.M., International Business Law"
     ],
     "sections": [
       {
         "title": "About",
         "body": [
-          "Ilya Shilov is a commercial lawyer who has advised on international licensing, M&A, and cross-border transactions since 2016, with experience across the IT, pharma, and technology sectors.",
+          "Ilya Shilov is a commercial lawyer with 11+ years of legal experience. His work includes software licensing, SaaS, IP rights, M&A and cross-border commercial transactions.",
           "He writes practical guides on English-law commercial contracts - how deals are formed, how redlines shift risk, and how the clauses people treat as boilerplate actually decide outcomes.",
           "As founder of Veqtor, Ilya brings that contract-review experience to an open-source tool that helps Claude work with tracked changes in Word while keeping the original file untouched."
         ]
@@ -29,7 +29,7 @@
       {
         "title": "Education",
         "body": [
-          "LL.M., International Law, Pericles International Law Center, with distinction."
+          "Law degree and LL.M. in International Business Law, with distinction."
         ]
       },
       {
@@ -67,16 +67,12 @@
     ],
     "schema": {
       "@type": "Person",
-      "@id": "https://veqtor.pro/author/ilya-shilov#person",
+      "@id": "https://ilyashilov.com/#person",
       "name": "Ilya Shilov",
-      "url": "https://veqtor.pro/author/ilya-shilov",
+      "url": "https://ilyashilov.com/",
       "image": "https://veqtor.pro/assets/ilya-shilov-headshot.jpg",
       "jobTitle": "Commercial Lawyer | International Licensing & M&A | IT, Legal Tech & Cross-Border Transactions",
       "description": "Commercial lawyer focused on international licensing, M&A, IT, legal tech, cross-border transactions, and contract review automation.",
-      "alumniOf": {
-        "@type": "EducationalOrganization",
-        "name": "Pericles International Law Center"
-      },
       "knowsAbout": [
         "Commercial contracts under English law",
         "International licensing",
@@ -89,7 +85,8 @@
       ],
       "sameAs": [
         "https://www.linkedin.com/in/ilya-counsel/",
-        "https://t.me/ilya5050"
+        "https://t.me/ilya5050",
+        "https://veqtor.pro/author/ilya-shilov"
       ]
     }
   },
