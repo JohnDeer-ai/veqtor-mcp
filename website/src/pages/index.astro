@@ -2,7 +2,7 @@
 import BaseLayout from '../layouts/BaseLayout.astro'
 import SiteCta from '../components/SiteCta.astro'
 import { DEMO_VIDEO } from '../lib/demo-video'
-import { GUIDES, TOPICS } from '../lib/guides'
+import { AUTHOR, GUIDES, TOPICS } from '../lib/guides'
 import { PUBLIC_MCPB_URL, PUBLIC_RELEASE_VERSION } from '../lib/public-release'
 
 const title = 'Veqtor MCP — Review Word Redlines with Claude'
@@ -24,7 +24,7 @@ const structuredData = [
     license: 'https://www.apache.org/licenses/LICENSE-2.0',
     isAccessibleForFree: true,
     offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
-    author: { '@id': 'https://veqtor.pro/author/ilya-shilov#person' },
+    author: { '@id': AUTHOR.schemaId },
   },
 ]
 ---

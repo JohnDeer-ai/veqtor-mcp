@@ -32,7 +32,7 @@ const STATIC_ROUTE_LASTMOD = new Map<string, string>([
   ['/ai-contract-review', '2026-07-23'],
   ['/contract-redline-analysis', '2026-07-23'],
   ['/docx-track-changes-review', '2026-07-23'],
-  ['/author/ilya-shilov', '2026-07-23'],
+  ['/author/ilya-shilov', '2026-10-02'],
   ['/guides', '2026-07-23'],
   ['/setup', '2026-09-11'],
   ['/docs', '2026-09-11'],

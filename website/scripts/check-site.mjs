@@ -691,10 +691,10 @@ function assertSchemaContracts(schemasByRoute) {
 
   const profilePages = nodesOfType('/author/ilya-shilov', 'ProfilePage')
   const people = nodesOfType('/author/ilya-shilov', 'Person')
-    .filter((node) => node?.['@id'] === 'https://veqtor.pro/author/ilya-shilov#person')
+    .filter((node) => node?.['@id'] === 'https://ilyashilov.com/#person')
   if (profilePages.length !== 1) fail(`/author/ilya-shilov: expected one ProfilePage node, found ${profilePages.length}`)
   if (people.length !== 1) fail(`/author/ilya-shilov: expected one canonical Person node, found ${people.length}`)
-  if (profilePages[0]?.mainEntity?.['@id'] !== 'https://veqtor.pro/author/ilya-shilov#person') {
+  if (profilePages[0]?.mainEntity?.['@id'] !== 'https://ilyashilov.com/#person') {
     fail('/author/ilya-shilov: ProfilePage mainEntity must reference the canonical Person')
   }
 
@@ -981,9 +981,9 @@ function main() {
       '/ai-contract-review',
       '/contract-redline-analysis',
       '/docx-track-changes-review',
-      '/author/ilya-shilov',
       '/guides',
     ].map((route) => [route, LINK_ARCHITECTURE_LASTMOD]),
+    ['/author/ilya-shilov', '2026-10-02'],
     ...[
       '/', '/product', '/how-it-works', '/demo', '/setup', '/docs',
       '/limitations', '/terms', '/veqtor-vs-claude-for-word',
