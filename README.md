@@ -370,7 +370,7 @@ The exact-SHA immutable publication contract is documented in the
 ## Maintainer
 
 Veqtor MCP is an independent open-source project created and maintained by
-**Ilya Shilov** ([@JohnDeer-ai](https://github.com/JohnDeer-ai)).
+**[Ilya Shilov](https://ilyashilov.com/)** ([@JohnDeer-ai](https://github.com/JohnDeer-ai)).
 
 ## Deal positions in the development candidate
 
