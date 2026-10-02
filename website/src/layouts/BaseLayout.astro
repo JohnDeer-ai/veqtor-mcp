@@ -1,6 +1,7 @@
 ---
 import Header from '../components/Header.astro'
 import Footer from '../components/Footer.astro'
+import { AUTHOR } from '../lib/guides'
 import '@fontsource-variable/inter/wght.css'
 import '@fontsource-variable/inter/wght-italic.css'
 import '@fontsource-variable/roboto-mono/wght.css'
@@ -44,7 +45,7 @@ const baseSchemas = [
     alternateName: 'Veqtor',
     url: site.origin,
     logo: `${site.origin}/logo-512.png`,
-    founder: { '@id': `${site.origin}/author/ilya-shilov#person` },
+    founder: { '@id': AUTHOR.schemaId },
     sameAs: ['https://github.com/JohnDeer-ai/veqtor-mcp'],
   },
   {

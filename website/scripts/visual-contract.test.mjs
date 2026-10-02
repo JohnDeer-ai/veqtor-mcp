@@ -111,7 +111,7 @@ test('micro typography uses the shared 11px minimum across the site', () => {
 
 test('author credentials and social profiles keep their concise card treatment', () => {
   const guideData = JSON.parse(guideSource)
-  assert.equal(guideData.author.facts.at(-1), 'LL.M., International Law')
+  assert.equal(guideData.author.facts.at(-1), 'LL.M., International Business Law')
   assert.match(authorPage, /social-link social-link--linkedin/)
   assert.match(authorPage, /social-link social-link--telegram/)
   assert.match(authorPage, /figcaption\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/s)
