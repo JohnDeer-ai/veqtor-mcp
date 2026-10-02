@@ -113,6 +113,12 @@ considering any further mutation: the file may already have been written. Never
 blindly repeat a write. If updating positions is separately authorized, use the
 fresh expected_revision and expected_version with complete replacement content;
 an update resets confirmation. Show the actual exact version before confirming it.
+For an explicitly approved version, mutate_deal_positions takes folder,
+fresh expected_revision and an operations array. A confirm operation has exactly
+op="confirm", position_id, expected_version, user_confirmed=true and statement
+(the user's explicit confirmation). Do not pass the returned confirmation object
+or its basis/version fields as operation fields. Reread the complete state/history
+after saving; confirmation must retain that content version and pending decisions.
 On revision_conflict reread and reconsider; on commit_uncertain reread the complete
 state/history to see whether the operation committed before any retry. Do not repair
 or initialize over corrupt storage. An explicit document decision does not by itself
