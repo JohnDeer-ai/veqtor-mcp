@@ -13,7 +13,7 @@ ROOT = Path(__file__).parents[1]
 
 
 def test_package_versions_match() -> None:
-    assert docx_version == "0.4.2.dev0"
+    assert docx_version == "0.4.2"
     assert mcp_version == docx_version
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
     lock = tomllib.loads((ROOT / "uv.lock").read_text())
@@ -164,15 +164,15 @@ def test_release_copy_is_state_neutral_and_site_uses_public_v040() -> None:
     assert "veqtor-mcp@0.1.2" not in setup
     assert "veqtor-mcp==0.1.2" not in setup
     assert "https://pypi.org/project/veqtor-mcp/" in readme
-    assert "Both sources expose `0.4.0`" in readme
-    assert "| Otherwise | `0.3.0` |" in readme
-    assert "development package `0.4.2.dev0`" in readme
+    assert "Both sources expose `0.4.2`" in readme
+    assert "| Otherwise | `0.4.0` |" in readme
+    assert "release-candidate package `0.4.2`" in readme
     assert "eleven-tool MCP contract `veqtor.mcp.v0.4.2`" in readme
     assert "Public `0.4.0` is the published release line" in readme
     assert "not a new publication" in immutable_docs
     for name in ("README.md", "API.md", "KNOWN_LIMITATIONS.md", "ROADMAP.md", "docs/CODEX.md"):
         current = (ROOT / name).read_text()
-        assert "0.4.2.dev0" in current
+        assert "0.4.2" in current
         assert "0.4.0" in current
         assert "veqtor.mcp.v0.4" in current
         assert "release-candidate source `0.4.0`" not in current
@@ -203,7 +203,7 @@ def test_release_copy_is_state_neutral_and_site_uses_public_v040() -> None:
     assert "Public v{PUBLIC_RELEASE_VERSION}" in public_pages
     assert "state-neutral version-selection" in releasing
     assert re.search(
-        r"must activate the public v0\.4\.0 links.*deploy them, and\s+smoke the live setup page",
+        r"must activate the public v0\.4\.2 links.*deploy them, and\s+smoke the live setup page",
         releasing,
         re.DOTALL,
     )

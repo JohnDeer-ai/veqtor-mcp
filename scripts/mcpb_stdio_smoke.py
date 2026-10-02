@@ -14,6 +14,7 @@ from mcp import ClientSession, StdioServerParameters
 import mcp.client.stdio as stdio_transport
 from mcp.client.stdio import stdio_client
 from veqtor_docx.synthetic import CAP_R3, CAP_R4
+from position_smoke import exercise_positions
 
 
 EXPECTED_TOOLS = {
@@ -26,6 +27,8 @@ EXPECTED_TOOLS = {
     "apply_edits",
     "verify_quote",
     "export_decision_record",
+    "read_deal_positions",
+    "mutate_deal_positions",
 }
 
 
@@ -121,6 +124,7 @@ async def smoke(stage_dir: Path) -> dict:
                 names = {tool.name for tool in tools.tools}
                 if names != EXPECTED_TOOLS:
                     raise ValueError("stdio tool inventory differs")
+                positions_result = await exercise_positions(session)
                 listed = _payload(
                     await session.call_tool("list_rounds", {"folder": "demo"})
                 )
@@ -306,6 +310,7 @@ async def smoke(stage_dir: Path) -> dict:
                         "candidate_document_count"
                     ],
                     "stdio_tool_count": len(names),
+                    "positions": positions_result,
                     "server_work_cancellation_verified": False,
                     "verification_schema_version": verified["schema_version"],
                 }

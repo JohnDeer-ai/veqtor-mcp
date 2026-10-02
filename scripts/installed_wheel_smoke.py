@@ -16,6 +16,8 @@ from mcp import StdioServerParameters
 from mcp.client import Client
 from mcp.client.stdio import stdio_client
 
+from position_smoke import exercise_positions
+
 from veqtor_docx import generate_demo_rounds
 from veqtor_docx.synthetic import CAP_R3, CAP_R4
 from veqtor_mcp import __version__
@@ -53,6 +55,7 @@ NR02_TOOL_NAMES = (
 EXPECTED_TOOL_NAMES_BY_VERSION = {
     "0.4.0": FROZEN_V04_TOOL_NAMES,
     "0.4.2.dev0": NR02_TOOL_NAMES,
+    "0.4.2": NR02_TOOL_NAMES,
 }
 
 
@@ -205,6 +208,10 @@ async def smoke() -> dict:
             )
             _assert_producer(listed)
             await _exercise_public_v04(session, matter, listed)
+            positions_result = (
+                await exercise_positions(session)
+                if __version__ in {"0.4.2.dev0", "0.4.2"} else None
+            )
             source = listed["rounds"][1]["path"]
             inspected = _payload(
                 await session.call_tool(
@@ -365,6 +372,7 @@ async def smoke() -> dict:
                 "stdio_protocol_versions": stdio_protocol_versions,
                 "tool_count": len(names),
                 "used_bundled_demo": configured_matter is not None,
+                "positions": positions_result,
             }
 
 

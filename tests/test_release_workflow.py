@@ -50,8 +50,9 @@ def test_release_guard_precedes_execution_of_requested_commit() -> None:
     assert "private_dogfood_passed" not in workflow
     assert "acceptance_evidence:" in workflow
     assert "acceptance_evidence_sha256:" in workflow
-    assert "veqtor_release_acceptance.v7" in workflow
+    assert "veqtor_release_acceptance.v8" in workflow
     assert "expected_mcpb_sha256" in verify
+    assert "expected_wheel_sha256" in verify
     assert '"desktop_extension"]["artifact_sha256"]' in guard
     assert "mcpb_sha256=%s" in guard
     assert "scripts/check_acceptance_evidence.py" in guard
@@ -236,6 +237,8 @@ def test_frozen_release_artifact_job_owns_and_smokes_the_flat_manifest() -> None
     assert "path: dist/*" not in artifact
     assert "dist/SHA256SUMS.txt" in artifact
     assert "EXPECTED_MCPB_SHA256: ${{ inputs.expected_mcpb_sha256 }}" in artifact
+    assert "EXPECTED_WHEEL_SHA256: ${{ inputs.expected_wheel_sha256 }}" in artifact
+    assert "sha256sum dist/*.whl" in artifact
     assert "name: ${{ env.DIST_ARTIFACT_NAME }}" in artifact
     assert "name: ${{ env.PYPI_ARTIFACT_NAME }}" in artifact
     assert "dist/*.whl" in artifact
@@ -528,10 +531,10 @@ def test_product_acceptance_documents_complete_path_free_packet() -> None:
     smoke = (ROOT / "scripts" / "installed_wheel_smoke.py").read_text()
     mcpb_smoke = (ROOT / "scripts" / "mcpb_stdio_smoke.py").read_text()
 
-    assert "installed wheel completes the nine-tool synthetic smoke" in releasing
+    assert "installed wheel completes the eleven-tool synthetic smoke" in releasing
     assert "maintainer's existing macOS user" in releasing
-    assert "calls exactly nine tools" in releasing
-    assert "### Construct the v7 acceptance packet" in releasing
+    assert "calls exactly eleven tools" in releasing
+    assert "### Construct the v8 acceptance packet" in releasing
     assert "Claude Code" not in releasing
     assert "canonical path-free acceptance packet" in releasing
     assert "never filenames, local paths, quotations or document text" in releasing
@@ -544,8 +547,8 @@ def test_product_acceptance_documents_complete_path_free_packet() -> None:
     assert "Do not infer or" in releasing
     assert "Only after all required gates" in releasing
 
-    template = releasing.split("<!-- acceptance-v7-template-begin -->", 1)[1]
-    template = template.split("<!-- acceptance-v7-template-end -->", 1)[0]
+    template = releasing.split("<!-- acceptance-v8-template-begin -->", 1)[1]
+    template = template.split("<!-- acceptance-v8-template-end -->", 1)[0]
     packet = json.loads(template.split("```json\n", 1)[1].split("\n```", 1)[0])
     assert set(packet) == {
         "schema_version",
@@ -559,6 +562,7 @@ def test_product_acceptance_documents_complete_path_free_packet() -> None:
         "installed_two_export",
         "desktop_rehearsal",
         "desktop_extension",
+        "next_round",
     }
     assert set(packet["private_dogfood"]) == {"used", "clean"}
     assert packet["payment_preflight"] == {
@@ -591,6 +595,8 @@ def test_product_acceptance_documents_complete_path_free_packet() -> None:
         "apply_edits",
         "verify_quote",
         "export_decision_record",
+        "read_deal_positions",
+        "mutate_deal_positions",
     ]
     environment = packet["desktop_extension"]["environment"]
     assert environment == {
@@ -642,10 +648,10 @@ def test_product_acceptance_documents_complete_path_free_packet() -> None:
         lifecycle["post_reinstall_checksum_status"],
     } == {"passed"}
     assert lifecycle["post_rollback_workspace_kind"] == (
-        "fresh_v03_compatible_workspace_v1"
+        "fresh_v040_compatible_workspace_v1"
     )
-    assert lifecycle["v04_workspace_presented_to_v03"] is False
-    assert lifecycle["v04_journal_downgrade_claimed"] is False
+    assert lifecycle["candidate_workspace_presented_to_previous"] is False
+    assert lifecycle["position_or_journal_downgrade_claimed"] is False
     assert "first_access_id" in smoke
     assert 'exported_again["access_count"] == 1' in smoke
     assert 'record["record_type"] != "access_event.v1"' in smoke

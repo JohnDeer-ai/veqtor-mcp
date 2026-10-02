@@ -26,16 +26,16 @@ document facts and deterministic writes; it does not claim legal correctness.
 - Bounded DOCX/ZIP processing and versioned installation from PyPI, with the
   same verified wheel, sdist and checksum manifest on GitHub Releases.
 
-## Public 0.4.0 and development 0.4.2.dev0
+## Public 0.4.0 and candidate 0.4.2
 
-Development package `0.4.2.dev0` advertises the eleven-tool MCP contract
+Candidate package `0.4.2` advertises the eleven-tool MCP contract
 `veqtor.mcp.v0.4.2`. The contract version is a surface-wide API-schema identifier:
 all eleven tools report v0.4.2, including tools whose behavior is unchanged.
 Public `0.4.0` retains its frozen `veqtor.mcp.v0.4` contract.
 The development changes add Codex setup, a reusable next-round prompt, native
 evidence checks and safe error transport, including SDK validation before tool
 entry. Historical Codex observations are in [CODEX.md](docs/CODEX.md); they do
-not establish acceptance of the new development candidate. The frozen v0.4
+not establish acceptance of the new release candidate. The archived v0.4.0
 release contract, golden records and published artifacts remain unchanged.
 
 Reliable-workflow stages 0 through 3C now provide:
@@ -78,7 +78,7 @@ digital signature, a trusted timestamp or tamper evidence.
 
 - Extend supported OOXML layouts based on reproducible public issues.
 - Complete independent review and exact-candidate native Codex position checks
-  for `0.4.2.dev0`; then run the required development packaging and audit gates.
+  for `0.4.2`; then run the required development packaging and audit gates.
   The installed public MCP and earlier observations cannot close those gates.
 - Validate NR-02 independent portable deal positions, exact-version confirmation,
   recovery and conflicts under the closed NR-02 contract. NR-03 needs a separate cycle.
@@ -121,10 +121,12 @@ Frozen version 0.4.0 release scope:
   and complete uninstall/cleanup before presenting the extension as the
   recommended path.
 
-The frozen `MCPB_REQUIRED_TOOLS` inventory contains the nine v0.4 names.
+The archived `scripts/release_contract_v040.py` inventory contains the nine v0.4 names.
 The historical v0.3 MCPB remains unchanged and eight-tool. The public website
-uses v0.4.0; this development cycle does not replace its published downloads
-or claim a new release.
+uses v0.4.0 until both public verifiers pass for v0.4.2. The new release
+contract requires eleven tools, actual saved-position smoke, two native Word
+rounds and the v0.4.0 → v0.4.2 → v0.4.0 → v0.4.2 extension lifecycle.
+See [RELEASING.md](RELEASING.md). Publication and website activation are separate gates.
 
 Non-goals and release boundaries:
 
@@ -149,14 +151,14 @@ real client documents or confidential matter text to an issue.
 
 ## NR-01 paragraph capability
 
-`0.4.2.dev0` retains closed paragraph targets under `veqtor.mcp.v0.4.2` for supported
+`0.4.2` retains closed paragraph targets under `veqtor.mcp.v0.4.2` for supported
 clean body/table replace and delete-only. It preserves legacy operations and
 frozen v0.4 release identity. These paragraph operations were introduced in NR-01;
 NR-02 adds local position storage without new DOCX mutations. Its native
 position acceptance does not require repeating the whole NR-01 rendered-Word
 profile unless an affected change justifies that additional gate.
 
-## NR-02 development candidate
+## NR-02 release candidate
 
 The [closed deal-position contract](NR-02_DEAL_POSITIONS.md) adds two tools for
 complete local intentions and atomic revision-bound updates. It retains all prior

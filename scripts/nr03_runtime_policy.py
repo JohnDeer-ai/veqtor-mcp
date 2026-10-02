@@ -26,7 +26,7 @@ def validate_inventory(result):
              "source runtime server/capability boundary differs")
     info = row["serverInfo"]
     _require(isinstance(info, dict) and set(info) == {"name", "title", "version", "description", "icons", "websiteUrl"}
-             and info["name"] == "veqtor" and info["version"] == "0.4.2.dev0"
+             and info["name"] == "veqtor" and info["version"] == "0.4.2"
              and all(info[k] is None for k in ("title", "description", "icons", "websiteUrl")),
              "source runtime producer metadata differs")
     tools = row["tools"]

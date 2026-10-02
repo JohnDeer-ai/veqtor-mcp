@@ -1,7 +1,7 @@
 # Veqtor for Claude Desktop
 
 > **Release-candidate packaging notes:** there is no official public
-> `v0.4.0` MCPB merely because this directory can build one. These installation
+> `v0.4.2` MCPB merely because this directory can build one. These installation
 > steps apply only after the exact candidate passes existing-user acceptance and is
 > attached to the immutable GitHub Release by the promotion workflow.
 
@@ -61,9 +61,9 @@ file's hashes from `apply_edits`, `list_rounds` and `extract_redlines` agree.
 
 ## Update, rollback and uninstall
 
-- The v0.4 release gate starts from public v0.3.0, installs the exact v0.4.0
-  candidate, manually rolls back to immutable v0.3.0, and reinstalls the same
-  v0.4.0 candidate. Verify every checksum; do not assume automatic updates.
+- The v0.4.2 release gate starts from public v0.4.0, installs the exact v0.4.2
+  candidate, manually rolls back to immutable v0.4.0, and reinstalls the same
+  v0.4.2 candidate. Verify every checksum; do not assume automatic updates.
 - Rollback means uninstalling the candidate and reinstalling the previous
   immutable extension where Claude Desktop permits it. Veqtor does not promise
   an in-app rollback mechanism.
@@ -77,3 +77,9 @@ to its tools. Review tool calls and outputs before relying on them.
 Documentation: https://veqtor.pro/docs
 
 Known limitations: https://veqtor.pro/limitations
+
+The extension also bundles `docs/prompts/next-round.md`, the canonical workflow
+for a brief and tracked Word counterproposal with saved positions. Provide an
+explicit matter folder and decisions before writes. Positions remain independent
+of the decision journal. Older extensions do not expose position tools; runtime
+rollback does not downgrade or convert a position store.

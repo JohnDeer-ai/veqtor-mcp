@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "veqtor-mcp"
-version = "0.4.2.dev0"
+version = "0.4.2"
 description = "Local MCP server for verifiable DOCX redline history and fail-closed tracked-change edits"
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
@@ -87,6 +87,7 @@ include = [
 include = [
   "/.agents/skills/veqtor-next-round/SKILL.md",
   "/docs/CODEX.md",
+  "/docs/releases/v0.4.0-contract.md",
   "/docs/NR03_ACCEPTANCE.md",
   "/docs/NR03_ADVERSE_OBLIGATIONS.md",
   "/docs/NR03_SOURCE_PROFILE.md",
