@@ -71,9 +71,12 @@ not digitally signed.
 ## Use Veqtor in local Codex
 
 The [Codex setup guide](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/docs/CODEX.md) connects the pinned `0.4.0` package to
-local Codex over stdio. It includes a synthetic read-and-write check and a
-[reusable next-round prompt](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/docs/prompts/next-round.md) for preparing a new
-Word file from your stated negotiation positions.
+local Codex over stdio. It includes a synthetic read-and-write check for that
+published package. The development
+[next-round workflow](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/docs/CODEX.md#use-saved-positions-for-the-next-round-nr-03-development)
+reuses saved positions, presents a selected-issue brief and prepares a separate
+tracked Word counterproposal after your decisions. It requires the eleven-tool
+development build; the public installation below does not provide all of it.
 
 After installing [uv](https://docs.astral.sh/uv/), find its executable with
 `command -v uvx`. Replace the path and author below with your own values:
