@@ -6,6 +6,22 @@ All notable changes to Veqtor MCP are documented here.
 Publication dates are authoritative in each version's immutable GitHub Release
 through its `published_at` timestamp.
 
+## 0.4.2
+
+Veqtor v0.4.2 Alpha release contents. Publication is established only by the
+matching immutable GitHub Release and verified public PyPI files.
+
+- Ship the eleven-tool `veqtor.mcp.v0.4.2` surface, including saved positions,
+  expected-revision mutations and explicit exact-version confirmation.
+- Support hash-bound edits in clean body/table paragraphs, preserving existing
+  revisions and creating separate tracked Word outputs.
+- Deliver the selected-issue next-round prompt and thin Codex skill, with saved
+  position recovery, concrete decisions, conditional concessions and fresh
+  follow-up sessions.
+- Preserve controlled refusal codes in MCP 2.0 and 2.2 transports.
+- Freeze complete Python and macOS MCPB inventories, include the workflow and
+  document/position contracts in the extension, and verify v0.4.0 upgrade/rollback.
+
 ## 0.4.2.dev0
 
 Unreleased development build. Package/producer identity is `0.4.2.dev0`;

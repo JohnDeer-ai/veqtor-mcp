@@ -40,18 +40,19 @@ release_contract_source_only = pytest.mark.skipif(
 
 
 def test_previous_public_mcpb_identity_is_pinned_for_lifecycle_acceptance() -> None:
-    assert PREVIOUS_PUBLIC_VERSION == "0.3.0"
+    assert PREVIOUS_PUBLIC_VERSION == "0.4.0"
     assert PREVIOUS_PUBLIC_MCPB_SHA256 == (
-        "43e939a60c7f13d8d31b61f090b1520cab951732395e078cfb590622ece0c596"
+        "44a75ee286c701f1a14a2c96fba531e8290240fb8d554eff886565b380b5bd2c"
     )
     assert PREVIOUS_PUBLIC_MCPB_TOOLS == (
         "list_rounds",
         "extract_redlines",
         "inspect_document",
         "map_rounds",
-        "verify_quote",
+        "trace_paragraph_history",
         "preflight_edits",
         "apply_edits",
+        "verify_quote",
         "export_decision_record",
     )
 

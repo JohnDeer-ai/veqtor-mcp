@@ -1,25 +1,24 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Frozen v0.4.2 release-candidate inventory; v0.4.0 is retained separately."""
+"""Frozen v0.4 release-candidate inventory."""
 
 from __future__ import annotations
 
 
 PROJECT_NAME = "veqtor-mcp"
 DIST_NAME = "veqtor_mcp"
-VERSION = "0.4.2"
-PREVIOUS_PUBLIC_VERSION = "0.4.0"
+VERSION = "0.4.0"
+PREVIOUS_PUBLIC_VERSION = "0.3.0"
 PREVIOUS_PUBLIC_MCPB_SHA256 = (
-    "44a75ee286c701f1a14a2c96fba531e8290240fb8d554eff886565b380b5bd2c"
+    "43e939a60c7f13d8d31b61f090b1520cab951732395e078cfb590622ece0c596"
 )
 PREVIOUS_PUBLIC_MCPB_TOOLS = (
     "list_rounds",
     "extract_redlines",
     "inspect_document",
     "map_rounds",
-    "trace_paragraph_history",
+    "verify_quote",
     "preflight_edits",
     "apply_edits",
-    "verify_quote",
     "export_decision_record",
 )
 WHEEL_FILENAME = f"{DIST_NAME}-{VERSION}-py3-none-any.whl"
@@ -60,7 +59,6 @@ RUNTIME_SOURCE_FILES = (
     "src/veqtor_docx/__init__.py",
     "src/veqtor_docx/_ooxml.py",
     "src/veqtor_docx/_projection.py",
-    "src/veqtor_docx/_paragraph_edits.py",
     "src/veqtor_docx/apply.py",
     "src/veqtor_docx/contracts.py",
     "src/veqtor_docx/extract.py",
@@ -78,13 +76,13 @@ RUNTIME_SOURCE_FILES = (
     "src/veqtor_mcp/records.py",
     "src/veqtor_mcp/round_map.py",
     "src/veqtor_mcp/round_map_contract.py",
-    "src/veqtor_mcp/_positions_contract.py",
-    "src/veqtor_mcp/positions.py",
     "src/veqtor_mcp/server.py",
 )
 
-# The current release includes the previously development-only runtime files.
-DEVELOPMENT_RUNTIME_SOURCE_FILES = RUNTIME_SOURCE_FILES
+# Development-only files do not enter the frozen v0.4 runtime/artifact inventory.
+# A future release must explicitly decide whether to promote these additions.
+DEVELOPMENT_RUNTIME_SOURCE_FILES = (*RUNTIME_SOURCE_FILES, "src/veqtor_docx/_paragraph_edits.py",
+    "src/veqtor_mcp/_positions_contract.py", "src/veqtor_mcp/positions.py")
 
 MCPB_REQUIRED_TOOLS = (
     "list_rounds",
@@ -96,8 +94,6 @@ MCPB_REQUIRED_TOOLS = (
     "apply_edits",
     "verify_quote",
     "export_decision_record",
-    "read_deal_positions",
-    "mutate_deal_positions",
 )
 MCPB_DEMO_FILENAMES = (
     "round-1-outgoing-draft.docx",
@@ -115,10 +111,6 @@ MCPB_SOURCE_MAP = {
     "NOTICE": "NOTICE",
     "pyproject.toml": "pyproject.toml",
     "uv.lock": "uv.lock",
-    "docs/prompts/next-round.md": "docs/prompts/next-round.md",
-    "NR-01_PARAGRAPH_EDITS.md": "NR-01_PARAGRAPH_EDITS.md",
-    "NR-02_DEAL_POSITIONS.md": "NR-02_DEAL_POSITIONS.md",
-    "NR-03_NEXT_ROUND.md": "NR-03_NEXT_ROUND.md",
     **{source: source for source in RUNTIME_SOURCE_FILES},
 }
 MCPB_GENERATED_MEMBERS = frozenset(
@@ -134,21 +126,7 @@ GITHUB_RELEASE_FILENAMES = (*GITHUB_PAYLOAD_FILENAMES, CHECKSUMS_FILENAME)
 
 PUBLIC_DOCUMENT_FILES = (
     ".gitignore",
-    ".agents/skills/veqtor-next-round/SKILL.md",
-    "docs/CODEX.md",
-    "docs/releases/v0.4.0-contract.md",
-    "docs/NR03_ACCEPTANCE.md",
-    "docs/NR03_ADVERSE_OBLIGATIONS.md",
-    "docs/NR03_SOURCE_PROFILE.md",
-    "docs/NR03_SCENARIO.md",
-    "docs/NR03_USER_REPLIES.md",
-    "docs/NR02_ACCEPTANCE.md",
-    "docs/evidence/codex-v0.4.0-20260911.json",
-    "docs/prompts/next-round.md",
     "API.md",
-    "NR-01_PARAGRAPH_EDITS.md",
-    "NR-02_DEAL_POSITIONS.md",
-    "NR-03_NEXT_ROUND.md",
     "CHANGELOG.md",
     "CLAUSE_HISTORY_V0.4.md",
     "CONTRIBUTING.md",

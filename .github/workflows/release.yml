@@ -14,7 +14,7 @@ on:
         required: true
         type: string
       acceptance_evidence:
-        description: Path-free veqtor_release_acceptance.v7 JSON for this commit
+        description: Path-free veqtor_release_acceptance.v8 JSON for this commit
         required: true
         type: string
       acceptance_evidence_sha256:
@@ -38,6 +38,7 @@ jobs:
     name: Verify promotion identity and ancestry
     runs-on: ubuntu-latest
     outputs:
+      expected_wheel_sha256: ${{ steps.validate_evidence.outputs.wheel_sha256 }}
       expected_mcpb_sha256: ${{ steps.validate_evidence.outputs.mcpb_sha256 }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -121,6 +122,8 @@ jobs:
             python scripts/check_acceptance_evidence.py \
             --expected-sha256 "$ACCEPTANCE_EVIDENCE_SHA256" \
             --source-root . "$EVIDENCE_FILE"
+          WHEEL_SHA256=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["next_round"]["installed_wheel_sha256"])' "$EVIDENCE_FILE")
+          printf 'wheel_sha256=%s\n' "$WHEEL_SHA256" >> "$GITHUB_OUTPUT"
           MCPB_SHA256=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["desktop_extension"]["artifact_sha256"])' "$EVIDENCE_FILE")
           printf 'mcpb_sha256=%s\n' "$MCPB_SHA256" >> "$GITHUB_OUTPUT"
 
@@ -131,6 +134,7 @@ jobs:
     with:
       ref: ${{ inputs.commit_sha }}
       expected_mcpb_sha256: ${{ needs.guard.outputs.expected_mcpb_sha256 }}
+      expected_wheel_sha256: ${{ needs.guard.outputs.expected_wheel_sha256 }}
 
   attempt_guard:
     name: Verify complete current release attempt

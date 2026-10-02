@@ -13,6 +13,11 @@ on:
         description: Exact commit to verify
         required: false
         type: string
+      expected_wheel_sha256:
+        description: Optional installed native-acceptance wheel digest
+        required: false
+        type: string
+        default: ""
       expected_mcpb_sha256:
         description: Optional accepted MCPB digest to bind during release reuse
         required: false
@@ -201,6 +206,7 @@ jobs:
             --stage-dir "$RUNNER_TEMP/veqtor-mcpb-stage"
       - name: Validate frozen Python and MCPB artifact identity
         env:
+          EXPECTED_WHEEL_SHA256: ${{ inputs.expected_wheel_sha256 }}
           EXPECTED_MCPB_SHA256: ${{ inputs.expected_mcpb_sha256 }}
         run: |
           uv run --frozen python scripts/check_release_artifacts.py \
@@ -210,6 +216,10 @@ jobs:
           npx --yes @anthropic-ai/mcpb@2.1.2 validate \
             "$RUNNER_TEMP/veqtor-mcpb-stage/manifest.json"
           npx --yes @anthropic-ai/mcpb@2.1.2 info dist/*.mcpb
+          if test -n "$EXPECTED_WHEEL_SHA256"; then
+            test "$(sha256sum dist/*.whl | cut -d ' ' -f 1)" = \
+              "$EXPECTED_WHEEL_SHA256"
+          fi
           if test -n "$EXPECTED_MCPB_SHA256"; then
             test "$(sha256sum dist/*.mcpb | cut -d ' ' -f 1)" = \
               "$EXPECTED_MCPB_SHA256"

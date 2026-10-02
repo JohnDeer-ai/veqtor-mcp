@@ -48,7 +48,7 @@ def archive_variant(case, mutation, directory):
         elif mutation in {"wheel_metadata_name", "both_metadata_wrong"}:
             values[metadata] = values[metadata].replace(b"Name: veqtor-mcp", b"Name: unrelated")
         elif mutation == "wheel_metadata_version":
-            values[metadata] = values[metadata].replace(b"Version: 0.4.2.dev0", b"Version: 0.0.0")
+            values[metadata] = values[metadata].replace(b"Version: 0.4.2", b"Version: 0.0.0")
         elif mutation == "wheel_metadata_dependency":
             values[metadata] = values[metadata].replace(b"jsonschema<5,>=4.20", b"unrelated==99")
         elif mutation == "wheel_metadata_readme":
@@ -112,7 +112,7 @@ def archive_variant(case, mutation, directory):
         sdist = directory / (mutation + ".tar.gz")
         with tarfile.open(sdist, "w:gz") as archive:
             for name, data in values.items():
-                prefix = "unrelated-0.0.0" if mutation == "sdist_wrong_root" or mutation == "sdist_mixed_roots" and name == "PKG-INFO" else "veqtor_mcp-0.4.2.dev0"
+                prefix = "unrelated-0.0.0" if mutation == "sdist_wrong_root" or mutation == "sdist_mixed_roots" and name == "PKG-INFO" else "veqtor_mcp-0.4.2"
                 member = tarfile.TarInfo(prefix + "/" + ("./" if mutation == "sdist_noncanonical" else "") + name)
                 member.size = len(data)
                 if name == "PKG-INFO" and mutation in {"sdist_pkg_symlink", "sdist_pkg_hardlink", "sdist_pkg_directory", "sdist_pkg_fifo"}:

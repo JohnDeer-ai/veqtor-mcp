@@ -152,7 +152,7 @@ def verify(root, commit, tree, wheel, sdist, python):
     require(git(root, "rev-parse", "HEAD^{tree}") == tree, "source tree differs")
     require(not git(root, "status", "--porcelain=v1", "--untracked-files=all"), "source checkout is dirty")
     config = tomllib.loads((root / "pyproject.toml").read_text())
-    require(config["project"]["name"] == "veqtor-mcp" and config["project"]["version"] == "0.4.2.dev0", "wrong development identity")
+    require(config["project"]["name"] == "veqtor-mcp" and config["project"]["version"] == "0.4.2", "wrong development identity")
     runtime = {name.removeprefix("/src/"): source_file(root, name.lstrip("/"))
                for name in config["tool"]["hatch"]["build"]["targets"]["wheel"]["include"]}
     require(set(runtime) == {p.relative_to(root / "src").as_posix()

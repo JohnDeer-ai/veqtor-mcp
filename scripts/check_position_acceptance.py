@@ -86,7 +86,7 @@ def baseline(value):
         "baseline model/effort selection absent")
     client_selection(selection["model"], selection["reasoning_effort"])
     require(set(value["producer"]) == {"name", "version", "build"} and value["producer"]["name"] == "veqtor-mcp"
-        and value["producer"]["version"] == "0.4.2.dev0"
+        and value["producer"]["version"] == "0.4.2"
         and re.fullmatch(r"source-snapshot-v1-sha256:[0-9a-f]{64}", value["producer"]["build"]), "producer differs")
     folders = value["folders"]
     require(set(folders) == {"original", "moved", "conflict", "first", "other"}

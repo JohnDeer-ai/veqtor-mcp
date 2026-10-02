@@ -37,6 +37,12 @@ from check_release_artifacts import (  # noqa: E402
 )
 
 
+def test_historical_v040_release_contract_is_preserved_byte_for_byte() -> None:
+    assert hashlib.sha256((SCRIPTS / "release_contract_v040.py").read_bytes()).hexdigest() == (
+        "2ae32f4e273fa2a4d66e0ee7915c009ac2336259f1eca0c56d29c2d335e31db6"
+    )
+
+
 def _scanner(project: Path, artifacts: list[Path]):
     return subprocess.run(
         [
@@ -183,12 +189,12 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
     assert "/src" not in sdist["include"]
     assert len(DEVELOPMENT_RUNTIME_SOURCE_FILES) == len(development_runtime)
     assert development_runtime == discovered_runtime
-    assert frozen_runtime < discovered_runtime
-    assert discovered_runtime - frozen_runtime == {"/src/veqtor_docx/_paragraph_edits.py",
-        "/src/veqtor_mcp/_positions_contract.py", "/src/veqtor_mcp/positions.py"}
-    assert config["project"]["version"] == "0.4.2.dev0"
-    assert config["project"]["version"] != VERSION
-    assert VERSION == "0.4.0"
+    assert frozen_runtime == discovered_runtime
+    assert {"/src/veqtor_docx/_paragraph_edits.py",
+        "/src/veqtor_mcp/_positions_contract.py", "/src/veqtor_mcp/positions.py"} <= frozen_runtime
+    assert config["project"]["version"] == "0.4.2"
+    assert config["project"]["version"] == VERSION
+    assert VERSION == "0.4.2"
     assert wheel_includes == discovered_runtime
     assert discovered_runtime <= sdist_includes
     assert "/src/veqtor_mcp/_inspection_live.py" in wheel_includes
@@ -199,7 +205,7 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
     assert "CLAUSE_HISTORY_V0.4.md" in SDIST_GIT_FILES
     codex_docs = {"docs/CODEX.md", "docs/prompts/next-round.md", "docs/evidence/codex-v0.4.0-20260911.json"}
     assert {f"/{path}" for path in codex_docs} <= sdist_includes
-    assert codex_docs.isdisjoint(SDIST_GIT_FILES)
+    assert codex_docs <= SDIST_GIT_FILES
 
 
 release_contract_only = pytest.mark.skipif(

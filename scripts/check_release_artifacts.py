@@ -80,6 +80,11 @@ SDIST_ALLOWED_TOP_LEVEL = frozenset(
         "TRADEMARKS.md",
         "pyproject.toml",
         "src",
+        "docs",
+        ".agents",
+        "NR-01_PARAGRAPH_EDITS.md",
+        "NR-02_DEAL_POSITIONS.md",
+        "NR-03_NEXT_ROUND.md",
     }
 )
 MAX_EXTERNAL_MARKERS_BYTES = 1_048_576

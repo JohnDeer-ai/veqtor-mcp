@@ -225,14 +225,14 @@ def _classify_adjacent_pair(
 
 def test_development_preserves_the_complete_frozen_v04_surface() -> None:
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    release = runpy.run_path(str(ROOT / "scripts" / "release_contract.py"))
+    release = runpy.run_path(str(ROOT / "scripts" / "release_contract_v040.py"))
     sdist_includes = project["tool"]["hatch"]["build"]["targets"]["sdist"]["include"]
     api = (ROOT / "API.md").read_text(encoding="utf-8")
     limitations = (ROOT / "KNOWN_LIMITATIONS.md").read_text(encoding="utf-8")
 
     source_version = project["project"]["version"]
     frozen_version = release["VERSION"]
-    assert source_version == development_version == "0.4.2.dev0"
+    assert source_version == development_version == "0.4.2"
     assert "/CLAUSE_HISTORY_V0.4.md" in sdist_includes
     assert frozen_version == "0.4.0"
     assert frozen_version != source_version
@@ -243,10 +243,10 @@ def test_development_preserves_the_complete_frozen_v04_surface() -> None:
     assert "trace_paragraph_history" in records.WRITABLE_TOOL_NAMES
     assert len(release["MCPB_REQUIRED_TOOLS"]) == 9
     assert "trace_paragraph_history" in release["MCPB_REQUIRED_TOOLS"]
-    assert f"development source is package `{source_version}`" in api
+    assert f"release-candidate source is package `{source_version}`" in api
     assert "eleven-tool MCP contract `veqtor.mcp.v0.4.2`" in api
     assert "Public `0.4.0`" in api
-    assert f"development source `{source_version}`" in limitations
+    assert f"release-candidate source `{source_version}`" in limitations
     assert "veqtor.mcp.v0.4" in limitations
     assert "compatible with public `0.4.0`" in limitations
     assert f'"version": "{source_version}"' in api

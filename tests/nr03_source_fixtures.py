@@ -26,7 +26,7 @@ def runtime_inventory():
              "preflight_edits", "apply_edits", "verify_quote", "export_decision_record",
              "read_deal_positions", "mutate_deal_positions")
     return dict(data=[dict(name="veqtor_nr03", runtimeStatus="connected", pluginId=None,
-        serverInfo=dict(name="veqtor", title=None, version="0.4.2.dev0", description=None, icons=None, websiteUrl=None),
+        serverInfo=dict(name="veqtor", title=None, version="0.4.2", description=None, icons=None, websiteUrl=None),
         tools={n: dict(name=n, inputSchema=dict(type="object")) for n in names}, toolsError=None,
         resources=[], resourceTemplates=[], authStatus="unsupported")], nextCursor=None)
 

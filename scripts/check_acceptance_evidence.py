@@ -22,7 +22,7 @@ from release_contract import (
 )
 
 
-SCHEMA_VERSION = "veqtor_release_acceptance.v7"
+SCHEMA_VERSION = "veqtor_release_acceptance.v8"
 MAX_EVIDENCE_BYTES = 64 * 1024
 MAX_PACKET_INTEGER_DIGITS = 128
 HEX = frozenset("0123456789abcdef")
@@ -118,6 +118,47 @@ def _validate_private_run(value: Any, location: str) -> None:
         raise EvidenceError(f"{location} modified the source corpus")
 
 
+def _validate_next_round(value: Any, producer_build: str) -> None:
+    """Bind native repeated-round evidence to the installed release runtime."""
+    result = _exact_keys(value, {
+        "client", "model", "reasoning_effort", "runtime_version",
+        "runtime_producer_build", "installed_wheel_sha256",
+        "saved_positions_restored", "brief_present", "explicit_decisions",
+        "sources_before_sha256", "sources_after_sha256",
+        "first_round", "second_round",
+    }, "next_round")
+    for field, expected in {
+        "client": "native_codex_mcp",
+        "model": "gpt-6-astra",
+        "reasoning_effort": "high",
+        "runtime_version": VERSION,
+        "runtime_producer_build": producer_build,
+    }.items():
+        if result[field] != expected:
+            raise EvidenceError(f"next_round.{field} differs from the release contract")
+    for field in ("saved_positions_restored", "brief_present", "explicit_decisions"):
+        _boolean(result[field], True, f"next_round.{field}")
+    for field in ("installed_wheel_sha256", "sources_before_sha256", "sources_after_sha256"):
+        _hex_digest(result[field], 64, f"next_round.{field}")
+    if result["sources_before_sha256"] != result["sources_after_sha256"]:
+        raise EvidenceError("next_round modified original sources")
+    for name in ("first_round", "second_round"):
+        round_ = _exact_keys(result[name], {
+            "transcript_sha256", "output_sha256", "text_checked",
+            "track_changes_checked", "rendered_pages", "inspected_pages",
+            "delivered_by_model", "fresh_session",
+        }, f"next_round.{name}")
+        for field in ("transcript_sha256", "output_sha256"):
+            _hex_digest(round_[field], 64, f"next_round.{name}.{field}")
+        for field in ("text_checked", "track_changes_checked", "delivered_by_model", "fresh_session"):
+            _boolean(round_[field], True, f"next_round.{name}.{field}")
+        pages = _count(round_["rendered_pages"], 1, f"next_round.{name}.rendered_pages")
+        _exact_count(round_["inspected_pages"], pages, f"next_round.{name}.inspected_pages")
+    for field in ("transcript_sha256", "output_sha256"):
+        if result["first_round"][field] == result["second_round"][field]:
+            raise EvidenceError(f"next_round rounds reuse the same {field}")
+
+
 def validate_evidence(
     value: Any,
     *,
@@ -143,6 +184,7 @@ def validate_evidence(
             "installed_two_export",
             "desktop_rehearsal",
             "desktop_extension",
+            "next_round",
         },
         "packet",
     )
@@ -152,6 +194,8 @@ def validate_evidence(
         raise EvidenceError("packet tree does not equal checked-out HEAD tree")
     if packet["producer_build"] != producer_build:
         raise EvidenceError("packet producer build does not equal the source tree")
+
+    _validate_next_round(packet["next_round"], producer_build)
 
     matrix = _exact_keys(
         packet["public_matrix"],
@@ -717,8 +761,8 @@ def validate_evidence(
             "post_rollback_smoke_status",
             "post_rollback_workspace_kind",
             "rollback_scope",
-            "v04_workspace_presented_to_v03",
-            "v04_journal_downgrade_claimed",
+            "candidate_workspace_presented_to_previous",
+            "position_or_journal_downgrade_claimed",
             "candidate_reinstall_status",
             "post_reinstall_artifact_sha256",
             "post_reinstall_checksum_status",
@@ -730,14 +774,14 @@ def validate_evidence(
         "desktop_extension.lifecycle",
     )
     if (
-        lifecycle["scenario"] != "v0.3.0_to_v0.4.0_upgrade_rollback_v1"
-        or lifecycle["previous_artifact_source"] != "immutable_github_release_v0.3.0"
+        lifecycle["scenario"] != "v0.4.0_to_v0.4.2_upgrade_rollback_v1"
+        or lifecycle["previous_artifact_source"] != "immutable_github_release_v0.4.0"
         or lifecycle["previous_artifact_version"] != PREVIOUS_PUBLIC_VERSION
         or lifecycle["post_upgrade_runtime_version"] != VERSION
         or lifecycle["post_rollback_runtime_version"] != PREVIOUS_PUBLIC_VERSION
         or lifecycle["post_reinstall_runtime_version"] != VERSION
         or lifecycle["post_rollback_workspace_kind"]
-        != "fresh_v03_compatible_workspace_v1"
+        != "fresh_v040_compatible_workspace_v1"
         or lifecycle["rollback_scope"] != "extension_runtime_and_tool_surface_only"
     ):
         raise EvidenceError("Desktop extension lifecycle identity differs")
@@ -780,14 +824,14 @@ def validate_evidence(
     ):
         _passed(lifecycle[field], f"desktop_extension.lifecycle.{field}")
     _boolean(
-        lifecycle["v04_workspace_presented_to_v03"],
+        lifecycle["candidate_workspace_presented_to_previous"],
         False,
-        "desktop_extension.lifecycle.v04_workspace_presented_to_v03",
+        "desktop_extension.lifecycle.candidate_workspace_presented_to_previous",
     )
     _boolean(
-        lifecycle["v04_journal_downgrade_claimed"],
+        lifecycle["position_or_journal_downgrade_claimed"],
         False,
-        "desktop_extension.lifecycle.v04_journal_downgrade_claimed",
+        "desktop_extension.lifecycle.position_or_journal_downgrade_claimed",
     )
     _boolean(
         lifecycle["post_uninstall_tools_absent"],

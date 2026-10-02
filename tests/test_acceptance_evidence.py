@@ -90,6 +90,7 @@ def _packet() -> dict:
             "runtime_producer_build": PRODUCER_BUILD,
             "runtime_version": RUNTIME_VERSION,
         },
+        "next_round": {'client': 'native_codex_mcp', 'model': 'gpt-6-astra', 'reasoning_effort': 'high', 'runtime_version': '0.4.2', 'runtime_producer_build': 'source-snapshot-v1-sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc', 'installed_wheel_sha256': '7777777777777777777777777777777777777777777777777777777777777777', 'saved_positions_restored': True, 'brief_present': True, 'explicit_decisions': True, 'sources_before_sha256': '8888888888888888888888888888888888888888888888888888888888888888', 'sources_after_sha256': '8888888888888888888888888888888888888888888888888888888888888888', 'first_round': {'transcript_sha256': '5555555555555555555555555555555555555555555555555555555555555555', 'output_sha256': '6666666666666666666666666666666666666666666666666666666666666666', 'text_checked': True, 'track_changes_checked': True, 'rendered_pages': 1, 'inspected_pages': 1, 'delivered_by_model': True, 'fresh_session': True}, 'second_round': {'transcript_sha256': '9999999999999999999999999999999999999999999999999999999999999999', 'output_sha256': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'text_checked': True, 'track_changes_checked': True, 'rendered_pages': 1, 'inspected_pages': 1, 'delivered_by_model': True, 'fresh_session': True}},
         "desktop_rehearsal": {
             "verdict": "passed",
             "client": "claude_desktop_existing_user_profile",
@@ -224,8 +225,8 @@ def _packet() -> dict:
             "session_transcript_sha256": "2" * 64,
             "demo_journal_sha256": "3" * 64,
             "lifecycle": {
-                "scenario": "v0.3.0_to_v0.4.0_upgrade_rollback_v1",
-                "previous_artifact_source": "immutable_github_release_v0.3.0",
+                "scenario": "v0.4.0_to_v0.4.2_upgrade_rollback_v1",
+                "previous_artifact_source": "immutable_github_release_v0.4.0",
                 "previous_artifact_version": PREVIOUS_PUBLIC_VERSION,
                 "initial_artifact_sha256": PREVIOUS_PUBLIC_MCPB_SHA256,
                 "initial_checksum_status": "passed",
@@ -242,10 +243,10 @@ def _packet() -> dict:
                 "post_rollback_runtime_version": PREVIOUS_PUBLIC_VERSION,
                 "post_rollback_visible_tools": list(PREVIOUS_PUBLIC_MCPB_TOOLS),
                 "post_rollback_smoke_status": "passed",
-                "post_rollback_workspace_kind": ("fresh_v03_compatible_workspace_v1"),
+                "post_rollback_workspace_kind": ("fresh_v040_compatible_workspace_v1"),
                 "rollback_scope": "extension_runtime_and_tool_surface_only",
-                "v04_workspace_presented_to_v03": False,
-                "v04_journal_downgrade_claimed": False,
+                "candidate_workspace_presented_to_previous": False,
+                "position_or_journal_downgrade_claimed": False,
                 "candidate_reinstall_status": "passed",
                 "post_reinstall_artifact_sha256": "1" * 64,
                 "post_reinstall_checksum_status": "passed",
@@ -267,14 +268,52 @@ def _validate(packet: dict) -> None:
     )
 
 
+@pytest.mark.parametrize("field,value", [
+    ("client", "scripted_mcp"), ("model", "unknown"),
+    ("reasoning_effort", "ultra"), ("runtime_version", "0.4.2.dev0"),
+    ("runtime_producer_build", "old-build"),
+    ("installed_wheel_sha256", "not-a-digest"),
+    ("saved_positions_restored", False), ("brief_present", False),
+    ("explicit_decisions", False), ("sources_after_sha256", "f" * 64),
+])
+def test_next_round_rejects_missing_or_foreign_runtime_evidence(field, value):
+    packet = _packet()
+    packet["next_round"][field] = value
+    with pytest.raises(EvidenceError, match="next_round"):
+        _validate(packet)
+
+
+@pytest.mark.parametrize("round_name", ["first_round", "second_round"])
+@pytest.mark.parametrize("field,value", [
+    ("text_checked", False), ("track_changes_checked", False),
+    ("delivered_by_model", False), ("fresh_session", False),
+    ("rendered_pages", 0), ("rendered_pages", True),
+    ("inspected_pages", 0), ("inspected_pages", 2),
+    ("output_sha256", "bad"), ("transcript_sha256", "bad"),
+])
+def test_each_native_round_requires_full_delivery_and_page_inspection(round_name, field, value):
+    packet = _packet()
+    packet["next_round"][round_name][field] = value
+    with pytest.raises(EvidenceError, match="next_round"):
+        _validate(packet)
+
+
+@pytest.mark.parametrize("field", ["transcript_sha256", "output_sha256"])
+def test_next_round_cannot_relabel_one_result_as_two(field):
+    packet = _packet()
+    packet["next_round"]["second_round"][field] = packet["next_round"]["first_round"][field]
+    with pytest.raises(EvidenceError, match="reuse"):
+        _validate(packet)
+
+
 def test_complete_exact_candidate_evidence_passes() -> None:
     _validate(_packet())
 
 
-def test_documented_working_template_matches_executable_v7_schema() -> None:
+def test_documented_working_template_matches_executable_v8_schema() -> None:
     releasing = (ROOT / "RELEASING.md").read_text()
-    template = releasing.split("<!-- acceptance-v7-template-begin -->", 1)[1]
-    template = template.split("<!-- acceptance-v7-template-end -->", 1)[0]
+    template = releasing.split("<!-- acceptance-v8-template-begin -->", 1)[1]
+    template = template.split("<!-- acceptance-v8-template-end -->", 1)[0]
     packet = _parse_packet(
         template.split("```json\n", 1)[1].split("\n```", 1)[0].encode()
     )
@@ -432,15 +471,15 @@ def test_documented_working_template_matches_executable_v7_schema() -> None:
         ),
         (
             lambda packet: packet["desktop_extension"]["lifecycle"].update(
-                {"v04_workspace_presented_to_v03": True}
+                {"candidate_workspace_presented_to_previous": True}
             ),
-            "v04_workspace_presented_to_v03 does not equal False",
+            "candidate_workspace_presented_to_previous does not equal False",
         ),
         (
             lambda packet: packet["desktop_extension"]["lifecycle"].update(
-                {"v04_journal_downgrade_claimed": True}
+                {"position_or_journal_downgrade_claimed": True}
             ),
-            "v04_journal_downgrade_claimed does not equal False",
+            "position_or_journal_downgrade_claimed does not equal False",
         ),
         (
             lambda packet: packet["desktop_extension"].update(

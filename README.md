@@ -18,7 +18,7 @@ counterproposal batches, create a new DOCX with real tracked changes, and keep
 re-checkable local provenance. The model remains the legal-reasoning layer;
 Veqtor handles document facts and writes.
 
-The NR-01 development slice can replace exact text or delete a fragment in a
+The NR-01 paragraph edit capability can replace exact text or delete a fragment in a
 clean body/table paragraph, even in a DOCX with no existing Track Changes. It
 uses the full inspection reference, refuses pending revisions and unsupported
 structure, and creates a separate file with real deletion/insertion revisions.
@@ -30,15 +30,15 @@ tamper-evident audit system. Review the
 [known limitations](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/KNOWN_LIMITATIONS.md)
 before using it on a real matter.
 
-This source tree is development package `0.4.2.dev0` and advertises the
+This source tree is release-candidate package `0.4.2` and advertises the
 eleven-tool MCP contract `veqtor.mcp.v0.4.2`. All eleven tools report that one
 contract-wide marker. Legacy calls remain compatible
-with public `0.4.0`; the additive paragraph target requires this development build; live `producer.version` identifies this development version
+with public `0.4.0`; the additive paragraph target requires this candidate build; live `producer.version` identifies this package version
 and `producer.build` fingerprints the imported Python sources.
 
-Public `0.4.0` is the published release line. This development tree adds the
+Public `0.4.0` is the published release line. This candidate tree adds the
 Codex integration and safe error transport; it is not a new publication or
-proof of client acceptance. The frozen v0.4 release contract and published
+proof of client acceptance. The historical v0.4.0 contract is retained separately; its published
 artifacts are unchanged. The historical v0.3 release remains an immutable
 eight-tool `veqtor.mcp.v0.3` surface.
 
@@ -49,8 +49,8 @@ select one exact version for every command below:
 
 | Official state | Replace `X.Y.Z` with |
 |---|---|
-| Both sources expose `0.4.0`, and the GitHub release contains the complete verified asset set | `0.4.0` |
-| Otherwise | `0.3.0` |
+| Both sources expose `0.4.2`, and the GitHub release contains the complete verified asset set | `0.4.2` |
+| Otherwise | `0.4.0` |
 
 Do not run the placeholder literally or mix versions within one installation.
 
@@ -60,8 +60,8 @@ Do not run the placeholder literally or mix versions within one installation.
 chosen version appears inside the matching verified immutable `vX.Y.Z` entry
 in the live GitHub Releases list with its checksum manifest. Replace the
 placeholder using the table above. Presence in source, CI, a branch, chat or
-issue is not publication; if either public verifier is missing v0.4.0, keep
-using the verified public v0.3.0 extension and never guess a release-asset URL.
+issue is not publication; if either public verifier is missing v0.4.2, keep
+using the verified public v0.4.0 extension and never guess a release-asset URL.
 
 Opening an official MCPB requests installation approval and the tracked-change
 author name. Its first activation may download a compatible Python runtime and
@@ -70,19 +70,19 @@ not digitally signed.
 
 ## Use Veqtor in local Codex
 
-The [Codex setup guide](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/docs/CODEX.md) connects the pinned `0.4.0` package to
-local Codex over stdio. It includes a synthetic read-and-write check for that
-published package. The development
+The [Codex setup guide](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/docs/CODEX.md)
+connects the exact version selected above to local Codex over stdio. The
 [next-round workflow](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/docs/CODEX.md#use-saved-positions-for-the-next-round-nr-03-development)
 reuses saved positions, presents a selected-issue brief and prepares a separate
-tracked Word counterproposal after your decisions. It requires the eleven-tool
-development build; the public installation below does not provide all of it.
+tracked Word counterproposal after your decisions. That workflow requires
+`0.4.2` and all eleven tools; the fallback `0.4.0` supports the historical
+nine-tool document workflow only.
 
 After installing [uv](https://docs.astral.sh/uv/), find its executable with
 `command -v uvx`. Replace the path and author below with your own values:
 
 ```bash
-codex mcp add veqtor --env 'VEQTOR_TRACKED_CHANGE_AUTHOR=Your Name' -- /absolute/path/to/uvx veqtor-mcp@0.4.0
+codex mcp add veqtor --env 'VEQTOR_TRACKED_CHANGE_AUTHOR=Your Name' -- /absolute/path/to/uvx veqtor-mcp@X.Y.Z
 ```
 
 Restart the MCP server or open a fresh Codex session, then use the guide's
@@ -91,7 +91,7 @@ configuration; browser ChatGPT requires a separate connection.
 [Official OpenAI MCP documentation](https://learn.chatgpt.com/docs/extend/mcp).
 Registration alone does not establish a working document workflow. The guide
 separates the historical public-package observations from pending acceptance of
-the exact `0.4.2.dev0` candidate; the installed public server is not that candidate.
+the exact `0.4.2` candidate. Select that version only after both public verifiers pass.
 
 ## Install a verified published version for Claude Code
 
@@ -217,7 +217,7 @@ or environment.
 
 ## Tool surface
 
-The descriptions below follow development package `0.4.2.dev0` and its
+The descriptions below follow release-candidate package `0.4.2` and its
 eleven-tool MCP contract `veqtor.mcp.v0.4.2`. Public `0.4.0` retains the frozen
 `veqtor.mcp.v0.4` contract. For an
 installed version, use the API file carried by that exact artifact or its
@@ -298,7 +298,7 @@ for hostile same-user processes.
 | Operating systems | macOS, Linux |
 | Python | 3.12, 3.13, 3.14 |
 | Transport | local stdio MCP; modern `2026-07-28` and legacy through `2025-11-25` |
-| Historical client observations | Claude Code, Claude Desktop; bounded synthetic workflow in Codex CLI 0.153.4 with published Veqtor 0.4.0 ([evidence](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/docs/evidence/codex-v0.4.0-20260911.json)); this is not acceptance of 0.4.2.dev0 |
+| Historical client observations | Claude Code, Claude Desktop; bounded synthetic workflow in Codex CLI 0.153.4 with published Veqtor 0.4.0 ([evidence](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/docs/evidence/codex-v0.4.0-20260911.json)); this is not acceptance of 0.4.2 |
 | DOCX part | `word/document.xml` |
 | Writes | tracked replace, delete, counter, reinstate |
 | Distribution | Versioned PyPI packages with matching immutable GitHub wheel/sdist/checksums; macOS MCPB only when attached to the matching verified release |
@@ -372,7 +372,7 @@ The exact-SHA immutable publication contract is documented in the
 Veqtor MCP is an independent open-source project created and maintained by
 **Ilya Shilov** ([@JohnDeer-ai](https://github.com/JohnDeer-ai)).
 
-## Deal positions in the development candidate
+## Deal positions in the release candidate
 
 NR-02 adds `read_deal_positions` and `mutate_deal_positions`: retain desired
 outcomes, conditional concessions, linked positions and business questions in

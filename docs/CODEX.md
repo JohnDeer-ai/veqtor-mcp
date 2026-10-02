@@ -2,19 +2,18 @@
 
 # Prepare the next negotiation round in Codex
 
-The development next-round workflow starts from an incoming Word file, your
+The next-round workflow starts from an incoming Word file, your
 previous sent file when available, and saved negotiation positions. It produces
 a selected-issue brief, asks for missing decisions and creates a separate Word
 counterproposal with tracked changes for your review.
 
-The public installation instructions use package `0.4.0` and the nine-tool
-contract `veqtor.mcp.v0.4`. This source tree is development `0.4.2.dev0` with
-additive schema `veqtor.mcp.v0.4.2`, legacy compatibility and a distinct producer
-version/build. It includes NR-01 paragraph edits and NR-02 saved positions
-alongside the error-transport adapter. The NR-03 workflow connects those
-capabilities; this is not a new published release.
-Use the matching [PyPI version](https://pypi.org/project/veqtor-mcp/0.4.0/) and
-[immutable GitHub release](https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/v0.4.0).
+Select one exact `X.Y.Z` using the [README version-selection table](../README.md).
+Use `0.4.2` only when both PyPI and the immutable GitHub release expose the
+complete verified artifact set; otherwise the public fallback is `0.4.0`.
+This source candidate is `0.4.2` with the eleven-tool `veqtor.mcp.v0.4.2`
+contract, paragraph edits, saved positions and the repeated next-round workflow.
+Public `0.4.0` retains its nine-tool `veqtor.mcp.v0.4` contract and cannot run
+the saved-position workflow. Source presence is not publication.
 Veqtor supports macOS and Linux with Python 3.12–3.14. Windows is outside the
 current Alpha.
 
@@ -31,19 +30,19 @@ Use the returned absolute path in place of `/absolute/path/to/uvx` below. Check
 the pinned package before connecting it:
 
 ```bash
-/absolute/path/to/uvx veqtor-mcp@0.4.0 --version
-env 'VEQTOR_TRACKED_CHANGE_AUTHOR=Your Name' /absolute/path/to/uvx veqtor-mcp@0.4.0 doctor
+/absolute/path/to/uvx veqtor-mcp@X.Y.Z --version
+env 'VEQTOR_TRACKED_CHANGE_AUTHOR=Your Name' /absolute/path/to/uvx veqtor-mcp@X.Y.Z doctor
 ```
 
 Replace `Your Name` with the name you want to appear on new tracked changes.
-The version should be `0.4.0`; diagnostics should report `status: ok` and your
+The version should equal your selected `X.Y.Z`; diagnostics should report `status: ok` and your
 chosen author. The first run may download the package, dependencies, and a
 compatible Python runtime.
 
 Register the same command and author:
 
 ```bash
-codex mcp add veqtor --env 'VEQTOR_TRACKED_CHANGE_AUTHOR=Your Name' -- /absolute/path/to/uvx veqtor-mcp@0.4.0
+codex mcp add veqtor --env 'VEQTOR_TRACKED_CHANGE_AUTHOR=Your Name' -- /absolute/path/to/uvx veqtor-mcp@X.Y.Z
 codex mcp get veqtor
 ```
 
@@ -59,7 +58,7 @@ preserve the other settings and avoid a duplicate `mcp_servers.veqtor` table:
 ```toml
 [mcp_servers.veqtor]
 command = "/absolute/path/to/uvx"
-args = ["veqtor-mcp@0.4.0"]
+args = ["veqtor-mcp@X.Y.Z"]
 startup_timeout_sec = 30
 tool_timeout_sec = 120
 
@@ -77,7 +76,7 @@ it requires a restart.
 Create the bundled four-round demonstration in a new disposable folder:
 
 ```bash
-/absolute/path/to/uvx --from 'veqtor-mcp==0.4.0' veqtor-demo-rounds ~/veqtor-codex-demo
+/absolute/path/to/uvx --from 'veqtor-mcp==X.Y.Z' veqtor-demo-rounds ~/veqtor-codex-demo
 ```
 
 In a fresh local Codex session, give the absolute path to that folder and ask:
@@ -92,7 +91,7 @@ browse. Use `selection={"paragraph_ref": returned_reference}` or
 `selection={"section_ref": returned_reference}` with the complete reference.
 A bare reference or paragraph index is not the read-selection object.
 
-For this public `0.4.0` example, ask Veqtor to prepare the following two tracked
+For this compatible document-workflow example, ask Veqtor to prepare the following two tracked
 changes together, verifying the exact source anchors, preflighting the complete
 batch and passing unchanged edits plus the full proof to apply:
 
@@ -115,7 +114,7 @@ establish suitability for every real contract or independent-user acceptance.
 
 ## Use saved positions for the next round (NR-03 development)
 
-Use an installed, verified development candidate exposing all eleven tools,
+Use an installed, verified release candidate exposing all eleven tools,
 including `read_deal_positions` and `mutate_deal_positions`. The public `0.4.0`
 registration above cannot run this complete workflow. Candidate installation and
 isolated native checks are described in [NR03_ACCEPTANCE.md](NR03_ACCEPTANCE.md);
@@ -158,7 +157,7 @@ not establish that a commercial protection still works as intended.
 
 The present editing scope matters:
 
-- This development build supports exact replace/delete in supported clean body
+- This candidate build supports exact replace/delete in supported clean body
   and table paragraphs using fresh inspection refs. Pending or unsupported
   paragraph structures are refused. Public `0.4.0` instead requires a usable
   existing redline anchor.
@@ -233,18 +232,20 @@ Its separately built wheel was tested through a fresh native Codex session:
 were visible in the client, all five DOCX files stayed unchanged, and a
 subsequent read succeeded. All 21 packaged Python files matched the reviewed
 source. The observation records that candidate's distinct build and wheel hash.
-The pinned public `0.4.0` installation above does **not** include this patch.
+The historical public `0.4.0` installation does **not** include this patch.
 
 These dated observations belong to their recorded source/build identities.
 They do not establish native acceptance of the subsequent `0.4.1.dev0` changes.
 
-## Development candidate acceptance
+## Exact candidate acceptance
 
-Acceptance of `0.4.2.dev0` is pending independent review and the final gates.
+Acceptance of `0.4.2` is pending independent review and the final gates.
 After Reviewer PASS, run the required full tests, locked runtime audit and
 wheel/sdist checks from the exact reviewed commit and tree. Keep gate evidence
-outside the repository; do not modify the frozen v0.4 release manifest to admit
-the development-only documents.
+outside the repository. The current release inventory explicitly includes the
+workflow documents; the archived v0.4.0 contract and published bytes stay unchanged.
+For release acceptance use the independently installed wheel, with model
+`gpt-6-astra` and effort `high`, under [RELEASING.md](../RELEASING.md).
 
 For the native test, select the exact candidate in that run's configuration.
 Codex supports per-run `-c key=value` overrides; see
@@ -264,7 +265,7 @@ Apply this only to the isolated test configuration or per-run overrides.
 Keep the user's public registration separate. Record the selected command,
 exact Git commit/tree, wheel/sdist hashes and source snapshot build. Compare
 the candidate's `doctor` build with `producer.build` from every successful
-native call and require `producer.version` to be `0.4.2.dev0`. Source identity
+native call and require `producer.version` to be `0.4.2`. Source identity
 alone does not verify wheel packaging; inspect the exact built artifacts too.
 
 The retained NR-00/NR-01 profiles use synthetic documents and actual
@@ -276,7 +277,7 @@ the positive checker deliberately rejects every failed preflight/apply attempt.
 Record each refusal code and independently verify no extra or partial output,
 no overwrite and unchanged sources. Do not bypass an MCP refusal with a direct
 Python edit. Render the final Word candidate with the documents skill and
-inspect every page. These gates concern this development candidate; they do
+inspect every page. These gates concern this release candidate; they do
 not publish it or establish separate desktop write or independent-user acceptance.
 
 ## Recheck native evidence
@@ -309,7 +310,7 @@ they contain paths and document text.
 
 ## NR-01 native profile
 
-The development package `0.4.2.dev0` advertises `veqtor.mcp.v0.4.2`. The retained
+The release-candidate package `0.4.2` advertises `veqtor.mcp.v0.4.2`. The retained
 NR-01 paragraph target and delete-only scenario uses a separate checker. The original
 `check_codex_acceptance.py` and its nine-tool v1 profile stay unchanged.
 

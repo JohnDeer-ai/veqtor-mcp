@@ -3,9 +3,9 @@
   "manifest_version": "0.4",
   "name": "veqtor-mcp",
   "display_name": "Veqtor",
-  "version": "0.4.0",
+  "version": "0.4.2",
   "description": "Local DOCX redline evidence and fail-closed tracked edits for Claude",
-  "long_description": "Veqtor lets Claude inspect accepted/current Word text, trace exact paragraph evidence across negotiation rounds, inspect tracked changes, verify current or rejected-pending wording, preflight a complete edit proposal, create a separate DOCX with real tracked changes, and retain privacy-minimized local provenance. Document processing stays on the user's computer. Veqtor supplies bounded document facts and deterministic writes; it does not provide legal advice or decide whether wording is legally or commercially suitable.",
+  "long_description": "Veqtor lets Claude inspect accepted/current Word text, trace exact paragraph evidence across negotiation rounds, inspect tracked changes, verify current or rejected-pending wording, preflight a complete edit proposal, create a separate DOCX with real tracked changes, and retain privacy-minimized local provenance. Document processing stays on the user's computer. Veqtor supplies bounded document facts and deterministic writes; it does not provide legal advice or decide whether wording is legally or commercially suitable. Version 0.4.2 adds clean-paragraph edits and separate saved negotiation positions; bundled docs/prompts/next-round.md describes the selected-issue next-round workflow.",
   "author": {
     "name": "Ilya Shilov",
     "url": "https://veqtor.pro"
@@ -82,6 +82,14 @@
     {
       "name": "export_decision_record",
       "description": "Export a privacy-minimized projection of local provenance records."
+    },
+    {
+      "name": "read_deal_positions",
+      "description": "Read complete saved negotiation positions, exact-version confirmations, history and source freshness."
+    },
+    {
+      "name": "mutate_deal_positions",
+      "description": "Save explicitly instructed position changes with expected-revision concurrency and exact-version confirmation."
     }
   ],
   "tools_generated": false,
