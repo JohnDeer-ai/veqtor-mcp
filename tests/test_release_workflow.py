@@ -50,7 +50,7 @@ def test_release_guard_precedes_execution_of_requested_commit() -> None:
     assert "private_dogfood_passed" not in workflow
     assert "acceptance_evidence:" in workflow
     assert "acceptance_evidence_sha256:" in workflow
-    assert "veqtor_release_acceptance.v8" in workflow
+    assert "veqtor_release_acceptance.v9" in workflow
     assert "expected_mcpb_sha256" in verify
     assert "expected_wheel_sha256" in verify
     assert '"desktop_extension"]["artifact_sha256"]' in guard
@@ -534,7 +534,7 @@ def test_product_acceptance_documents_complete_path_free_packet() -> None:
     assert "installed wheel completes the eleven-tool synthetic smoke" in releasing
     assert "maintainer's existing macOS user" in releasing
     assert "calls exactly eleven tools" in releasing
-    assert "### Construct the v8 acceptance packet" in releasing
+    assert "### Construct the v9 acceptance packet" in releasing
     assert "Claude Code" not in releasing
     assert "canonical path-free acceptance packet" in releasing
     assert "never filenames, local paths, quotations or document text" in releasing
@@ -547,8 +547,8 @@ def test_product_acceptance_documents_complete_path_free_packet() -> None:
     assert "Do not infer or" in releasing
     assert "Only after all required gates" in releasing
 
-    template = releasing.split("<!-- acceptance-v8-template-begin -->", 1)[1]
-    template = template.split("<!-- acceptance-v8-template-end -->", 1)[0]
+    template = releasing.split("<!-- acceptance-v9-template-begin -->", 1)[1]
+    template = template.split("<!-- acceptance-v9-template-end -->", 1)[0]
     packet = json.loads(template.split("```json\n", 1)[1].split("\n```", 1)[0])
     assert set(packet) == {
         "schema_version",
@@ -627,6 +627,15 @@ def test_product_acceptance_documents_complete_path_free_packet() -> None:
         "server_work_cancellation_verified": False,
         "cancelled_request_side_effect_absence_verified": False,
         "process_teardown_status": "passed",
+        "cancellation_observation": {
+            "source": "actual_claude_desktop",
+            "request_in_flight_when_abandoned": True,
+            "notification_count": 1,
+            "protocol_log_sha256": "1" * 64,
+            "client_abandonment_evidence_sha256": "2" * 64,
+            "session_recovery_evidence_sha256": "3" * 64,
+            "forced_teardown_evidence_sha256": "4" * 64,
+        },
     }
     lifecycle = packet["desktop_extension"]["lifecycle"]
     assert (

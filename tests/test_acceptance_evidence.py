@@ -41,6 +41,7 @@ PRODUCER_BUILD = "source-snapshot-v1-sha256:" + "c" * 64
 CORPUS_SHA = "d" * 64
 OUTPUT_SHA = FIVE_EDIT_OUTPUT_SHA256
 RUNTIME_VERSION = VERSION
+CANCELLATION_STATUSES = ("passed", "not_observed_after_client_abandonment")
 
 
 def _packet() -> dict:
@@ -216,6 +217,15 @@ def _packet() -> dict:
                 "server_work_cancellation_verified": False,
                 "cancelled_request_side_effect_absence_verified": False,
                 "process_teardown_status": "passed",
+                "cancellation_observation": {
+                    "source": "actual_claude_desktop",
+                    "request_in_flight_when_abandoned": True,
+                    "notification_count": 1,
+                    "protocol_log_sha256": "1" * 64,
+                    "client_abandonment_evidence_sha256": "2" * 64,
+                    "session_recovery_evidence_sha256": "3" * 64,
+                    "forced_teardown_evidence_sha256": "4" * 64,
+                },
             },
             "post_apply_list_rounds_status": "passed",
             "post_apply_round_count": 5,
@@ -310,10 +320,124 @@ def test_complete_exact_candidate_evidence_passes() -> None:
     _validate(_packet())
 
 
-def test_documented_working_template_matches_executable_v8_schema() -> None:
+def _cancellation_packet(status: str) -> dict:
+    packet = _packet()
+    lifecycle = packet["desktop_extension"]["stdio_lifecycle"]
+    lifecycle["cancellation_notification_status"] = status
+    lifecycle["cancellation_observation"]["notification_count"] = (
+        1 if status == "passed" else 0
+    )
+    return packet
+
+
+@pytest.mark.parametrize("status", CANCELLATION_STATUSES)
+def test_observed_desktop_cancellation_outcomes_pass(status: str) -> None:
+    _validate(_cancellation_packet(status))
+
+
+@pytest.mark.parametrize("status", CANCELLATION_STATUSES)
+@pytest.mark.parametrize(
+    "field",
+    [
+        "client_request_abandonment_status",
+        "post_cancellation_session_recovery_status",
+        "process_teardown_status",
+    ],
+)
+def test_cancellation_limitation_cannot_bypass_required_client_checks(
+    status: str, field: str
+) -> None:
+    packet = _cancellation_packet(status)
+    packet["desktop_extension"]["stdio_lifecycle"][field] = "failed"
+    with pytest.raises(EvidenceError, match=rf"{field} did not pass"):
+        _validate(packet)
+
+
+@pytest.mark.parametrize("status", CANCELLATION_STATUSES)
+@pytest.mark.parametrize(
+    "field",
+    ["server_work_cancellation_verified", "cancelled_request_side_effect_absence_verified"],
+)
+def test_cancellation_outcome_does_not_authorize_server_or_side_effect_claims(
+    status: str, field: str
+) -> None:
+    packet = _cancellation_packet(status)
+    packet["desktop_extension"]["stdio_lifecycle"][field] = True
+    with pytest.raises(EvidenceError, match=rf"{field} does not equal False"):
+        _validate(packet)
+
+
+@pytest.mark.parametrize("status", CANCELLATION_STATUSES)
+@pytest.mark.parametrize("count", [True, False, -1, 0.0, "0", None])
+def test_cancellation_notification_count_is_a_nonnegative_integer(status, count) -> None:
+    packet = _cancellation_packet(status)
+    packet["desktop_extension"]["stdio_lifecycle"]["cancellation_observation"][
+        "notification_count"
+    ] = count
+    with pytest.raises(EvidenceError, match="notification_count"):
+        _validate(packet)
+
+
+@pytest.mark.parametrize(
+    ("status", "count"),
+    [("passed", 0), ("not_observed_after_client_abandonment", 1)],
+)
+def test_cancellation_status_cannot_contradict_observed_notifications(status, count):
+    packet = _cancellation_packet(status)
+    packet["desktop_extension"]["stdio_lifecycle"]["cancellation_observation"][
+        "notification_count"
+    ] = count
+    with pytest.raises(EvidenceError, match="notification"):
+        _validate(packet)
+
+
+@pytest.mark.parametrize("status", ["skipped", "not_applicable", "unknown", None, True])
+def test_cancellation_has_no_unobserved_or_skipped_escape_hatch(status):
+    packet = _cancellation_packet(status)
+    with pytest.raises(EvidenceError, match="cancellation_notification_status is unsupported"):
+        _validate(packet)
+
+
+@pytest.mark.parametrize("status", CANCELLATION_STATUSES)
+@pytest.mark.parametrize(
+    ("field", "invalid"),
+    [
+        ("source", "sdk_smoke"),
+        ("request_in_flight_when_abandoned", False),
+        ("request_in_flight_when_abandoned", 1),
+        ("protocol_log_sha256", "/private/protocol.log"),
+        ("client_abandonment_evidence_sha256", ""),
+        ("session_recovery_evidence_sha256", "F" * 64),
+        ("forced_teardown_evidence_sha256", None),
+    ],
+)
+def test_cancellation_outcomes_require_actual_in_flight_evidence(status, field, invalid):
+    packet = _cancellation_packet(status)
+    observation = packet["desktop_extension"]["stdio_lifecycle"]["cancellation_observation"]
+    observation[field] = invalid
+    with pytest.raises(EvidenceError, match=rf"cancellation_observation\.{field}"):
+        _validate(packet)
+
+
+@pytest.mark.parametrize("status", CANCELLATION_STATUSES)
+@pytest.mark.parametrize("mutation", ["missing_observation", "missing_digest", "private_text"])
+def test_cancellation_observation_is_complete_and_path_free(status, mutation):
+    packet = _cancellation_packet(status)
+    lifecycle = packet["desktop_extension"]["stdio_lifecycle"]
+    if mutation == "missing_observation":
+        lifecycle.pop("cancellation_observation")
+    elif mutation == "missing_digest":
+        lifecycle["cancellation_observation"].pop("protocol_log_sha256")
+    else:
+        lifecycle["cancellation_observation"]["reason"] = "Private matter text"
+    with pytest.raises(EvidenceError, match="fields differ"):
+        _validate(packet)
+
+
+def test_documented_working_template_matches_executable_v9_schema() -> None:
     releasing = (ROOT / "RELEASING.md").read_text()
-    template = releasing.split("<!-- acceptance-v8-template-begin -->", 1)[1]
-    template = template.split("<!-- acceptance-v8-template-end -->", 1)[0]
+    template = releasing.split("<!-- acceptance-v9-template-begin -->", 1)[1]
+    template = template.split("<!-- acceptance-v9-template-end -->", 1)[0]
     packet = _parse_packet(
         template.split("```json\n", 1)[1].split("\n```", 1)[0].encode()
     )
@@ -461,7 +585,7 @@ def test_documented_working_template_matches_executable_v8_schema() -> None:
             lambda packet: packet["desktop_extension"]["stdio_lifecycle"].update(
                 {"cancellation_notification_status": "failed"}
             ),
-            "cancellation_notification_status did not pass",
+            "cancellation_notification_status is unsupported",
         ),
         (
             lambda packet: packet["desktop_extension"]["stdio_lifecycle"].update(
@@ -610,6 +734,8 @@ def test_lifecycle_requires_checksum_at_every_transition(field: str) -> None:
         "veqtor_release_acceptance.v4",
         "veqtor_release_acceptance.v5",
         "veqtor_release_acceptance.v6",
+        "veqtor_release_acceptance.v7",
+        "veqtor_release_acceptance.v8",
     ],
 )
 def test_older_packet_is_rejected_before_shape_validation(

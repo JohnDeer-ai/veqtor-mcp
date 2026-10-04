@@ -22,7 +22,7 @@ from release_contract import (
 )
 
 
-SCHEMA_VERSION = "veqtor_release_acceptance.v8"
+SCHEMA_VERSION = "veqtor_release_acceptance.v9"
 MAX_EVIDENCE_BYTES = 64 * 1024
 MAX_PACKET_INTEGER_DIGITS = 128
 HEX = frozenset("0123456789abcdef")
@@ -694,16 +694,56 @@ def validate_evidence(
             "server_work_cancellation_verified",
             "cancelled_request_side_effect_absence_verified",
             "process_teardown_status",
+            "cancellation_observation",
         },
         "desktop_extension.stdio_lifecycle",
     )
     for field in (
         "client_request_abandonment_status",
-        "cancellation_notification_status",
         "post_cancellation_session_recovery_status",
         "process_teardown_status",
     ):
         _passed(stdio_lifecycle[field], f"desktop_extension.stdio_lifecycle.{field}")
+    location = "desktop_extension.stdio_lifecycle.cancellation_observation"
+    observation = _exact_keys(
+        stdio_lifecycle["cancellation_observation"],
+        {
+            "source",
+            "request_in_flight_when_abandoned",
+            "notification_count",
+            "protocol_log_sha256",
+            "client_abandonment_evidence_sha256",
+            "session_recovery_evidence_sha256",
+            "forced_teardown_evidence_sha256",
+        },
+        location,
+    )
+    if observation["source"] != "actual_claude_desktop":
+        raise EvidenceError(f"{location}.source is not actual Claude Desktop evidence")
+    _boolean(
+        observation["request_in_flight_when_abandoned"],
+        True,
+        f"{location}.request_in_flight_when_abandoned",
+    )
+    notification_count = _count(
+        observation["notification_count"], 0, f"{location}.notification_count"
+    )
+    notification_status = stdio_lifecycle["cancellation_notification_status"]
+    if notification_status == "passed":
+        if notification_count == 0:
+            raise EvidenceError("Desktop cancellation passed without a notification")
+    elif notification_status == "not_observed_after_client_abandonment":
+        if notification_count != 0:
+            raise EvidenceError("Desktop cancellation limitation contradicts notification count")
+    else:
+        raise EvidenceError("Desktop cancellation_notification_status is unsupported")
+    for field in (
+        "protocol_log_sha256",
+        "client_abandonment_evidence_sha256",
+        "session_recovery_evidence_sha256",
+        "forced_teardown_evidence_sha256",
+    ):
+        _hex_digest(observation[field], 64, f"{location}.{field}")
     for field in (
         "server_work_cancellation_verified",
         "cancelled_request_side_effect_absence_verified",
