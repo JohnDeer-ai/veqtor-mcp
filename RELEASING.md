@@ -270,7 +270,8 @@ and rolls back the complete batch after an expected publication failure.
   Acceptance confirms that the extension is enabled and connected, exposes and
   calls exactly eleven tools, completes the English bundled prompt, and exercises
   paragraph history, rejected-pending `verify_quote` v2, compact privacy,
-  client request abandonment, the MCP cancellation notification, post-abandonment
+  client request abandonment while a tool request is in flight, observation of
+  whether the client sends an MCP cancellation notification, post-abandonment
   session recovery and forced transport-owner process teardown. This does not
   claim that synchronous server work stopped or that an abandoned call produced
   no local side effect.
@@ -302,7 +303,7 @@ tree, runtime-build, wheel-byte and MCPB-byte bound. Its executable schema is
   session evidence outside the repository and record its digests in `next_round`.
   Runtime rollback does not claim position-store downgrade compatibility.
 
-### Construct the v8 acceptance packet
+### Construct the v9 acceptance packet
 
 Freeze one clean candidate before collecting evidence. These values must come
 from that checkout, and the same `producer_build` must appear at the packet
@@ -348,11 +349,11 @@ retained evidence.
 | `installed_two_export` | Copy the fields printed by `scripts/installed_wheel_smoke.py` from the installed candidate wheel, including the eleven-tool modern/legacy stdio result and compact-export counters. |
 | `next_round` | Record the exact installed wheel, runtime identity, two fresh native model sessions, restored positions, brief, explicit decisions, source hashes, actual delivered output hashes and complete text/Track Changes/page inspection. Historical NR-03 acceptance is not evidence for a new candidate. |
 | `desktop_rehearsal` | Record the existing-user client identity and `fresh_user_profile: false`, runtime identity and SHA-256 digests of the retained private transcript and raw journal. |
-| `desktop_extension` | Record exact CI artifact provenance; existing-user conditions and explicit clean-install non-claims; launch/runtime origin and evidence digest; client/OS versions; the eleven visible and called tools; history, verify-v2 and privacy results; client abandonment/cancellation-notification/session-recovery status; explicit false server-cancellation and side-effect-absence claims; forced transport-owner process teardown; post-apply hashes; private evidence digests; and the real v0.4.0→v0.4.2→v0.4.0→v0.4.2 lifecycle. |
+| `desktop_extension` | Record exact CI artifact provenance; existing-user conditions and explicit clean-install non-claims; launch/runtime origin and evidence digest; client/OS versions; the eleven visible and called tools; history, verify-v2 and privacy results; client abandonment/cancellation-notification/session-recovery status and actual Desktop observation digests; explicit false server-cancellation and side-effect-absence claims; forced transport-owner process teardown; post-apply hashes; private evidence digests; and the real v0.4.0→v0.4.2→v0.4.0→v0.4.2 lifecycle. |
 
 ### Same-Mac existing-user rehearsal
 
-The v8 packet accepts the maintainer's existing macOS user on `maintainer_mac`.
+The v9 packet accepts the maintainer's existing macOS user on `maintainer_mac`.
 This intentionally replaces the v6 fresh-user requirement for the v0.4 Alpha.
 Reinstallation in an existing profile can reuse configuration, permissions and
 caches; it does not establish first-install success in an untouched user or
@@ -392,7 +393,7 @@ transport and upgrade/rollback gates below remain required.
    eleven tools again, recheck and record the bytes as
    `post_reinstall_artifact_sha256`, then uninstall and confirm that its tools
    are absent.
-7. Build the canonical v8 packet from the observed values and retained digests,
+7. Build the canonical v9 packet from the observed values and retained digests,
    validate it against the exact candidate, and preserve the private supporting
    evidence outside git.
 
@@ -418,15 +419,47 @@ call. Retain actual client/tool observations for the Desktop fields, including
 the cancellation and recovery checks. Fresh writable test folders isolate
 document/journal state but are not an operating-system filesystem sandbox.
 
-The complete, type-correct v8 working template follows. Its sample SHA/tree,
+MCP [cancellation is optional](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation).
+The v9 `stdio_lifecycle.cancellation_notification_status` records one of two
+observed outcomes for the actual Desktop attempt:
+
+- `passed`: the retained protocol log shows at least one `notifications/cancelled`
+  for the abandoned request on the same connection.
+- `not_observed_after_client_abandonment`: the user or UI observer confirms Stop
+  while that tool request was still in flight, and the complete retained protocol
+  log for that attempt contains zero cancellation notifications. This records
+  the observed client limitation; it does not claim cancellation succeeded or
+  that every version of the client behaves this way.
+
+Both outcomes require `cancellation_observation.source` to be
+`actual_claude_desktop`, `request_in_flight_when_abandoned: true`, an integer
+`notification_count` consistent with the status, and four private-evidence
+digests: `protocol_log_sha256`, `client_abandonment_evidence_sha256`,
+`session_recovery_evidence_sha256` and `forced_teardown_evidence_sha256`.
+Retain the actual request ID and timing, Stop confirmation, subsequent successful
+call on the same live connection, and forced-owner termination with descendant
+process exit evidence in those private records. A missing or incomplete log,
+a request that completed before Stop, or a skipped test qualifies for neither
+outcome. Unrelated sessions and historical notifications cannot supply evidence.
+The digests bind retained observations; the path-free validator checks their
+shape and consistency, not the authenticity or contents of private files.
+
+`client_request_abandonment_status`, `post_cancellation_session_recovery_status`
+and `process_teardown_status` must still be `passed` for either outcome. Both
+server-work-cancellation and side-effect-absence claims must remain `false`.
+The SDK stdio smoke continues to require a real cancellation notification; it
+does not substitute for actual Desktop observations. v8 packets must be rebuilt
+as v9 from retained evidence, not relabeled with assumed passes.
+
+The complete, type-correct v9 working template follows. Its sample SHA/tree,
 runtime-build and private digests are placeholders; replace them with observed
 values. Fixed statuses, booleans, versions, previous-public MCPB identity and
 tool inventories are release-contract values.
 
-<!-- acceptance-v8-template-begin -->
+<!-- acceptance-v9-template-begin -->
 ```json
 {
-  "schema_version": "veqtor_release_acceptance.v8",
+  "schema_version": "veqtor_release_acceptance.v9",
   "candidate_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "candidate_tree": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "producer_build": "source-snapshot-v1-sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
@@ -619,7 +652,16 @@ tool inventories are release-contract values.
       "post_cancellation_session_recovery_status": "passed",
       "server_work_cancellation_verified": false,
       "cancelled_request_side_effect_absence_verified": false,
-      "process_teardown_status": "passed"
+      "process_teardown_status": "passed",
+      "cancellation_observation": {
+        "source": "actual_claude_desktop",
+        "request_in_flight_when_abandoned": true,
+        "notification_count": 1,
+        "protocol_log_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "client_abandonment_evidence_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+        "session_recovery_evidence_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+        "forced_teardown_evidence_sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+      }
     },
     "post_apply_list_rounds_status": "passed",
     "post_apply_round_count": 5,
@@ -739,9 +781,9 @@ tool inventories are release-contract values.
   }
 }
 ```
-<!-- acceptance-v8-template-end -->
+<!-- acceptance-v9-template-end -->
 
-Every field is required and exact; v1 through v6 packets are rejected. Runtime
+Every field is required and exact; v1 through v8 packets are rejected. Runtime
 origin and version examples must be replaced with actual observations. No
 filenames, local paths, quotes or document text are allowed by the packet
 schema. The packet has one accepted byte representation: UTF-8 JSON produced
