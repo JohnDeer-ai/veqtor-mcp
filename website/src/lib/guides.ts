@@ -1,4 +1,5 @@
 import guideSourceJson from '../data/guides-source.json'
+import { guideModifiedDate } from './guide-dates.mjs'
 
 export type GuideKind = 'pillar' | 'spoke'
 export type LegalReviewStatus = 'approved' | 'owner_review_required'
@@ -369,7 +370,7 @@ export const GUIDES: Guide[] = approvedSourceGuides.map((guide) => ({
   lede: guide.lede,
   updated: guide.updated,
   publishedAt: guide.publishedAt,
-  modifiedAt: guide.reviewedAt ?? guide.updated ?? guide.publishedAt,
+  modifiedAt: guideModifiedDate(guide),
   sourceIssue: guide.sourceIssue,
   listing: guide.listing,
   // Full editorial sections are the page body. shellSections are deliberately not imported.
