@@ -4,6 +4,7 @@ import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { LINK_ARCHITECTURE_LASTMOD, latestLastmod } from '../src/lib/sitemap-lastmod.mjs'
+import { guideModifiedDate, guideReviewWarning } from '../src/lib/guide-dates.mjs'
 import { validateRenderedBridge } from './lib/rendered-bridge.mjs'
 
 const SITE_ORIGIN = 'https://veqtor.pro'
@@ -764,6 +765,10 @@ function main() {
   const guideSource = JSON.parse(readUtf8(GUIDE_SOURCE_PATH))
   const approvedGuides = guideSource.guides.filter((guide) => guide.legalReviewStatus === 'approved')
   const draftGuides = guideSource.guides.filter((guide) => guide.legalReviewStatus !== 'approved')
+  for (const guide of approvedGuides) {
+    const warning = guideReviewWarning(guide)
+    if (warning) console.warn(`Owner review warning: ${warning}`)
+  }
   const topicRoutes = guideSource.clusters.map((cluster) => `/guides/topics/${cluster.id}`)
   const guideRoutes = approvedGuides.map((guide) => `/guides/${guide.slug}`)
   const bridgeChangedClusters = new Set(
@@ -970,6 +975,14 @@ function main() {
   ])
   assertSetupCommandIntegrity(pagesByRoute)
   assertSchemaContracts(schemasByRoute)
+  for (const guide of approvedGuides) {
+    const route = `/guides/${guide.slug}`
+    const articles = (schemasByRoute.get(route) ?? []).filter((node) => node?.['@type'] === 'Article')
+    const expectedModified = guideModifiedDate(guide)
+    if (articles.length !== 1 || articles[0].dateModified !== expectedModified) {
+      fail(`${route}: Article dateModified must be ${expectedModified}`)
+    }
+  }
   assertDemoWatchPageProminence(pagesByRoute)
   const expectedInventoryText = `${approvedGuides.length} guides across ${topicRoutes.length} topics`
   if (!normalizeText(pagesByRoute.get('/')?.html ?? '').includes(expectedInventoryText)) {
@@ -993,7 +1006,7 @@ function main() {
       cluster.id === 'limitation-of-liability' ? undefined : LINK_ARCHITECTURE_LASTMOD,
     ]),
     ...approvedGuides.map((guide) => {
-      const editorialLastmod = guide.reviewedAt ?? guide.updated ?? guide.publishedAt
+      const editorialLastmod = guideModifiedDate(guide)
       return [
         `/guides/${guide.slug}`,
         latestLastmod(
