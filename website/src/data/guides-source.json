@@ -9788,7 +9788,8 @@
           "title": "What courts imply when the contract is silent",
           "body": [
             "If the contract says nothing, the courts imply only the minimum. Robin Ray v Classic FM plc [1998] FSR 622 laid down the governing principles for commissioned works: the court implies the minimum necessary for business efficacy, so if the commissioner's needs can be met by a licence rather than an assignment, only a licence is implied. The nature of the deliverable drives the result.",
-            "Compare two outcomes. In R Griggs Group Ltd v Evans [2005] EWCA Civ 11, a freelance designer commissioned to create the Dr Martens logo was held to have assigned beneficial ownership, because a brand logo inherently needs to exclude competitors. But in Clearsprings Management Ltd v Businesslinx Ltd [2005] EWHC 1487 (Ch), a client that commissioned bespoke software received only a non-exclusive licence, not an assignment - because developers routinely reuse generic code, and an assignment would have prevented that reuse."
+            "Compare two outcomes. In R Griggs Group Ltd v Evans [2005] EWCA Civ 11, a freelance designer commissioned to create the Dr Martens logo was held to have assigned beneficial ownership, because a brand logo inherently needs to exclude competitors. But in Clearsprings Management Ltd v Businesslinx Ltd [2005] EWHC 1487 (Ch), a client that commissioned bespoke software received only a non-exclusive licence, not an assignment - because developers routinely reuse generic code, and an assignment would have prevented that reuse.",
+            "For a software project, see the [ownership and handover checks for contractor-written code under English law](https://ilyashilov.com/notes/contractor-code-ownership-english-law/)."
           ]
         },
         {
@@ -10165,7 +10166,8 @@
           "title": "Drafting for AI output",
           "body": [
             "Traditional IP clauses assume human creation, so standard assignment wording - all IP created by the contractor - may not capture AI output that was not legally created by the contractor. The fix is a dedicated AI provision that allocates ownership, takes a present assignment of any rights that do subsist, restricts the use of AI tools (no feeding the client's confidential information into a model; no third-party rights over outputs; no infringement), and requires disclosure of the tools and the human involvement.",
-            "The critical addition is a belt-and-suspenders clause: the parties acknowledge that AI outputs may not attract IP protection in some or all jurisdictions, and the contractual obligations - confidentiality, exclusivity, and restrictive covenants - apply whether or not IP rights subsist. Where the output has no copyright (the likely position in the US and EU, and possibly the UK if section 9(3) is repealed), that contractual allocation is the only protection you have."
+            "The critical addition is a belt-and-suspenders clause: the parties acknowledge that AI outputs may not attract IP protection in some or all jurisdictions, and the contractual obligations - confidentiality, exclusivity, and restrictive covenants - apply whether or not IP rights subsist. Where the output has no copyright (the likely position in the US and EU, and possibly the UK if section 9(3) is repealed), that contractual allocation is the only protection you have.",
+            "For software suppliers, see how AI provider terms and human contributions affect [ownership and customer warranties for AI-generated code](https://ilyashilov.com/notes/ai-generated-code-ownership/)."
           ]
         }
       ],
