@@ -626,30 +626,36 @@ function assertStaticDeploymentFiles() {
 
 function assertSetupCommandIntegrity(pagesByRoute) {
   const html = pagesByRoute.get('/setup')?.html ?? ''
-  const packageSpecifier = 'veqtor-mcp@0.4.0'
+  const packageSpecifier = 'veqtor-mcp@0.4.2'
   const occurrences = html.split(packageSpecifier).length - 1
   if (occurrences !== 6) {
     fail(`/setup: expected six literal ${packageSpecifier} commands in built HTML, found ${occurrences}`)
   }
-  const packagePin = 'veqtor-mcp==0.4.0'
+  const packagePin = 'veqtor-mcp==0.4.2'
   const pinOccurrences = html.split(packagePin).length - 1
   if (pinOccurrences !== 1) {
     fail(`/setup: expected one literal ${packagePin} demo command in built HTML, found ${pinOccurrences}`)
   }
-  for (const staleSpecifier of ['veqtor-mcp@0.1.2', 'veqtor-mcp==0.1.2', 'veqtor-mcp@0.3.0', 'veqtor-mcp==0.3.0']) {
+  for (const staleSpecifier of ['veqtor-mcp@0.1.2', 'veqtor-mcp==0.1.2', 'veqtor-mcp@0.3.0', 'veqtor-mcp==0.3.0', 'veqtor-mcp@0.4.0', 'veqtor-mcp==0.4.0']) {
     if (html.includes(staleSpecifier)) fail(`/setup: built HTML contains stale package specifier ${staleSpecifier}`)
   }
   for (const requiredValue of [
-    'https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/v0.4.0',
-    'https://github.com/JohnDeer-ai/veqtor-mcp/releases/download/v0.4.0/veqtor-mcp-0.4.0-macos.mcpb',
-    'https://github.com/JohnDeer-ai/veqtor-mcp/releases/download/v0.4.0/SHA256SUMS.txt',
-    '44a75ee286c701f1a14a2c96fba531e8290240fb8d554eff886565b380b5bd2c',
-    'shasum -a 256 veqtor-mcp-0.4.0-macos.mcpb',
+    'https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/v0.4.2',
+    'https://github.com/JohnDeer-ai/veqtor-mcp/releases/download/v0.4.2/veqtor-mcp-0.4.2-macos.mcpb',
+    'https://github.com/JohnDeer-ai/veqtor-mcp/releases/download/v0.4.2/SHA256SUMS.txt',
+    '9779d4526b1b86553e6639e6cffd3e80e3e87a747f8ca93c5261869b83500cf5',
+    'shasum -a 256 veqtor-mcp-0.4.2-macos.mcpb',
   ]) {
     if (!html.includes(requiredValue)) fail(`/setup: built HTML is missing public release value ${requiredValue}`)
   }
-  if (/v0\.4\.0 is not public(?: yet)?/i.test(html)) {
-    fail('/setup: built HTML still describes v0.4.0 as unpublished')
+  if (/v0\.4\.2 is not public(?: yet)?/i.test(html)) {
+    fail('/setup: built HTML still describes v0.4.2 as unpublished')
+  }
+  for (const route of ['/setup', '/docs']) {
+    const releaseHtml = pagesByRoute.get(route)?.html ?? ''
+    for (const value of ['veqtor.mcp.v0.4.2', 'read_deal_positions', 'mutate_deal_positions', 'eleven tools']) {
+      if (!releaseHtml.includes(value)) fail(`${route}: missing current tool contract value ${value}`)
+    }
   }
   for (const marker of ['/cdn-cgi/l/email-protection', 'data-cfemail', '__cf_email__', 'email-decode.min.js']) {
     if (html.includes(marker)) fail(`/setup: built HTML contains unexpected Cloudflare obfuscation marker ${marker}`)
@@ -665,11 +671,11 @@ function assertSchemaContracts(schemasByRoute) {
   if (homeSoftware.some((node) => Object.hasOwn(node, 'codeRepository'))) {
     fail('/: SoftwareApplication must not use the SoftwareSourceCode-only codeRepository property')
   }
-  if (homeSoftware[0]?.softwareVersion !== '0.4.0') {
-    fail('/: SoftwareApplication softwareVersion must match public v0.4.0')
+  if (homeSoftware[0]?.softwareVersion !== '0.4.2') {
+    fail('/: SoftwareApplication softwareVersion must match public v0.4.2')
   }
-  if (homeSoftware[0]?.downloadUrl !== 'https://github.com/JohnDeer-ai/veqtor-mcp/releases/download/v0.4.0/veqtor-mcp-0.4.0-macos.mcpb') {
-    fail('/: SoftwareApplication downloadUrl must point to the public v0.4.0 MCPB')
+  if (homeSoftware[0]?.downloadUrl !== 'https://github.com/JohnDeer-ai/veqtor-mcp/releases/download/v0.4.2/veqtor-mcp-0.4.2-macos.mcpb') {
+    fail('/: SoftwareApplication downloadUrl must point to the public v0.4.2 MCPB')
   }
   const homeVideos = nodesOfType('/', 'VideoObject')
   if (homeVideos.length !== 0) fail(`/: homepage must not compete with /demo as a video watch page, found ${homeVideos.length} VideoObject node(s)`)
