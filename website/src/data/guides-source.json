@@ -11848,12 +11848,12 @@
       "eyebrow": "Applications",
       "h1": "Assignment and change of control in M&A and technology deals.",
       "lede": "The theory of assignment, novation, and change of control becomes concrete in deals: a SaaS licence that does not transfer in an asset deal, a change-of-control clause that lets a vendor terminate when a competitor buys the customer, and the cascade of consents that dominates acquisition due diligence. These are where the gaps cost real money.",
-      "fallbackIntro": "In deals: SaaS licences are personal (asset deals trigger anti-assignment; share deals may trigger competitor change-of-control termination); open-source copyleft follows the code; M&A change-of-control clauses cascade across the target's contracts; and pharma regulatory transfers run separately from the contract.",
-      "updated": "2026-06-14",
+      "fallbackIntro": "In deals: SaaS licences are personal (asset deals trigger anti-assignment; share deals may trigger competitor change-of-control termination); open-source permissions and obligations depend on the licence and planned use; M&A change-of-control clauses cascade across the target's contracts; and pharma regulatory transfers run separately from the contract.",
+      "updated": "2026-10-06",
       "publishedAt": "2026-06-14",
       "sourceIssue": "issue-14",
       "legalReviewStatus": "approved",
-      "reviewedAt": "2026-06-14",
+      "reviewedAt": "2026-10-06",
       "listing": {
         "label": "Applications",
         "title": "Assignment and change of control in M&A and tech",
@@ -11873,8 +11873,9 @@
         {
           "title": "Open source: obligations follow the code",
           "body": [
-            "Open-source licences behave differently from proprietary ones. Permissive licences (such as MIT or Apache 2.0) are broadly assignable, but copyleft licences (such as the GPL) attach to the software itself rather than to a party - the obligations follow the code regardless of assignment or change of control. Assigning the proprietary licence does not release the open-source obligations for embedded components.",
-            "So due diligence must look beneath the proprietary licences to the open-source components inside the deliverables - a change of control does not switch off copyleft obligations."
+            "Open-source permissions and continuing obligations depend on the licence, the transaction and how the buyer will use or supply the software. A change of ownership or assignment of a proprietary agreement does not remove applicable third-party licence conditions.",
+            "The [MIT licence](https://opensource.org/license/mit) requires its copyright and permission notice in copies or substantial portions of the software. [Apache 2.0, section 4](https://www.apache.org/licenses/LICENSE-2.0) sets licence, notice and attribution requirements for redistribution. [GPLv3, section 6](https://opensource.org/license/gpl-3.0) requires Corresponding Source to be provided or made available through a permitted route when covered object code is conveyed. [AGPLv3, section 13](https://opensource.org/license/agpl-3.0) also requires a modified version to offer its Corresponding Source to users who interact with it remotely over a network. The applicable duties therefore need to be checked against the particular component and use.",
+            "Due diligence should identify the components, licences, required notices and any source obligations, then check whether the buyer's planned use and customer commitments can be met. For those customer-facing promises, see [open-source software warranties and customer contracts](https://ilyashilov.com/notes/open-source-software-customer-contracts/)."
           ]
         },
         {
@@ -11909,7 +11910,7 @@
         {
           "title": "Open source",
           "body": [
-            "Permissive licences (MIT/Apache) are assignable; copyleft (GPL) follows the code regardless of assignment or change of control."
+            "MIT and Apache 2.0 retain notice conditions; GPL and AGPL can add source obligations depending on the component and use. A change of ownership does not remove applicable licence conditions."
           ]
         },
         {
@@ -11933,7 +11934,7 @@
       ],
       "checklist": [
         "Map every SaaS and software licence for change of control and competitor-termination triggers as required consents.",
-        "Look beneath proprietary licences to copyleft open-source components - their obligations follow the code (GPL).",
+        "Identify open-source components and check their licence permissions, notices and any source obligations against the buyer's planned use and customer commitments.",
         "Map the M&A cascade - downstream change-of-control clauses, especially leveraged-finance prepayment events.",
         "Handle SPA warranty assignment and W&I policy assignment carefully (notice to the insurer for a legal assignment under s.136).",
         "For sellers, insist the W&I insurer waives subrogation against the seller (except fraud).",
