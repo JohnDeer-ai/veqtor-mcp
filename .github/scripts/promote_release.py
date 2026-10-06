@@ -24,6 +24,7 @@ from release_contract import (  # noqa: E402
     RELEASE_TITLE,
     VERSION as CONTRACT_VERSION,
 )
+from check_release_site_drift import SiteDriftError, verify as verify_site_drift  # noqa: E402
 
 
 class PromotionError(RuntimeError):
@@ -157,6 +158,7 @@ def _ensure_candidate_tag(
     *,
     run_attempt: int,
     allow_current_attempt_ancestor: bool = False,
+    site_only_verifier: Callable[[str, str], None] | None = None,
 ) -> None:
     main_ref = _api_json(
         runner,
@@ -192,7 +194,16 @@ def _ensure_candidate_tag(
         return
 
     if main_sha != commit_sha:
-        raise PromotionError("first promotion requires main at the approved commit")
+        if site_only_verifier is None:
+            raise PromotionError("first promotion requires main at the approved commit")
+        site_only_verifier(commit_sha, main_sha)
+        current_main = _api_json(
+            runner,
+            [f"repos/{repository}/git/ref/heads/main"],
+            "main reference recheck",
+        )
+        if current_main.get("object") != target:
+            raise PromotionError("main changed during the website artifact proof; retry")
     _ensure_tag(runner, repository, tag, commit_sha)
 
 
@@ -204,6 +215,7 @@ def reserve_tag(
     version: str,
     commit_sha: str,
     run_attempt: int = 1,
+    site_only_verifier: Callable[[str, str], None] | None = None,
 ) -> None:
     """Create the durable exact tag before either public distribution mutates."""
     if not repository or not version:
@@ -227,7 +239,17 @@ def reserve_tag(
         f"v{version}",
         commit_sha,
         run_attempt=run_attempt,
+        site_only_verifier=site_only_verifier,
     )
+
+
+def _verify_site_only_candidate(candidate: str, main: str) -> None:
+    dist = Path(os.environ.get("DIST_DIR", "dist")).resolve()
+    _expected_assets(dist, dist / CHECKSUMS_FILENAME)
+    try:
+        verify_site_drift(ROOT.resolve(), candidate, main, dist)
+    except (OSError, SiteDriftError) as exc:
+        raise PromotionError(str(exc)) from exc
 
 
 def _expected_assets(dist_dir: Path, checksums: Path) -> dict[str, dict[str, object]]:
@@ -690,6 +712,7 @@ def main() -> int:
                 version=os.environ.get("VERSION", ""),
                 commit_sha=os.environ.get("COMMIT_SHA", ""),
                 run_attempt=run_attempt,
+                site_only_verifier=_verify_site_only_candidate,
             )
         elif phase == "publish":
             reserved_attempt = os.environ.get("TAG_RESERVED_ATTEMPT")

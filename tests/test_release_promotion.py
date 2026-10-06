@@ -326,7 +326,53 @@ def test_reserve_phase_entrypoint_does_not_enter_release_publication(
         "version": VERSION,
         "commit_sha": COMMIT,
         "run_attempt": 3,
+        "site_only_verifier": promotion._verify_site_only_candidate,
     }
+
+
+@pytest.mark.parametrize("outcome", ["identical", "different", "main_moved"])
+def test_first_reservation_after_site_drift_requires_proof(outcome: str) -> None:
+    fake = FakeGitHub([], main_sha="b" * 40)
+    calls = []
+
+    def proof(candidate: str, main: str) -> None:
+        calls.append((candidate, main))
+        assert not fake.tag_exists
+        if outcome == "different":
+            raise promotion.PromotionError("rebuilt bytes differ")
+        if outcome == "main_moved":
+            fake.main_sha = "c" * 40
+
+    arguments = dict(
+        runner=fake, repository=REPOSITORY, version=VERSION,
+        commit_sha=COMMIT, site_only_verifier=proof,
+    )
+    if outcome == "identical":
+        promotion.reserve_tag(**arguments)
+        assert fake.tag_exists and fake.tag_sha == COMMIT
+    else:
+        with pytest.raises(promotion.PromotionError):
+            promotion.reserve_tag(**arguments)
+        assert not fake.tag_exists
+    assert calls == [(COMMIT, "b" * 40)]
+    assert fake.release_state == "absent"
+
+
+def test_artifact_mismatch_stops_real_reservation_adapter(tmp_path, monkeypatch) -> None:
+    dist, _, _ = _artifacts(tmp_path)
+    monkeypatch.setenv("DIST_DIR", str(dist))
+
+    def reject(*_args):
+        raise promotion.SiteDriftError("rebuilt bytes differ")
+
+    monkeypatch.setattr(promotion, "verify_site_drift", reject)
+    fake = FakeGitHub([], main_sha="b" * 40)
+    with pytest.raises(promotion.PromotionError, match="rebuilt bytes differ"):
+        promotion.reserve_tag(
+            runner=fake, repository=REPOSITORY, version=VERSION, commit_sha=COMMIT,
+            site_only_verifier=promotion._verify_site_only_candidate,
+        )
+    assert not fake.tag_exists
 
 
 @pytest.mark.parametrize(

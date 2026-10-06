@@ -70,7 +70,8 @@ jobs:
               git merge-base --is-ancestor "$COMMIT_SHA" "$MAIN_SHA"
               ;;
             2)
-              test "$MAIN_SHA" = "$COMMIT_SHA"
+              python3 scripts/check_release_site_drift.py \
+                --candidate "$COMMIT_SHA" --main "$MAIN_SHA"
               ;;
             *)
               echo "remote tag lookup failed" >&2
@@ -184,7 +185,20 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ inputs.commit_sha }}
+          fetch-depth: 0
           persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12.13"
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: "0.11.28"
+      - name: Install locked runtime for website artifact proof
+        run: uv sync --frozen --no-dev --python 3.12.13
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ env.DIST_ARTIFACT_NAME }}
+          path: dist
       - name: Reserve the create-only lightweight tag
         id: reserve
         env:
@@ -194,7 +208,7 @@ jobs:
           COMMIT_SHA: ${{ inputs.commit_sha }}
           RELEASE_PHASE: reserve_tag
         run: |
-          python3 .github/scripts/promote_release.py
+          uv run --frozen --no-dev --python 3.12.13 python .github/scripts/promote_release.py
           printf 'reserved_attempt=%s\n' "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
 
   publish:
