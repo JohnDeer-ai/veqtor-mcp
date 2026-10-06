@@ -67,6 +67,24 @@ social title of the migrated Guides library, so a future slug or metadata
 change requires an explicit migration decision. No build output or
 `node_modules/` directory should be committed.
 
+## Guide dates and owner review
+
+`publishedAt` is the original publication date. `updated` records an actual
+content change. `reviewedAt` records the last legal review by the owner; an AI
+review, build, or publication does not advance it. Article `dateModified`, the
+visible Updated date, and the editorial part of sitemap `lastmod` use the latest
+valid date among these three fields. Sitemap dates may also include a later
+page-level navigation change.
+
+`legalReviewStatus: approved` controls publication. An already published guide
+can retain that existing approval while later edits await owner re-review; it
+does not certify that every later edit has received that review. The site check
+prints a nonblocking warning for each published guide whose `updated` is later
+than `reviewedAt`, or whose owner review date is missing. These warnings form the
+owner's review queue. Advance `reviewedAt` only after the owner actually reviews
+the current legal content. `owner_review_required` remains the unpublished
+status for guides without publication approval.
+
 ## Cloudflare Pages configuration
 
 Do not connect the production domain until a preview deployment has been
