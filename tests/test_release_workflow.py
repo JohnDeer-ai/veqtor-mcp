@@ -41,7 +41,8 @@ def test_release_guard_precedes_execution_of_requested_commit() -> None:
     assert 'git ls-remote --exit-code --refs origin "$TAG_REF"' in guard
     assert 'test "$TAG_SHA" = "$COMMIT_SHA"' in guard
     assert 'git merge-base --is-ancestor "$COMMIT_SHA" "$MAIN_SHA"' in guard
-    assert 'test "$MAIN_SHA" = "$COMMIT_SHA"' in guard
+    assert 'python3 scripts/check_release_site_drift.py' in guard
+    assert '--candidate "$COMMIT_SHA" --main "$MAIN_SHA"' in guard
     assert "remote tag lookup failed" in guard
     assert "ref: ${{ inputs.commit_sha }}" not in guard
     assert "needs: guard" in verify
@@ -65,6 +66,7 @@ def test_release_guard_precedes_execution_of_requested_commit() -> None:
     detach = 'git checkout --detach "$COMMIT_SHA"'
     head_assertion = 'test "$(git rev-parse HEAD)" = "$COMMIT_SHA"'
     assert detach in guard
+    assert guard.index("scripts/check_release_site_drift.py") < guard.index(detach)
     assert guard.count(head_assertion) == 2
     assert (
         guard.index('test "$VERSION" = "$PACKAGE_VERSION"')
@@ -74,6 +76,20 @@ def test_release_guard_precedes_execution_of_requested_commit() -> None:
         < guard.rindex(head_assertion)
         < guard.index("scripts/check_acceptance_evidence.py")
     )
+
+
+def test_reservation_uses_current_attempt_artifacts_for_site_drift() -> None:
+    workflow = (ROOT / ".github/workflows/release.yml").read_text()
+    reserve = _job(workflow, "reserve_tag", "publish")
+    assert "fetch-depth: 0" in reserve
+    assert "persist-credentials: false" in reserve
+    assert "name: ${{ env.DIST_ARTIFACT_NAME }}" in reserve
+    assert "path: dist" in reserve
+    assert 'python-version: "3.12.13"' in reserve
+    assert 'version: "0.11.28"' in reserve
+    assert "uv sync --frozen --no-dev --python 3.12.13" in reserve
+    assert "uv run --frozen --no-dev --python 3.12.13 python .github/scripts/promote_release.py" in reserve
+    assert reserve.index("actions/download-artifact@") < reserve.index("RELEASE_PHASE: reserve_tag")
 
 
 def test_detached_checkout_models_tagged_ancestor_recovery(tmp_path: Path) -> None:
@@ -514,7 +530,7 @@ def test_recovery_contract_distinguishes_new_dispatch_from_advanced_main() -> No
 
     assert re.search(r"separately\s+approved dispatch", releasing)
     assert "caller SHA, candidate SHA and `main`" in releasing
-    assert "After `main` advances, only a later attempt" in releasing
+    assert "After tag reservation and a `main` advance, only a later attempt" in releasing
     assert "full required pre-publication gate set" in releasing
     assert re.search(r"selective rerun\s+of the root `guard`", releasing)
     assert "An incomplete rerun" in releasing

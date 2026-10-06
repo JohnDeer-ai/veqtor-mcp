@@ -115,7 +115,19 @@ defense-in-depth: malformed inputs must fail before unbounded allocation.
 
 ### I5 — durable exact-tag reservation and recoverable promotion
 
-- First promotion requires caller SHA, candidate SHA and `main` tip equality.
+- First promotion requires caller SHA and candidate SHA equality. Normally
+  `main` must also name that commit. A website-only descendant is allowed when
+  the complete Git diff changes only `website/` paths outside the frozen
+  artifact input inventory. In particular, `website/public/logo-512.png` is
+  packaged in the MCPB and is **not** exempt.
+- Before creating a tag for such a descendant, `reserve_tag` rebuilds the wheel,
+  sdist and MCPB from the frozen observed `main` SHA with the pinned toolchain.
+  All three must be byte-identical to this run and attempt's approved artifacts.
+  It then rereads `main`; another advance refuses reservation. This short proof
+  does not rerun native Word or Claude acceptance. Changes to MCP code,
+  dependencies, packaging, release automation or non-website documentation
+  still require a new candidate. No public tag or release is changed by a
+  failed proof, and the eventual tag always names the approved candidate.
 - After the full required pre-publication gate set succeeds for the same run,
   attempt and candidate SHA, the write-scoped `reserve_tag` job creates or
   revalidates one exact lightweight `v<version>` tag. The current-attempt output
@@ -136,9 +148,10 @@ defense-in-depth: malformed inputs must fail before unbounded allocation.
   of the root `guard` also qualifies when GitHub reruns its complete dependent
   graph. An incomplete rerun has a missing current-attempt job proof or artifact
   and therefore fails closed before reservation or publication.
-- After `main` advances, only a later attempt of the original workflow run may
-  recover, and only when the exact lightweight tag still names a candidate that
-  remains an ancestor of `main`.
+- After tag reservation and a `main` advance, only a later attempt of the
+  original workflow run may recover, and only when the exact lightweight tag
+  still names a candidate that remains an ancestor of `main`. Before reservation,
+  website-only drift may continue in the original attempt under the proof above.
 - The guard accepts recovery only for the exact tag and ancestor relationship
   and never retargets it. It first inspects the current trusted `main`, then
   detached-checks out the approved candidate before installing or running that
@@ -887,4 +900,6 @@ GitHub Release can become visible and immutable.
 
 Once one exact-SHA review passes this contract, that version's scope freezes. A later
 candidate must rerun the whole contract; a nonblocking improvement moves to the
-next version rather than silently expanding the Alpha release.
+next version rather than silently expanding the Alpha release. Website-only
+descendants permitted by I5 do not change the candidate or its artifact bytes,
+so they do not invalidate its existing acceptance or restart its release CI.
