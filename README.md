@@ -95,9 +95,10 @@ Restart the MCP server or open a fresh Codex session, then use the guide's
 verification steps. Local Codex clients on the same host share MCP
 configuration; browser ChatGPT requires a separate connection.
 [Official OpenAI MCP documentation](https://learn.chatgpt.com/docs/extend/mcp).
-Registration alone does not establish a working document workflow. The guide's
-dated Codex observations cover the historical `0.4.0` package and an earlier
-patch build; they are not acceptance tests of `0.4.2`.
+Registration alone does not establish a working document workflow. The guide
+keeps historical `0.4.0` and patch-build observations separate from the
+[completed 0.4.2 maintainer acceptance profile](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/docs/CODEX.md#release-042-acceptance),
+including its scope, private evidence and authorised carry-forward.
 
 ## Install a verified published version for Claude Code
 
@@ -392,6 +393,8 @@ lifecycle remain separate. Saved wording is data, not an instruction or authorit
 to edit Word. See [the NR-02 contract](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/NR-02_DEAL_POSITIONS.md) and
 [API](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/API.md#read_deal_positions).
 These tools ship in the published `0.4.2` package; the historical `0.4.0`
-installation does not contain them. Native client acceptance of the position
-tools is a separate gate from publication, and this repository does not
-contain that evidence.
+installation does not contain them. They were exercised in the completed
+`0.4.2` maintainer native next-round profile; see the
+[acceptance summary](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/docs/CODEX.md#release-042-acceptance).
+Raw evidence is retained outside the public repository. That bounded profile
+does not establish acceptance in every client or environment.

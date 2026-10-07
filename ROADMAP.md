@@ -74,14 +74,19 @@ Reliable-workflow stages 0 through 3C now provide:
 The preflight proof is a deterministic drift binding, not authentication, a
 digital signature, a trusted timestamp or tamper evidence.
 
+## Completed for 0.4.2
+
+The published release includes NR-01 clean-paragraph edits, NR-02 saved
+positions and the NR-03 repeated next-round workflow. Release review,
+maintainer native and rendered-Word acceptance, packaging and audit gates,
+publication and website activation are complete. The
+[acceptance summary](docs/CODEX.md#release-042-acceptance) records the bounded
+profile, private evidence and authorised carry-forward; independent-user and
+clean-install validation remain outside that completed profile.
+
 ## Next
 
 - Extend supported OOXML layouts based on reproducible public issues.
-- Complete independent review and exact-candidate native Codex position checks
-  for `0.4.2`; then run the required development packaging and audit gates.
-  The installed public MCP and earlier observations cannot close those gates.
-- Validate NR-02 independent portable deal positions, exact-version confirmation,
-  recovery and conflicts under the closed NR-02 contract. NR-03 needs a separate cycle.
 - Evaluate a separately specified Stage 3D clean-sendable-redline workflow only
   after external-user validation of the read-only Stage 3C evidence surface.
 - Refine installation, diagnostics and examples from external-user feedback.

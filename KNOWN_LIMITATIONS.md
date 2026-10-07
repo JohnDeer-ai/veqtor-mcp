@@ -15,9 +15,11 @@ desktop read observations, plus a separately built error-transport patch that
 preceded `0.4.2`. These are not tests of `0.4.2`. The `0.4.2` adapter keeps
 controlled refusal codes and safe hints, and sanitizes SDK input-validation
 errors before tool entry. NR-01 adds bounded clean-paragraph replace/delete-only.
-This repository does not contain NR-01 native client or rendered-Word
-acceptance evidence for the published `0.4.2` build, so this file does not
-declare those gates passed.
+The published `0.4.2` release completed its maintainer native client and
+rendered-Word acceptance profile, with the scope and carry-forward exception
+recorded in the [release acceptance summary](docs/CODEX.md#release-042-acceptance).
+Raw evidence is retained outside the public repository. Those results do not
+establish acceptance in every client or for every paragraph structure.
 
 The v0.4.0 and v0.4.2 MCPB packages are macOS-only. Each frozen release policy
 binds the exact artifact to existing-user acceptance on the maintainer's Mac and
@@ -351,7 +353,9 @@ Native repeated-round checks, independent brief assessment, adversarial scenario
 and all-page visible-markup inspection are separate gates in
 [NR03_ACCEPTANCE.md](docs/NR03_ACCEPTANCE.md). The checker reports only the
 mechanical evidence it actually verifies, not a general acceptance verdict.
-Publication of `0.4.2` does not by itself establish those gates. This
-repository does not contain NR-03 native or visual acceptance evidence, and
-these documents do not declare those gates passed.
+The `0.4.2` maintainer profile completed the NR-03 native and visual checks;
+see the [release acceptance summary](docs/CODEX.md#release-042-acceptance) for
+the observed scope and authorised carry-forward. Raw evidence is retained
+outside the public repository. Publication alone is not that evidence and does
+not establish independent-user acceptance.
 The portable Claude prompt has not been established by a Codex run.

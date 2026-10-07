@@ -28,7 +28,9 @@ surface. Historical examples and golden records retain their recorded producer
 identities; current live examples below use `0.4.2`. Client observations for
 public 0.4.0 and the earlier unpublished patch build are recorded separately in
 [CODEX.md](docs/CODEX.md); neither establishes acceptance of the published
-`0.4.2` build.
+`0.4.2` build. The completed `0.4.2` maintainer profile has a separate
+[acceptance summary](docs/CODEX.md#release-042-acceptance), including the scope
+of its private evidence and authorised carry-forward.
 The MCP wire revision is a separate identity: the server negotiates modern
 `2026-07-28` and legacy revisions through `2025-11-25` without changing this
 Veqtor tool contract. Client request abandonment sends the MCP cancellation

@@ -243,11 +243,41 @@ These dated observations belong to their recorded source/build identities.
 They do not establish native acceptance of the subsequent `0.4.1.dev0` changes
 or of the published `0.4.2` package.
 
+## Release 0.4.2 acceptance
+
+The maintainer acceptance profile for the published `0.4.2` release is complete.
+The private acceptance packet records:
+
+- a native Codex MCP workflow using `gpt-6-astra` with effort `high`, restoring
+  saved positions, preparing a selected-issue brief and obtaining explicit
+  decisions before creating two consecutive Word counterproposals;
+- inspection of the final text, Track Changes and every rendered page of both
+  outputs, with source documents unchanged;
+- Claude Desktop checks on the maintainer's existing macOS user, including
+  upgrade from `0.4.0`, rollback, reinstallation, uninstall and recovery after Stop;
+- the release checks and both public artifact verifiers in
+  [release run 37522820299](https://github.com/JohnDeer-ai/veqtor-mcp/actions/runs/37522820299).
+
+The native Codex and Claude observations were captured against source commit
+`2c62a24ec2e959018cd24a073fdacd0234db9713`. Their carry-forward to the published
+commit `b4c9cf01e473602516bf3afa7760eb854bbbbad5` was explicitly authorised:
+the wheel and MCPB bytes were identical, and the only changed sdist member was
+`RELEASING.md`. This was a documented exception to the exact-commit rerun rule,
+not a fresh native run against the publication commit. Historical transcripts
+retain their original source identities; future candidates follow the procedure
+below unless a separate exception is approved.
+
+Raw transcripts, Word files, position data, visual-review records and the
+acceptance packet are retained outside the public repository. This is a
+maintainer-reported summary of that evidence. It does not establish a clean
+installation, independence from the developer toolchain, independent-user
+acceptance, or compatibility with every client and real contract. Native Codex
+acceptance does not establish the portable Claude prompt's full workflow.
+
 ## Exact candidate acceptance
 
-Version `0.4.2` is published. This repository does not contain native Codex
-acceptance evidence for `0.4.2`, and this guide does not declare that
-acceptance passed. The procedure below applies to an exact release candidate.
+The procedure below applies to an exact release candidate. The completed
+`0.4.2` profile and its carry-forward exception are recorded above.
 After Reviewer PASS, run the required full tests, locked runtime audit and
 wheel/sdist checks from the exact reviewed commit and tree. Keep gate evidence
 outside the repository. The current release inventory explicitly includes the
