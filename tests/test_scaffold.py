@@ -130,7 +130,7 @@ def test_changelog_keeps_timeless_release_copy() -> None:
     assert "`published_at` timestamp" in releasing
 
 
-def test_release_copy_is_state_neutral_and_site_uses_public_v040() -> None:
+def test_release_copy_is_state_neutral_and_site_uses_public_v042() -> None:
     readme = (ROOT / "README.md").read_text()
     immutable_docs = "\n".join(
         (ROOT / name).read_text()
@@ -153,9 +153,9 @@ def test_release_copy_is_state_neutral_and_site_uses_public_v040() -> None:
         '-e VEQTOR_TRACKED_CHANGE_AUTHOR="Your Name" -- '
         "uvx veqtor-mcp@X.Y.Z"
     ) in readme
-    assert "PUBLIC_RELEASE_VERSION = '0.4.0'" in release_config
+    assert "PUBLIC_RELEASE_VERSION = '0.4.2'" in release_config
     assert (
-        "44a75ee286c701f1a14a2c96fba531e8290240fb8d554eff886565b380b5bd2c"
+        "9779d4526b1b86553e6639e6cffd3e80e3e87a747f8ca93c5261869b83500cf5"
     ) in release_config
     assert "PUBLIC_MCPB_URL" in setup
     assert "PUBLIC_RELEASE_URL" in setup
@@ -196,6 +196,12 @@ def test_release_copy_is_state_neutral_and_site_uses_public_v040() -> None:
         "v0.4.0 release candidate",
         "v0.4.0 candidate",
         "there is no official v0.4.0 download yet",
+        "public v0.4.0",
+        "public veqtor 0.4.0",
+        "public 0.4.0 alpha",
+        "v0.4.2 is not public yet",
+        "v0.4.2 release candidate",
+        "there is no official v0.4.2 download yet",
     ):
         assert stale_site_copy not in public_pages.lower()
     assert "Recorded with Veqtor v0.1.2" in public_pages
@@ -209,18 +215,21 @@ def test_release_copy_is_state_neutral_and_site_uses_public_v040() -> None:
     )
 
 
-def test_public_site_v040_history_instructions_match_the_release() -> None:
+def test_public_site_v042_tool_and_history_instructions_match_the_release() -> None:
     from veqtor_mcp._verification_v2 import PARAGRAPH_PROJECTION_MODES
+    from veqtor_mcp.contracts import MCP_CONTRACT_SCHEMA_VERSION
     from veqtor_mcp.records import WRITABLE_TOOL_NAMES
 
     pages = ROOT / "website" / "src" / "pages"
     docs = (pages / "docs.astro").read_text()
     setup = (pages / "setup.astro").read_text()
     tool_cards = re.findall(r"<article><code>(\w+)</code><h3>", docs)
-    assert len(tool_cards) == len(set(tool_cards)) == 9
-    assert set(tool_cards) == set(WRITABLE_TOOL_NAMES)
+    assert len(tool_cards) == len(set(tool_cards)) == 11
+    assert set(tool_cards) == set(WRITABLE_TOOL_NAMES) | {
+        "read_deal_positions", "mutate_deal_positions",
+    }
     for marker in (
-        "veqtor.mcp.v0.4",
+        MCP_CONTRACT_SCHEMA_VERSION,
         "filename_lexicographic_v1",
         "explicit_filename_sequence_v1",
         *PARAGRAPH_PROJECTION_MODES,
@@ -234,7 +243,10 @@ def test_public_site_v040_history_instructions_match_the_release() -> None:
     prompt = (ROOT / "packaging/mcpb/demo/FIRST_PROMPT.txt").read_text().strip()
     assert f"<blockquote>{prompt}</blockquote>" in setup
     assert "${PUBLIC_MCPB_FILENAME}" in setup
-    assert "nine tools" in setup
+    assert "eleven tools" in setup
+    assert MCP_CONTRACT_SCHEMA_VERSION in setup
+    assert "read_deal_positions" in setup
+    assert "mutate_deal_positions" in setup
     assert "not a full acceptance test" in setup
 
 

@@ -43,7 +43,7 @@ const description = `Plain-language and technical limits of the public Veqtor ${
         <p>The supported container is an unencrypted, non-ZIP64 ZIP package using STORED or DEFLATED members. Ambiguous, malformed or unsupported package structures are refused.</p>
 
         <h3>Tracked changes and structure</h3>
-        <p>Extraction and writing cover <code>word/document.xml</code>. The writer supports a narrow set of tracked text replace, delete, counter and reinstate operations. Deeply nested revisions, unsupported element shapes and complex adjacent structures may be refused.</p>
+        <p>Extraction and writing cover <code>word/document.xml</code>. The writer supports a narrow set of tracked text replace, delete, counter and reinstate operations, plus exact text edits in supported clean paragraphs and table cells. Deeply nested revisions, unsupported element shapes and complex adjacent structures may be refused.</p>
         <p>Numbering and clause labels are navigation aids, not evidence. Durable references combine the document hash, change-unit identity, structural location and checked wording.</p>
 
         <h3>Round interpretation</h3>
@@ -55,6 +55,7 @@ const description = `Plain-language and technical limits of the public Veqtor ${
         <p>One atomic batch accepts up to 100 edits, 20,000 new characters per edit and 200,000 across the batch. Preflight runs the same document pipeline in memory, but apply can still fail if the source changes, the destination already exists or the filesystem refuses publication.</p>
 
         <h3>Provenance and threat model</h3>
+        <p>Saved negotiation positions are private local matter data. Confirmation applies to one displayed version; it does not prove user identity or corporate authority, resolve a business question, or authorize a later Word edit. Updating wording resets confirmation. Copies of a matter do not synchronize automatically.</p>
         <p>Decision records are best-effort local provenance. They are not authenticated, signed, hash-chained or tamper-evident. The supported threat model is a non-hostile, single-user Mac or Linux workspace. A malicious process running as the same user is outside scope.</p>
 
         <h3>Canonical release document</h3>

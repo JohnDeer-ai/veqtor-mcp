@@ -10,7 +10,7 @@ const rows = [
   {
     label: 'Best fit',
     claude: 'Drafting, explaining and editing inside the document currently open in Word.',
-    veqtor: 'Tracing exact paragraph evidence across several negotiation drafts in a declared order and creating a separate counterproposal.',
+    veqtor: 'Tracing exact paragraph evidence across negotiation drafts, restoring saved positions in a later round and creating a separate counterproposal.',
   },
   {
     label: 'What it can read',
@@ -56,7 +56,7 @@ const structuredData = {
     eyebrow="Choose the right workflow"
     title="Veqtor and Claude for Word solve different parts of contract review."
     lede="Claude for Word is designed for asking, drafting and editing inside Word. Veqtor MCP is a narrower, open-source workflow for comparing negotiation drafts and creating a separate counterproposal."
-    meta="Veqtor v0.4.0 · Claude for Word information checked 17 July 2026"
+    meta="Veqtor v0.4.2 · Claude for Word information checked 17 July 2026"
     breadcrumbs={[{ label: 'Veqtor vs Claude for Word' }]}
   >
     <div slot="actions" class="actions">
@@ -95,7 +95,7 @@ const structuredData = {
       <div class="comparison" role="region" aria-label="Veqtor and Claude for Word comparison" tabindex="0">
         <table>
           <thead>
-            <tr><th scope="col">Workflow</th><th scope="col">Claude for Word</th><th scope="col">Veqtor MCP 0.4.0</th></tr>
+            <tr><th scope="col">Workflow</th><th scope="col">Claude for Word</th><th scope="col">Veqtor MCP 0.4.2</th></tr>
           </thead>
           <tbody>
             {rows.map((row) => (
@@ -130,7 +130,7 @@ const structuredData = {
       <article class="prose">
         <p class="eyebrow">Sources and version</p>
         <h2 id="sources-title">What this comparison is based on.</h2>
-        <p>Claude for Word information is based on <a href="https://claude.com/docs/office-agents/word">Anthropic’s product documentation</a>, checked on 17 July 2026 and not revalidated for this Veqtor update. Veqtor information describes the public 0.4.0 Alpha and should be read together with the <a href="/limitations">current limitations</a> and <a href="/security">security and privacy explanation</a>.</p>
+        <p>Claude for Word information is based on <a href="https://claude.com/docs/office-agents/word">Anthropic’s product documentation</a>, checked on 17 July 2026 and not revalidated for this Veqtor update. Veqtor information describes the public 0.4.2 Alpha and should be read together with the <a href="/limitations">current limitations</a> and <a href="/security">security and privacy explanation</a>.</p>
         <p>The products may also complement each other. The useful distinction is not which name is better; it is whether the task begins inside one open document or across a declared set of negotiation drafts.</p>
       </article>
     </div>

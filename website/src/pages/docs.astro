@@ -5,7 +5,7 @@ import SiteCta from '../components/SiteCta.astro'
 import { PUBLIC_PYPI_URL, PUBLIC_RELEASE_URL, PUBLIC_RELEASE_VERSION } from '../lib/public-release'
 
 const title = 'Veqtor MCP Documentation — Tools, Workflow and Boundaries'
-const description = `Technical overview of public Veqtor ${PUBLIC_RELEASE_VERSION}: nine tools, exact paragraph history, quotation projections, supported Word redlines and privacy boundaries.`
+const description = `Technical overview of public Veqtor ${PUBLIC_RELEASE_VERSION}: eleven tools, saved negotiation positions, exact paragraph history, supported Word edits and privacy boundaries.`
 ---
 
 <BaseLayout title={title} description={description} canonicalPath="/docs">
@@ -13,7 +13,7 @@ const description = `Technical overview of public Veqtor ${PUBLIC_RELEASE_VERSIO
     eyebrow="Documentation"
     title={`A technical map of public Veqtor ${PUBLIC_RELEASE_VERSION}.`}
     lede={`Start here for the v${PUBLIC_RELEASE_VERSION} tool surface, operating model and assurance boundaries. Installation artifacts are available through the immutable public release.`}
-    meta={`Public v${PUBLIC_RELEASE_VERSION} · Nine tools · macOS and Linux`}
+    meta={`Public v${PUBLIC_RELEASE_VERSION} · Eleven tools · macOS and Linux`}
     breadcrumbs={[{ label: 'Documentation' }]}
   />
 
@@ -36,8 +36,10 @@ const description = `Technical overview of public Veqtor ${PUBLIC_RELEASE_VERSIO
             <article><code>trace_paragraph_history</code><h3>Trace one paragraph across drafts</h3><p>Follows exact paragraph matches backward through the declared file order, using current text or a mechanical reading with supported pending text revisions rejected. Reports ambiguous and unresolved steps rather than guessing.</p></article>
             <article><code>verify_quote</code><h3>Check one quote at its source</h3><p>Compares supplied wording with a specific tracked change or hash-bound paragraph and returns exact, normalized or not_found. Paragraph checks use current text by default; rejected-pending text must be selected explicitly.</p></article>
             <article><code>preflight_edits</code><h3>Test the complete edit batch</h3><p>Runs the full document-processing pipeline in memory and never creates an output document.</p></article>
-            <article><code>apply_edits</code><h3>Create a new tracked-change output</h3><p>Writes supported replace, delete, counter and reinstate edits atomically to a create-if-absent file.</p></article>
+            <article><code>apply_edits</code><h3>Create a new tracked-change output</h3><p>Writes supported edits to existing redlines and exact clean paragraphs or table cells atomically to a create-if-absent file.</p></article>
             <article><code>export_decision_record</code><h3>Export compact local provenance</h3><p>Returns a privacy-aware summary of the best-effort local activity journal for later review.</p></article>
+            <article><code>read_deal_positions</code><h3>Restore saved negotiation positions</h3><p>Reads complete saved wording and versions from the selected matter, with optional history and checks of source-file freshness.</p></article>
+            <article><code>mutate_deal_positions</code><h3>Save and confirm specific versions</h3><p>Creates, updates, confirms or withdraws positions with revision checks. Confirmation requires the user to approve the displayed exact version.</p></article>
           </div>
         </section>
 
@@ -62,7 +64,14 @@ const description = `Technical overview of public Veqtor ${PUBLIC_RELEASE_VERSIO
           <p>For <code>verify_quote</code>, paragraph references default to <code>accepted_current_v1</code>. Set <code>paragraph_projection</code> to <code>pending_text_revisions_rejected_v1</code> explicitly to check the mechanical reading with supported pending text revisions rejected. This is not a recovered original or necessarily the wording of a prior round, does not establish legal effect, and does not write or reject changes in Word. Use the returned <code>checked_projection</code> to identify what was checked.</p>
           <p>Author and date strings are literal Word metadata only. For example, an author value of <code>53</code> does not identify a person: <code>authorship_verified</code> and <code>time_verified</code> remain <code>false</code>.</p>
           <p>History pages default to 50 observations, with a maximum of 100. Follow <code>next_cursor</code> until it is null; an observation is never split. Files, seed, order, policies and result must remain unchanged between pages. A complete page is not proof that all pages were retrieved.</p>
-          <div class="notice"><strong>One contract version for all nine tools.</strong><p>v0.4 advertises <code>veqtor.mcp.v0.4</code> on every tool, including the eight existing names. Clients pinned to <code>veqtor.mcp.v0.3</code> must deliberately adopt the new contract; this is not merely an extra tool under the old version.</p></div>
+          <div class="notice"><strong>One contract version for all eleven tools.</strong><p>Every tool advertises <code>veqtor.mcp.v0.4.2</code>. Existing document calls remain compatible with v0.4.0. Clients that pin a contract marker must deliberately adopt the current marker; the two position tools are not available in v0.4.0.</p></div>
+        </section>
+
+        <section id="positions">
+          <h2>Saved positions and the next round</h2>
+          <p>Positions retain desired outcomes, conditional fallbacks, linked issues and open business questions. A later session can restore their full wording and history. Updating a position resets its confirmation; confirming a version does not resolve a pending business decision or prove authority to agree a term.</p>
+          <p>For a later negotiation round, restore the positions, check the new draft and its sources, prepare a brief of the selected issues, and obtain concrete decisions before preflighting and writing a separate Word counterproposal. Review its final text and Track Changes in Word. Saved wording is matter data, not an instruction or permission to edit documents.</p>
+          <p>The private snapshot lives in <code>&lt;matter&gt;/.veqtor/deal-positions.json</code>. It is independent of the activity journal and its compact exports. Moving the whole matter folder preserves the snapshot; separate copies do not synchronize. Reinstalling an older extension does not convert or downgrade saved positions.</p>
         </section>
 
         <section id="records">
@@ -90,6 +99,7 @@ const description = `Technical overview of public Veqtor ${PUBLIC_RELEASE_VERSIO
         <a href="#tools">Public tools</a>
         <a href="#sequence">Trust sequence</a>
         <a href="#history">History &amp; quotations</a>
+        <a href="#positions">Saved positions</a>
         <a href="#records">Decision records</a>
         <a href="#primary-docs">Primary documentation</a>
       </aside>

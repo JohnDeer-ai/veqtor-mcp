@@ -2,7 +2,7 @@
 
 > Veqtor is a local, open-source MCP server that gives compatible AI clients defined tools for working with tracked changes in Microsoft Word documents.
 
-Public v0.4.0 technical Alpha: nine tools under veqtor.mcp.v0.4; macOS and Linux; Python 3.12-3.14; Claude Code on macOS/Linux; Claude Desktop on macOS.
+Public v0.4.2 technical Alpha: eleven tools under veqtor.mcp.v0.4.2; macOS and Linux; Python 3.12-3.14; Claude Code on macOS/Linux; Claude Desktop on macOS.
 
 What Veqtor can do:
 - find Word negotiation drafts in deterministic filename order;
@@ -13,6 +13,8 @@ What Veqtor can do:
 - check wording against a specific tracked change or paragraph, with current or explicitly selected rejected-pending paragraph text;
 - test a complete proposed edit batch before writing;
 - create a separate Word document with supported tracked changes;
+- make exact text edits in supported clean paragraphs and table cells;
+- save and restore negotiation positions, conditional fallbacks and open business questions for a later round;
 - export a compact local activity record.
 
 Important boundaries:
@@ -20,7 +22,8 @@ Important boundaries:
 - Veqtor does not provide legal advice.
 - Veqtor never overwrites the source or an existing output file.
 - It is not a generic Word editor or a tamper-evident audit system.
-- Comments, headers, footers, footnotes, accept/reject, Windows and hosted MCP are outside v0.4.0.
+- Comments, headers, footers, footnotes, accept/reject, Windows and hosted MCP are outside v0.4.2.
+- Saved positions are confidential local data, separate from the activity journal. Confirmation is specific to a displayed version and does not authorize later edits or settle business decisions. Copies do not synchronize automatically.
 - Paragraph history is not semantic lineage or verified chronology. Ambiguous or unresolved steps stop backward propagation.
 - Rejected-pending wording is a mechanical reading, not a recovered original or a proven prior round. Literal author and date metadata remain unverified.
 - Text returned to the AI client may be processed by the user's model provider under that provider's terms.
@@ -34,5 +37,5 @@ Important boundaries:
 - [Limitations](https://veqtor.pro/limitations): plain-language and technical Alpha limits.
 - [Contract guides](https://veqtor.pro/guides): English-law commercial contract library.
 - [Source](https://github.com/JohnDeer-ai/veqtor-mcp): versioned code and release documentation.
-- [Public v0.4.0 release](https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/v0.4.0): immutable macOS extension, wheel, source archive and checksums.
-- [PyPI v0.4.0](https://pypi.org/project/veqtor-mcp/0.4.0/): exact public Python package.
+- [Public v0.4.2 release](https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/v0.4.2): immutable macOS extension, wheel, source archive and checksums.
+- [PyPI v0.4.2](https://pypi.org/project/veqtor-mcp/0.4.2/): exact public Python package.

@@ -28,6 +28,15 @@ const sections = [
     note: 'The local journal is stored under <matter>/.veqtor/decision-records.jsonl unless VEQTOR_DISABLE_DECISION_RECORD=1. Read-only calls normally append provenance too.',
   },
   {
+    id: 'saved-positions',
+    title: 'Saved positions are confidential matter data',
+    body: [
+      'Saved negotiation wording, fallbacks and open questions stay in the selected matter folder. They are separate from the activity history and can be restored in a later conversation. Treat them as confidential and do not attach them to a public support request.',
+      'Saved wording returned to Claude may be processed by your AI provider. Confirming a position records approval of that specific version; it does not establish corporate authority or permission for later edits.',
+    ],
+    note: 'The position snapshot is <matter>/.veqtor/deal-positions.json. Compact decision-record exports omit position wording. Separate copies have no automatic synchronization.',
+  },
+  {
     id: 'threat-model',
     title: 'What this security promise assumes',
     body: [
