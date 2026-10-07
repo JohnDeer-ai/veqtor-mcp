@@ -10,10 +10,11 @@ counterproposal with tracked changes for your review.
 Select one exact `X.Y.Z` using the [README version-selection table](../README.md).
 Use `0.4.2` only when both PyPI and the immutable GitHub release expose the
 complete verified artifact set; otherwise the public fallback is `0.4.0`.
-This source candidate is `0.4.2` with the eleven-tool `veqtor.mcp.v0.4.2`
-contract, paragraph edits, saved positions and the repeated next-round workflow.
-Public `0.4.0` retains its nine-tool `veqtor.mcp.v0.4` contract and cannot run
-the saved-position workflow. Source presence is not publication.
+Source presence is not publication. Version `0.4.2` is the published Alpha
+release line on both, with the eleven-tool `veqtor.mcp.v0.4.2` contract,
+paragraph edits, saved positions and the repeated next-round workflow. The
+historical `0.4.0` release retains its nine-tool `veqtor.mcp.v0.4` contract and
+cannot run the saved-position workflow.
 Veqtor supports macOS and Linux with Python 3.12–3.14. Windows is outside the
 current Alpha.
 
@@ -114,11 +115,12 @@ establish suitability for every real contract or independent-user acceptance.
 
 ## Use saved positions for the next round (NR-03 development)
 
-Use an installed, verified release candidate exposing all eleven tools,
-including `read_deal_positions` and `mutate_deal_positions`. The public `0.4.0`
-registration above cannot run this complete workflow. Candidate installation and
-isolated native checks are described in [NR03_ACCEPTANCE.md](NR03_ACCEPTANCE.md);
-they do not change your permanent public MCP configuration.
+Use the published `0.4.2` package, registered as above, which exposes all eleven
+tools, including `read_deal_positions` and `mutate_deal_positions`. A
+registration of the historical `0.4.0` package cannot run this complete
+workflow. Maintainer candidate installation and isolated native checks are
+described in [NR03_ACCEPTANCE.md](NR03_ACCEPTANCE.md); they do not change your
+permanent public MCP configuration.
 
 The source checkout and development sdist include the canonical
 [next-round prompt](prompts/next-round.md) and the thin
@@ -157,10 +159,10 @@ not establish that a commercial protection still works as intended.
 
 The present editing scope matters:
 
-- This candidate build supports exact replace/delete in supported clean body
-  and table paragraphs using fresh inspection refs. Pending or unsupported
-  paragraph structures are refused. Public `0.4.0` instead requires a usable
-  existing redline anchor.
+- Version `0.4.2` supports exact replace/delete in supported clean body and
+  table paragraphs using fresh inspection refs. Pending or unsupported
+  paragraph structures are refused. The historical `0.4.0` release instead
+  requires a usable existing redline anchor.
 - Supported operations are tracked replace, delete, counter, and reinstate;
   there is no general standalone insertion or Word Accept/Reject operation.
 - Counter and reinstate preserve the counterparty's pending markup.
@@ -226,20 +228,26 @@ still matched the earlier evidence. This confirms desktop activation and
 native reading; a desktop write workflow, browser ChatGPT, and
 independent-user acceptance remain separate checks.
 
-An unpublished source patch addresses the SDK 2.2 error-message limitation.
-Its separately built wheel was tested through a fresh native Codex session:
-`preflight_proof_invalid`, `preflight_binding_mismatch`, and `output_exists`
-were visible in the client, all five DOCX files stayed unchanged, and a
-subsequent read succeeded. All 21 packaged Python files matched the reviewed
-source. The observation records that candidate's distinct build and wheel hash.
-The historical public `0.4.0` installation does **not** include this patch.
+Before `0.4.2` was published, a source patch addressed the SDK 2.2
+error-message limitation. Its separately built, unpublished wheel was tested
+through a fresh native Codex session: `preflight_proof_invalid`,
+`preflight_binding_mismatch`, and `output_exists` were visible in the client,
+all five DOCX files stayed unchanged, and a subsequent read succeeded. All 21
+packaged Python files matched the reviewed source. The observation records that
+patch build's distinct build and wheel hash. The published `0.4.2` package
+includes safe error transport for this limitation, but this observation did not
+test `0.4.2`. The historical public `0.4.0` installation does **not** include
+this patch.
 
 These dated observations belong to their recorded source/build identities.
-They do not establish native acceptance of the subsequent `0.4.1.dev0` changes.
+They do not establish native acceptance of the subsequent `0.4.1.dev0` changes
+or of the published `0.4.2` package.
 
 ## Exact candidate acceptance
 
-Acceptance of `0.4.2` is pending independent review and the final gates.
+Version `0.4.2` is published. This repository does not contain native Codex
+acceptance evidence for `0.4.2`, and this guide does not declare that
+acceptance passed. The procedure below applies to an exact release candidate.
 After Reviewer PASS, run the required full tests, locked runtime audit and
 wheel/sdist checks from the exact reviewed commit and tree. Keep gate evidence
 outside the repository. The current release inventory explicitly includes the
@@ -277,7 +285,7 @@ the positive checker deliberately rejects every failed preflight/apply attempt.
 Record each refusal code and independently verify no extra or partial output,
 no overwrite and unchanged sources. Do not bypass an MCP refusal with a direct
 Python edit. Render the final Word candidate with the documents skill and
-inspect every page. These gates concern this release candidate; they do
+inspect every page. These gates concern an exact release candidate; they do
 not publish it or establish separate desktop write or independent-user acceptance.
 
 ## Recheck native evidence
@@ -310,7 +318,7 @@ they contain paths and document text.
 
 ## NR-01 native profile
 
-The release-candidate package `0.4.2` advertises `veqtor.mcp.v0.4.2`. The retained
+The published package `0.4.2` advertises `veqtor.mcp.v0.4.2`. The retained
 NR-01 paragraph target and delete-only scenario uses a separate checker. The original
 `check_codex_acceptance.py` and its nine-tool v1 profile stay unchanged.
 
@@ -384,7 +392,7 @@ checker behavior only; they are never native acceptance. Preserve raw documents,
 baselines and logs outside public sources. After independent PASS, render and
 inspect every page with the documents skill using the bundled renderer. Native
 client evidence and visual layout are separate gates; neither is asserted by
-this development implementation or a Python test result.
+the implementation, this guide or a Python test result.
 
 ## NR-02 native position profile
 

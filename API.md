@@ -5,8 +5,8 @@
 This file defines the public tool surface. Output examples are part of the API
 because models use them to decide how to call tools and how to cite results.
 
-The release-candidate source is package `0.4.2` and advertises the
-eleven-tool MCP contract `veqtor.mcp.v0.4.2`. Package version, contract and
+The current source is package `0.4.2`, the published Alpha release line, and
+advertises the eleven-tool MCP contract `veqtor.mcp.v0.4.2`. Package version, contract and
 publication status are separate identities: only matching entries on public
 PyPI and the immutable GitHub Releases list establish distribution. This file
 alone does not. Every current tool exposes
@@ -19,16 +19,16 @@ preflight proofs are closed objects; top-level results remain additive where
 the advertised schema says so. `trace_paragraph_history` and the v2
 `verify_quote` result are closed at the top level as well.
 
-Public `0.4.0` retains the nine-tool `veqtor.mcp.v0.4` contract. This candidate
-build adds independent deal positions and retains clean-paragraph edits under
-`veqtor.mcp.v0.4.2`, alongside Codex
-integration and safe error transport; it does not modify the archived v0.4.0
-release contract or published artifacts. Historical v0.3 artifacts retain the
-eight-tool `veqtor.mcp.v0.3` surface. Historical examples and golden records
-retain their recorded producer identities; current live examples below use
-`0.4.2`. Client observations for public 0.4.0 and the earlier unpublished
-patch are recorded separately in [CODEX.md](docs/CODEX.md); neither establishes
-acceptance of this candidate build.
+The historical public `0.4.0` release retains the nine-tool `veqtor.mcp.v0.4`
+contract. Version `0.4.2` adds independent deal positions and clean-paragraph
+edits under `veqtor.mcp.v0.4.2`, alongside Codex integration and safe error
+transport; it does not modify the archived v0.4.0 release contract or published
+artifacts. Historical v0.3 artifacts retain the eight-tool `veqtor.mcp.v0.3`
+surface. Historical examples and golden records retain their recorded producer
+identities; current live examples below use `0.4.2`. Client observations for
+public 0.4.0 and the earlier unpublished patch build are recorded separately in
+[CODEX.md](docs/CODEX.md); neither establishes acceptance of the published
+`0.4.2` build.
 The MCP wire revision is a separate identity: the server negotiates modern
 `2026-07-28` and legacy revisions through `2025-11-25` without changing this
 Veqtor tool contract. Client request abandonment sends the MCP cancellation
