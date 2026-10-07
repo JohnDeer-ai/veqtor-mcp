@@ -26,17 +26,17 @@ document facts and deterministic writes; it does not claim legal correctness.
 - Bounded DOCX/ZIP processing and versioned installation from PyPI, with the
   same verified wheel, sdist and checksum manifest on GitHub Releases.
 
-## Public 0.4.0 and candidate 0.4.2
+## Published 0.4.2 and historical 0.4.0
 
-Candidate package `0.4.2` advertises the eleven-tool MCP contract
+Published Alpha package `0.4.2` advertises the eleven-tool MCP contract
 `veqtor.mcp.v0.4.2`. The contract version is a surface-wide API-schema identifier:
 all eleven tools report v0.4.2, including tools whose behavior is unchanged.
-Public `0.4.0` retains its frozen `veqtor.mcp.v0.4` contract.
-The development changes add Codex setup, a reusable next-round prompt, native
+The historical public `0.4.0` release retains its frozen `veqtor.mcp.v0.4`
+contract. Version `0.4.2` adds Codex setup, a reusable next-round prompt, native
 evidence checks and safe error transport, including SDK validation before tool
 entry. Historical Codex observations are in [CODEX.md](docs/CODEX.md); they do
-not establish acceptance of the new release candidate. The archived v0.4.0
-release contract, golden records and published artifacts remain unchanged.
+not establish acceptance of `0.4.2`. The archived v0.4.0 release contract,
+golden records and published artifacts remain unchanged.
 
 Reliable-workflow stages 0 through 3C now provide:
 
@@ -74,14 +74,19 @@ Reliable-workflow stages 0 through 3C now provide:
 The preflight proof is a deterministic drift binding, not authentication, a
 digital signature, a trusted timestamp or tamper evidence.
 
+## Completed for 0.4.2
+
+The published release includes NR-01 clean-paragraph edits, NR-02 saved
+positions and the NR-03 repeated next-round workflow. Release review,
+maintainer native and rendered-Word acceptance, packaging and audit gates,
+publication and website activation are complete. The
+[acceptance summary](docs/CODEX.md#release-042-acceptance) records the bounded
+profile, private evidence and authorised carry-forward; independent-user and
+clean-install validation remain outside that completed profile.
+
 ## Next
 
 - Extend supported OOXML layouts based on reproducible public issues.
-- Complete independent review and exact-candidate native Codex position checks
-  for `0.4.2`; then run the required development packaging and audit gates.
-  The installed public MCP and earlier observations cannot close those gates.
-- Validate NR-02 independent portable deal positions, exact-version confirmation,
-  recovery and conflicts under the closed NR-02 contract. NR-03 needs a separate cycle.
 - Evaluate a separately specified Stage 3D clean-sendable-redline workflow only
   after external-user validation of the read-only Stage 3C evidence surface.
 - Refine installation, diagnostics and examples from external-user feedback.
@@ -123,9 +128,9 @@ Frozen version 0.4.0 release scope:
 
 The archived `scripts/release_contract_v040.py` inventory contains the nine v0.4 names.
 The historical v0.3 MCPB remains unchanged and eight-tool. The public website
-uses v0.4.0 until both public verifiers pass for v0.4.2. The new release
-contract requires eleven tools, actual saved-position smoke, two native Word
-rounds and the v0.4.0 → v0.4.2 → v0.4.0 → v0.4.2 extension lifecycle.
+switched to v0.4.2 after both public verifiers passed for that release. The
+v0.4.2 release contract requires eleven tools, actual saved-position smoke, two
+native Word rounds and the v0.4.0 → v0.4.2 → v0.4.0 → v0.4.2 extension lifecycle.
 See [RELEASING.md](RELEASING.md). Publication and website activation are separate gates.
 
 Non-goals and release boundaries:
@@ -158,7 +163,7 @@ NR-02 adds local position storage without new DOCX mutations. Its native
 position acceptance does not require repeating the whole NR-01 rendered-Word
 profile unless an affected change justifies that additional gate.
 
-## NR-02 release candidate
+## NR-02 deal positions
 
 The [closed deal-position contract](NR-02_DEAL_POSITIONS.md) adds two tools for
 complete local intentions and atomic revision-bound updates. It retains all prior
