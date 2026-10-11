@@ -9904,7 +9904,7 @@
           "title": "Design rights and database rights need separate checks",
           "body": [
             "The Intellectual Property Act 2014 removed the special rule giving commissioners initial ownership of commissioned UK designs. Under the rules applying from 1 October 2014, the designer is normally the first owner of UK unregistered design right and the original proprietor of a registered design; an employer normally owns a design created by an employee in the course of employment. Check [section 215 CDPA](https://www.legislation.gov.uk/ukpga/1988/48/section/215) and [section 2 of the Registered Designs Act 1949](https://www.legislation.gov.uk/ukpga/Geo6/12-13-14/88/section/2), including the relevant exceptions and transitional rules.",
-            "Database right is separate from copyright. Under [regulation 14 of the Copyright and Rights in Databases Regulations 1997](https://www.legislation.gov.uk/uksi/1997/3032/regulation/14), the maker is generally the person who takes the initiative and assumes the investment risk in obtaining, verifying or presenting the contents. The maker is the first owner of any database right that arises under [regulation 15](https://www.legislation.gov.uk/uksi/1997/3032/regulation/15), subject to the maker rules, including employment. The contractor who builds the software does not automatically own that separate right. Identify the rights in each deliverable and allocate them expressly."
+            "Database right is separate from copyright. It requires a substantial investment in obtaining, verifying or presenting the contents of a database under [regulation 13 of the Copyright and Rights in Databases Regulations 1997](https://www.legislation.gov.uk/uksi/1997/3032/regulation/13), subject to the qualification requirements. Under [regulation 14](https://www.legislation.gov.uk/uksi/1997/3032/regulation/14), the maker is generally the person who takes the initiative in that obtaining, verification or presentation and assumes the risk of investing in it. An employer is treated as the maker of a database made by an employee in the course of employment, unless otherwise agreed. The maker is the first owner under [regulation 15](https://www.legislation.gov.uk/uksi/1997/3032/regulation/15). Writing the software does not by itself make the contractor the maker. Identify the rights in each deliverable and allocate them expressly."
           ]
         },
         {
@@ -9917,7 +9917,7 @@
         {
           "title": "Joint ownership needs agreed management terms",
           "body": [
-            "For UK copyright, [section 173(2) CDPA](https://www.legislation.gov.uk/ukpga/1988/48/section/173) requires a licence from all joint owners where the copyright owner's licence is needed. The owners can agree permissions and licensing authority in advance. Without that agreement, one owner cannot assume it may license the work on behalf of the others.",
+            "For UK copyright, [section 16](https://www.legislation.gov.uk/ukpga/1988/48/section/16) and [section 173(2) CDPA](https://www.legislation.gov.uk/ukpga/1988/48/section/173) mean that where the copyright owner's licence is needed, the licence of all joint owners is required. That applies to a co-owner's own acts restricted by copyright, such as copying or adaptation, as well as authorising others to do them, subject to statutory exceptions. Joint ownership therefore does not itself give a co-owner freedom to reuse the work. The owners can agree these permissions and licensing authority in advance.",
             "For UK patents, [section 36 of the Patents Act 1977](https://www.legislation.gov.uk/ukpga/1977/37/section/36) generally allows each co-owner to exploit the invention for its own benefit without consent or accounting to the others. Granting a licence, or assigning or mortgaging a share, generally requires the other owners' consent, subject to agreement and the statutory provisions. US patent law also permits independent exploitation without accounting in the absence of a contrary agreement: [35 U.S.C. § 262](https://www.law.cornell.edu/uscode/text/35/262).",
             "[Hughes v Paxman](https://caselaw.nationalarchives.gov.uk/ewca/civ/2006/818) [2006] EWCA Civ 818 confirms the default consent rule but also the comptroller's power under [section 37](https://www.legislation.gov.uk/ukpga/1977/37/section/37) to resolve certain disputes by granting a licence. A disagreement is therefore not necessarily an unbreakable deadlock, but the decision does not guarantee a licence on the terms a co-owner wants.",
             "Compare joint ownership with sole ownership plus a licence. If the parties choose joint ownership, agree each party's own use, authority to grant licences, income allocation, enforcement, costs and exit arrangements. Those terms address the practical risks without assuming that every jointly owned right follows the same rules."
@@ -9941,7 +9941,7 @@
         {
           "title": "Design and database rights",
           "body": [
-            "The post-1 October 2014 design rules normally put initial ownership with the designer or an employer. Database right follows the maker and investment-risk rules in regulations 14–15 of the 1997 Regulations, not automatically the software contractor."
+            "The post-1 October 2014 design rules normally put initial ownership with the designer or an employer. Database right requires substantial investment under regulation 13 and statutory qualification; ownership follows the maker and first-ownership rules in regulations 14–15, not automatically the software contractor."
           ]
         },
         {
@@ -9953,7 +9953,7 @@
         {
           "title": "Manage joint ownership",
           "body": [
-            "Agree own use, licensing authority, income, enforcement and exit. UK copyright licensing requires all owners' permission, which can be arranged in advance. UK patent co-owners generally need consent to license, subject to agreement and statutory mechanisms; Hughes confirms that s.37 can resolve certain disputes. UK and US patent defaults allow independent exploitation without accounting."
+            "Agree own use, licensing authority, income, enforcement and exit. A UK copyright co-owner generally needs the other owners' consent for its own copying or adaptation and for licensing those acts to others, subject to statutory exceptions. Permissions can be arranged in advance. UK patent co-owners may exploit independently without accounting but generally need consent to license, subject to agreement and statutory mechanisms; Hughes confirms that s.37 can resolve certain disputes. US patent law also allows independent exploitation without accounting."
           ]
         },
         {
@@ -9966,10 +9966,10 @@
       "checklist": [
         "Identify the rights in each deliverable. Payment alone does not transfer copyright; check the author, employer exception and chain of title.",
         "Check design-right ownership separately, including the post-1 October 2014 rules and relevant employment or transitional provisions.",
-        "For database right, identify the maker by initiative and investment risk in obtaining, verifying or presenting the contents, not merely who wrote the software.",
+        "For database right, check substantial investment and qualification, then identify the maker by initiative and investment risk in obtaining, verifying or presenting the contents, not merely who wrote the software.",
         "For employee inventions, apply the Patents Act 1977 s.39 test and the protection in s.42.",
         "Check the course of employment for employee-created copyright works (Penhallurick v MD5 [2021] EWCA Civ 1770).",
-        "If ownership is joint, agree own use, licensing authority, income, enforcement and exit. Check the rules for each right and the available dispute-resolution mechanisms.",
+        "If ownership is joint, agree each party's own use, licensing authority, income, enforcement and exit. A UK copyright co-owner generally needs the others' consent for its own acts restricted by copyright, subject to statutory exceptions; patent co-owners have different default rights.",
         "Document the agreed assignment or licence expressly. A court may imply rights on the facts, but payment alone does not establish what those rights are."
       ],
       "related": [
