@@ -16,8 +16,8 @@ const ALLOWED_NEW_ROUTES = ['/setup', '/docs', '/limitations', '/veqtor-vs-claud
 // Pinned from the approved guide inventory and reviewed editorial metadata.
 // Updating either hash is an explicit SEO decision, not routine content editing.
 const LEGACY_ROUTE_MANIFEST_SHA256 = '576d80131cb6b42902802646b727550ecf7080dd69f426a1060271ae8586dddc'
-// 2026-10-11: descriptions for the IP pillar and assignment guide reflect corrected ownership rules.
-const EDITORIAL_SEO_SHA256 = '0f70953ff073e3eb18fc5b79c58c8fefabe122deb6afe8828cf8360470797832'
+// 2026-10-11: corrected IP pillar/assignment descriptions and neutral Background IP social title.
+const EDITORIAL_SEO_SHA256 = 'd771182736602f1e6d7f02979f8be1cc5228f85c7f0d213638932a64ccd69ebb'
 
 const STATIC_LEGACY_ROUTES = [
   '/',

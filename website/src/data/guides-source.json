@@ -9522,7 +9522,7 @@
         {
           "title": "Background, foreground - and now AI",
           "body": [
-            "Commercial IP allocation traditionally turns on two categories. Background IP is what each party brings - pre-existing tools, code, methods, know-how. Foreground IP is what is created during the project - the bespoke deliverables. A good clause lets each party keep its background IP while the client secures the foreground IP it is paying for. Generative AI adds a third, awkward category: outputs that may not be legally created by anyone, and may attract no copyright at all in some jurisdictions.",
+            "Commercial IP allocation traditionally turns on two categories. Background IP is what each party brings - pre-existing tools, code, methods, know-how. Foreground IP is what is created during the project - the bespoke deliverables. A good clause identifies what each party keeps and allocates foreground rights expressly, by assignment or licence, to fit the deal. Generative AI adds a third, awkward category: outputs that may not be legally created by anyone, and may attract no copyright at all in some jurisdictions.",
             "Each category needs its own treatment, and the supporting articles take them in turn - background IP, foreground IP ownership, assignment mechanics, AI-generated output, and the cross-cutting issues of indemnities, licensing, and moral rights."
           ]
         },
@@ -9536,14 +9536,14 @@
         {
           "title": "Cross-border ownership needs separate checks",
           "body": [
-            "Choosing English law governs the parties' contractual obligations, but does not by itself settle every question of IP subsistence, initial ownership or the proprietary effect of a transfer in other countries. [Article 8 of assimilated Rome II](https://www.legislation.gov.uk/eur/2007/864/article/8) addresses non-contractual obligations arising from infringement; it is not a complete rule for initial ownership.",
+            "Choosing English law governs the parties' contractual obligations, but does not by itself settle every question of IP subsistence, initial ownership or the proprietary effect of a transfer in other countries. [Article 8 of assimilated Rome II](https://www.legislation.gov.uk/eur/2007/864/article/8) addresses non-contractual obligations arising from infringement; it does not itself determine who first owns the right.",
             "For a Singapore developer building software for a Japanese client under an English-law contract, separate the contractual promise to transfer rights from questions about which rights exist, who owns them and whether the transfer takes effect in the relevant countries. Identify the rights and territories, then check the applicable ownership rules, transfer restrictions and formalities. Neither a choice-of-law clause nor a reference to the Berne Convention or TRIPS replaces those checks."
           ]
         },
         {
           "title": "Allocate by contract, not by default",
           "body": [
-            "Because statutory defaults differ by country and AI output may have no owner at all, the safe approach is to allocate everything expressly by contract. Define and schedule background IP; assign foreground IP with present-assignment and further-assurances wording; add a dedicated category for AI-generated output with belt-and-suspenders provisions that bind whether or not IP rights subsist; and handle indemnities, licence survival, and moral rights deliberately.",
+            "Because statutory defaults differ by country and AI output may have no owner at all, the safe approach is to allocate everything expressly by contract. Define and schedule background IP; agree who will own foreground IP, then use present-assignment and further-assurances wording where ownership passes, or define the licence where it does not; add a dedicated category for AI-generated output with belt-and-suspenders provisions that bind whether or not IP rights subsist; and handle indemnities, licence survival, and moral rights deliberately.",
             "The contract should not assume any single jurisdiction's default will favour you. State the intended allocation clearly, then check that the relevant rights exist, that the party granting them can do so and that the transfer or licence satisfies the applicable law."
           ]
         },
@@ -9571,7 +9571,7 @@
         {
           "title": "Cross-border checks",
           "body": [
-            "Choosing English law does not settle every question of IP protection, initial ownership or transfer abroad. Rome II Article 8 deals with non-contractual infringement obligations, not a complete rule for initial ownership."
+            "Choosing English law does not settle every question of IP protection, initial ownership or transfer abroad. Rome II Article 8 deals with non-contractual infringement obligations; it does not itself determine who first owns the right."
           ]
         },
         {
@@ -9591,7 +9591,7 @@
         "Treat background IP, foreground IP, and AI-generated output as three separate categories.",
         "Do not assume paying for commissioned work transfers copyright. Check the original owner and any express or implied terms affecting the rights.",
         "Separate contractual obligations from IP subsistence, initial ownership, infringement and the proprietary effect of a transfer across borders.",
-        "Assign foreground IP expressly with present-assignment and further-assurances wording.",
+        "Agree who owns foreground IP; then document the assignment, with present-assignment and further-assurances wording, or the licence the other party needs.",
         "Add a dedicated AI-IP category with provisions that bind whether or not IP rights subsist.",
         "Check the relevant rights and countries, including restrictions on transfer and required formalities; treaty membership is not enough."
       ],
@@ -9750,12 +9750,12 @@
       "targetQuery": "background IP vs foreground IP",
       "metaTitle": "Background IP in Commercial Contracts (English Law)",
       "metaDescription": "Why 'background IP' is purely contractual, the provided/used/needed definitions, what courts imply when the contract is silent, and the M&A 'owned or controlled' trap.",
-      "twitterTitle": "Background IP: The Neglected Schedule",
+      "twitterTitle": "Background IP: What Each Party Keeps",
       "breadcrumb": "Background IP",
       "eyebrow": "Background IP",
-      "h1": "Background IP: the most neglected schedule in commercial contracts.",
+      "h1": "Background IP: defining what each party keeps and can use.",
       "lede": "Background IP identifies material a party brings to a project. Define and schedule it, then state who retains it and what the other side may use. Definitions based on what is provided, used or needed are not interchangeable, and none grants access without the relevant licence terms.",
-      "fallbackIntro": "Background IP needs an agreed definition and licence. Definitions based on what is provided, used or needed may capture different assets; none is always broadest. Courts imply only what the circumstances require, so identify the material and state the access rights expressly.",
+      "fallbackIntro": "Background IP needs an agreed definition and licence. Definitions based on what is provided, used or needed may capture different assets; none is always broadest. Implied rights depend on the contract and facts and may be narrow or wide, so identify the material and state the access rights expressly.",
       "updated": "2026-10-11",
       "publishedAt": "2026-06-14",
       "sourceIssue": "issue-12",
@@ -9765,7 +9765,7 @@
         "label": "Background IP",
         "title": "Background IP",
         "body": "Why background IP is purely contractual, how the provided/used/needed definitions differ, what courts imply when silent, and the M&A trap.",
-        "homeTitle": "Background IP: the neglected schedule",
+        "homeTitle": "Background IP: what each party keeps and can use",
         "homeBody": "How to define and ring-fence the IP each party brings to a project.",
         "authorBody": "Defining background IP, the implied-term case law, and the M&A trap."
       },
@@ -9788,7 +9788,7 @@
         {
           "title": "What courts imply when the contract is silent",
           "body": [
-            "Courts imply only what the circumstances require. Robin Ray v Classic FM plc [1998] FSR 622 sets out principles for commissioned works, reproduced and approved in [Griggs v Evans](https://caselaw.nationalarchives.gov.uk/ewca/civ/2005/11). If a licence is sufficient to give the contract business efficacy, an assignment is not implied merely because the work was commissioned. The result depends on the contract and its factual setting.",
+            "The scope of an implied licence is limited to what is necessary in the circumstances, which may require narrow or wide rights. Robin Ray v Classic FM plc [1998] FSR 622 sets out principles for commissioned works, reproduced and approved in [Griggs v Evans](https://caselaw.nationalarchives.gov.uk/ewca/civ/2005/11). If a licence is sufficient to give the contract business efficacy, an assignment is not implied merely because the work was commissioned.",
             "In Griggs, the court upheld the customer's beneficial ownership of the Dr Martens logo under an implied obligation to assign copyright. This was not a finding that the signed formalities for transferring legal title had already been completed. The need to control use of the logo was important on the facts, but the court expressly rejected treating that need as a universal rule for commissioned works.",
             "In [Clearsprings Management Ltd v Businesslinx Ltd](https://caselaw.nationalarchives.gov.uk/ewhc/ch/2005/1487) [2005] EWHC 1487 (Ch), the contract did not expressly allocate copyright. The customer received a non-exclusive licence without a right to sublicense, not ownership. The court also implied a term restricting the developer from exploiting the system as a whole, for example by selling it to a third party, while recognising reuse of parts of its work subject to protection of the customer's operating procedures. It did not settle every boundary or legal basis of those restrictions. The case illustrates why the contract should address reuse expressly.",
             "For a software project, see the [ownership and handover checks for contractor-written code under English law](https://ilyashilov.com/notes/contractor-code-ownership-english-law/)."
@@ -9797,7 +9797,7 @@
         {
           "title": "Define the scope of the background-IP licence",
           "body": [
-            "State who may use the background IP and for which purposes. Address copying, modification, maintenance, third-party support, sublicensing and transfer, together with duration and any restrictions. The project's purpose may support an implied licence, but silence does not itself create an unrestricted one. The different outcomes in Griggs and Clearsprings show why the agreement should state the intended rights.",
+            "State who may use the background IP and for which purposes. Address copying, modification, maintenance, third-party support, sublicensing and transfer, together with duration and any restrictions. Retaining ownership of background IP does not by itself ensure a narrow licence. Where customer-owned deliverables incorporate that background, the contract and its purpose may support wide implied rights to use it with the deliverables. The scope of any implied licence depends on the facts and may be narrow or wide, so agree the intended rights expressly.",
             "In a cross-border project, the law governing the contract does not settle every issue under the applicable IP laws. Check whether the agreed licence can be granted and enforced for the relevant rights and countries. Specify the intended scope rather than assuming that the same implied rights will arise everywhere."
           ]
         },
@@ -9823,7 +9823,7 @@
           ]
         },
         {
-          "title": "Silence = minimum",
+          "title": "What silence implies",
           "body": [
             "Implied rights depend on the facts. Griggs recognised beneficial ownership and an obligation to assign a logo; Clearsprings gave a non-exclusive software licence while restricting reuse of the system as a whole and protecting the customer's operating procedures."
           ]
@@ -9831,7 +9831,7 @@
         {
           "title": "Define the licence",
           "body": [
-            "Specify users, purposes, copying, modification, maintenance, third-party support, sublicensing, transfer and duration. Silence does not by itself create an unrestricted licence, and cross-border IP questions need separate checks."
+            "Specify users, purposes, copying, modification, maintenance, third-party support, sublicensing, transfer and duration. If the contract is silent, implied rights depend on the facts and may be narrow or wide; cross-border IP questions need separate checks."
           ]
         },
         {
