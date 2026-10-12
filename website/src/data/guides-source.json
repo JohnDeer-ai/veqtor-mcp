@@ -10241,14 +10241,14 @@
       "kind": "spoke",
       "targetQuery": "IP indemnity moral rights waiver licence",
       "metaTitle": "IP Indemnities, Licence Survival, and Moral Rights Waivers",
-      "metaDescription": "How IP indemnities work (often uncapped), why a 'perpetual' licence may still be terminable, sub-licence survival, insolvency, and cross-border moral rights waivers.",
+      "metaDescription": "How IP indemnity wording and liability caps interact with licence survival, sub-licences, insolvency, and cross-border moral rights waivers.",
       "twitterTitle": "IP Indemnities, Licences, Moral Rights",
       "breadcrumb": "Indemnities, licensing & moral rights",
       "eyebrow": "Cross-cutting",
       "h1": "IP indemnities, licence survival, and moral rights.",
-      "lede": "IP clauses do not stand alone - they interact with the liability cap, the termination provisions, and the author's moral rights. IP indemnities are often uncapped; a 'perpetual' licence may still be terminable; sub-licences may or may not survive; and moral rights can be waived in England but not in France or Germany. Each needs deliberate handling.",
-      "fallbackIntro": "IP indemnities are often uncapped (an exception to liability caps); a 'perpetual' licence may still be terminable (BMS v AB Agri); sub-licences may survive a head-licence ending (VLM v Ravensworth); moral rights are waivable in England (ss.87/94 CDPA) but not in France/Germany.",
-      "updated": "2026-06-14",
+      "lede": "IP clauses do not stand alone - they interact with the liability cap, the termination provisions, and the author's moral rights. IP indemnity coverage and caps depend on the agreed wording; a 'perpetual' licence may still be terminable; sub-licences may or may not survive; and moral rights can be waived in England but not in France or Germany. Each needs deliberate handling.",
+      "fallbackIntro": "IP indemnity coverage, remedies, and cap treatment depend on the agreed wording; a 'perpetual' licence may still be terminable (BMS v AB Agri); sub-licences may survive a head-licence ending (VLM v Ravensworth); moral rights are waivable in England (ss.87/94 CDPA) but not in France/Germany.",
+      "updated": "2026-10-12",
       "publishedAt": "2026-06-14",
       "sourceIssue": "issue-12",
       "legalReviewStatus": "approved",
@@ -10256,16 +10256,16 @@
       "listing": {
         "label": "Cross-cutting",
         "title": "IP indemnities, licensing & moral rights",
-        "body": "How IP indemnities (often uncapped), perpetual-licence survival, sub-licences, insolvency, and cross-border moral rights interact with the rest of the contract.",
+        "body": "How IP indemnity wording and caps, perpetual-licence survival, sub-licences, insolvency, and cross-border moral rights interact with the rest of the contract.",
         "homeTitle": "IP indemnities, licences, moral rights",
         "homeBody": "How IP indemnities, licence survival, and moral rights interact with the contract.",
         "authorBody": "The cross-cutting IP issues: indemnities, licence survival, and moral rights waivers."
       },
       "sections": [
         {
-          "title": "IP indemnities are often uncapped",
+          "title": "IP indemnity coverage and caps depend on the wording",
           "body": [
-            "In technology agreements, IP infringement indemnities are commonly uncapped as a matter of market practice - a significant exception to the general liability cap. The wording matters: an indemnity is a debt obligation requiring only proof of loss (without the foreseeability or mitigation requirements of a damages claim), and the US-imported indemnify, defend and hold harmless formulation is broader still.",
+            "An IP infringement indemnity can sit within the general liability cap, have a separate cap, or be uncapped. State the agreed position expressly. The word indemnity does not by itself create a debt claim or remove remoteness or mitigation requirements. Its trigger, recoverable amounts, payment mechanism, and relationship with the rest of the contract determine its effect. [Wood v Capita](https://caselaw.nationalarchives.gov.uk/uksc/2017/24) [2017] UKSC 24 applies that approach to interpretation; [AXA v Genworth](https://caselaw.nationalarchives.gov.uk/ewhc/comm/2019/3376) [2019] EWHC 3376 (Comm), particularly paragraphs 62 and 117-119, distinguishes the particular covenant to pay from a general indemnity. If the clause says indemnify, defend and hold harmless, define the intended defence and payment obligations rather than assuming the formula has a fixed wider effect under English law.",
             "Standard carve-outs exclude liability for the client's own modifications, combination with unapproved products, use outside specification, or deliverables built to the client's own specification. The remedial hierarchy typically lets the indemnifier procure a licence, modify the deliverable to be non-infringing, or - as a last resort - refund. In cross-border deals, the indemnity should cover infringement claims in every jurisdiction where the client will use the deliverables, under any applicable law."
           ]
         },
@@ -10293,7 +10293,7 @@
         {
           "title": "Putting the cross-cutting pieces together",
           "body": [
-            "These provisions should be drafted as a set, not in isolation. Decide whether the IP indemnity sits inside or outside the liability cap (often outside); make licence survival and irrevocability explicit and consistent with the termination clause; address sub-licence and insolvency survival expressly; and waive moral rights to the maximum extent permitted, jurisdiction by jurisdiction.",
+            "These provisions should be drafted as a set, not in isolation. Decide whether the IP indemnity falls within the general cap, has a separate cap, or is uncapped; make licence survival and irrevocability explicit and consistent with the termination clause; address sub-licence and insolvency survival expressly; and waive moral rights to the maximum extent permitted, jurisdiction by jurisdiction.",
             "The common failure is an IP clause that allocates ownership well but ignores how indemnities, licence termination, and moral rights interact with the rest of the contract - leaving the protection incomplete exactly where it is tested."
           ]
         }
@@ -10302,7 +10302,7 @@
         {
           "title": "IP indemnities",
           "body": [
-            "Often uncapped (an exception to the cap); 'indemnify' is a debt obligation; carve out client modifications, combinations, and misuse."
+            "Agree the coverage, defence, payment obligations, and cap treatment expressly. Debt treatment and freedom from remoteness or mitigation limits do not follow from the word indemnity alone; define the carve-outs and remedies."
           ]
         },
         {
@@ -10331,7 +10331,7 @@
         }
       ],
       "checklist": [
-        "Decide whether the IP indemnity is inside or outside the liability cap (often outside) and draft the carve-outs and remedies.",
+        "Agree whether the IP indemnity is within the general cap, has a separate cap, or is uncapped; define its trigger, defence and payment obligations, carve-outs, remedies, and any mitigation requirements.",
         "Do not assume 'perpetual' means interminable - use 'perpetual and irrevocable' with no conflicting termination clause (BMS v AB Agri [2010] EWHC 464 (Ch)).",
         "Address sub-licence survival expressly - it is not automatic either way (VLM v Ravensworth [2013] EWHC 228 (Ch)).",
         "Address licence survival on insolvency expressly (Corporate Insolvency and Governance Act 2020 may override ipso facto clauses).",
