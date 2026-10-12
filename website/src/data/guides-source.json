@@ -9870,15 +9870,15 @@
       "cluster": "intellectual-property-in-commercial-contracts",
       "kind": "spoke",
       "targetQuery": "who owns IP created by a contractor",
-      "metaTitle": "Foreground IP Ownership: The Commissioner's False Assumption",
-      "metaDescription": "Why under English law the contractor - not the paying client - owns commissioned IP, how the IP Act 2014 changed design rights, employee inventions, and joint-ownership traps.",
+      "metaTitle": "Foreground IP Ownership in Commissioned Work",
+      "metaDescription": "Who owns commissioned copyright, designs and database rights under English law, when courts imply rights, and how to manage joint ownership.",
       "twitterTitle": "I Paid For It - But Who Owns It?",
       "breadcrumb": "Foreground IP ownership",
       "eyebrow": "Foreground IP",
-      "h1": "Foreground IP: the commissioner's false assumption.",
-      "lede": "The most common cause of IP ownership disputes is the assumption I paid for it, so I own it. Under English law that is wrong: the author owns copyright, and the employer exception covers employees, not contractors. Since the Intellectual Property Act 2014 the same is true of design rights. Without an express assignment, the client that paid for the work gets only a licence.",
-      "fallbackIntro": "Under s.11 CDPA the author (not the paying commissioner) owns copyright; the employee exception is narrow. Since the IP Act 2014 designers own commissioned design rights too. Employee inventions follow the Patents Act 1977 (s.39/s.42, mandatory); joint ownership is commercially toxic.",
-      "updated": "2026-06-14",
+      "h1": "Foreground IP: who owns commissioned work?",
+      "lede": "Paying for work does not by itself transfer the intellectual property in it. For UK copyright, the author is generally the first owner, with an exception for works made by employees in the course of employment. Design rights and database rights need their own analysis. Where the contract is silent, a court may imply a licence or, in some circumstances, an obligation to assign copyright.",
+      "fallbackIntro": "Identify the rights in each deliverable before deciding who owns them. UK copyright generally starts with the author, subject to the employee exception; commissioned designs and database rights have separate rules. Payment alone does not transfer rights. Implied rights depend on the contract and circumstances, and joint ownership needs agreed management terms.",
+      "updated": "2026-10-11",
       "publishedAt": "2026-06-14",
       "sourceIssue": "issue-12",
       "legalReviewStatus": "approved",
@@ -9886,24 +9886,25 @@
       "listing": {
         "label": "Foreground IP",
         "title": "Foreground IP ownership",
-        "body": "Why the contractor (not the paying client) owns commissioned IP under English law, the IP Act 2014 design-right change, employee inventions, and joint ownership.",
+        "body": "Who owns commissioned copyright, designs and database rights under English law, what courts may imply, and how to manage joint ownership.",
         "homeTitle": "I paid for it - but who owns it?",
-        "homeBody": "Why the contractor, not the paying client, usually owns the work.",
-        "authorBody": "Who owns commissioned IP under English law, and the employee and joint-ownership rules."
+        "homeBody": "Why payment alone does not settle ownership of commissioned work.",
+        "authorBody": "Ownership of commissioned work, implied rights, employee inventions and joint ownership."
       },
       "sections": [
         {
-          "title": "The statutory default - and the false assumption",
+          "title": "Copyright: payment does not transfer ownership",
           "body": [
-            "Under section 11(1) of the CDPA 1988, the author is the first owner of copyright. The employer exception in section 11(2) applies only to works made by an employee in the course of employment - so a commissioner does not automatically own copyright in works created by an independent contractor. The pervasive assumption that paying for work means owning its IP is simply wrong.",
-            "Territoriality matters here too: this CDPA default applies where UK copyright is the relevant right. In cross-border deals, each country sets its own initial-ownership rule - the US work made for hire doctrine can vest copyright in the commissioning party but only on strict conditions rarely met for software contractors, while most civil-law systems follow the author-first principle. Do not assume any jurisdiction's default favours the commissioner."
+            "Under [section 11 of the CDPA 1988](https://www.legislation.gov.uk/ukpga/1988/48/section/11), the author is generally the first owner of copyright. The employer exception applies to works made by an employee in the course of employment. A commissioner therefore does not automatically own copyright in work created by an independent contractor just because it paid for that work.",
+            "Territoriality matters here too: this CDPA default applies where UK copyright is the relevant right. In cross-border deals, each country sets its own initial-ownership rule - the US work made for hire doctrine can vest copyright in the commissioning party but only on strict conditions rarely met for software contractors, while most civil-law systems follow the author-first principle. Do not assume any jurisdiction's default favours the commissioner.",
+            "Silence does not always leave the client with only a licence. Depending on the contract and circumstances, a court may imply a licence or an obligation to assign copyright. In [R Griggs Group Ltd v Evans](https://caselaw.nationalarchives.gov.uk/ewca/civ/2005/11) [2005] EWCA Civ 11, the client was entitled to beneficial ownership of a commissioned logo. The court applied the minimum necessary to make the arrangement work; commissioning work alone was not enough. See the [background IP guide](/guides/background-ip) for the distinction between an implied licence and an implied assignment."
           ]
         },
         {
-          "title": "Design rights: the IP Act 2014 alignment",
+          "title": "Design rights and database rights need separate checks",
           "body": [
-            "English law once created a trap for the unwary: commissioners automatically owned design rights but not copyright. The Intellectual Property Act 2014 removed the asymmetry. Since 1 October 2014, the default owner of UK unregistered design right (section 215 CDPA) and of registered designs (Registered Designs Act 1949) is the designer, not the commissioner, unless the designer is an employee.",
-            "So the law is now uniform - and uniformly dangerous for clients. Whether the deliverable is code (copyright), a user interface (design right), or a database, the default is that the independent contractor owns it. Without an express written assignment, the client pays for development but receives only an implied licence - one that may be revocable, non-exclusive, and insufficient for an exit or IPO."
+            "The Intellectual Property Act 2014 removed the special rule giving commissioners initial ownership of commissioned UK designs. Under the rules applying from 1 October 2014, the designer is normally the first owner of UK unregistered design right and the original proprietor of a registered design; an employer normally owns a design created by an employee in the course of employment. Check [section 215 CDPA](https://www.legislation.gov.uk/ukpga/1988/48/section/215) and [section 2 of the Registered Designs Act 1949](https://www.legislation.gov.uk/ukpga/Geo6/12-13-14/88/section/2), including the relevant exceptions and transitional rules.",
+            "Database right is separate from copyright. It requires a substantial investment in obtaining, verifying or presenting the contents of a database under [regulation 13 of the Copyright and Rights in Databases Regulations 1997](https://www.legislation.gov.uk/uksi/1997/3032/regulation/13), subject to the qualification requirements. Under [regulation 14](https://www.legislation.gov.uk/uksi/1997/3032/regulation/14), the maker is generally the person who takes the initiative in that obtaining, verification or presentation and assumes the risk of investing in it. An employer is treated as the maker of a database made by an employee in the course of employment, unless otherwise agreed. The maker is the first owner under [regulation 15](https://www.legislation.gov.uk/uksi/1997/3032/regulation/15). Writing the software does not by itself make the contractor the maker. Identify the rights in each deliverable and allocate them expressly."
           ]
         },
         {
@@ -9914,31 +9915,33 @@
           ]
         },
         {
-          "title": "Joint ownership is commercially toxic",
+          "title": "Joint ownership needs agreed management terms",
           "body": [
-            "Joint IP ownership sounds fair and works badly under English law. For copyright, joint owners cannot grant a licence without the consent of all co-owners. For patents, under section 36 of the Patents Act 1977 each co-owner may work the patent themselves but cannot license, assign, or mortgage their share without all co-owners' consent (Hughes v Paxman [2006] EWCA Civ 818), and - unlike US law - there is no duty to account between co-owners for profits from independent exploitation.",
-            "The practical results are licensing deadlock, devaluation through competitive self-exploitation, enforcement paralysis, and deterrence of investors and acquirers. Prefer sole ownership with a cross-licence; if joint ownership is commercially unavoidable, add a management protocol covering decision-making, licensing thresholds, enforcement, and exit."
+            "For UK copyright, [section 16](https://www.legislation.gov.uk/ukpga/1988/48/section/16) and [section 173(2) CDPA](https://www.legislation.gov.uk/ukpga/1988/48/section/173) mean that where the copyright owner's licence is needed, the licence of all joint owners is required. That generally applies to a co-owner's own acts restricted by copyright, such as copying or adaptation, as well as authorising others to do them, subject to statutory exceptions. Joint ownership therefore does not itself give a co-owner freedom to reuse the work. The owners can agree these permissions and licensing authority in advance.",
+            "For UK patents, [section 36 of the Patents Act 1977](https://www.legislation.gov.uk/ukpga/1977/37/section/36) generally allows each co-owner to exploit the invention for its own benefit without consent or accounting to the others. Granting a licence, or assigning or mortgaging a share, generally requires the other owners' consent, subject to agreement and the statutory provisions. US patent law also permits independent exploitation without accounting in the absence of a contrary agreement: [35 U.S.C. § 262](https://www.law.cornell.edu/uscode/text/35/262).",
+            "[Hughes v Paxman](https://caselaw.nationalarchives.gov.uk/ewca/civ/2006/818) [2006] EWCA Civ 818 confirms the default consent rule but also the comptroller's power under [section 37](https://www.legislation.gov.uk/ukpga/1977/37/section/37) to resolve certain disputes by granting a licence. A disagreement is therefore not necessarily an unbreakable deadlock, but the decision does not guarantee a licence on the terms a co-owner wants.",
+            "Compare joint ownership with sole ownership plus a licence. If the parties choose joint ownership, agree each party's own use, authority to grant licences, income allocation, enforcement, costs and exit arrangements. Those terms address the practical risks without assuming that every jointly owned right follows the same rules."
           ]
         },
         {
-          "title": "The fix: an express assignment",
+          "title": "Allocate ownership and use rights expressly",
           "body": [
-            "Across all of these, the cure is the same: an express written assignment of foreground IP, drafted with present-assignment language (see the assignment guide). Do not rely on the implied licence the law will otherwise give the client - it is usually narrower than the client needs and may be revocable.",
-            "In review, find the assignment clause first. If it is missing, or merely an agreement to assign in future, or silent on future and non-UK rights, the client may have paid for work it does not own. That gap is the single most common, and most expensive, IP drafting failure."
+            "Where the deal requires the client to own foreground IP, use an express assignment that identifies the rights, deliverables and timing of transfer, while respecting mandatory rules such as those for employee inventions. A legal assignment of UK copyright must be in writing and signed by or on behalf of the assignor under [section 90(3) CDPA](https://www.legislation.gov.uk/ukpga/1988/48/section/90). Address future rights and any further documents needed to complete the transfer.",
+            "Where a licence is the agreed solution, define its scope so the client can use the deliverables as intended. In either case, check rights in incorporated background material, the contractor's chain of title and any relevant foreign-law formalities. Relying on a court to infer the allocation later leaves avoidable uncertainty about what the client may do."
           ]
         }
       ],
       "shellSections": [
         {
-          "title": "Contractor owns it",
+          "title": "Copyright ownership",
           "body": [
-            "The author/contractor owns copyright (s.11 CDPA); the employee exception is narrow; commissioners do not automatically own commissioned works."
+            "Payment alone does not transfer copyright. The author is generally the first owner under s.11 CDPA, subject to the employee exception. A licence or obligation to assign may be implied depending on the contract and circumstances (Griggs [2005] EWCA Civ 11)."
           ]
         },
         {
-          "title": "Design rights (IP Act 2014)",
+          "title": "Design and database rights",
           "body": [
-            "Since 1 Oct 2014 the designer owns commissioned design rights too (s.215 CDPA; Registered Designs Act 1949) - the old commissioner-owns asymmetry is gone."
+            "The post-1 October 2014 design rules normally put initial ownership with the designer or an employer. Database right requires substantial investment under regulation 13 and statutory qualification; ownership follows the maker and first-ownership rules in regulations 14–15, not automatically the software contractor."
           ]
         },
         {
@@ -9948,25 +9951,26 @@
           ]
         },
         {
-          "title": "Joint ownership toxic",
+          "title": "Manage joint ownership",
           "body": [
-            "Co-owners cannot license without all consents (copyright; patents s.36 - Hughes v Paxman [2006] EWCA Civ 818); no duty to account. Prefer sole ownership plus cross-licence."
+            "Agree own use, licensing authority, income, enforcement and exit. A UK copyright co-owner generally needs the other owners' consent for its own copying or adaptation and for licensing those acts to others, subject to statutory exceptions. Permissions can be arranged in advance. UK patent co-owners may exploit independently without accounting but generally need consent to license, subject to agreement and statutory mechanisms; Hughes confirms that s.37 can resolve certain disputes. US patent law also allows independent exploitation without accounting."
           ]
         },
         {
-          "title": "Fix: express assignment",
+          "title": "Express allocation",
           "body": [
-            "Assign foreground IP expressly with present-assignment wording; do not rely on the implied licence."
+            "Agree an assignment or licence that fits the deal. For a legal assignment of UK copyright, use signed writing and address future rights, background materials and chain of title. Do not leave the allocation to implication."
           ]
         }
       ],
       "checklist": [
-        "Do not assume paying for work means owning it - the contractor owns it absent an assignment (s.11 CDPA).",
-        "Remember the designer owns commissioned design rights since the IP Act 2014 (s.215 CDPA; Registered Designs Act 1949).",
-        "For employee inventions, apply the Patents Act 1977 s.39 test - and remember s.42 makes it mandatory.",
-        "Check 'course of employment' carefully for employee-created works (Penhallurick v MD5 [2021] EWCA Civ 1770).",
-        "Avoid joint ownership - it causes deadlock (copyright; patents s.36, Hughes v Paxman [2006] EWCA Civ 818). Prefer sole ownership plus cross-licence.",
-        "Secure foreground IP with an express written assignment, not an implied licence."
+        "Identify the rights in each deliverable. Payment alone does not transfer copyright; check the author, employer exception and chain of title.",
+        "Check design-right ownership separately, including the post-1 October 2014 rules and relevant employment or transitional provisions.",
+        "For database right, check substantial investment and qualification, then identify the maker by initiative and investment risk in obtaining, verifying or presenting the contents, not merely who wrote the software.",
+        "For employee inventions, apply the Patents Act 1977 s.39 test and the protection in s.42.",
+        "Check the course of employment for employee-created copyright works (Penhallurick v MD5 [2021] EWCA Civ 1770).",
+        "If ownership is joint, agree each party's own use, licensing authority, income, enforcement and exit. A UK copyright co-owner generally needs the others' consent for its own acts restricted by copyright, subject to statutory exceptions; patent co-owners have different default rights.",
+        "Document the agreed assignment or licence expressly. A court may imply rights on the facts, but payment alone does not establish what those rights are."
       ],
       "related": [
         {
@@ -9982,7 +9986,7 @@
           "href": "/#try",
           "label": "Try Veqtor",
           "title": "Check who owns the deliverables",
-          "body": "Veqtor flags missing or weak IP assignment wording that leaves the contractor owning what the client paid for."
+          "body": "Veqtor helps you check assignment and licence wording that determines what rights the client receives in the deliverables."
         }
       ]
     },
