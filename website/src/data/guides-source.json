@@ -9499,52 +9499,52 @@
       "kind": "pillar",
       "targetQuery": "intellectual property clause commercial contract",
       "metaTitle": "Intellectual Property in Commercial Contracts (English Law)",
-      "metaDescription": "How IP ownership works in English-law contracts - background vs foreground IP, the contractor-owns-it default, AI-generated output, and the cross-border reality that English law does not set IP ownership.",
+      "metaDescription": "IP ownership in English-law contracts: background and foreground rights, commissioned work, AI-generated output, and questions to check across borders.",
       "twitterTitle": "IP in Commercial Contracts",
       "breadcrumb": "Intellectual property",
       "eyebrow": "Intellectual property",
       "h1": "Intellectual property in commercial contracts: who owns the output.",
-      "lede": "IP clauses decide who owns what a commercial relationship produces. Get them right and each side keeps what it brought and the client gets what it paid for; get them wrong and a contractor walks away with the copyright in your bespoke software, a partner blocks your licensing, or an AI tool generates deliverables nobody legally owns. And choosing English law does not import English IP ownership rules - a trap most standard forms miss.",
-      "fallbackIntro": "IP clauses allocate ownership of background, foreground, and AI-generated IP. Under English law a contractor - not the paying client - owns what it creates unless there is an express assignment. And choosing English law governs the contract mechanics, not who initially owns the IP (that is local IP law).",
-      "updated": "2026-06-14",
+      "lede": "IP clauses allocate the rights a commercial relationship needs. They should identify what each party brings, who will own new rights and what each side may use. Paying for bespoke work does not by itself transfer copyright, and choosing English law does not settle every question of IP ownership across borders.",
+      "fallbackIntro": "IP clauses allocate rights in background, foreground and AI-generated material. Paying an independent contractor does not by itself transfer copyright, although express or implied terms may affect the outcome. Choosing English law does not settle every question of initial ownership, protection or transfer in other countries.",
+      "updated": "2026-10-11",
       "publishedAt": "2026-06-14",
       "sourceIssue": "issue-12",
       "legalReviewStatus": "approved",
-      "reviewedAt": "2026-06-14",
+      "reviewedAt": "2026-10-12",
       "listing": {
         "label": "Pillar guide",
         "title": "Intellectual property in commercial contracts",
-        "body": "How IP ownership works under English law - background, foreground, and AI-generated IP, and why choosing English law does not set who owns the IP.",
-        "homeBody": "Who owns the output of a commercial relationship - and why the contractor often does.",
+        "body": "IP ownership in English-law commercial contracts: background, foreground and AI-generated material, commissioned work and cross-border checks.",
+        "homeBody": "What paying for work does and does not establish about IP ownership.",
         "authorBody": "How IP ownership and allocation work in English-law commercial contracts."
       },
       "sections": [
         {
           "title": "Background, foreground - and now AI",
           "body": [
-            "Commercial IP allocation traditionally turns on two categories. Background IP is what each party brings - pre-existing tools, code, methods, know-how. Foreground IP is what is created during the project - the bespoke deliverables. A good clause lets each party keep its background IP while the client secures the foreground IP it is paying for. Generative AI adds a third, awkward category: outputs that may not be legally created by anyone, and may attract no copyright at all in some jurisdictions.",
+            "Commercial IP allocation traditionally turns on two categories. Background IP is what each party brings - pre-existing tools, code, methods, know-how. Foreground IP is what is created during the project - the bespoke deliverables. A good clause identifies what each party keeps and allocates foreground rights expressly, by assignment or licence, to fit the deal. Generative AI adds a third, awkward category: outputs that may not be legally created by anyone, and may attract no copyright at all in some jurisdictions.",
             "Each category needs its own treatment, and the supporting articles take them in turn - background IP, foreground IP ownership, assignment mechanics, AI-generated output, and the cross-cutting issues of indemnities, licensing, and moral rights."
           ]
         },
         {
-          "title": "The English-law default: the contractor owns it",
+          "title": "Paying for commissioned work does not transfer copyright",
           "body": [
-            "The single most common IP dispute starts from a false assumption: I paid for it, so I own it. Under English law that is wrong. The author is the first owner of copyright, and the employer exception applies only to employees - not independent contractors. Since the Intellectual Property Act 2014, the same is true of design rights. So without an express written assignment, a client that commissions and pays for bespoke work typically receives only an implied licence to use it - which may be narrower than it needs.",
-            "The fix is an express assignment of foreground IP, drafted with present-assignment language. Relying on statutory defaults or implied terms is how clients end up paying for software whose copyright the developer still owns."
+            "Under [section 11 CDPA](https://www.legislation.gov.uk/ukpga/1988/48/section/11), the author is normally the first owner of copyright, with an exception for certain works made by an employee in the course of employment. Paying an independent contractor to create a work does not by itself transfer copyright to the client. Express or implied terms may nevertheless affect the outcome: a licence may be implied, and in some circumstances an obligation to assign copyright and beneficial ownership may be recognised, as [Griggs v Evans](https://caselaw.nationalarchives.gov.uk/ewca/civ/2005/11) illustrates.",
+            "If the client needs ownership, state the intended transfer clearly, satisfy the applicable formalities and check that the supplier holds the rights it promises. Deal separately with background materials and the rights the client needs to use and maintain the deliverables. Do not rely on a later dispute about implied terms."
           ]
         },
         {
-          "title": "The cross-border reality: English law does not set IP ownership",
+          "title": "Cross-border ownership needs separate checks",
           "body": [
-            "A deeper trap catches international deals. Choosing English law governs the contractual questions - the interpretation and validity of the assignment and licensing provisions (party autonomy under assimilated Rome I). But it does not govern who initially owns the IP. Whether copyright subsists and who first owns it is determined by the IP law of each country where protection is sought (the lex loci protectionis), and assimilated Rome II expressly excludes party choice of law for those proprietary questions.",
-            "So the CDPA 1988 and the Patents Act 1977 set initial ownership only for IP with a UK connection. For a Singapore developer building software for a Japanese client under an English-law contract, English law governs whether the assignment clause works as a matter of contract - but each country's IP law decides who first owned the copyright. The clause must therefore be robust across the Berne Convention and TRIPS states, not just under English statute."
+            "Choosing English law governs the parties' contractual obligations, but does not by itself settle every question of IP subsistence, initial ownership or the proprietary effect of a transfer in other countries. [Article 8 of assimilated Rome II](https://www.legislation.gov.uk/eur/2007/864/article/8) addresses non-contractual obligations arising from infringement; it does not itself determine who first owns the right.",
+            "For a Singapore developer building software for a Japanese client under an English-law contract, separate the contractual promise to transfer rights from questions about which rights exist, who owns them and whether the transfer takes effect in the relevant countries. Identify the rights and territories, then check the applicable ownership rules, transfer restrictions and formalities. Neither a choice-of-law clause nor a reference to the Berne Convention or TRIPS replaces those checks."
           ]
         },
         {
           "title": "Allocate by contract, not by default",
           "body": [
-            "Because statutory defaults differ by country and AI output may have no owner at all, the safe approach is to allocate everything expressly by contract. Define and schedule background IP; assign foreground IP with present-assignment and further-assurances wording; add a dedicated category for AI-generated output with belt-and-suspenders provisions that bind whether or not IP rights subsist; and handle indemnities, licence survival, and moral rights deliberately.",
-            "The contract should not assume any single jurisdiction's default will favour you. It should create the allocation it wants and make it enforceable wherever the IP will be protected."
+            "Because statutory defaults differ by country and AI output may have no owner at all, the safe approach is to allocate everything expressly by contract. Define and schedule background IP; agree who will own foreground IP, then use present-assignment and further-assurances wording where ownership passes, or define the licence where it does not; add a dedicated category for AI-generated output with belt-and-suspenders provisions that bind whether or not IP rights subsist; and handle indemnities, licence survival, and moral rights deliberately.",
+            "The contract should not assume any single jurisdiction's default will favour you. State the intended allocation clearly, then check that the relevant rights exist, that the party granting them can do so and that the transfer or licence satisfies the applicable law."
           ]
         },
         {
@@ -9563,21 +9563,21 @@
           ]
         },
         {
-          "title": "Contractor owns it",
+          "title": "Commissioned work",
           "body": [
-            "English law: the author/contractor owns copyright and (since the IP Act 2014) design rights - not the paying client - unless there is an express assignment."
+            "Payment alone does not transfer copyright. The author normally owns it first, subject to rules such as employee ownership; express or implied terms may give the client rights, including a licence or beneficial ownership."
           ]
         },
         {
-          "title": "English law is not IP-ownership law",
+          "title": "Cross-border checks",
           "body": [
-            "Choosing English law governs the contract mechanics; initial IP ownership is set by each country's IP law (lex loci protectionis; assimilated Rome II excludes party choice)."
+            "Choosing English law does not settle every question of IP protection, initial ownership or transfer abroad. Rome II Article 8 deals with non-contractual infringement obligations; it does not itself determine who first owns the right."
           ]
         },
         {
           "title": "Allocate by contract",
           "body": [
-            "Define background IP, assign foreground IP expressly, add an AI category, and make it enforceable across Berne and TRIPS states."
+            "Define background IP, allocate foreground rights expressly, add an AI category, and check ownership, transfer restrictions and formalities in the relevant countries."
           ]
         },
         {
@@ -9589,11 +9589,11 @@
       ],
       "checklist": [
         "Treat background IP, foreground IP, and AI-generated output as three separate categories.",
-        "Do not assume paying for work means owning it - under English law the contractor owns it absent an express assignment.",
-        "Remember choosing English law governs the contract, not who initially owns the IP (that is local IP law).",
-        "Assign foreground IP expressly with present-assignment and further-assurances wording.",
+        "Do not assume paying for commissioned work transfers copyright. Check the original owner and any express or implied terms affecting the rights.",
+        "Separate contractual obligations from IP subsistence, initial ownership, infringement and the proprietary effect of a transfer across borders.",
+        "Agree who owns foreground IP; then document the assignment, with present-assignment and further-assurances wording, or the licence the other party needs.",
         "Add a dedicated AI-IP category with provisions that bind whether or not IP rights subsist.",
-        "Make the allocation enforceable across the Berne Convention and TRIPS states, not just under the CDPA 1988."
+        "Check the relevant rights and countries, including restrictions on transfer and required formalities; treaty membership is not enough."
       ],
       "related": [
         {
@@ -9750,22 +9750,22 @@
       "targetQuery": "background IP vs foreground IP",
       "metaTitle": "Background IP in Commercial Contracts (English Law)",
       "metaDescription": "Why 'background IP' is purely contractual, the provided/used/needed definitions, what courts imply when the contract is silent, and the M&A 'owned or controlled' trap.",
-      "twitterTitle": "Background IP: The Neglected Schedule",
+      "twitterTitle": "Background IP: What Each Party Keeps",
       "breadcrumb": "Background IP",
       "eyebrow": "Background IP",
-      "h1": "Background IP: the most neglected schedule in commercial contracts.",
-      "lede": "Background IP - what each party brings to a project - is an entirely contractual concept; English law has no statutory definition. How you define it, and whether you schedule it, decides who keeps their pre-existing tools and who can exploit the deliverables. And the definitions that look like boilerplate - provided, used, needed - are not interchangeable.",
-      "fallbackIntro": "Background IP is purely contractual (no statutory definition). The 'provided' (Lambert), 'used', and 'needed' (Horizon 2020) definitions differ materially. When silent, courts imply only the minimum (Robin Ray v Classic FM); always define background IP and its licence expressly.",
-      "updated": "2026-06-14",
+      "h1": "Background IP: defining what each party keeps and can use.",
+      "lede": "Background IP identifies material a party brings to a project. Define and schedule it, then state who retains it and what the other side may use. Definitions based on what is provided, used or needed are not interchangeable, and none grants access without the relevant licence terms.",
+      "fallbackIntro": "Background IP needs an agreed definition and licence. Definitions based on what is provided, used or needed may capture different assets; none is always broadest. Implied rights depend on the contract and facts and may be narrow or wide, so identify the material and state the access rights expressly.",
+      "updated": "2026-10-11",
       "publishedAt": "2026-06-14",
       "sourceIssue": "issue-12",
       "legalReviewStatus": "approved",
-      "reviewedAt": "2026-06-14",
+      "reviewedAt": "2026-10-12",
       "listing": {
         "label": "Background IP",
         "title": "Background IP",
         "body": "Why background IP is purely contractual, how the provided/used/needed definitions differ, what courts imply when silent, and the M&A trap.",
-        "homeTitle": "Background IP: the neglected schedule",
+        "homeTitle": "Background IP: what each party keeps and can use",
         "homeBody": "How to define and ring-fence the IP each party brings to a project.",
         "authorBody": "Defining background IP, the implied-term case law, and the M&A trap."
       },
@@ -9773,30 +9773,32 @@
         {
           "title": "An entirely contractual concept",
           "body": [
-            "English law contains no statutory definition of background IP or pre-existing IP. The concept is whatever the contract makes it - which is exactly where problems begin. How the parties define, identify, and ring-fence background IP determines who retains their pre-existing assets and what rights the other side gets, and this is true wherever the IP originates.",
-            "Three definitional approaches dominate, and they are not synonyms. The provided approach (used in the UKIPO's Lambert Toolkit) captures only IP actively handed over for use in the project - the narrowest. A used approach catches any IP deployed during performance, whether or not formally contributed. The needed approach (used in EU Horizon 2020 agreements) is broadest, capturing IP required to exploit the results even if never provided or used during the project."
+            "In a commercial contract, the scope of background IP depends on the agreed definition. Defining and identifying it helps distinguish pre-existing assets from project results, but the definition alone does not grant a licence. State separately what rights each party retains and what the other side may use.",
+            "Definitions based on what is provided, used or needed can capture different assets; none is always the broadest. A provided definition focuses on material supplied for the project. A used definition can include material used internally during performance. A needed definition can reach dependencies required to exploit the results even if they were never supplied or used during the project, but it may exclude material used during development that is not needed for the defined purpose."
           ]
         },
         {
           "title": "Why the definition choice matters",
           "body": [
-            "These are materially different allocations. From the foreground-IP owner's perspective, needed secures access to everything required to commercialise the deliverables downstream. From the background-IP owner's perspective, provided limits exposure to only what was deliberately contributed. Treating them as interchangeable boilerplate is a real error - the word chosen decides how much of each party's pre-existing IP is in play.",
-            "Choose the definition deliberately, by reference to which side you are on and what the deliverables will need after the project ends."
+            "From the foreground-IP owner's perspective, a needed definition brings into scope the background required to exploit the results. It does not by itself grant access: the access-rights terms decide how access is requested, whether it is royalty-free or on fair and reasonable (possibly paid) conditions, and which restrictions apply.",
+            "For example, [Horizon 2020 requires background to be identified and agreed in writing](https://intellectual-property-helpdesk.ec.europa.eu/news-events/news/background-eu-funded-projects-2021-06-29_en). Its [rules on access rights](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32013R1290) are separate: access must be requested in writing, and access to background needed to exploit a beneficiary's own results is subject to fair and reasonable conditions and relevant restrictions. Listing an asset is not an unrestricted permission to use it.",
+            "Choose the definition and licence together. Identify the purposes, users, duration, sublicensing rights and exclusions needed after the project ends, rather than assuming that one word in the definition settles access."
           ]
         },
         {
           "title": "What courts imply when the contract is silent",
           "body": [
-            "If the contract says nothing, the courts imply only the minimum. Robin Ray v Classic FM plc [1998] FSR 622 laid down the governing principles for commissioned works: the court implies the minimum necessary for business efficacy, so if the commissioner's needs can be met by a licence rather than an assignment, only a licence is implied. The nature of the deliverable drives the result.",
-            "Compare two outcomes. In R Griggs Group Ltd v Evans [2005] EWCA Civ 11, a freelance designer commissioned to create the Dr Martens logo was held to have assigned beneficial ownership, because a brand logo inherently needs to exclude competitors. But in Clearsprings Management Ltd v Businesslinx Ltd [2005] EWHC 1487 (Ch), a client that commissioned bespoke software received only a non-exclusive licence, not an assignment - because developers routinely reuse generic code, and an assignment would have prevented that reuse.",
+            "The scope of an implied licence is limited to what is necessary in the circumstances, which may require narrow or wide rights. Robin Ray v Classic FM plc [1998] FSR 622 sets out principles for commissioned works, reproduced and approved in [Griggs v Evans](https://caselaw.nationalarchives.gov.uk/ewca/civ/2005/11). If a licence is sufficient to give the contract business efficacy, an assignment is not implied merely because the work was commissioned.",
+            "In Griggs, the court upheld the customer's beneficial ownership of the Dr Martens logo under an implied obligation to assign copyright. This was not a finding that the signed formalities for transferring legal title had already been completed. The need to control use of the logo was important on the facts, but the court expressly rejected treating that need as a universal rule for commissioned works.",
+            "In [Clearsprings Management Ltd v Businesslinx Ltd](https://caselaw.nationalarchives.gov.uk/ewhc/ch/2005/1487) [2005] EWHC 1487 (Ch), the contract did not expressly allocate copyright. The customer received a non-exclusive licence without a right to sublicense, not ownership. The court also implied a term restricting the developer from exploiting the system as a whole, for example by selling it to a third party, while recognising reuse of parts of its work subject to protection of the customer's operating procedures. It did not settle every boundary or legal basis of those restrictions. The case illustrates why the contract should address reuse expressly.",
             "For a software project, see the [ownership and handover checks for contractor-written code under English law](https://ilyashilov.com/notes/contractor-code-ownership-english-law/)."
           ]
         },
         {
-          "title": "Silence can expand the client's rights: Wilkinson",
+          "title": "Define the scope of the background-IP licence",
           "body": [
-            "Silence does not always favour the IP owner. In Wilkinson v London Strategic Health Authority [2012] EWPCC 48, a consultant owned pre-existing works but was commissioned to create a new programme that depended on them. The contract was silent on the client's rights to the underlying background IP - and the court implied a licence to use it that was wide and unfettered in scope, because nothing in the contract restricted it. The lesson is counterintuitive: silence on restrictions can expand the client's implied rights in your background IP, to make the foreground IP usable.",
-            "In cross-border deals, these English implied-licence principles apply where English law governs the contract - but local IP laws may override them, and some civil-law systems construe ambiguous grants narrowly in favour of the author. The safe course everywhere is the same: never rely on implied terms; define the scope of background-IP licences expressly."
+            "State who may use the background IP and for which purposes. Address copying, modification, maintenance, third-party support, sublicensing and transfer, together with duration and any restrictions. Retaining ownership of background IP does not by itself ensure a narrow licence. Where customer-owned deliverables incorporate that background, the contract and its purpose may support wide implied rights to use it with the deliverables. The scope of any implied licence depends on the facts and may be narrow or wide, so agree the intended rights expressly.",
+            "In a cross-border project, the law governing the contract does not settle every issue under the applicable IP laws. Check whether the agreed licence can be granted and enforced for the relevant rights and countries. Specify the intended scope rather than assuming that the same implied rights will arise everywhere."
           ]
         },
         {
@@ -9811,25 +9813,25 @@
         {
           "title": "Contractual concept",
           "body": [
-            "No statutory definition; the provided (Lambert), used, and needed (Horizon 2020) definitions differ materially - not boilerplate."
+            "Define background IP and its licence separately. Provided, used and needed may capture different assets; none is always the broadest."
           ]
         },
         {
           "title": "Definition matters",
           "body": [
-            "'Needed' secures downstream access; 'provided' limits exposure. Choose by which side you are on."
+            "A needed definition identifies dependencies; it does not itself grant access. Agree permitted purposes, requests, charges, sublicensing and exclusions. Horizon 2020 also separates the written identification of background from access rights."
           ]
         },
         {
-          "title": "Silence = minimum",
+          "title": "What silence implies",
           "body": [
-            "Courts imply the minimum for business efficacy - a licence over an assignment if that suffices (Robin Ray v Classic FM [1998] FSR 622; Clearsprings [2005] EWHC 1487 (Ch))."
+            "Implied rights depend on the facts. Griggs recognised beneficial ownership and an obligation to assign a logo; Clearsprings gave a non-exclusive software licence while restricting reuse of the system as a whole and protecting the customer's operating procedures."
           ]
         },
         {
-          "title": "Silence can expand rights",
+          "title": "Define the licence",
           "body": [
-            "Silence on restrictions can imply a wide licence over your background IP (Wilkinson v London Strategic HA [2012] EWPCC 48); define it expressly."
+            "Specify users, purposes, copying, modification, maintenance, third-party support, sublicensing, transfer and duration. If the contract is silent, implied rights depend on the facts and may be narrow or wide; cross-border IP questions need separate checks."
           ]
         },
         {
@@ -9840,10 +9842,10 @@
         }
       ],
       "checklist": [
-        "Define background IP expressly - English law has no statutory definition.",
-        "Choose deliberately between 'provided', 'used', and 'needed' - they are not interchangeable.",
-        "Never rely on implied terms - courts imply only the minimum (Robin Ray v Classic FM [1998] FSR 622).",
-        "Remember silence can expand the client's implied rights in your background IP (Wilkinson [2012] EWPCC 48).",
+        "Define and identify background IP, then grant the necessary licence expressly.",
+        "Choose deliberately between provided, used and needed; none is always broadest, and the definition alone does not grant access.",
+        "State permitted uses and reuse restrictions expressly; implied licences or obligations to assign depend on the facts.",
+        "Set out the permitted users and purposes, copying, modification, maintenance, third-party support, sublicensing, transfer and duration of the background-IP licence.",
         "Freeze 'Affiliate' for IP-licensing, or carve out an acquirer's pre-acquisition IP, to avoid the M&A trap.",
         "Schedule background IP - vendors avoid an exhaustive list; clients seek disclosure or a sweeper licence."
       ],
@@ -9882,7 +9884,7 @@
       "publishedAt": "2026-06-14",
       "sourceIssue": "issue-12",
       "legalReviewStatus": "approved",
-      "reviewedAt": "2026-06-14",
+      "reviewedAt": "2026-10-12",
       "listing": {
         "label": "Foreground IP",
         "title": "Foreground IP ownership",
@@ -9996,60 +9998,60 @@
       "kind": "spoke",
       "targetQuery": "hereby assigns vs agrees to assign IP",
       "metaTitle": "IP Assignment Clauses: 'Hereby Assigns' vs 'Agrees to Assign'",
-      "metaDescription": "Why present-assignment language beats a promise to assign, how s.91 CDPA vests future copyright automatically, the writing requirement, and cross-border assignment drafting.",
+      "metaDescription": "How to draft an immediate IP transfer, distinguish legal and equitable rights, meet the conditions for future copyright, and address cross-border limits.",
       "twitterTitle": "'Hereby Assigns' vs 'Agrees to Assign'",
       "breadcrumb": "IP assignment clauses",
       "eyebrow": "Assignment",
       "h1": "IP assignment clauses: 'hereby assigns' versus 'agrees to assign'.",
-      "lede": "The most consequential choice in a foreground-IP clause is a single verb. 'Hereby assigns' transfers title now; 'agrees to assign' is only a promise to transfer later, needing a further document to perfect it. Get this wrong and you hold a contractual claim, not the IP - and may have to chase a reluctant (or insolvent) contractor for the paperwork.",
-      "fallbackIntro": "'Hereby assigns' effects an immediate transfer; 'agrees to assign' is only a future promise. Under s.91(1) CDPA a present assignment of future copyright vests it automatically; assignments must be in writing and signed (s.90(3)). Use present-assignment plus further-assurances wording, jurisdiction-neutral.",
-      "updated": "2026-06-14",
+      "lede": "If the intention is to transfer IP immediately, say so clearly and satisfy the applicable formalities. A promise to assign later may leave legal title with the supplier. But English law does not make ownership turn on a single prescribed verb: the signed agreement is read in context, and an agreement may also create equitable rights.",
+      "fallbackIntro": "Use clear present-transfer wording, identify the rights and satisfy the formalities. English law does not require a prescribed verb. A promise to assign may create equitable rights without transferring legal title; future copyright vests under s.91 only if its conditions are met. Check foreign transfer restrictions and licence alternatives separately.",
+      "updated": "2026-10-11",
       "publishedAt": "2026-06-14",
       "sourceIssue": "issue-12",
       "legalReviewStatus": "approved",
-      "reviewedAt": "2026-06-14",
+      "reviewedAt": "2026-10-12",
       "listing": {
         "label": "Assignment",
         "title": "IP assignment clauses",
-        "body": "Why present-assignment language beats a promise to assign, how s.91 CDPA vests future copyright, the writing requirement, and cross-border drafting.",
+        "body": "Present transfers and promises to assign, legal and equitable rights, the conditions for future copyright, and cross-border drafting.",
         "homeTitle": "'Hereby assigns' vs 'agrees to assign'",
-        "homeBody": "Why a single verb decides whether you own the IP or just a promise.",
+        "homeBody": "How to express an immediate transfer and check what rights the signed agreement actually gives.",
         "authorBody": "IP assignment mechanics: present assignment, future copyright, and further assurances."
       },
       "sections": [
         {
           "title": "Present assignment versus a promise to assign",
           "body": [
-            "The distinction between present-assignment language and a future promise is the most consequential drafting choice in a foreground-IP provision. Hereby assigns effects an immediate transfer of title at execution. Agrees to assign or shall assign creates only a contractual obligation to assign in the future, which requires a further formal document to perfect the legal transfer.",
-            "The practical difference shows up exactly when it matters. If you only have a promise to assign and the contractor later refuses, becomes insolvent, or disappears, you hold a contractual claim, not the IP itself - and you may be left chasing the signature you needed. Present-assignment wording avoids that."
+            "Use clear present-transfer wording when the intention is to transfer rights immediately. A clause that merely promises a later assignment may leave legal title with the supplier until the transfer is completed. But English law does not require a particular verb: in [Penhallurick v MD5 Ltd](https://caselaw.nationalarchives.gov.uk/ewca/civ/2021/1770) [2021] EWCA Civ 1770, the Court of Appeal confirmed that the intention to assign can be gathered from the signed document in context without the words grant or assign.",
+            "A promise to assign may create equitable rights, depending on the agreement, without transferring legal title. [Fresh Trading Ltd v Deepend Fresh Recovery Ltd](https://caselaw.nationalarchives.gov.uk/ewhc/ch/2015/52) [2015] EWHC 52 (Ch) illustrates the distinction. That is a reason to examine the agreement, not to assume that payment or a particular verb settles ownership. Clear transfer wording and completed formalities reduce the need to pursue further documents from an unwilling or insolvent supplier."
           ]
         },
         {
-          "title": "Future copyright vests automatically: s.91",
+          "title": "Future copyright: the conditions in s.91",
           "body": [
-            "English law makes present assignment especially powerful for copyright. Under section 91(1) of the CDPA 1988, a present assignment of future copyright takes effect automatically as a legal assignment when the copyright comes into existence - no further act is required. So hereby assigns future copyright vests title in the assignee the moment the work is created.",
-            "This statutory mechanism applies directly to UK copyright. For non-UK copyright, effectiveness depends on whether the relevant jurisdiction recognises a present assignment of future rights - the Berne Convention and most major systems generally give effect to properly executed assignments, but formalities vary, which is why further assurances matter."
+            "Under [section 91(1) CDPA](https://www.legislation.gov.uk/ukpga/1988/48/section/91), an agreement relating to future copyright must be signed by or on behalf of its prospective owner and purport to assign it. When the copyright arises, the assignee or a person claiming under it must be entitled, as against all other persons, to require the copyright to vest in it. If those conditions are met, copyright vests by statute without a further assignment.",
+            "The clause must therefore cover the relevant future works and be made with the prospective owner. A formula alone does not establish the supplier's entitlement or satisfy every condition. For rights governed by other countries' laws, check whether future rights can be transferred and what formalities or additional acts are required. The Berne Convention does not make every assignment effective worldwide."
           ]
         },
         {
           "title": "The writing requirement",
           "body": [
-            "Formalities are not optional. For UK copyright, an assignment must be in writing and signed by or on behalf of the assignor (section 90(3) CDPA 1988); an oral assignment is void. Most jurisdictions require written form for IP assignments, so written, signed assignments are the safe course everywhere.",
-            "So an IP assignment buried in an unsigned document, or left to an oral understanding, may transfer nothing. Get it in writing, signed, and clearly identifying the rights assigned."
+            "A legal assignment of UK copyright must be in writing and signed by or on behalf of the assignor under [section 90(3) CDPA](https://www.legislation.gov.uk/ukpga/1988/48/section/90). An oral agreement does not satisfy that requirement for a legal transfer. It may have contractual or equitable consequences, depending on the facts; that is a separate question from whether legal title has passed.",
+            "Get the transfer in a signed document that identifies the rights, the parties and when the transfer takes effect. Check any additional formalities required for the relevant type of IP and jurisdiction rather than assuming that one signed clause completes every transfer."
           ]
         },
         {
-          "title": "The dual construction for cross-border deals",
+          "title": "Cross-border transfers and licence alternatives",
           "body": [
-            "To maximise enforceability across jurisdictions, use a dual construction: a present assignment of existing and future IP rights in any jurisdiction worldwide, with full title guarantee and free from encumbrances, combined with a further-assurances obligation requiring the contractor to execute any further documents and do anything reasonably necessary to vest and register the IP in the client in any jurisdiction.",
-            "This does three things: it effects an immediate legal assignment of existing IP; for UK copyright it triggers section 91(1) so future copyright vests automatically; and the further-assurances obligation provides a mechanism to perfect title in jurisdictions that require additional formalities."
+            "Combine clear transfer wording for existing and future rights with a further-assurances obligation requiring the supplier to execute documents and take reasonable steps needed to complete or record the agreed transfer. Tailor any title guarantee to the rights the supplier actually holds and the agreed treatment of third-party materials. This supports the intended allocation; it does not override restrictions on transfer or missing formalities.",
+            "Where the relevant law does not allow copyright to be assigned, use a licence or grant of rights of use suited to that law. For example, [section 29 of the German Copyright Act](https://www.gesetze-im-internet.de/urhg/__29.html) generally prevents the transfer of copyright itself but permits rights of use. Grant exclusive rights of use where that is the agreed allocation, to the extent permitted by law, and list the types of use expressly: under [section 31(5)](https://www.gesetze-im-internet.de/urhg/__31.html), the contractual purpose determines their extent where they are not specified. Applicable mandatory protections for authors continue to apply; describing rights as irrevocable does not displace them."
           ]
         },
         {
           "title": "What to check",
           "body": [
-            "In review, read the verb. Hereby assigns (with present assignment of future rights) is what you want; agrees to assign or shall assign is a weaker promise that needs follow-up. Confirm the clause covers existing and future rights, in all relevant jurisdictions, in writing and signed, with a further-assurances obligation and (ideally) a power of attorney to execute documents if the assignor will not.",
-            "The assignment clause is where ownership is actually transferred - or not. A clause that merely promises a future assignment is a frequent and avoidable reason clients do not own what they paid for."
+            "Read the whole signed agreement, not just its main verb. Confirm who owns or will own the rights, what is transferred, when it takes effect and which licences are needed instead. Check future rights, signatures, foreign-law restrictions and further assurances. Consider a suitably drafted power of attorney if documents may need to be signed later on the supplier's behalf.",
+            "Distinguish an effective legal transfer from a promise to transfer and any equitable rights arising from it. If ownership is meant to pass now, express that intention clearly and complete the relevant formalities rather than relying on a court to reconstruct the intended allocation."
           ]
         }
       ],
@@ -10057,41 +10059,41 @@
         {
           "title": "Present vs promise",
           "body": [
-            "'Hereby assigns' transfers title now; 'agrees to assign' is only a future promise needing a further document."
+            "Use clear immediate-transfer wording. No single verb is mandatory under English law; a promise to assign may create equitable rights without transferring legal title."
           ]
         },
         {
-          "title": "Future copyright vests",
+          "title": "Future copyright conditions",
           "body": [
-            "A present assignment of future copyright vests automatically when it arises (s.91(1) CDPA) - for UK copyright."
+            "Section 91 requires an agreement signed by the prospective owner that purports to assign future copyright, and entitlement to have it vested as against all others when it arises. Vesting is automatic only if those conditions are met."
           ]
         },
         {
           "title": "Writing required",
           "body": [
-            "UK copyright assignments must be in writing and signed (s.90(3) CDPA); oral assignments are void; most systems require writing."
+            "A legal transfer of UK copyright requires writing signed by or for the assignor (s.90(3)). Possible contractual or equitable consequences of an informal agreement are a separate question."
           ]
         },
         {
-          "title": "Dual construction",
+          "title": "Cross-border checks",
           "body": [
-            "Present assignment of existing plus future rights in any jurisdiction, plus a further-assurances obligation to perfect title abroad."
+            "Combine clear transfer wording and further assurances, check foreign restrictions and formalities, and grant suitable rights of use where copyright cannot be assigned. Specify uses and respect applicable mandatory protections."
           ]
         },
         {
-          "title": "Check the verb",
+          "title": "Read the agreement",
           "body": [
-            "Prefer 'hereby assigns'; cover existing plus future rights in all jurisdictions, in writing, with further assurances."
+            "Check ownership, scope, timing, future rights, signatures and licence alternatives. Identify whether the agreement transfers legal title or creates other rights and obligations."
           ]
         }
       ],
       "checklist": [
-        "Use 'hereby assigns', not 'agrees to assign' or 'shall assign', to transfer title immediately.",
-        "Include a present assignment of future copyright to trigger automatic vesting (s.91(1) CDPA for UK copyright).",
-        "Get the assignment in writing and signed (s.90(3) CDPA) - oral assignments are void.",
-        "Assign existing and future IP rights in any jurisdiction worldwide, with full title guarantee.",
-        "Add a further-assurances obligation (and consider a power of attorney) to perfect title abroad.",
-        "In review, read the verb - a promise to assign is not an assignment."
+        "Express an intended immediate transfer clearly; no single prescribed verb determines the result under English law.",
+        "For future UK copyright, satisfy the conditions of s.91, including signature by or for the prospective owner and the required entitlement when the right arises.",
+        "Complete the signed writing needed for a legal assignment under s.90(3); assess any equitable rights separately.",
+        "Identify the existing and future rights and relevant countries; check transfer restrictions, title and third-party materials.",
+        "Add further assurances and consider an appropriate power of attorney for outstanding formalities.",
+        "Where assignment is unavailable, grant suitable rights of use, specify permitted uses and preserve applicable mandatory protections."
       ],
       "related": [
         {
@@ -10106,8 +10108,8 @@
         {
           "href": "/#try",
           "label": "Try Veqtor",
-          "title": "Check the assignment verb",
-          "body": "Veqtor flags 'agrees to assign' and other weak assignment wording that does not transfer title immediately."
+          "title": "Check assignment wording",
+          "body": "Use Veqtor to compare wording about the rights transferred, timing, signatures and further assurances."
         }
       ]
     },
@@ -11857,7 +11859,7 @@
       "publishedAt": "2026-06-14",
       "sourceIssue": "issue-14",
       "legalReviewStatus": "approved",
-      "reviewedAt": "2026-06-14",
+      "reviewedAt": "2026-10-12",
       "listing": {
         "label": "Applications",
         "title": "Assignment and change of control in M&A and tech",
