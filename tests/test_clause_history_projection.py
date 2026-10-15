@@ -243,12 +243,14 @@ def test_development_preserves_the_complete_frozen_v04_surface() -> None:
     assert "trace_paragraph_history" in records.WRITABLE_TOOL_NAMES
     assert len(release["MCPB_REQUIRED_TOOLS"]) == 9
     assert "trace_paragraph_history" in release["MCPB_REQUIRED_TOOLS"]
-    assert f"release-candidate source is package `{source_version}`" in api
+    assert f"current source is package `{source_version}`, the published Alpha" in api
     assert "eleven-tool MCP contract `veqtor.mcp.v0.4.2`" in api
-    assert "Public `0.4.0`" in api
-    assert f"release-candidate source `{source_version}`" in limitations
+    assert "historical public `0.4.0` release" in api
+    assert f"published Alpha package `{source_version}`" in limitations
     assert "veqtor.mcp.v0.4" in limitations
-    assert "compatible with public `0.4.0`" in limitations
+    assert "compatible with the historical `0.4.0` release" in " ".join(
+        limitations.split()
+    )
     assert f'"version": "{source_version}"' in api
 
 

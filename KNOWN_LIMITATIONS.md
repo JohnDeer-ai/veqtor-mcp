@@ -2,31 +2,36 @@
 
 # Known limitations
 
-This file describes release-candidate source `0.4.2` and its eleven-tool MCP
-contract `veqtor.mcp.v0.4.2`. Legacy calls remain compatible with public `0.4.0`. All eleven tools expose
-the same contract-wide metadata value. Development source and test results do
-not establish a new publication or exact-candidate client acceptance. The
-archived v0.4.0 release contract, historical golden records and published artifacts
-are unchanged; v0.3 remains a historical eight-tool artifact.
+This file describes the published Alpha package `0.4.2` and its eleven-tool MCP
+contract `veqtor.mcp.v0.4.2`. Legacy calls remain compatible with the
+historical `0.4.0` release. All eleven tools expose the same contract-wide
+metadata value. Publication, source and test results do not establish client
+acceptance in every environment; the acceptance limits are described below.
+The archived v0.4.0 release contract, historical golden records and published
+artifacts are unchanged; v0.3 remains a historical eight-tool artifact.
 
 The [Codex guide](docs/CODEX.md) records historical public 0.4.0 CLI write and
-desktop read observations, plus a distinct unpublished error-transport patch.
-These are not tests of `0.4.2`. The development adapter keeps controlled
-refusal codes and safe hints, and sanitizes SDK input-validation errors before
-tool entry. NR-01 adds bounded clean-paragraph replace/delete-only; native client
-and rendered-Word acceptance must still be established on the exact final build.
+desktop read observations, plus a separately built error-transport patch that
+preceded `0.4.2`. These are not tests of `0.4.2`. The `0.4.2` adapter keeps
+controlled refusal codes and safe hints, and sanitizes SDK input-validation
+errors before tool entry. NR-01 adds bounded clean-paragraph replace/delete-only.
+The published `0.4.2` release completed its maintainer native client and
+rendered-Word acceptance profile, with the scope and carry-forward exception
+recorded in the [release acceptance summary](docs/CODEX.md#release-042-acceptance).
+Raw evidence is retained outside the public repository. Those results do not
+establish acceptance in every client or for every paragraph structure.
 
-Public v0.4.0 MCPB is macOS-only. Its frozen release policy binds the exact
-artifact to existing-user acceptance on the maintainer's Mac and to the matching
-verified immutable release. The v0.4.2 gate requires its own exact-artifact acceptance; historical
-results do not establish acceptance of this candidate. This profile permits pre-existing system UV and
-caches; it does not verify installation in an untouched user,
-on a separate clean Mac, or without a development toolchain. Claude must launch
-the installed MCPB, with source bytes and runtime origin checked. Linux keeps
-the CLI setup. There is no Windows extension, catalog listing, automatic update promise, silent
-installation or guaranteed in-app rollback. `0.3.0` remains the
-first public MCPB. The v0.4.2 release gate requires a real upgrade from v0.4.0,
-rollback to that immutable release, and candidate reinstallation. The first UV
+The v0.4.0 and v0.4.2 MCPB packages are macOS-only. Each frozen release policy
+binds the exact artifact to existing-user acceptance on the maintainer's Mac and
+to the matching verified immutable release; v0.4.0 results do not establish
+acceptance of v0.4.2. This profile permits pre-existing system UV and caches;
+it does not verify installation in an untouched user, on a separate clean Mac,
+or without a development toolchain. Claude must launch the installed MCPB, with
+source bytes and runtime origin checked. Linux keeps the CLI setup. There is no
+Windows extension, catalog listing, automatic update promise, silent
+installation or guaranteed in-app rollback. `0.3.0` remains the first public
+MCPB. The v0.4.2 release gate required a real upgrade from v0.4.0, rollback to
+that immutable release, and reinstallation of the v0.4.2 artifact. The first UV
 activation may download a compatible Python runtime and locked dependencies, so
 it is not guaranteed to work offline. MCPB installation does not add an
 operating-system filesystem sandbox; Veqtor runs with the current user's
@@ -348,5 +353,9 @@ Native repeated-round checks, independent brief assessment, adversarial scenario
 and all-page visible-markup inspection are separate gates in
 [NR03_ACCEPTANCE.md](docs/NR03_ACCEPTANCE.md). The checker reports only the
 mechanical evidence it actually verifies, not a general acceptance verdict.
-No NR-03 final native/visual acceptance is claimed by these source instructions.
+The `0.4.2` maintainer profile completed the NR-03 native and visual checks;
+see the [release acceptance summary](docs/CODEX.md#release-042-acceptance) for
+the observed scope and authorised carry-forward. Raw evidence is retained
+outside the public repository. Publication alone is not that evidence and does
+not establish independent-user acceptance.
 The portable Claude prompt has not been established by a Codex run.

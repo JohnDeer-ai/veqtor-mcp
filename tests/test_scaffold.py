@@ -132,10 +132,6 @@ def test_changelog_keeps_timeless_release_copy() -> None:
 
 def test_release_copy_is_state_neutral_and_site_uses_public_v042() -> None:
     readme = (ROOT / "README.md").read_text()
-    immutable_docs = "\n".join(
-        (ROOT / name).read_text()
-        for name in ("README.md", "API.md", "KNOWN_LIMITATIONS.md", "ROADMAP.md")
-    )
     setup = (ROOT / "website" / "src" / "pages" / "setup.astro").read_text()
     release_config = (
         ROOT / "website" / "src" / "lib" / "public-release.ts"
@@ -166,16 +162,51 @@ def test_release_copy_is_state_neutral_and_site_uses_public_v042() -> None:
     assert "https://pypi.org/project/veqtor-mcp/" in readme
     assert "Both sources expose `0.4.2`" in readme
     assert "| Otherwise | `0.4.0` |" in readme
-    assert "release-candidate package `0.4.2`" in readme
+    assert "package version `0.4.2`, the published Alpha release" in readme
     assert "eleven-tool MCP contract `veqtor.mcp.v0.4.2`" in readme
-    assert "Public `0.4.0` is the published release line" in readme
-    assert "not a new publication" in immutable_docs
+    assert "historical `0.4.0` release" in readme
+    assert "Publication alone does not establish acceptance in every client" in readme
+    limitations = " ".join((ROOT / "KNOWN_LIMITATIONS.md").read_text().split())
+    codex = " ".join((ROOT / "docs" / "CODEX.md").read_text().split())
+    assert (
+        "The `0.4.2` maintainer profile completed the NR-03 native and visual checks"
+    ) in limitations
+    assert (
+        "The maintainer acceptance profile for the published `0.4.2` release is complete."
+    ) in codex
+    assert "retained outside the public repository" in codex
+    assert "documented exception to the exact-commit rerun rule" in codex
+    assert "not a fresh native run against the publication commit" in codex
+    assert "2c62a24ec2e959018cd24a073fdacd0234db9713" in codex
+    assert "b4c9cf01e473602516bf3afa7760eb854bbbbad5" in codex
+    assert "independent-user acceptance" in codex
+    roadmap = (ROOT / "ROADMAP.md").read_text()
+    assert "## Completed for 0.4.2" in roadmap
+    next_items = roadmap.split("## Next\n", 1)[1].split("\n### ", 1)[0]
+    assert "Complete independent review" not in next_items
+    assert "Validate NR-02" not in next_items
+    assert "NR-03 needs a separate cycle" not in next_items
+    stale_release_claims = (
+        "release-candidate package `0.4.2`",
+        "release-candidate source `0.4.2`",
+        "release-candidate source is package `0.4.2`",
+        "candidate package `0.4.2`",
+        "this candidate build",
+        "this candidate tree",
+        "is the published release line",
+        "not a new publication",
+        "acceptance of `0.4.2` is pending",
+        "pending acceptance of the exact `0.4.2` candidate",
+    )
     for name in ("README.md", "API.md", "KNOWN_LIMITATIONS.md", "ROADMAP.md", "docs/CODEX.md"):
         current = (ROOT / name).read_text()
         assert "0.4.2" in current
         assert "0.4.0" in current
         assert "veqtor.mcp.v0.4" in current
         assert "release-candidate source `0.4.0`" not in current
+        flowing = " ".join(current.split()).casefold()
+        for claim in stale_release_claims:
+            assert claim.casefold() not in flowing, (name, claim)
     development = (ROOT / "CHANGELOG.md").read_text().split("## 0.4.2.dev0\n", 1)[1].split("\n## ", 1)[0]
     assert "Unreleased development build" in development
     assert "v0.3.0 is not public yet" not in setup

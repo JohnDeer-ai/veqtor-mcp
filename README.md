@@ -30,17 +30,23 @@ tamper-evident audit system. Review the
 [known limitations](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/KNOWN_LIMITATIONS.md)
 before using it on a real matter.
 
-This source tree is release-candidate package `0.4.2` and advertises the
-eleven-tool MCP contract `veqtor.mcp.v0.4.2`. All eleven tools report that one
-contract-wide marker. Legacy calls remain compatible
-with public `0.4.0`; the additive paragraph target requires this candidate build; live `producer.version` identifies this package version
-and `producer.build` fingerprints the imported Python sources.
+This source tree carries package version `0.4.2`, the published Alpha release
+line, and advertises the eleven-tool MCP contract `veqtor.mcp.v0.4.2`. All
+eleven tools report that one contract-wide marker. Legacy calls remain
+compatible with the historical `0.4.0` release; the additive paragraph target
+and the two deal-position tools require `0.4.2`. Live `producer.version`
+identifies this package version and `producer.build` fingerprints the imported
+Python sources.
 
-Public `0.4.0` is the published release line. This candidate tree adds the
-Codex integration and safe error transport; it is not a new publication or
-proof of client acceptance. The historical v0.4.0 contract is retained separately; its published
-artifacts are unchanged. The historical v0.3 release remains an immutable
-eight-tool `veqtor.mcp.v0.3` surface.
+Version `0.4.2` is published on PyPI as a wheel and sdist, and as an immutable
+GitHub pre-release with its wheel, sdist, macOS MCPB and checksum manifest.
+Compared with `0.4.0`, it adds the Codex integration, safe error transport,
+clean-paragraph edits, saved deal positions and the repeated next-round
+workflow. Publication alone does not establish acceptance in every client; the
+client notes under Supported surface below state what has been observed and for
+which version. The historical v0.4.0 contract is retained separately; its
+published artifacts are unchanged. The historical v0.3 release remains an
+immutable eight-tool `veqtor.mcp.v0.3` surface.
 
 Before installing, check both the generic
 [PyPI project](https://pypi.org/project/veqtor-mcp/) and the
@@ -90,8 +96,9 @@ verification steps. Local Codex clients on the same host share MCP
 configuration; browser ChatGPT requires a separate connection.
 [Official OpenAI MCP documentation](https://learn.chatgpt.com/docs/extend/mcp).
 Registration alone does not establish a working document workflow. The guide
-separates the historical public-package observations from pending acceptance of
-the exact `0.4.2` candidate. Select that version only after both public verifiers pass.
+keeps historical `0.4.0` and patch-build observations separate from the
+[completed 0.4.2 maintainer acceptance profile](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/docs/CODEX.md#release-042-acceptance),
+including its scope, private evidence and authorised carry-forward.
 
 ## Install a verified published version for Claude Code
 
@@ -217,11 +224,11 @@ or environment.
 
 ## Tool surface
 
-The descriptions below follow release-candidate package `0.4.2` and its
-eleven-tool MCP contract `veqtor.mcp.v0.4.2`. Public `0.4.0` retains the frozen
-`veqtor.mcp.v0.4` contract. For an
-installed version, use the API file carried by that exact artifact or its
-matching immutable tag. Historical v0.3 artifacts retain their eight tools.
+The descriptions below follow the published package `0.4.2` and its
+eleven-tool MCP contract `veqtor.mcp.v0.4.2`. The historical `0.4.0` release
+retains the frozen nine-tool `veqtor.mcp.v0.4` contract. For an installed
+version, use the API file carried by that exact artifact or its matching
+immutable tag. Historical v0.3 artifacts retain their eight tools.
 
 - `list_rounds`: disclosed lexicographic filename order or a complete explicit
   `ordered_filenames` positional manifest; neither is lineage proof.
@@ -372,7 +379,7 @@ The exact-SHA immutable publication contract is documented in the
 Veqtor MCP is an independent open-source project created and maintained by
 **[Ilya Shilov](https://ilyashilov.com/)** ([@JohnDeer-ai](https://github.com/JohnDeer-ai)).
 
-## Deal positions in the release candidate
+## Deal positions
 
 NR-02 adds `read_deal_positions` and `mutate_deal_positions`: retain desired
 outcomes, conditional concessions, linked positions and business questions in
@@ -384,5 +391,10 @@ The private bounded snapshot moves with the matter folder and is independent of
 `export_decision_record`. Source freshness, confirmation, business status and
 lifecycle remain separate. Saved wording is data, not an instruction or authority
 to edit Word. See [the NR-02 contract](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/NR-02_DEAL_POSITIONS.md) and
-[API](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/API.md#read_deal_positions). Exact-candidate native acceptance remains a
-separate gate; the published 0.4.0 installation does not contain these tools.
+[API](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/API.md#read_deal_positions).
+These tools ship in the published `0.4.2` package; the historical `0.4.0`
+installation does not contain them. They were exercised in the completed
+`0.4.2` maintainer native next-round profile; see the
+[acceptance summary](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/docs/CODEX.md#release-042-acceptance).
+Raw evidence is retained outside the public repository. That bounded profile
+does not establish acceptance in every client or environment.
