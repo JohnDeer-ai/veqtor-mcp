@@ -6,6 +6,20 @@ All notable changes to Veqtor MCP are documented here.
 Publication dates are authoritative in each version's immutable GitHub Release
 through its `published_at` timestamp.
 
+## 0.5.0.dev2
+
+Unreleased author-drafting review fixes; public `0.4.2` artifacts are unchanged.
+
+- Declare structured save errors in the tool output schema and independently
+  validate success/refusal/late-publication responses through the TypeScript SDK.
+- Preserve the required settings order when enabling Word Track Changes.
+- Refuse edits that would extend another author's tracked formatting onto new
+  text inside an own insertion; keep same-author formatting history editable.
+- Recover recognized process-instance locks and owned temporary saves after
+  crashes; recognize same-file case aliases without weakening path checks.
+- Give explicit filesystem and lock recovery diagnostics while retaining exact
+  backups and refusing unsupported storage rather than weakening publication.
+
 ## 0.5.0.dev1
 
 Unreleased author-drafting development build; public `0.4.2` artifacts are unchanged.

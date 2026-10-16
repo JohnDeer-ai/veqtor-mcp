@@ -344,6 +344,13 @@ def _replace_candidate(
         )
     _assert_outside_fields(paragraph, touched_runs)
     formatted = [seg for seg in touched if _format_change(seg.run) is not None]
+    if operation == "edit_own_insertion" and any(
+        _format_change(seg.run).get(w("author")) != author for seg in formatted
+    ):
+        raise ApplyError(
+            "foreign_formatting_unsupported",
+            "the edit would change the scope of another author's tracked formatting",
+        )
     if any(seg.start < start or seg.end > end for seg in formatted) or (
         formatted
         and operation == "edit_own_insertion"

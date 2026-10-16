@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "veqtor-mcp"
-version = "0.5.0.dev1"
+version = "0.5.0.dev2"
 description = "Local MCP server for verifiable DOCX redline history and fail-closed tracked-change edits"
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
@@ -66,6 +66,7 @@ include = [
   "/src/veqtor_docx/_drafting_text.py",
   "/src/veqtor_docx/_drafting_comments.py",
   "/src/veqtor_docx/_drafting_io.py",
+  "/src/veqtor_docx/_drafting_fs.py",
   "/src/veqtor_mcp/_drafting_contract.py",
   "/src/veqtor_docx/contracts.py",
   "/src/veqtor_docx/extract.py",
@@ -129,6 +130,7 @@ include = [
   "/src/veqtor_docx/_drafting_text.py",
   "/src/veqtor_docx/_drafting_comments.py",
   "/src/veqtor_docx/_drafting_io.py",
+  "/src/veqtor_docx/_drafting_fs.py",
   "/src/veqtor_mcp/_drafting_contract.py",
   "/src/veqtor_docx/contracts.py",
   "/src/veqtor_docx/extract.py",

@@ -80,6 +80,22 @@ _REL_SETTINGS = (
 _CT_SETTINGS = (
     "application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"
 )
+# CT_Settings is an ordered sequence (ISO/IEC 29500-1, A.1). These are the
+# settings before trackRevisions; existing elements retain their relative order.
+_TRACKING_PREDECESSORS = frozenset(
+    w(name)
+    for name in (
+        "writeProtection", "view", "zoom", "removePersonalInformation",
+        "removeDateAndTime", "doNotDisplayPageBoundaries", "displayBackgroundShape",
+        "printPostScriptOverText", "printFractionalCharacterWidth", "printFormsData",
+        "embedTrueTypeFonts", "embedSystemFonts", "saveSubsetFonts", "saveFormsData",
+        "mirrorMargins", "alignBordersAndEdges", "bordersDoNotSurroundHeader",
+        "bordersDoNotSurroundFooter", "gutterAtTop", "hideSpellingErrors",
+        "hideGrammaticalErrors", "activeWritingStyle", "proofState", "formsDesign",
+        "attachedTemplate", "linkStyles", "stylePaneFormatFilter", "stylePaneSortMethod",
+        "documentType", "mailMerge", "revisionView",
+    )
+)
 _OP_KEYS = {
     "replace_text": {"kind", "paragraph_ref", "old_text", "new_text"},
     "add_comment": {"kind", "paragraph_ref", "quote", "text"},
@@ -225,7 +241,15 @@ def _enable_tracking(parts: dict[str, bytes]) -> None:
     if tracks:
         tracks[0].set(w("val"), "true")
     else:
-        settings.insert(0, etree.Element(w("trackRevisions")))
+        index = max(
+            (
+                index + 1
+                for index, child in enumerate(settings)
+                if child.tag in _TRACKING_PREDECESSORS
+            ),
+            default=0,
+        )
+        settings.insert(index, etree.Element(w("trackRevisions")))
     parts[_SETTINGS_PART] = _xml(settings)
     if not matching:
         identities = {rel.get("Id") for rel in rels}

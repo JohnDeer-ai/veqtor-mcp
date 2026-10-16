@@ -13,17 +13,20 @@ import errno
 import ctypes
 import fcntl
 import hashlib
+import json
 import os
 import re
 import stat
 import sys
 import unicodedata
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
+from dataclasses import dataclass
 from typing import Iterator
 
 from ._ooxml import UserPathError, resolve_user_path
 from .apply import ApplyError
+from ._drafting_fs import filesystem_supported, instance_ended, process_instance
 
 
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
@@ -36,6 +39,7 @@ _ACL_ATTRIBUTES = frozenset({
 _MAX_XATTR_BYTES = 64 * 1024 * 1024
 _MAX_XATTR_NAMES_BYTES = 1024 * 1024
 _DARWIN_SYSTEM_ATTRIBUTES = frozenset({"com.apple.provenance"})
+_UNSUPPORTED_FILESYSTEM_ERRNOS = frozenset({errno.ENOTSUP, errno.EOPNOTSUPP, errno.ENOSYS})
 
 
 def _error(code: str, detail: str, **metadata: object) -> ApplyError:
@@ -87,9 +91,20 @@ def _directory(path: str) -> Iterator[int]:
     descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | _NOFOLLOW | _CLOEXEC)
     try:
         _directory_current(descriptor, path)
+        _supported_filesystem(descriptor)
         yield descriptor
     finally:
         os.close(descriptor)
+
+
+def _supported_filesystem(descriptor: int, parent: int | None = None) -> None:
+    try:
+        supported = filesystem_supported(descriptor)
+    except (OSError, AttributeError) as exc:
+        raise _error("unsupported_filesystem", "cannot verify supported local save filesystem") from exc
+    if (not supported or (parent is not None
+                          and os.fstat(descriptor).st_dev != os.fstat(parent).st_dev)):
+        raise _error("unsupported_filesystem", "saving requires a supported local filesystem without nested mounts in private save folders")
 
 
 def _unlink_owned(directory: int, name: str, identity: tuple[int, int]) -> None:
@@ -145,23 +160,27 @@ def _reclaim_dead_lock(directory: int, name: str) -> bool:
         before = os.fstat(descriptor)
         if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1
                 or before.st_uid != os.geteuid() or stat.S_IMODE(before.st_mode) != 0o600
-                or not 1 <= before.st_size <= 128):
+                or not 1 <= before.st_size <= 256):
             return False
-        payload = os.read(descriptor, 129)
-        match = re.fullmatch(rb"pid=([1-9][0-9]{0,9}) token=[0-9a-f]{32}\n", payload)
+        payload = os.read(descriptor, 257)
+        match = re.fullmatch(rb"pid=([1-9][0-9]{0,9}) token=[0-9a-f]{32}(?: instance=([0-9a-f]{64}))?\n", payload)
         if not match or _version(os.fstat(descriptor)) != _version(before):
             return False
         pid = int(match[1])
         if pid > 2_147_483_647:
             return False
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            pass
-        except (OSError, OverflowError):
-            return False  # Permission errors or uncertainty are never death proof.
+        if match[2] is not None:
+            if not instance_ended(pid, match[2].decode()):
+                return False
         else:
-            return False
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                pass
+            except (OSError, OverflowError):
+                return False  # Legacy records cannot distinguish reused PIDs.
+            else:
+                return False
         if _version(_at_stat(directory, name)) != _version(before):
             return False
         _unlink_owned(directory, name, _identity(before))
@@ -173,7 +192,7 @@ def _reclaim_dead_lock(directory: int, name: str) -> bool:
 
 
 @contextmanager
-def _compatible_sidecar(directory: int, basename: str) -> Iterator[None]:
+def _compatible_sidecar(directory: int, basename: str, path: str) -> Iterator[None]:
     """Publish a complete PID record atomically for earlier O_EXCL writers.
 
     A crash before publication may leave an inert unique temporary file, never
@@ -186,7 +205,8 @@ def _compatible_sidecar(directory: int, basename: str) -> Iterator[None]:
                          0o600, dir_fd=directory)
     identity = _identity(os.fstat(descriptor))
     try:
-        _write_all(descriptor, f"pid={os.getpid()} token={uuid.uuid4().hex}\n".encode())
+        instance = process_instance(os.getpid())
+        _write_all(descriptor, f"pid={os.getpid()} token={uuid.uuid4().hex} instance={instance}\n".encode())
         os.fsync(descriptor)
         for attempt in range(2):
             try:
@@ -194,7 +214,9 @@ def _compatible_sidecar(directory: int, basename: str) -> Iterator[None]:
                 break
             except FileExistsError as exc:
                 if attempt or not _reclaim_dead_lock(directory, name):
-                    raise _error("file_locked", "another save or an unverifiable legacy save lock exists") from exc
+                    raise _error("file_locked", "another save or an unverifiable legacy save lock exists",
+                                 lock_path=os.path.join(path, name),
+                                 lock_reason="owner_not_proven_dead") from exc
         yield
     finally:
         os.close(descriptor)
@@ -243,7 +265,8 @@ def _writer_lock(directory: int, path: str, basename: str) -> Iterator[None]:
         raise
     try:
         _directory_current(directory, path)
-        with _compatible_sidecar(directory, basename):
+        with _compatible_sidecar(directory, basename, path):
+            _recover_stages(directory)
             yield
             _directory_current(directory, path)
     finally:
@@ -394,16 +417,176 @@ def _set_attributes(descriptor: int, attributes: dict[str, bytes]) -> None:
             os.setxattr(descriptor, name, value)
 
 
-@contextmanager
-def _staged(directory: int, payload: bytes, source_info: os.stat_result,
-            attributes: dict[str, bytes]) -> Iterator[tuple[str, tuple[int, int]]]:
-    name = f".veqtor-{uuid.uuid4().hex}.tmp"
-    descriptor = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW | _CLOEXEC,
-                         0o600, dir_fd=directory)
-    identity = _identity(os.fstat(descriptor))
+_STAGE_NAME = re.compile(r"\.veqtor-stage-[0-9a-f]{32}\Z")
+_STAGE_FILE = "candidate.tmp"
+_STAGE_MANIFEST = "owner.json"
+
+
+def _stage_manifest(directory: int) -> tuple[dict, os.stat_result] | None:
+    """Read a bounded private ownership record without following any link."""
+    descriptor = os.open(_STAGE_MANIFEST, os.O_RDONLY | _NOFOLLOW | _CLOEXEC | os.O_NONBLOCK,
+                         dir_fd=directory)
     try:
-        # A new file can inherit a directory ACL even when its source has none.
-        # Inspect before writing any document bytes to that temporary file.
+        before = os.fstat(descriptor)
+        if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1
+                or before.st_uid != os.geteuid() or stat.S_IMODE(before.st_mode) != 0o600
+                or not 1 <= before.st_size <= 4096):
+            return None
+        value = json.loads(os.read(descriptor, 4097))
+        if (_version(before) != _version(os.fstat(descriptor))
+                or _version(before) != _version(_at_stat(directory, _STAGE_MANIFEST))):
+            return None
+        keys = {"version", "pid", "instance", "directory", "file", "size", "sha256", "uid", "gid", "mode"}
+        if (not isinstance(value, dict) or set(value) != keys
+                or type(value["version"]) is not int or value["version"] != 1):
+            return None
+        if any(type(value[key]) is not int for key in ("pid", "size", "uid", "gid", "mode")):
+            return None
+        if not 1 <= value["pid"] <= 2_147_483_647 or not 0 <= value["size"] <= 100 * 1024 * 1024:
+            return None
+        if value["uid"] < 0 or value["gid"] < 0 or not 0 <= value["mode"] <= 0o7777:
+            return None
+        if any(not isinstance(value[key], str) or not re.fullmatch(r"[0-9a-f]{64}", value[key])
+               for key in ("instance", "sha256")):
+            return None
+        for key in ("directory", "file"):
+            if (not isinstance(value[key], list) or len(value[key]) != 2
+                    or any(type(number) is not int or number < 0 for number in value[key])):
+                return None
+        if tuple(value["directory"]) != _identity(os.fstat(directory)):
+            return None
+        return value, before
+    finally:
+        os.close(descriptor)
+
+
+def _recover_stage(parent: int, name: str) -> None:
+    before = _at_stat(parent, name)
+    if (not stat.S_ISDIR(before.st_mode) or before.st_uid != os.geteuid()
+            or stat.S_IMODE(before.st_mode) != 0o700):
+        return
+    directory = os.open(name, os.O_RDONLY | os.O_DIRECTORY | _NOFOLLOW | _CLOEXEC, dir_fd=parent)
+    try:
+        if _identity(before) != _identity(os.fstat(directory)):
+            return
+        _supported_filesystem(directory, parent)
+        # An inherited ACL could give other principals access despite mode 700.
+        _attributes(directory)
+        record = _stage_manifest(directory)
+        if record is None:
+            return
+        value, manifest_info = record
+        if not instance_ended(value["pid"], value["instance"]):
+            return
+        names = set(os.listdir(directory))
+        if names not in ({_STAGE_MANIFEST}, {_STAGE_MANIFEST, _STAGE_FILE}):
+            return
+        file_info = None
+        if _STAGE_FILE in names:
+            descriptor = os.open(_STAGE_FILE, os.O_RDONLY | _NOFOLLOW | _CLOEXEC | os.O_NONBLOCK,
+                                 dir_fd=directory)
+            try:
+                file_info = os.fstat(descriptor)
+                if (not stat.S_ISREG(file_info.st_mode) or _identity(file_info) != tuple(value["file"])
+                        or file_info.st_size > value["size"] or file_info.st_nlink not in {1, 2}
+                        or file_info.st_uid not in {os.geteuid(), value["uid"]}):
+                    return
+                _attributes(descriptor)
+                if file_info.st_size == value["size"]:
+                    digest = hashlib.sha256()
+                    remaining = value["size"] + 1
+                    while remaining and (chunk := os.read(descriptor, min(remaining, 1024 * 1024))):
+                        digest.update(chunk)
+                        remaining -= len(chunk)
+                    if digest.hexdigest() != value["sha256"]:
+                        return  # A complete but changed candidate is not ours to discard.
+                elif (file_info.st_nlink != 1 or file_info.st_uid != os.geteuid()
+                      or stat.S_IMODE(file_info.st_mode) != 0o600):
+                    return
+                # A partial write has no final digest. Its exact registered inode
+                # is removable only inside this untouched private container,
+                # before permissions or publication links could have changed.
+                if (_version(file_info) != _version(os.fstat(descriptor))
+                        or _version(file_info) != _version(_at_stat(directory, _STAGE_FILE))):
+                    return
+            finally:
+                os.close(descriptor)
+        if (_identity(_at_stat(parent, name)) != _identity(before)
+                or _version(_at_stat(directory, _STAGE_MANIFEST)) != _version(manifest_info)
+                or set(os.listdir(directory)) != names):
+            return
+        if file_info is not None:
+            if _version(_at_stat(directory, _STAGE_FILE)) != _version(file_info):
+                return
+            _unlink_owned(directory, _STAGE_FILE, _identity(file_info))
+            if _STAGE_FILE in os.listdir(directory):
+                return
+        _unlink_owned(directory, _STAGE_MANIFEST, _identity(manifest_info))
+        if not os.listdir(directory) and _identity(_at_stat(parent, name)) == _identity(before):
+            os.rmdir(name, dir_fd=parent)
+            os.fsync(parent)
+    finally:
+        os.close(directory)
+
+
+def _recover_stages(directory: int) -> None:
+    # The owning save holds this directory's writer lock (or its parent lock
+    # for the private backup folder). Old unregistered .tmp files are untouched.
+    with os.scandir(directory) as entries:
+        for entry in entries:
+            if _STAGE_NAME.fullmatch(entry.name):
+                try:
+                    _recover_stage(directory, entry.name)
+                except (OSError, ApplyError, ValueError, TypeError, KeyError):
+                    continue  # Unverifiable contents are retained, never guessed away.
+
+
+@dataclass(frozen=True)
+class _Stage:
+    directory: int
+    identity: tuple[int, int]
+    name: str = _STAGE_FILE
+
+
+@contextmanager
+def _staged(parent: int, payload: bytes, source_info: os.stat_result,
+            attributes: dict[str, bytes]) -> Iterator[_Stage]:
+    # A private child must not silently bypass restrictions inherited by a
+    # direct output in this folder (including file-only ACL inheritance).
+    _attributes(parent)
+    name = f".veqtor-stage-{uuid.uuid4().hex}"
+    os.mkdir(name, 0o700, dir_fd=parent)
+    directory = os.open(name, os.O_RDONLY | os.O_DIRECTORY | _NOFOLLOW | _CLOEXEC, dir_fd=parent)
+    directory_identity = _identity(os.fstat(directory))
+    descriptor = None
+    identity = None
+    manifest_identity = None
+    try:
+        _supported_filesystem(directory, parent)
+        _attributes(directory)
+        descriptor = os.open(_STAGE_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW | _CLOEXEC,
+                             0o600, dir_fd=directory)
+        identity = _identity(os.fstat(descriptor))
+        # Ownership is durable before the first document byte is written. The
+        # dedicated mode-700 directory makes even interrupted partial writes
+        # identifiable without deleting unrelated same-directory temporary files.
+        record = {
+            "version": 1, "pid": os.getpid(), "instance": process_instance(os.getpid()),
+            "directory": list(directory_identity), "file": list(identity),
+            "size": len(payload), "sha256": hashlib.sha256(payload).hexdigest(),
+            "uid": source_info.st_uid, "gid": source_info.st_gid,
+            "mode": stat.S_IMODE(source_info.st_mode),
+        }
+        manifest = os.open(_STAGE_MANIFEST, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW | _CLOEXEC,
+                           0o600, dir_fd=directory)
+        try:
+            manifest_identity = _identity(os.fstat(manifest))
+            _write_all(manifest, json.dumps(record, separators=(",", ":")).encode())
+            os.fsync(manifest)
+        finally:
+            os.close(manifest)
+        os.fsync(directory)
+        os.fsync(parent)
         _attributes(descriptor)
         _write_all(descriptor, payload)
         actual = os.fstat(descriptor)
@@ -414,10 +597,21 @@ def _staged(directory: int, payload: bytes, source_info: os.stat_result,
         if _attributes(descriptor) != attributes:
             raise _error("unsupported_permissions", "extended attributes could not be preserved exactly")
         os.fsync(descriptor)
-        yield name, identity
+        yield _Stage(directory, identity)
     finally:
-        os.close(descriptor)
-        _unlink_owned(directory, name, identity)
+        if descriptor is not None:
+            os.close(descriptor)
+        if identity is not None:
+            _unlink_owned(directory, _STAGE_FILE, identity)
+        if manifest_identity is not None:
+            _unlink_owned(directory, _STAGE_MANIFEST, manifest_identity)
+        try:
+            if _identity(_at_stat(parent, name)) == directory_identity and not os.listdir(directory):
+                os.rmdir(name, dir_fd=parent)
+        except OSError:
+            pass  # Cleanup must not mask the publication outcome/recovery path.
+        finally:
+            os.close(directory)
 
 
 @contextmanager
@@ -434,7 +628,9 @@ def _backup_directory(parent: int) -> Iterator[int]:
     try:
         if _identity(info) != _identity(os.fstat(descriptor)):
             raise _error("source_changed", "backup directory changed while opening")
+        _supported_filesystem(descriptor, parent)
         _attributes(descriptor)
+        _recover_stages(descriptor)
         # Persist a newly created directory before relying on its backup.
         os.fsync(parent)
         yield descriptor
@@ -450,6 +646,7 @@ def _backup_current(parent: int, descriptor: int) -> None:
     if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid()
             or info.st_mode & 0o022 or _identity(info) != _identity(os.fstat(descriptor))):
         raise _error("source_changed", "backup directory changed before publication")
+    _supported_filesystem(descriptor, parent)
     _attributes(descriptor)
 
 
@@ -458,13 +655,13 @@ def _backup(parent: int, directory: int, basename: str, payload: bytes,
     # Keep the component below NAME_MAX even with a long Unicode document name.
     short_name = os.fsencode(basename)[:140].decode(errors="ignore")
     name = f"{short_name}.{hashlib.sha256(payload).hexdigest()[:16]}.{uuid.uuid4().hex}.docx"
-    with _staged(directory, payload, source_info, attributes) as (staged, identity):
+    with _staged(directory, payload, source_info, attributes) as staged:
         _backup_current(parent, directory)
-        os.link(staged, name, src_dir_fd=directory, dst_dir_fd=directory, follow_symlinks=False)
+        os.link(staged.name, name, src_dir_fd=staged.directory, dst_dir_fd=directory, follow_symlinks=False)
         try:
             os.fsync(directory)
         except BaseException:
-            _unlink_owned(directory, name, identity)
+            _unlink_owned(directory, name, staged.identity)
             raise
     return name
 
@@ -558,8 +755,19 @@ def publish_document(source_path: str, output_path: str | None, source_payload: 
                         except FileNotFoundError:
                             pass
                         else:
-                            raise _error("output_exists", "refusing to overwrite an existing output")
-                    with _staged(destination, candidate_payload, source_info, attributes) as (staged, _):
+                            # Case-insensitive volumes can resolve different
+                            # spellings to this very inode. Never infer aliases
+                            # from casefold on a case-sensitive filesystem.
+                            existing = _at_stat(destination, output_name)
+                            if (stat.S_ISREG(existing.st_mode) and existing.st_nlink == 1
+                                    and _identity(existing) == _identity(source_info)
+                                    and _identity(os.fstat(destination)) == _identity(os.fstat(parent))):
+                                in_place = True
+                            else:
+                                raise _error("output_exists", "refusing to overwrite an existing output")
+                    destination_guard = (nullcontext() if _identity(os.fstat(destination)) == _identity(os.fstat(parent))
+                                         else _writer_lock(destination, output_parent, output_name))
+                    with destination_guard, _staged(destination, candidate_payload, source_info, attributes) as staged:
                         if in_place:
                             try:
                                 with _backup_directory(parent) as backups:
@@ -571,19 +779,20 @@ def publish_document(source_path: str, output_path: str | None, source_payload: 
                                     _directory_current(destination, output_parent)
                                     _backup_current(parent, backups)
                                     _source_current(parent, basename, source_descriptor, source_payload, version)
-                                    os.replace(staged, output_name, src_dir_fd=destination, dst_dir_fd=parent)
+                                    os.replace(staged.name, output_name, src_dir_fd=staged.directory, dst_dir_fd=parent)
                                     publication_completed = True
                             except ApplyError:
                                 raise
                             except OSError as exc:
-                                code = "backup_failed" if backup_path is None else "output_unwritable"
+                                code = ("unsupported_filesystem" if exc.errno in _UNSUPPORTED_FILESYSTEM_ERRNOS
+                                        else "backup_failed" if backup_path is None else "output_unwritable")
                                 raise _error(code, str(exc)) from exc
                         else:
                             _directory_current(parent, source_parent)
                             _directory_current(destination, output_parent)
                             _source_current(parent, basename, source_descriptor, source_payload, version)
                             try:
-                                os.link(staged, output_name, src_dir_fd=destination,
+                                os.link(staged.name, output_name, src_dir_fd=staged.directory,
                                         dst_dir_fd=destination, follow_symlinks=False)
                             except FileExistsError as exc:
                                 raise _error("output_exists", "output appeared before publication") from exc
@@ -597,7 +806,8 @@ def publish_document(source_path: str, output_path: str | None, source_payload: 
                          "document was published, but final durability confirmation failed; verify the working file before retrying",
                          original_code=getattr(exc, "code", "output_unwritable"))
         elif not isinstance(exc, ApplyError):
-            exc = _error("output_unwritable", str(exc))
+            code = "unsupported_filesystem" if exc.errno in _UNSUPPORTED_FILESYSTEM_ERRNOS else "output_unwritable"
+            exc = _error(code, str(exc))
         exc.metadata.update(output_path=output, backup_path=backup_path,
                             backup_sha256=hashlib.sha256(source_payload).hexdigest() if backup_path else None,
                             backup_path_verified=_backup_path_verified(

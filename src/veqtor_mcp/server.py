@@ -39,7 +39,8 @@ from veqtor_mcp import positions
 from veqtor_mcp._positions_contract import DealPositionsResult, OperationsInput, RevisionInput
 from veqtor_docx import drafting
 from veqtor_mcp._drafting_contract import (
-    ApplyDocumentEditsResult, DraftingOperationsInput, DraftingProofInput,
+    ApplyDocumentEditsResult, ApplyDocumentEditsSuccessResult, DRAFTING_ERROR_RESULT,
+    DraftingOperationsInput, DraftingProofInput,
     DraftingShaInput, PreflightDocumentEditsResult, ReadDocumentCommentsResult,
 )
 from veqtor_mcp._verification_v2 import verify_quote_v2
@@ -153,14 +154,35 @@ def _drafting_recovery(fn, args, kwargs, exc, code: str, detail: str) -> dict | 
             return None
     except (KeyError, TypeError, ValueError, veqtor_docx.DocxError):
         return None
-    return {
+    payload = {
         "schema_version": "drafting_error.v1", "status": "error",
         "error_code": code, "message": detail,
         "recovery": {"output_path": output, "backup_path": backup,
                      "backup_sha256": digest,
                      "backup_path_verified": metadata.get("backup_path_verified") is True,
-                     "publication_completed": metadata["publication_completed"]},
+                     "publication_completed": metadata["publication_completed"],
+                     "lock_path": None, "lock_reason": None},
     }
+    lock_path = metadata.get("lock_path")
+    if isinstance(lock_path, str) and metadata.get("lock_reason") == "owner_not_proven_dead":
+        from veqtor_docx._drafting_io import _legacy_lock_name
+
+        allowed_locks = {
+            os.path.join(os.path.dirname(path), _legacy_lock_name(os.path.basename(path)))
+            for path in (source, output)
+        }
+        if lock_path in allowed_locks:
+            payload["recovery"].update(lock_path=lock_path, lock_reason="owner_not_proven_dead")
+            payload["message"] = (
+                "another save or an unverifiable save lock prevents writing; close Word and other "
+                "Veqtor writers, then inspect the reported lock before manual recovery; do not "
+                "remove a lock while its writer may be active"
+            )
+    # This is validated independently from the successful result gate. Never
+    # expose arbitrary exception metadata, even when a core failure is expected.
+    if not jsonschema.Draft202012Validator(DRAFTING_ERROR_RESULT).is_valid(payload):
+        return None
+    return payload
 
 
 _TOOL_ENTRY: ContextVar[list[bool] | None] = ContextVar("veqtor_tool_entry", default=None)
@@ -233,7 +255,7 @@ _RESULT_MODELS = {
     "mutate_deal_positions": DealPositionsResult,
     "read_document_comments": ReadDocumentCommentsResult,
     "preflight_document_edits": PreflightDocumentEditsResult,
-    "apply_document_edits": ApplyDocumentEditsResult,
+    "apply_document_edits": ApplyDocumentEditsSuccessResult,
 }
 
 
@@ -570,6 +592,8 @@ def _mcp_tool(**options: Any) -> Callable:
                     detail = "file may already be saved; reread the working file and backup before retrying"
                 elif code == "unsupported_permissions":
                     detail = "save refused because extended file permissions cannot be preserved; keep the original permissions and use a supported working location"
+                elif code == "unsupported_filesystem":
+                    detail = "safe saving is not supported on this filesystem; use a local supported working folder, close Word, and obtain a fresh preflight"
                 elif code == "file_locked" and fn.__name__ == "apply_document_edits":
                     detail = "close the document in Word and wait for any other Veqtor save, then retry with a fresh preflight"
                 elif code in {"source_changed", "file_sha256_mismatch"} and fn.__name__ == "apply_document_edits":

@@ -192,7 +192,7 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
     assert frozen_runtime < discovered_runtime
     assert {"/src/veqtor_docx/_paragraph_edits.py",
         "/src/veqtor_mcp/_positions_contract.py", "/src/veqtor_mcp/positions.py"} <= frozen_runtime
-    assert config["project"]["version"] == "0.5.0.dev1"
+    assert config["project"]["version"] == "0.5.0.dev2"
     assert config["project"]["version"] != VERSION
     assert VERSION == "0.4.2"
     assert wheel_includes == discovered_runtime

@@ -1271,19 +1271,54 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
     for name, tool in tools.items():
         registered_tool = mcp._tool_manager.get_tool(name)
         assert registered_tool is not None
-        assert registered_tool.fn_metadata.output_model is server._RESULT_MODELS[name]
-        assert server._RESULT_MODELS[name].contract_schema == tool.output_schema
+        public_model = (server.ApplyDocumentEditsResult if name == "apply_document_edits"
+                        else server._RESULT_MODELS[name])
+        assert registered_tool.fn_metadata.output_model is public_model
+        assert public_model.contract_schema == tool.output_schema
         assert tool.meta == {MCP_CONTRACT_META_KEY: MCP_CONTRACT_SCHEMA_VERSION}
         assert tool.output_schema is not None
         assert tool.output_schema[MCP_CONTRACT_SCHEMA_EXTENSION] == (
             MCP_CONTRACT_SCHEMA_VERSION
         )
         assert tool.output_schema["type"] == "object"
-        assert expected_output_core[name] <= set(tool.output_schema["properties"])
+        success_schema = tool.output_schema
+        if name == "apply_document_edits":
+            assert server._RESULT_MODELS[name] is server.ApplyDocumentEditsSuccessResult
+            assert public_model is not server._RESULT_MODELS[name]
+            assert set(tool.output_schema) == {"type", "oneOf", MCP_CONTRACT_SCHEMA_EXTENSION}
+            success_schema, error_schema = tool.output_schema["oneOf"]
+            assert success_schema == server._RESULT_MODELS[name].contract_schema
+            assert error_schema == server.DRAFTING_ERROR_RESULT
+            assert error_schema["additionalProperties"] is False
+            assert set(error_schema["required"]) == set(error_schema["properties"]) == {
+                "schema_version", "status", "error_code", "message", "recovery",
+            }
+            recovery_schema = error_schema["properties"]["recovery"]
+            assert recovery_schema["additionalProperties"] is False
+            assert set(recovery_schema["required"]) == set(recovery_schema["properties"]) == {
+                "output_path", "backup_path", "backup_sha256", "backup_path_verified",
+                "publication_completed", "lock_path", "lock_reason",
+            }
+            failure = {
+                "schema_version": "drafting_error.v1", "status": "error",
+                "error_code": "file_locked", "message": "Close the synthetic document.",
+                "recovery": {"output_path": "/synthetic/document.docx", "backup_path": None,
+                             "backup_sha256": None, "backup_path_verified": False,
+                             "publication_completed": False, "lock_path": None,
+                             "lock_reason": None},
+            }
+            wire_validator = jsonschema.Draft202012Validator(tool.output_schema)
+            assert wire_validator.is_valid(failure)
+            assert not jsonschema.Draft202012Validator(success_schema).is_valid(failure)
+            assert not wire_validator.is_valid({**failure, "unknown_field": True})
+            assert not wire_validator.is_valid({
+                **failure, "recovery": {**failure["recovery"], "unknown_field": True},
+            })
+        assert expected_output_core[name] <= set(success_schema["properties"])
         if name in drafting_names:
-            assert tool.output_schema["additionalProperties"] is False
-            assert tool.output_schema["properties"]["record_id"] == {"type": "null"}
-            assert tool.output_schema["properties"]["record_status"] == {"const": "disabled"}
+            assert success_schema["additionalProperties"] is False
+            assert success_schema["properties"]["record_id"] == {"type": "null"}
+            assert success_schema["properties"]["record_status"] == {"const": "disabled"}
             assert tool.annotations.read_only_hint is (name != "apply_document_edits")
             assert tool.annotations.idempotent_hint is (name != "apply_document_edits")
             assert tool.annotations.destructive_hint is (name == "apply_document_edits")

@@ -312,6 +312,111 @@ def _field_marker(parent, kind):
     etree.SubElement(run, w("fldChar")).set(w("fldCharType"), kind)
 
 
+@pytest.mark.parametrize("children, expected", [
+    (
+        '<w:view w:val="print"/><w:zoom w:percent="100"/>'
+        '<w:proofState w:spelling="clean"/><w:defaultTabStop w:val="720"/><w:compat/>',
+        ["view", "zoom", "proofState", "trackRevisions", "defaultTabStop", "compat"],
+    ),
+    (
+        '<w:activeWritingStyle w:lang="en-US"/><w:activeWritingStyle w:lang="ru-RU"/>'
+        '<w:revisionView w:markup="1"/><w:doNotTrackMoves/><w:doNotTrackFormatting/>',
+        ["activeWritingStyle", "activeWritingStyle", "revisionView", "trackRevisions",
+         "doNotTrackMoves", "doNotTrackFormatting"],
+    ),
+    ('<w:view w:val="print"/><w:zoom w:percent="100"/>',
+     ["view", "zoom", "trackRevisions"]),
+    ('<w:compat/><w14:docId w14:val="42"/>', ["trackRevisions", "compat", "docId"]),
+    ('<w:zoom w:percent="100"/><w14:docId w14:val="42"/>',
+     ["zoom", "trackRevisions", "docId"]),
+    ('<x:unknown/><w:zoom w:percent="100"/><x:afterZoom/><w:compat/>',
+     ["unknown", "zoom", "trackRevisions", "afterZoom", "compat"]),
+    ('', ["trackRevisions"]),
+])
+def test_tracking_setting_follows_schema_order_preserving_existing_xml(
+    demo_dir, children, expected
+):
+    with zipfile.ZipFile(demo_dir / "round-1-outgoing-draft.docx") as archive:
+        parts = {name: archive.read(name) for name in archive.namelist()}
+    drafting._enable_tracking(parts)
+    parts["word/settings.xml"] = (
+        '<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+        'xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" '
+        'xmlns:x="urn:veqtor:synthetic-settings-extension" '
+        'xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" '
+        f'mc:Ignorable="w14 x">{children}</w:settings>'
+    ).encode()
+    original = etree.fromstring(parts["word/settings.xml"])
+    existing = [etree.tostring(child) for child in original]
+    untouched_parts = {name: payload for name, payload in parts.items()
+                       if name != "word/settings.xml"}
+    drafting._enable_tracking(parts)
+    settings = etree.fromstring(parts["word/settings.xml"])
+    assert [etree.QName(child).localname for child in settings] == expected
+    assert dict(settings.attrib) == dict(original.attrib)
+    assert [etree.tostring(child) for child in settings
+            if child.tag != w("trackRevisions")] == existing
+    assert {name: payload for name, payload in parts.items()
+            if name != "word/settings.xml"} == untouched_parts
+    first = parts["word/settings.xml"]
+    drafting._enable_tracking(parts)
+    assert parts["word/settings.xml"] == first
+
+
+def test_existing_disabled_tracking_keeps_its_position(tmp_path, demo_dir):
+    path = _working(tmp_path, demo_dir)
+
+    def settings_fixture(settings):
+        settings.clear()
+        etree.SubElement(settings, w("zoom")).set(w("percent"), "100")
+        etree.SubElement(settings, w("trackRevisions")).set(w("val"), "false")
+        etree.SubElement(settings, w("compat"))
+
+    _rewrite_fixture(path, mutate_settings=settings_fixture)
+    _save(path, [_replace(path, "Supply", "Services")])
+    with zipfile.ZipFile(path) as archive:
+        settings = etree.fromstring(archive.read("word/settings.xml"))
+    assert [etree.QName(child).localname for child in settings] == [
+        "zoom", "trackRevisions", "compat"
+    ]
+    assert settings[1].get(w("val")) == "true"
+
+
+@pytest.mark.parametrize("new", ["Manufacturing", ""])
+def test_foreign_formatting_on_own_insertion_refuses_before_publication(
+    tmp_path, demo_dir, new
+):
+    path = _working(tmp_path, demo_dir)
+    _save(path, [_replace(path, "Supply", "Services")])
+
+    def format_insertion(document):
+        insertion = next(node for node in document.iter(w("ins"))
+                         if node.get(w("author")) == AUTHOR)
+        run = insertion.find(w("r"))
+        properties = run.find(w("rPr"))
+        if properties is None:
+            properties = etree.Element(w("rPr"))
+            run.insert(0, properties)
+        change = etree.SubElement(properties, w("rPrChange"))
+        change.set(w("id"), "9001")
+        change.set(w("author"), "Synthetic Counterparty")
+        change.set(w("date"), "2026-01-01T10:00:00Z")
+        etree.SubElement(change, w("rPr"))
+
+    _rewrite_fixture(path, mutate_document=format_insertion)
+    before = path.read_bytes()
+    backups = {item.name: item.read_bytes()
+               for item in (path.parent / ".veqtor-backups").iterdir()}
+    dry = drafting.preflight_document_edits(
+        str(path), _hash(path), [_replace(path, "Services", new)], **PROFILE
+    )
+    assert not dry["batch_applicable"]
+    assert dry["refusal_code"] == "foreign_formatting_unsupported"
+    assert path.read_bytes() == before
+    assert {item.name: item.read_bytes()
+            for item in (path.parent / ".veqtor-backups").iterdir()} == backups
+
+
 @pytest.mark.parametrize(
     "mode", ["readOnly", "trackedChanges", "comments", "writeProtection", "invalid"]
 )

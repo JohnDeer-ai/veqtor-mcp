@@ -473,10 +473,10 @@ def test_goback_exception_does_not_weaken_other_boundary_guards(shape):
     assert allocator.next_value == next_id
 
 
-def _changed_style(identity="81"):
+def _changed_style(identity="81", author=OTHER):
     return (
         '<w:b/><w:lang w:val="en-US"/>'
-        f'<w:rPrChange w:id="{identity}" w:author="{OTHER}" '
+        f'<w:rPrChange w:id="{identity}" w:author="{author}" '
         'w:date="2026-01-01T01:02:03Z"><w:rPr><w:i/></w:rPr></w:rPrChange>'
     )
 
@@ -504,7 +504,7 @@ def test_whole_formatted_run_replacement_keeps_history_only_on_original_text(cou
 
 
 def test_own_whole_formatted_run_can_be_edited_repeatedly_without_changing_history():
-    paragraph = _p(_ins(_r("proposal", _changed_style())))
+    paragraph = _p(_ins(_r("proposal", _changed_style(author=AUTHOR))))
     wrapper = dict(paragraph[0].attrib)
     history = etree.tostring(next(paragraph.iter(w("rPrChange"))))
     for old, new in [("proposal", "revision"), ("revision", "final draft")]:
@@ -518,9 +518,24 @@ def test_own_whole_formatted_run_can_be_edited_repeatedly_without_changing_histo
         assert _reading(paragraph) == new
 
 
+@pytest.mark.parametrize("new", ["revision", ""])
+@pytest.mark.parametrize("format_author", [OTHER, "Shilov,Ilya"])
+def test_own_edit_refuses_foreign_format_history_without_mutation(new, format_author):
+    paragraph = _p(_ins(_r("proposal", _changed_style(author=format_author))))
+    before = etree.tostring(paragraph)
+    allocator = _revision_id_allocator(paragraph)
+    next_id = allocator.next_value
+    with pytest.raises(ApplyError) as error:
+        replace_text(paragraph, "proposal", new, AUTHOR, allocator)
+    assert error.value.code == "foreign_formatting_unsupported"
+    assert "another author's tracked formatting" in str(error.value)
+    assert etree.tostring(paragraph) == before
+    assert allocator.next_value == next_id
+
+
 @pytest.mark.parametrize("own", [False, True])
 def test_partial_formatted_run_edit_refuses_without_duplicating_format_revision(own):
-    content = _r("old words here", _changed_style())
+    content = _r("old words here", _changed_style(author=AUTHOR if own else OTHER))
     paragraph = _p(_ins(content) if own else content)
     before = etree.tostring(paragraph)
     allocator = _revision_id_allocator(paragraph)
@@ -533,7 +548,10 @@ def test_partial_formatted_run_edit_refuses_without_duplicating_format_revision(
 
 @pytest.mark.parametrize("old,new", [("one", ""), ("onetwo", "replacement")])
 def test_own_edit_cannot_discard_format_history(old, new):
-    paragraph = _p(_ins(_r("one", _changed_style()) + _r("two", _changed_style("82"))))
+    paragraph = _p(_ins(
+        _r("one", _changed_style(author=AUTHOR))
+        + _r("two", _changed_style("82", author=AUTHOR))
+    ))
     before = etree.tostring(paragraph)
     with pytest.raises(ApplyError, match="unsupported_run_shape"):
         _replace(paragraph, old, new)

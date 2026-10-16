@@ -30,7 +30,7 @@ tamper-evident audit system. Review the
 [known limitations](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/KNOWN_LIMITATIONS.md)
 before using it on a real matter.
 
-This source tree carries unreleased package version `0.5.0.dev1` and the
+This source tree carries unreleased package version `0.5.0.dev2` and the
 fourteen-tool MCP contract `veqtor.mcp.v0.5.0`. The three new drafting tools
 support repeated edits under one configured author, comments and backup-backed
 saves to the working file. See [author drafting](#author-drafting-development).

@@ -10,6 +10,7 @@ from .contracts import (
     MCP_CONTRACT_SCHEMA_EXTENSION,
     MCP_CONTRACT_SCHEMA_VERSION,
     PARAGRAPH_REF_SCHEMA,
+    RECORD_ERROR_PATTERN,
     _ContractResult,
 )
 
@@ -28,6 +29,7 @@ SHA = {"type": "string", "minLength": 64, "maxLength": 64,
        "pattern": r"^[0-9a-f]{64}(?![\s\S])"}
 NONEMPTY = {"type": "string", "minLength": 1, "maxLength": 20_000}
 NEW_TEXT = {"type": "string", "maxLength": 20_000}
+LOCK_REASON = {"const": "owner_not_proven_dead"}
 TIMESTAMP = {"type": "string", "minLength": 20, "maxLength": 25,
              "pattern": "^" + DRAFTING_TIMESTAMP_PATTERN + r"(?![\s\S])"}
 OPERATIONS = {"type": "array", "minItems": 1, "maxItems": 100, "items": {"oneOf": [
@@ -125,6 +127,31 @@ APPLY_RESULT["allOf"] = [{
 for schema in (COMMENTS_RESULT, PREFLIGHT_RESULT, APPLY_RESULT):
     schema[MCP_CONTRACT_SCHEMA_EXTENSION] = MCP_CONTRACT_SCHEMA_VERSION
 
+# Structured failures are part of the advertised wire contract too. In
+# particular, TypeScript clients validate structuredContent even with isError.
+DRAFTING_ERROR_RESULT = obj(
+    schema_version={"const": "drafting_error.v1"}, status={"const": "error"},
+    error_code={"type": "string", "maxLength": 64, "pattern": RECORD_ERROR_PATTERN},
+    message=NONEMPTY,
+    recovery=obj(output_path=NONEMPTY, backup_path=nullable(NONEMPTY),
+                 backup_sha256=nullable(SHA), backup_path_verified={"type": "boolean"},
+                 publication_completed={"type": "boolean"}, lock_path=nullable(NONEMPTY),
+                 lock_reason=nullable(LOCK_REASON)),
+)
+DRAFTING_ERROR_RESULT["properties"]["recovery"]["allOf"] = [
+    {"if": {"properties": {"backup_path": {"type": "null"}}},
+     "then": {"properties": {"backup_sha256": {"type": "null"},
+                              "backup_path_verified": {"const": False}}},
+     "else": {"properties": {"backup_sha256": SHA}}},
+    {"if": {"properties": {"lock_path": {"type": "null"}}},
+     "then": {"properties": {"lock_reason": {"type": "null"}}},
+     "else": {"properties": {"lock_reason": LOCK_REASON}}},
+]
+APPLY_OUTPUT = {
+    "type": "object", "oneOf": [APPLY_RESULT, DRAFTING_ERROR_RESULT],
+    MCP_CONTRACT_SCHEMA_EXTENSION: MCP_CONTRACT_SCHEMA_VERSION,
+}
+
 
 class ReadDocumentCommentsResult(_ContractResult):
     contract_schema: ClassVar[dict[str, Any]] = COMMENTS_RESULT
@@ -134,5 +161,11 @@ class PreflightDocumentEditsResult(_ContractResult):
     contract_schema: ClassVar[dict[str, Any]] = PREFLIGHT_RESULT
 
 
-class ApplyDocumentEditsResult(_ContractResult):
+class ApplyDocumentEditsSuccessResult(_ContractResult):
     contract_schema: ClassVar[dict[str, Any]] = APPLY_RESULT
+
+
+class ApplyDocumentEditsResult(ApplyDocumentEditsSuccessResult):
+    """Successful values use the model; explicit tool errors use the other branch."""
+
+    contract_schema: ClassVar[dict[str, Any]] = APPLY_OUTPUT

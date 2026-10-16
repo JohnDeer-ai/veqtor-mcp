@@ -221,6 +221,12 @@ async def test_late_save_failure_exposes_only_bound_recovery_fields(tmp_path, de
     assert "PRIVATE_FAILURE_DETAIL" not in _error_text(result)
     assert "PRIVATE_DURABILITY_DETAIL" not in _error_text(result)
     assert json.loads(_error_text(result)) == payload
+    # Do not rely on the Python SDK: it skips output-schema validation for
+    # isError, unlike the TypeScript SDK used in the independent stdio check.
+    async with Client(server.mcp) as session:
+        tool = next(item for item in (await session.list_tools()).tools
+                    if item.name == "apply_document_edits")
+    jsonschema.Draft202012Validator(tool.output_schema).validate(payload)
 
 
 @pytest.mark.anyio
@@ -241,6 +247,82 @@ async def test_recovery_rejects_unrelated_paths_and_arbitrary_metadata(tmp_path,
     assert "publication_uncertain" in text
     assert "SECRET" not in text and "PRIVATE_" not in text
     assert result.structured_content is None
+
+
+@pytest.mark.anyio
+async def test_word_lock_error_matches_advertised_output_schema(tmp_path, demo_dir):
+    path, arguments = _fixture(tmp_path, demo_dir)
+    before = path.read_bytes()
+    async with Client(server.mcp) as session:
+        tools = {item.name: item for item in (await session.list_tools()).tools}
+        dry = _payload(await session.call_tool("preflight_document_edits", arguments))
+        (path.parent / ("~$" + path.name)).write_bytes(b"synthetic owner")
+        result = await session.call_tool("apply_document_edits", {
+            **arguments, "preflight_proof": dry["preflight_proof"],
+        })
+    assert result.is_error
+    assert result.structured_content["error_code"] == "file_locked"
+    jsonschema.Draft202012Validator(tools["apply_document_edits"].output_schema).validate(
+        result.structured_content)
+    assert path.read_bytes() == before
+    assert not (path.parent / ".veqtor-backups").exists()
+
+
+@pytest.mark.anyio
+async def test_case_alias_round_trip_uses_in_place_contract(tmp_path, demo_dir):
+    path, arguments = _fixture(tmp_path, demo_dir)
+    alias = path.with_name(path.name.upper())
+    if not alias.exists() or not alias.samefile(path):
+        pytest.skip("requires a case-insensitive filesystem")
+    before = path.read_bytes()
+    arguments["output_path"] = str(alias)
+    async with Client(server.mcp) as session:
+        dry = _payload(await session.call_tool("preflight_document_edits", arguments))
+        assert dry["batch_applicable"]
+        result = await session.call_tool("apply_document_edits", {
+            **arguments, "preflight_proof": dry["preflight_proof"],
+        })
+        tool = next(item for item in (await session.list_tools()).tools
+                    if item.name == "apply_document_edits")
+    assert not result.is_error, _error_text(result)
+    applied = _payload(result)
+    assert applied["output_path"] == str(alias)
+    assert applied["save_mode"] == "in_place"
+    assert path.samefile(alias)
+    assert path.read_bytes() != before
+    assert Path(applied["backup_path"]).read_bytes() == before
+    jsonschema.validate(applied, tool.output_schema)
+
+
+@pytest.mark.parametrize("mutation", ["extra", "backup_without_hash", "false_verified_backup"])
+def test_structured_failure_schema_remains_closed(mutation):
+    from veqtor_mcp._drafting_contract import APPLY_OUTPUT
+
+    result = {"schema_version": "drafting_error.v1", "status": "error",
+              "error_code": "file_locked", "message": "Close Word",
+              "recovery": {"output_path": "/working.docx", "backup_path": None,
+                           "backup_sha256": None, "backup_path_verified": False,
+                           "publication_completed": False, "lock_path": None, "lock_reason": None}}
+    validator = jsonschema.Draft202012Validator(APPLY_OUTPUT)
+    assert validator.is_valid(result)
+    if mutation == "extra":
+        result["private_exception"] = "must never escape"
+    elif mutation == "backup_without_hash":
+        result["recovery"]["backup_path"] = "/backup.docx"
+    else:
+        result["recovery"]["backup_path_verified"] = True
+    assert not validator.is_valid(result)
+
+
+def test_error_payload_cannot_pass_success_gate():
+    from veqtor_mcp._drafting_contract import APPLY_RESULT
+
+    assert server._RESULT_MODELS["apply_document_edits"].contract_schema is APPLY_RESULT
+    with pytest.raises(server._OutputContractError):
+        server._validated_success_result("apply_document_edits", {
+            "schema_version": "drafting_error.v1", "status": "error", "error_code": "file_locked",
+            "message": "Close Word", "recovery": {},
+        })
 
 
 @pytest.mark.parametrize("operation", ["replace", "delete", "edit_own_insertion", "counter"])
@@ -405,3 +487,48 @@ async def test_unsupported_permissions_transport_guidance_omits_private_details(
     assert "PRIVATE_DOCUMENT" not in rendered
     assert str(tmp_path) not in rendered
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("bound", [True, False])
+async def test_lock_recovery_exposes_only_requested_lock_path(tmp_path, demo_dir, monkeypatch, bound):
+    from veqtor_docx._drafting_io import _legacy_lock_name
+
+    path, arguments = _fixture(tmp_path, demo_dir)
+    expected = str(path.parent / _legacy_lock_name(path.name))
+
+    def refused(*args, **kwargs):
+        raise ApplyError("file_locked", "PRIVATE_OWNER_DETAILS",
+                         failure_phase="publication", output_path=str(path), backup_path=None,
+                         backup_sha256=None, publication_completed=False,
+                         lock_path=expected if bound else "/private/UNRELATED_SECRET.lock",
+                         lock_reason="owner_not_proven_dead", secret="PRIVATE_METADATA")
+
+    monkeypatch.setattr(server.drafting, "apply_document_edits", refused)
+    async with Client(server.mcp) as session:
+        result = await session.call_tool("apply_document_edits", {**arguments, "preflight_proof": {}})
+        tool = next(item for item in (await session.list_tools()).tools
+                    if item.name == "apply_document_edits")
+    assert result.is_error
+    recovery = result.structured_content["recovery"]
+    assert recovery["lock_path"] == (expected if bound else None)
+    assert recovery["lock_reason"] == ("owner_not_proven_dead" if bound else None)
+    jsonschema.validate(result.structured_content, tool.output_schema)
+    assert "PRIVATE_" not in _error_text(result)
+    assert "UNRELATED_SECRET" not in _error_text(result)
+
+
+@pytest.mark.anyio
+async def test_unsupported_filesystem_has_actionable_safe_message(tmp_path, monkeypatch):
+    def refused(*args, **kwargs):
+        raise ApplyError("unsupported_filesystem", "PRIVATE_MOUNT_INFO")
+
+    monkeypatch.setattr(server.drafting, "apply_document_edits", refused)
+    arguments = {"source_path": str(tmp_path / "private.docx"), "file_sha256": "a" * 64,
+                 "operations": [{"kind": "delete_comment", "comment_id": "0"}], "preflight_proof": {}}
+    async with Client(server.mcp) as session:
+        result = await session.call_tool("apply_document_edits", arguments)
+    assert result.is_error
+    assert "unsupported_filesystem" in _error_text(result)
+    assert "local supported working folder" in _error_text(result)
+    assert "PRIVATE_" not in _error_text(result)

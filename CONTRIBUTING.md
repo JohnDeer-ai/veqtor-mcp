@@ -70,6 +70,21 @@ not used for the normal development/full-suite command. These transport tests
 do not replace exact-candidate native Codex or rendered-DOCX acceptance in
 [CODEX.md](docs/CODEX.md).
 
+The Python SDK skips output validation for tool errors. Also exercise the
+independent TypeScript SDK path whenever drafting transport or publication
+changes. Its pinned dependencies are isolated from the Python application:
+
+```bash
+npm ci --prefix scripts/compat-typescript --ignore-scripts
+node scripts/compat-typescript/drafting.mjs \
+  --python "$PWD/.venv/bin/python" --report /tmp/veqtor-typescript.json
+```
+
+The harness uses synthetic DOCX files and a test-only stdio server to check real
+success, Word-lock refusal, invalid input, and failure before/after publication.
+It independently validates every structured result, including errors, against
+the advertised schema. To check an installed wheel, pass its Python executable.
+
 ### Frozen-release checks
 
 After the development checks, run the commands below only from a frozen

@@ -87,6 +87,7 @@ RUNTIME_SOURCE_FILES = (
 DEVELOPMENT_RUNTIME_SOURCE_FILES = (*RUNTIME_SOURCE_FILES,
     "src/veqtor_docx/drafting.py", "src/veqtor_docx/_drafting_text.py",
     "src/veqtor_docx/_drafting_comments.py", "src/veqtor_docx/_drafting_io.py",
+    "src/veqtor_docx/_drafting_fs.py",
     "src/veqtor_mcp/_drafting_contract.py",
 )
 

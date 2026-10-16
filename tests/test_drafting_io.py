@@ -3,6 +3,7 @@
 
 import errno
 import hashlib
+import json
 import os
 import plistlib
 import stat
@@ -10,7 +11,9 @@ import struct
 import subprocess
 import sys
 import threading
+import uuid
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -38,6 +41,7 @@ def _save(source: Path, output: Path | None = None) -> dict:
 def _no_temporary_files(folder: Path) -> None:
     assert not list(folder.rglob(".veqtor-*.tmp"))
     assert not list(folder.glob(".veqtor-*.lock"))
+    assert not list(folder.rglob(".veqtor-stage-*"))
 
 
 @pytest.mark.parametrize("explicit", [False, True])
@@ -831,3 +835,369 @@ def test_darwin_xattr_failure_never_replaces_source(source: Path, monkeypatch, f
     assert _native_attribute(source, name) == value
     assert not (source.parent / ".veqtor-backups").exists()
     _no_temporary_files(source.parent)
+
+
+def test_case_variant_same_inode_is_backed_up_in_place(source: Path):
+    alias = source.with_name(source.name.swapcase())
+    if not alias.exists():
+        pytest.skip("case-sensitive filesystem; separate-name behavior tested independently")
+    assert os.path.samefile(source, alias)
+    result = _save(source, alias)
+    assert result["save_mode"] == "in_place"
+    assert result["output_path"] == str(alias)
+    assert Path(result["backup_path"]).read_bytes() == SOURCE
+    assert alias.read_bytes() == CANDIDATE
+    _no_temporary_files(source.parent)
+
+
+def test_similar_names_with_different_inodes_still_refuse_copy(source: Path):
+    # This is also exercised on case-insensitive hosts without requiring a
+    # different volume: inode comparison, not textual resemblance, is decisive.
+    other = source.with_name("Agreement-copy.docx")
+    other.write_bytes(b"independent user's document")
+    with pytest.raises(ApplyError) as error:
+        _save(source, other)
+    assert error.value.code == "output_exists"
+    assert other.read_bytes() == b"independent user's document"
+    assert source.read_bytes() == SOURCE
+
+
+def test_same_source_hardlink_alias_is_not_mistaken_for_case_alias(source: Path):
+    alias = source.with_name("alias.docx")
+    os.link(source, alias)
+    with pytest.raises(ApplyError) as error:
+        _save(source, alias)
+    assert error.value.code == "unsafe_path"
+    assert source.read_bytes() == alias.read_bytes() == SOURCE
+
+
+@pytest.mark.parametrize("same_instance", [False, True])
+def test_modern_lock_distinguishes_pid_reuse_from_live_owner(source: Path, same_instance: bool):
+    actual = publishing.process_instance(os.getpid())
+    claimed = actual if same_instance else "0" * 64
+    assert actual != "0" * 64
+    lock = source.parent / publishing._legacy_lock_name(source.name)
+    lock.write_text(f"pid={os.getpid()} token={'a' * 32} instance={claimed}\n")
+    lock.chmod(0o600)
+    if same_instance:
+        with pytest.raises(ApplyError) as error:
+            _save(source)
+        assert error.value.code == "file_locked"
+        assert error.value.metadata["lock_path"] == str(lock)
+        assert error.value.metadata["lock_reason"] == "owner_not_proven_dead"
+        assert source.read_bytes() == SOURCE and lock.exists()
+    else:
+        result = _save(source)
+        assert source.read_bytes() == CANDIDATE
+        assert Path(result["backup_path"]).read_bytes() == SOURCE
+        assert not lock.exists()
+
+
+def test_native_process_instance_is_stable_and_differs_between_processes():
+    mine = publishing.process_instance(os.getpid())
+    assert mine == publishing.process_instance(os.getpid())
+    child = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()"], stdin=subprocess.PIPE)
+    try:
+        assert publishing.process_instance(child.pid) != mine
+        assert not publishing.instance_ended(child.pid, publishing.process_instance(child.pid))
+        child.kill()
+        child.wait(timeout=10)
+        assert publishing.instance_ended(child.pid, mine)
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait(timeout=10)
+        child.stdin.close()
+
+
+def test_unknown_process_identity_never_reclaims_modern_lock(source: Path, monkeypatch):
+    from veqtor_docx import _drafting_fs
+    lock = source.parent / publishing._legacy_lock_name(source.name)
+    lock.write_text(f"pid={os.getpid()} token={'a' * 32} instance={'b' * 64}\n")
+    lock.chmod(0o600)
+
+    def unavailable(pid):
+        raise PermissionError(errno.EPERM, "process metadata unavailable")
+
+    monkeypatch.setattr(_drafting_fs, "process_instance", unavailable)
+    with pytest.raises(ApplyError) as error:
+        _save(source)
+    assert error.value.code == "file_locked"
+    assert error.value.metadata["lock_path"] == str(lock)
+    assert lock.exists() and source.read_bytes() == SOURCE
+
+
+@pytest.mark.parametrize("location", ["source", "destination"])
+def test_unsupported_filesystem_has_explicit_refusal_before_staging(source: Path, monkeypatch, location: str):
+    destination = source.parent / "other"
+    destination.mkdir()
+    rejected = (source.parent if location == "source" else destination).stat().st_ino
+    original = publishing.filesystem_supported
+    monkeypatch.setattr(publishing, "filesystem_supported",
+                        lambda fd: False if os.fstat(fd).st_ino == rejected else original(fd))
+    with pytest.raises(ApplyError) as error:
+        _save(source, destination / "copy.docx")
+    assert error.value.code == "unsupported_filesystem"
+    assert error.value.metadata["publication_completed"] is False
+    assert source.read_bytes() == SOURCE
+    assert not (destination / "copy.docx").exists()
+    _no_temporary_files(source.parent)
+
+
+@pytest.mark.parametrize("primitive", ["flock", "rename", "hardlink"])
+def test_unsupported_atomic_primitives_never_fall_back_unsafely(source: Path, monkeypatch, primitive: str):
+    def unsupported(*args, **kwargs):
+        raise OSError(errno.ENOTSUP, "required filesystem primitive unavailable")
+
+    if primitive == "flock":
+        monkeypatch.setattr(publishing.fcntl, "flock", unsupported)
+    elif primitive == "rename":
+        monkeypatch.setattr(publishing, "_rename_noreplace", unsupported)
+    else:
+        monkeypatch.setattr(publishing.os, "link", unsupported)
+    with pytest.raises(ApplyError) as error:
+        _save(source)
+    assert error.value.code == "unsupported_filesystem"
+    assert error.value.metadata["publication_completed"] is False
+    assert source.read_bytes() == SOURCE
+    _no_temporary_files(source.parent)
+
+
+@pytest.mark.parametrize("phase", ["before_bytes", "during_bytes", "after_bytes", "backup_partial",
+                                    "after_backup_link", "after_publication", "copy_after_publication"])
+def test_crashed_registered_stages_recover_without_losing_published_files(source: Path, phase: str):
+    script = r'''
+import os, sys
+from pathlib import Path
+from veqtor_docx import _drafting_io as io
+source, phase = Path(sys.argv[1]), sys.argv[2]
+original_bytes = source.read_bytes()
+candidate = b'candidate whose interrupted write must be recovered'
+def pause():
+    print('paused', flush=True)
+    sys.stdin.read()
+write_all = io._write_all
+def write(fd, payload):
+    if (payload == candidate and phase in {'before_bytes', 'during_bytes', 'after_bytes'}
+            or payload == original_bytes and phase == 'backup_partial'):
+        if phase in {'during_bytes', 'backup_partial'}:
+            os.write(fd, payload[:len(payload)//2]); os.fsync(fd)
+        elif phase == 'after_bytes':
+            write_all(fd, payload)
+        pause()
+    return write_all(fd, payload)
+io._write_all = write
+link = io.os.link
+def linking(src, dst, **kw):
+    result = link(src, dst, **kw)
+    if phase == 'after_backup_link' or phase == 'copy_after_publication':
+        pause()
+    return result
+io.os.link = linking
+replace = io.os.replace
+def replacing(src, dst, **kw):
+    result = replace(src, dst, **kw)
+    if phase == 'after_publication': pause()
+    return result
+io.os.replace = replacing
+output = str(source.parent/'destination'/'copy.docx') if phase == 'copy_after_publication' else None
+io.publish_document(str(source), output, original_bytes, candidate)
+'''
+    destination = source.parent / "destination"
+    destination.mkdir()
+    child = subprocess.Popen([sys.executable, "-c", script, str(source), phase],
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        assert child.stdout.readline().strip() == "paused"
+        assert list(source.parent.rglob(".veqtor-stage-*"))
+        child.kill()
+        child.wait(timeout=10)
+        candidate = b"candidate whose interrupted write must be recovered"
+        expected = candidate if phase == "after_publication" else SOURCE
+        assert source.read_bytes() == expected
+        if phase == "copy_after_publication":
+            output = destination / "copy.docx"
+            assert output.read_bytes() == candidate
+            assert output.stat().st_nlink == 2
+            publishing.publish_document(str(source), str(destination / "next-copy.docx"), SOURCE, CANDIDATE)
+            assert output.read_bytes() == candidate and output.stat().st_nlink == 1
+        else:
+            result = publishing.publish_document(str(source), None, expected, CANDIDATE)
+            assert Path(result["backup_path"]).read_bytes() == expected
+            assert source.read_bytes() == CANDIDATE
+            if phase == "after_backup_link":
+                backups = list((source.parent / ".veqtor-backups").glob("*.docx"))
+                assert len(backups) == 2
+                assert all(path.read_bytes() == SOURCE and path.stat().st_nlink == 1 for path in backups)
+        _no_temporary_files(source.parent)
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait(timeout=10)
+        for stream in (child.stdin, child.stdout, child.stderr):
+            stream.close()
+
+
+def _registered_orphan(folder: Path, payload: bytes = CANDIDATE) -> tuple[Path, Path]:
+    stage = folder / f".veqtor-stage-{uuid.uuid4().hex}"
+    stage.mkdir(mode=0o700)
+    candidate = stage / "candidate.tmp"
+    candidate.write_bytes(payload)
+    candidate.chmod(0o600)
+    record = {"version": 1, "pid": os.getpid(), "instance": "0" * 64,
+              "directory": [stage.stat().st_dev, stage.stat().st_ino],
+              "file": [candidate.stat().st_dev, candidate.stat().st_ino],
+              "size": len(CANDIDATE), "sha256": hashlib.sha256(CANDIDATE).hexdigest(),
+              "uid": os.geteuid(), "gid": os.getegid(), "mode": 0o640}
+    manifest = stage / "owner.json"
+    manifest.write_text(json.dumps(record))
+    manifest.chmod(0o600)
+    return stage, candidate
+
+
+@pytest.mark.parametrize("mutation", ["changed_bytes", "replacement_inode", "symlink", "unknown_entry",
+                                       "manifest_symlink", "shared_directory", "live_owner", "bad_manifest"])
+def test_recovery_keeps_unverifiable_or_changed_stages(source: Path, mutation: str):
+    stage, candidate = _registered_orphan(source.parent)
+    manifest = stage / "owner.json"
+    protected = source.parent / "user-file"
+    protected.write_bytes(CANDIDATE)
+    if mutation == "changed_bytes":
+        candidate.write_bytes(b"!" * len(CANDIDATE))
+    elif mutation == "replacement_inode":
+        os.replace(protected, candidate)
+    elif mutation == "symlink":
+        candidate.unlink()
+        candidate.symlink_to(protected)
+    elif mutation == "unknown_entry":
+        (stage / "user-note").write_text("do not delete")
+    elif mutation == "manifest_symlink":
+        moved = source.parent / "original-manifest"
+        manifest.rename(moved)
+        manifest.symlink_to(moved)
+    elif mutation == "shared_directory":
+        stage.chmod(0o750)
+    elif mutation == "live_owner":
+        record = json.loads(manifest.read_text())
+        record["instance"] = publishing.process_instance(os.getpid())
+        manifest.write_text(json.dumps(record))
+    else:
+        manifest.write_text('{"version":1}')
+    before = candidate.read_bytes()
+    _save(source)
+    assert stage.exists() and candidate.read_bytes() == before
+    assert source.read_bytes() == CANDIDATE
+
+
+def test_recovery_keeps_unregistered_old_temporary_files(source: Path):
+    old = source.parent / f".veqtor-{uuid.uuid4().hex}.tmp"
+    old.write_bytes(b"old or unrelated temporary document")
+    _save(source)
+    assert old.read_bytes() == b"old or unrelated temporary document"
+
+
+def test_linux_process_identity_handles_parentheses_and_reused_pid(monkeypatch):
+    from veqtor_docx import _drafting_fs
+    monkeypatch.setattr(_drafting_fs, "sys", SimpleNamespace(platform="linux"))
+    fields = [b"S"] + [b"0"] * 18 + [b"123456"] + [b"0"] * 8
+    boot = b"cfd1a9d0-3a3c-4db4-a129-e4a4505d81b8\n"
+
+    def read(path):
+        if str(path) == "/proc/sys/kernel/random/boot_id":
+            return boot
+        assert str(path) == "/proc/123/stat"
+        return b"123 (worker (arbitrary) name) " + b" ".join(fields)
+
+    monkeypatch.setattr(Path, "read_bytes", read)
+    first = _drafting_fs.process_instance(123)
+    assert first == _drafting_fs.process_instance(123)
+    fields[19] = b"123457"
+    assert _drafting_fs.process_instance(123) != first
+    assert _drafting_fs.instance_ended(123, first)
+    second = _drafting_fs.process_instance(123)
+    boot = b"cfd1a9d0-3a3c-4db4-a129-e4a4505d81b9\n"
+    assert _drafting_fs.process_instance(123) != second
+
+
+@pytest.mark.parametrize("platform,kind,local,expected", [
+    ("darwin", "apfs", True, True), ("darwin", "hfs", True, True),
+    ("darwin", "apfs", False, False), ("darwin", "smbfs", False, False),
+    ("darwin", "nfs", False, False), ("darwin", "exfat", True, False),
+    ("linux", 0xef53, True, True), ("linux", 0x794c7630, True, True),
+    ("linux", 0x6969, False, False), ("linux", 0xff534d42, False, False),
+    ("linux", 0x65735546, True, False),
+])
+def test_filesystem_boundary_rejects_unproven_network_and_other_filesystems(monkeypatch, platform,
+                                                                          kind, local, expected):
+    import ctypes
+    from veqtor_docx import _drafting_fs
+    monkeypatch.setattr(_drafting_fs, "sys", SimpleNamespace(platform=platform))
+
+    def fstatfs(fd, pointer):
+        assert fd == 123
+        if platform == "darwin":
+            value = ctypes.cast(pointer, ctypes.POINTER(_drafting_fs._DarwinStatFS)).contents
+            value.name = kind.encode()
+            value.flags = 0x1000 if local else 0
+        else:
+            ctypes.cast(pointer, ctypes.POINTER(ctypes.c_long))[0] = kind
+        return 0
+
+    monkeypatch.setattr(_drafting_fs.ctypes, "CDLL", lambda *args, **kwargs: SimpleNamespace(fstatfs=fstatfs))
+    assert _drafting_fs.filesystem_supported(123) is expected
+
+
+@pytest.mark.parametrize("location", ["backup", "orphan", "new_stage"])
+def test_nested_private_directories_are_checked_before_cleanup_or_publication(source: Path, monkeypatch,
+                                                                             location: str):
+    backups = source.parent / ".veqtor-backups"
+    backups.mkdir(mode=0o700)
+    stage, candidate = _registered_orphan(backups if location == "backup" else source.parent)
+    known_inodes = {source.parent.stat().st_ino, backups.stat().st_ino, stage.stat().st_ino}
+    denied = backups.stat().st_ino if location == "backup" else stage.stat().st_ino
+    original = publishing.filesystem_supported
+    probes = []
+
+    def supported(fd):
+        inode = os.fstat(fd).st_ino
+        probes.append(inode)
+        return False if (inode not in known_inodes if location == "new_stage" else inode == denied) else original(fd)
+
+    monkeypatch.setattr(publishing, "filesystem_supported", supported)
+    if location == "orphan":
+        _save(source)
+        assert denied in probes
+        assert candidate.read_bytes() == CANDIDATE
+        assert source.read_bytes() == CANDIDATE
+    else:
+        with pytest.raises(ApplyError) as error:
+            _save(source)
+        assert error.value.code == "unsupported_filesystem"
+        assert source.read_bytes() == SOURCE
+        if location == "backup":
+            assert denied in probes
+            assert candidate.read_bytes() == CANDIDATE
+        assert not list(backups.glob("*.docx"))
+
+
+def test_private_directory_cannot_cross_device_even_if_type_is_supported(source: Path, monkeypatch):
+    child = source.parent / "private"
+    child.mkdir()
+    parent_fd = os.open(source.parent, os.O_RDONLY | os.O_DIRECTORY)
+    child_fd = os.open(child, os.O_RDONLY | os.O_DIRECTORY)
+    original = publishing.os.fstat
+
+    def nested(fd):
+        result = original(fd)
+        if fd == child_fd:
+            return SimpleNamespace(st_dev=result.st_dev + 1)
+        return result
+
+    try:
+        monkeypatch.setattr(publishing.os, "fstat", nested)
+        with pytest.raises(ApplyError) as error:
+            publishing._supported_filesystem(child_fd, parent_fd)
+        assert error.value.code == "unsupported_filesystem"
+    finally:
+        os.close(child_fd)
+        os.close(parent_fd)

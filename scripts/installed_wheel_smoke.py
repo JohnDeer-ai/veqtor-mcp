@@ -58,6 +58,8 @@ EXPECTED_TOOL_NAMES_BY_VERSION = {
     "0.4.2": NR02_TOOL_NAMES,
     "0.5.0.dev1": (*NR02_TOOL_NAMES, "read_document_comments",
                     "preflight_document_edits", "apply_document_edits"),
+    "0.5.0.dev2": (*NR02_TOOL_NAMES, "read_document_comments",
+                    "preflight_document_edits", "apply_document_edits"),
 }
 
 
@@ -212,7 +214,7 @@ async def smoke() -> dict:
             await _exercise_public_v04(session, matter, listed)
             positions_result = (
                 await exercise_positions(session)
-                if __version__ in {"0.4.2.dev0", "0.4.2", "0.5.0.dev1"} else None
+                if __version__ in {"0.4.2.dev0", "0.4.2", "0.5.0.dev1", "0.5.0.dev2"} else None
             )
             source = listed["rounds"][1]["path"]
             inspected = _payload(

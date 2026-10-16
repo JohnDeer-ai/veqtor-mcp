@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 # Author drafting in one working document
 
-Development version `0.5.0.dev1` adds three tools to the existing eleven-tool
+Development version `0.5.0.dev2` adds three tools to the existing eleven-tool
 surface. It is not a published release. This workflow supports repeated native
 Word edits under the configured author, ordinary anchored comments, and saving
 back to the same path with an exact backup. The legacy counterproposal tools
@@ -86,6 +86,11 @@ characters across a batch. Any refusal discards the entire candidate.
   be replaced while retaining their history on the deleted text; a replacement
   inherits the current formatting. Splitting a run with tracked formatting, or
   deleting its formatting history inside an own insertion, remains unsupported.
+- Re-editing an own insertion preserves same-author character-format history.
+  If the touched run carries another author's pending character-format change,
+  preflight returns `foreign_formatting_unsupported`: extending that history
+  onto replacement text would change the scope of the other author's edit.
+  Veqtor does not silently accept or discard that formatting history.
 - Text editing enables Word's Track Changes setting for subsequent manual work.
 - Fields, protected documents, unsupported structural revisions/containers and
   ranges crossing the edited span may be refused. A refusal is not permission
@@ -107,6 +112,9 @@ relationships, including nonstandard internal names. Supported matching metadata
 is removed on deletion; missing, external, ambiguous or unbound metadata refuses
 the operation. Headless rendering often omits comments; package
 relationships and range anchors are checked separately.
+If the entire text of an own insertion is deleted, an attached comment remains
+with its body, author and references intact at that position. The quoted range
+can collapse to a point; this is not deletion of the comment.
 
 ## Saving and recovery
 
@@ -126,10 +134,20 @@ system-managed macOS `com.apple.provenance` is excluded from copying/equality;
 the original document is not stripped of attributes. Unsafe
 source symlinks/hardlinks and unsafe backup locations are refused.
 The directory lock is released by the operating system if a writer crashes. A
-complete PID/token sidecar is published atomically for compatibility; a recognized
-dead writer's sidecar is recovered automatically. Live, unknown or invalid locks
-are refused and never removed automatically. An early crash can leave an inert
-temporary file, which does not block later saves.
+complete sidecar with PID, token and process-instance identity is published
+atomically for compatibility. The identity includes the machine boot and process
+start, so a reused PID cannot impersonate the crashed writer. Recognized dead
+writers are recovered automatically. An older PID-only lock is recovered only
+when that PID is absent; live, unknown or invalid locks remain protected.
+
+Staged bytes are held in private operation directories with an ownership
+manifest. A later save recovers verified abandoned complete or partial stages,
+including stages inside the backup directory, without deleting the published
+document or completed backup. Stages with unexpected entries, changed completed
+bytes, links or unverifiable ownership are left untouched. Old unregistered
+`.veqtor-*.tmp` files from earlier versions are not deleted by filename alone.
+Case-only aliases of the same regular file are recognized by file identity on
+case-insensitive filesystems; distinct files and symlinks remain protected.
 Extended access-control lists on source, staging or backup locations are
 refused with `unsupported_permissions` before document publication. Do not
 remove existing access restrictions to bypass that refusal.
@@ -139,13 +157,29 @@ and last-moment source checks detect observed changes, but Word/cloud-sync
 writers do not participate in Veqtor's lock, so this is not cross-application
 transactional editing. Publication failures return an MCP error with a closed
 `drafting_error.v1` recovery payload: `output_path`, `backup_path`,
-`backup_sha256`, `backup_path_verified` and `publication_completed`.
+`backup_sha256`, `backup_path_verified`, `publication_completed`, and nullable
+`lock_path`/`lock_reason`. Both success and structured error shapes are declared
+in `apply_document_edits.outputSchema`; errors still carry `isError=true`.
 Paths are limited to this requested document and its generated backup; raw
 exceptions are not exposed. A false `backup_path_verified` means the reported
 path is its last known location (for example, its folder moved externally).
 An error after publication reports `publication_completed=true`; reread the
 file before retrying. A changed source
 requires inspection and a new preflight, never blind repetition.
+
+An unverifiable save sidecar reports its exact bound `lock_path` and
+`lock_reason=owner_not_proven_dead`. Do not remove it while a writer might still
+be active. Close all Word/Veqtor writers, inspect that specific lock and its
+owner, and retain the original document and backups before manual recovery.
+
+Saving is restricted to supported local filesystems: APFS/HFS on macOS;
+ext2/3/4, XFS, Btrfs, tmpfs, overlayfs and ZFS on Linux. Required native
+capabilities are still checked during publication. Network filesystems,
+FAT/exFAT, FUSE and unknown storage return `unsupported_filesystem` with guidance
+to use a supported local working folder. This is an explicit support boundary,
+not a claim of successful SMB/NFS or removable-drive acceptance. Cloud-sync
+folders on a supported local filesystem remain subject to the external-writer
+limitation above.
 
 The three drafting tools return `record_status=disabled`: immutable legacy
 counterproposal records do not describe mutation of an earlier revision.
