@@ -10,8 +10,10 @@ counterproposal with tracked changes for your review.
 Select one exact `X.Y.Z` using the [README version-selection table](../README.md).
 Use `0.4.2` only when both PyPI and the immutable GitHub release expose the
 complete verified artifact set; otherwise the public fallback is `0.4.0`.
-This source candidate is `0.4.2` with the eleven-tool `veqtor.mcp.v0.4.2`
-contract, paragraph edits, saved positions and the repeated next-round workflow.
+The released-version instructions below describe the eleven-tool
+`veqtor.mcp.v0.4.2` contract, paragraph edits, saved positions and the repeated
+next-round workflow. The current development tree is `0.5.0.dev1`; its additional
+same-file editing tools are documented in [Author drafting](AUTHOR_DRAFTING.md).
 Public `0.4.0` retains its nine-tool `veqtor.mcp.v0.4` contract and cannot run
 the saved-position workflow. Source presence is not publication.
 Veqtor supports macOS and Linux with Python 3.12–3.14. Windows is outside the

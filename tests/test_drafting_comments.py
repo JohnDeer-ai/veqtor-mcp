@@ -7,6 +7,7 @@ from lxml import etree
 from veqtor_docx._drafting_comments import (
     COMMENT_MUTABLE_PARTS,
     add_comment,
+    comment_mutable_parts,
     delete_comment,
     read_comments,
     update_comment,
@@ -23,6 +24,11 @@ W16CEX = "http://schemas.microsoft.com/office/word/2018/wordml/cex"
 RELS = "http://schemas.openxmlformats.org/package/2006/relationships"
 TYPES = "http://schemas.openxmlformats.org/package/2006/content-types"
 COMMENT_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments"
+MODERN_RELATIONSHIPS = {
+    "commentsExtended": "http://schemas.microsoft.com/office/2011/relationships/commentsExtended",
+    "commentsIds": "http://schemas.microsoft.com/office/2016/09/relationships/commentsIds",
+    "commentsExtensible": "http://schemas.microsoft.com/office/2018/08/relationships/commentsExtensible",
+}
 
 
 def _package(*texts):
@@ -84,6 +90,14 @@ def _with_modern_metadata(parts, comment_id="0", paraid="0000000A", *, reply=Fal
         f'<w16cex:commentsExtensible xmlns:w16cex="{W16CEX}"><w16cex:commentExtensible w16cex:durableId="00000011"/>'
         '<w16cex:commentExtensible w16cex:durableId="00000012"/></w16cex:commentsExtensible>'
     ).encode()
+    rels = parse_xml(parts["word/_rels/document.xml.rels"])
+    types = parse_xml(parts["[Content_Types].xml"])
+    for name, relationship in MODERN_RELATIONSHIPS.items():
+        etree.SubElement(rels, f"{{{RELS}}}Relationship", Id=f"rId{name}", Type=relationship, Target=f"{name}.xml")
+        etree.SubElement(types, f"{{{TYPES}}}Override", PartName=f"/word/{name}.xml",
+                         ContentType=f"application/vnd.openxmlformats-officedocument.wordprocessingml.{name}+xml")
+    parts["word/_rels/document.xml.rels"] = etree.tostring(rels)
+    parts["[Content_Types].xml"] = etree.tostring(types)
 
 
 def test_add_read_update_delete_comment_and_package_metadata():
@@ -458,5 +472,161 @@ def test_modern_hex_identity_ambiguity_and_malformed_values_refuse(kind):
     with pytest.raises(ApplyError) as caught:
         delete_comment(parts, document, "0", AUTHOR)
     assert caught.value.code == "unsupported_comment_structure"
+    assert parts == before_parts
+    assert etree.tostring(document) == before_doc
+
+
+def _rename_modern_parts(parts):
+    """Use legal relative, absolute and escaped OPC targets, outside word/ too."""
+    names = {
+        "commentsExtended": ("word/threadMetadata.xml", "threadMetadata.xml"),
+        "commentsIds": ("metadata/identity records.xml", "/metadata/identity%20records.xml"),
+        "commentsExtensible": ("metadata/details.xml", "../metadata/details.xml"),
+    }
+    rels = parse_xml(parts["word/_rels/document.xml.rels"])
+    types = parse_xml(parts["[Content_Types].xml"])
+    for name, (part_name, target) in names.items():
+        parts[part_name] = parts.pop(f"word/{name}.xml")
+        next(node for node in rels if node.get("Type") == MODERN_RELATIONSHIPS[name]).set("Target", target)
+        next(node for node in types if node.get("PartName") == f"/word/{name}.xml").set("PartName", f"/{part_name}")
+    parts["word/_rels/document.xml.rels"] = etree.tostring(rels)
+    parts["[Content_Types].xml"] = etree.tostring(types)
+    return {name: part_name for name, (part_name, _) in names.items()}
+
+
+@pytest.mark.parametrize("target_comment", ["0", "1"])
+def test_renamed_thread_metadata_protects_parent_and_reply(target_comment):
+    parts, document, paragraphs = _package("selected words and other words")
+    _add(parts, document, paragraphs[0], author=AUTHOR if target_comment == "0" else OTHER)
+    _add(parts, document, paragraphs[0], "other words", "Reply", AUTHOR if target_comment == "1" else OTHER)
+    _with_modern_metadata(parts, reply=True)
+    comments = _comments(parts)
+    comments[1][0].set(f"{{{W14}}}paraId", "0000000B")
+    parts["word/comments.xml"] = etree.tostring(comments)
+    _rename_modern_parts(parts)
+    before_parts, before_doc = dict(parts), etree.tostring(document)
+    with pytest.raises(ApplyError) as caught:
+        delete_comment(parts, document, target_comment, AUTHOR)
+    assert caught.value.code == "unsupported_comment_structure"
+    assert parts == before_parts
+    assert etree.tostring(document) == before_doc
+
+
+def test_delete_unthreaded_comment_updates_related_metadata_at_nonstandard_paths():
+    parts, document, paragraphs = _package("selected words and other words")
+    _add(parts, document, paragraphs[0])
+    _add(parts, document, paragraphs[0], "other words", "Their comment", OTHER)
+    _with_modern_metadata(parts)
+    comments = _comments(parts)
+    comments[1][0].set(f"{{{W14}}}paraId", "0000000B")
+    parts["word/comments.xml"] = etree.tostring(comments)
+    names = _rename_modern_parts(parts)
+    foreign_comment = etree.tostring(_comments(parts)[1])
+    foreign_metadata = {name: etree.tostring(parse_xml(parts[name])[1]) for name in names.values()}
+    bindings = {name: parts[name] for name in ("word/_rels/document.xml.rels", "[Content_Types].xml")}
+    assert set(names.values()) <= comment_mutable_parts(parts)
+    delete_comment(parts, document, "0", AUTHOR)
+    assert etree.tostring(_comments(parts)[0]) == foreign_comment
+    for name in names.values():
+        root = parse_xml(parts[name])
+        assert len(root) == 1
+        assert etree.tostring(root[0]) == foreign_metadata[name]
+    assert all(parts[name] == data for name, data in bindings.items())
+    assert [node.get(w("id")) for node in document.iter(w("commentReference"))] == ["1"]
+
+
+@pytest.mark.parametrize("extension", list(MODERN_RELATIONSHIPS))
+@pytest.mark.parametrize("damage", [
+    "empty_target", "external_mode", "external_uri", "bad_escape", "query", "fragment",
+    "traversal", "missing_part", "duplicate_type", "duplicate_id", "wrong_part", "missing_relationship",
+])
+def test_modern_metadata_relationship_errors_refuse_without_mutation(extension, damage):
+    parts, document, paragraphs = _package()
+    _add(parts, document, paragraphs[0])
+    _with_modern_metadata(parts)
+    names = _rename_modern_parts(parts)
+    rels = parse_xml(parts["word/_rels/document.xml.rels"])
+    rel = next(node for node in rels if node.get("Type") == MODERN_RELATIONSHIPS[extension])
+    bad_targets = {
+        "empty_target": "", "external_uri": "https://example.test/comments.xml",
+        "bad_escape": "bad%ZZ.xml", "query": "threadMetadata.xml?q=1",
+        "fragment": "threadMetadata.xml#id", "traversal": "../../outside.xml",
+        "missing_part": "missing.xml", "wrong_part": "styles.xml",
+    }
+    if damage in bad_targets:
+        rel.set("Target", bad_targets[damage])
+    elif damage == "external_mode":
+        rel.set("TargetMode", "External")
+    elif damage == "duplicate_type":
+        etree.SubElement(rels, f"{{{RELS}}}Relationship", Id="rIdDuplicate", Type=rel.get("Type"), Target=rel.get("Target"))
+    elif damage == "duplicate_id":
+        rel.set("Id", rels[0].get("Id"))
+    else:
+        rels.remove(rel)
+        # A renamed root still prevents deletion even if its type declaration
+        # is missing too; identifying metadata cannot depend on filename alone.
+        types = parse_xml(parts["[Content_Types].xml"])
+        types.remove(next(node for node in types if node.get("PartName") == f"/{names[extension]}"))
+        parts["[Content_Types].xml"] = etree.tostring(types)
+    parts["word/_rels/document.xml.rels"] = etree.tostring(rels)
+    before_parts, before_doc = dict(parts), etree.tostring(document)
+    with pytest.raises(ApplyError) as caught:
+        delete_comment(parts, document, "0", AUTHOR)
+    assert caught.value.code == "unsupported_comment_structure"
+    assert parts == before_parts
+    assert etree.tostring(document) == before_doc
+
+
+@pytest.mark.parametrize("binding", ["relationship", "content_type", "duplicate_part"])
+def test_unknown_or_conflicting_comment_extensions_refuse(binding):
+    parts, document, paragraphs = _package()
+    _add(parts, document, paragraphs[0])
+    _with_modern_metadata(parts)
+    if binding == "duplicate_part":
+        parts["metadata/additional.xml"] = parts["word/commentsExtended.xml"]
+    else:
+        parts["metadata/future.xml"] = b'<future xmlns="urn:future"/>'
+        if binding == "relationship":
+            rels = parse_xml(parts["word/_rels/document.xml.rels"])
+            etree.SubElement(rels, f"{{{RELS}}}Relationship", Id="rIdFuture",
+                             Type="http://schemas.microsoft.com/office/2099/relationships/commentsFuture",
+                             Target="../metadata/future.xml")
+            parts["word/_rels/document.xml.rels"] = etree.tostring(rels)
+        else:
+            types = parse_xml(parts["[Content_Types].xml"])
+            etree.SubElement(types, f"{{{TYPES}}}Override", PartName="/metadata/future.xml",
+                             ContentType="application/vnd.ms-word.commentsFuture+xml")
+            parts["[Content_Types].xml"] = etree.tostring(types)
+    before_parts, before_doc = dict(parts), etree.tostring(document)
+    with pytest.raises(ApplyError) as caught:
+        delete_comment(parts, document, "0", AUTHOR)
+    assert caught.value.code == "unsupported_comment_structure"
+    assert parts == before_parts
+    assert etree.tostring(document) == before_doc
+
+
+@pytest.mark.parametrize("timestamp", [
+    "2026-10-16T14:30:42Z", "2026-10-16T17:30:42+03:00",
+    "2026-10-16T09:30:42-05:00", "2026-10-16T20:00:42+05:30",
+])
+def test_comment_date_comes_from_explicit_timestamp_and_survives_update(timestamp):
+    parts, document, paragraphs = _package()
+    add_comment(parts, document, paragraphs[0], "selected words", "Check wording", AUTHOR, "DA", timestamp=timestamp)
+    assert _comments(parts)[0].get(w("date")) == timestamp[:19]
+    update_comment(parts, document, "0", "Updated wording", AUTHOR)
+    assert _comments(parts)[0].get(w("date")) == timestamp[:19]
+
+
+@pytest.mark.parametrize("timestamp", [
+    "", "2026-02-30T00:00:00Z", "2026-01-01", "2026-01-01T00:00:00",
+    "2026-01-01T00:00:00+14:01", "2026-01-01T00:00:00-15:00",
+    "2026-01-01T00:00:00+03:60", "2026-01-01T00:00:00Z\n", 1,
+])
+def test_invalid_comment_timestamp_refuses_before_mutation(timestamp):
+    parts, document, paragraphs = _package()
+    before_parts, before_doc = dict(parts), etree.tostring(document)
+    with pytest.raises(ApplyError) as caught:
+        add_comment(parts, document, paragraphs[0], "selected words", "Check wording", AUTHOR, "DA", timestamp=timestamp)
+    assert caught.value.code == "invalid_comment"
     assert parts == before_parts
     assert etree.tostring(document) == before_doc

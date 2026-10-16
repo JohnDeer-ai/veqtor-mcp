@@ -121,8 +121,18 @@ def test_unsafe_source_refused(source: Path, tmp_path: Path, kind: str):
     _no_temporary_files(tmp_path)
 
 
-@pytest.mark.parametrize("lock_name", ["~$Agreement.docx", "~$reement.docx"])
-def test_word_owner_file_refuses_save(source: Path, lock_name: str):
+@pytest.mark.parametrize(("basename", "lock_name"), [
+    ("Agreement.docx", "~$Agreement.docx"),
+    ("Agreement.docx", "~$greement.docx"),
+    ("Agreement.docx", "~$reement.docx"),
+    ("A.docx", "~$A.docx"),
+    ("A.docx", "~$.docx"),
+    ("ABC.docx", "~$BC.docx"),
+    ("ABC.docx", "~$C.docx"),
+])
+def test_word_owner_file_refuses_save(source: Path, basename: str, lock_name: str):
+    if source.name != basename:
+        source = source.rename(source.with_name(basename))
     lock = source.parent / lock_name
     lock.write_bytes(b"Word owns this document")
     with pytest.raises(ApplyError) as error:
@@ -350,15 +360,278 @@ def test_concurrent_writer_is_refused(source: Path, monkeypatch):
     _no_temporary_files(source.parent)
 
 
-def test_stale_sidecar_lock_is_not_taken_over(source: Path):
-    token = hashlib.sha256(source.name.casefold().encode()).hexdigest()[:24]
-    lock = source.parent / f".veqtor-{token}.lock"
-    lock.write_bytes(b"pid=999999999 token=abandoned")
+def test_dead_legacy_sidecar_is_reclaimed(source: Path):
+    dead = subprocess.Popen([sys.executable, "-c", "pass"])
+    dead.wait(timeout=10)
+    lock = source.parent / publishing._legacy_lock_name(source.name)
+    lock.write_bytes(f"pid={dead.pid} token={'a' * 32}\n".encode())
+    lock.chmod(0o600)
+    result = _save(source)
+    assert not lock.exists()
+    assert source.read_bytes() == CANDIDATE
+    assert Path(result["backup_path"]).read_bytes() == SOURCE
+
+
+@pytest.mark.parametrize("kind", ["invalid", "empty", "live", "shared_write", "symlink", "hardlink"])
+def test_unverifiable_legacy_sidecar_is_never_removed(source: Path, kind: str):
+    lock = source.parent / publishing._legacy_lock_name(source.name)
+    payload = f"pid={os.getpid()} token={'a' * 32}\n".encode()
+    if kind == "invalid":
+        payload = b"pid=999999999 token=abandoned"
+    elif kind == "empty":
+        payload = b""
+    target = source.parent / "other-lock"
+    if kind in {"symlink", "hardlink"}:
+        target.write_bytes(payload)
+        target.chmod(0o600)
+        if kind == "symlink":
+            lock.symlink_to(target)
+        else:
+            os.link(target, lock)
+    else:
+        lock.write_bytes(payload)
+        lock.chmod(0o666 if kind == "shared_write" else 0o600)
+    identity = lock.lstat().st_ino
     with pytest.raises(ApplyError) as error:
         _save(source)
     assert error.value.code == "file_locked"
-    assert lock.read_bytes() == b"pid=999999999 token=abandoned"
+    assert lock.lstat().st_ino == identity
+    assert lock.read_bytes() == payload
     assert source.read_bytes() == SOURCE
+
+
+def test_changed_legacy_lock_inode_is_not_reclaimed(source: Path, monkeypatch):
+    lock = source.parent / publishing._legacy_lock_name(source.name)
+    lock.write_bytes(f"pid=999999999 token={'a' * 32}\n".encode())
+    lock.chmod(0o600)
+    replacement_payload = f"pid={os.getpid()} token={'b' * 32}\n".encode()
+
+    def process_lookup(pid, signal):
+        replacement = source.parent / "replacement-lock"
+        replacement.write_bytes(replacement_payload)
+        replacement.chmod(0o600)
+        os.replace(replacement, lock)
+        raise ProcessLookupError(errno.ESRCH, "synthetic dead original process")
+
+    monkeypatch.setattr(publishing.os, "kill", process_lookup)
+    with pytest.raises(ApplyError) as error:
+        _save(source)
+    assert error.value.code == "file_locked"
+    assert lock.read_bytes() == replacement_payload
+    assert source.read_bytes() == SOURCE
+
+
+@pytest.mark.parametrize("crash", [False, True])
+@pytest.mark.parametrize("legacy_writer", [False, True])
+def test_process_lock_excludes_live_writer_and_recovers_after_exit(source: Path, crash: bool,
+                                                                  legacy_writer: bool):
+    # A separate process owns the actual OS lock. Exercise both normal exit
+    # and SIGKILL, where neither Python finally nor sidecar cleanup can run.
+    script = """
+import sys, os, hashlib, unicodedata, uuid
+from veqtor_docx import _drafting_io as publishing
+if sys.argv[3] == 'legacy':
+    token = hashlib.sha256(unicodedata.normalize('NFC', sys.argv[2]).casefold().encode()).hexdigest()[:24]
+    path = os.path.join(sys.argv[1], '.veqtor-' + token + '.lock')
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        os.write(descriptor, ('pid=' + str(os.getpid()) + ' token=' + uuid.uuid4().hex + '\\n').encode())
+        os.fsync(descriptor)
+        print('locked', flush=True)
+        sys.stdin.read()
+    finally:
+        os.close(descriptor)
+        os.unlink(path)
+else:
+    with publishing._directory(sys.argv[1]) as directory:
+        with publishing._writer_lock(directory, sys.argv[1], sys.argv[2]):
+            print('locked', flush=True)
+            sys.stdin.read()
+"""
+    process = subprocess.Popen([sys.executable, "-c", script, str(source.parent), source.name,
+                                "legacy" if legacy_writer else "current"],
+                               stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, text=True)
+    try:
+        assert process.stdout.readline().strip() == "locked"
+        # The old O_EXCL writer must also see a current writer's sidecar.
+        lock = source.parent / publishing._legacy_lock_name(source.name)
+        with pytest.raises(FileExistsError):
+            os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        # Removing an unrelated file cannot bypass the directory lock.
+        obsolete = source.parent / ".veqtor-obsolete.lock"
+        obsolete.write_bytes(b"not a lock")
+        obsolete.unlink()
+        with pytest.raises(ApplyError) as error:
+            _save(source)
+        assert error.value.code == "file_locked"
+        assert source.read_bytes() == SOURCE
+        assert not (source.parent / ".veqtor-backups").exists()
+        if crash:
+            process.kill()
+        else:
+            process.stdin.close()
+        process.wait(timeout=10)
+        result = _save(source)
+        assert source.read_bytes() == CANDIDATE
+        assert Path(result["backup_path"]).read_bytes() == SOURCE
+        _no_temporary_files(source.parent)
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=10)
+        for stream in (process.stdin, process.stdout, process.stderr):
+            stream.close()
+
+
+@pytest.mark.parametrize("phase", ["before_first_write", "before_publication", "after_publication"])
+def test_sigkill_during_sidecar_initialization_never_leaves_unrecoverable_lock(source: Path, phase: str):
+    script = """
+import sys
+from pathlib import Path
+from veqtor_docx import _drafting_io as publishing
+phase = sys.argv[2]
+def pause():
+    print('paused', flush=True)
+    sys.stdin.read()
+if phase == 'before_first_write':
+    original = publishing._write_all
+    def first_write(descriptor, payload):
+        pause()
+        return original(descriptor, payload)
+    publishing._write_all = first_write
+else:
+    original = publishing._rename_noreplace
+    def publish(directory, source, destination):
+        if phase == 'before_publication':
+            pause()
+        result = original(directory, source, destination)
+        if phase == 'after_publication':
+            pause()
+        return result
+    publishing._rename_noreplace = publish
+source = Path(sys.argv[1])
+publishing.publish_document(str(source), None, source.read_bytes(), b'unreachable candidate')
+"""
+    process = subprocess.Popen([sys.executable, "-c", script, str(source), phase],
+                               stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, text=True)
+    try:
+        assert process.stdout.readline().strip() == "paused"
+        lock = source.parent / publishing._legacy_lock_name(source.name)
+        pending = list(source.parent.glob(".veqtor-lock-*.tmp"))
+        if phase == "after_publication":
+            assert not pending
+            assert lock.stat().st_nlink == 1
+            assert lock.read_bytes().startswith(f"pid={process.pid} token=".encode())
+            assert lock.read_bytes().endswith(b"\n")
+        else:
+            assert not lock.exists()
+            assert len(pending) == 1
+            assert pending[0].stat().st_nlink == 1
+            if phase == "before_first_write":
+                assert pending[0].read_bytes() == b""
+        pending_before = {path: (path.stat().st_ino, path.read_bytes()) for path in pending}
+        process.kill()
+        process.wait(timeout=10)
+        assert source.read_bytes() == SOURCE
+        result = _save(source)
+        assert source.read_bytes() == CANDIDATE
+        assert Path(result["backup_path"]).read_bytes() == SOURCE
+        assert not lock.exists()
+        # Unpublished unique files are inert. Do not delete an unknown empty
+        # file just to make a cleanup assertion pass after the killed writer.
+        assert {path: (path.stat().st_ino, path.read_bytes()) for path in pending} == pending_before
+        assert set(source.parent.glob(".veqtor-lock-*.tmp")) == set(pending)
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=10)
+        for stream in (process.stdin, process.stdout, process.stderr):
+            stream.close()
+
+
+def test_exception_immediately_after_lock_publication_cleans_owned_sidecar(source: Path, monkeypatch):
+    original = publishing._rename_noreplace
+
+    def interrupted(*args):
+        original(*args)
+        raise OSError(errno.EIO, "interrupted just after native publication")
+
+    monkeypatch.setattr(publishing, "_rename_noreplace", interrupted)
+    with pytest.raises(ApplyError) as error:
+        _save(source)
+    assert error.value.code == "output_unwritable"
+    assert source.read_bytes() == SOURCE
+    _no_temporary_files(source.parent)
+
+
+def test_atomic_sidecar_publication_never_replaces_existing_file(tmp_path: Path):
+    temporary = tmp_path / "initialized"
+    temporary.write_bytes(b"new lock")
+    existing = tmp_path / "existing"
+    existing.write_bytes(b"unrelated owner")
+    with publishing._directory(str(tmp_path)) as directory:
+        with pytest.raises(FileExistsError):
+            publishing._rename_noreplace(directory, temporary.name, existing.name)
+    assert temporary.read_bytes() == b"new lock"
+    assert existing.read_bytes() == b"unrelated owner"
+
+
+def test_directory_replacement_during_lock_acquisition_is_refused(tmp_path: Path, monkeypatch):
+    parent = tmp_path / "working"
+    parent.mkdir()
+    source = parent / "Agreement.docx"
+    source.write_bytes(SOURCE)
+    displaced = tmp_path / "displaced"
+    original = publishing.fcntl.flock
+
+    def race(descriptor, operation):
+        result = original(descriptor, operation)
+        if operation & publishing.fcntl.LOCK_EX:
+            parent.rename(displaced)
+            parent.mkdir()
+            source.write_bytes(b"replacement folder document")
+        return result
+
+    monkeypatch.setattr(publishing.fcntl, "flock", race)
+    with pytest.raises(ApplyError) as error:
+        _save(source)
+    assert error.value.code == "source_changed"
+    assert error.value.metadata["backup_path_verified"] is False
+    assert source.read_bytes() == b"replacement folder document"
+    assert (displaced / source.name).read_bytes() == SOURCE
+    assert not (parent / ".veqtor-backups").exists()
+    assert not (displaced / ".veqtor-backups").exists()
+    _no_temporary_files(tmp_path)
+
+
+def test_directory_replacement_after_backup_is_refused(tmp_path: Path, monkeypatch):
+    parent = tmp_path / "working"
+    parent.mkdir()
+    source = parent / "Agreement.docx"
+    source.write_bytes(SOURCE)
+    displaced = tmp_path / "displaced"
+    original = publishing._backup
+
+    def race(*args, **kwargs):
+        name = original(*args, **kwargs)
+        parent.rename(displaced)
+        parent.mkdir()
+        source.write_bytes(b"replacement folder document")
+        return name
+
+    monkeypatch.setattr(publishing, "_backup", race)
+    with pytest.raises(ApplyError) as error:
+        _save(source)
+    assert error.value.code == "source_changed"
+    assert source.read_bytes() == b"replacement folder document"
+    assert (displaced / source.name).read_bytes() == SOURCE
+    backups = list((displaced / ".veqtor-backups").glob("*.docx"))
+    assert len(backups) == 1 and backups[0].read_bytes() == SOURCE
+    assert error.value.metadata["backup_path_verified"] is False
+    assert not Path(error.value.metadata["backup_path"]).exists()
+    _no_temporary_files(tmp_path)
 
 
 def test_final_directory_sync_failure_reports_committed_candidate(source: Path, monkeypatch):
@@ -374,6 +647,7 @@ def test_final_directory_sync_failure_reports_committed_candidate(source: Path, 
         _save(source)
     assert error.value.code == "publication_uncertain"
     assert error.value.metadata["publication_completed"] is True
+    assert error.value.metadata["backup_path_verified"] is True
     assert source.read_bytes() == CANDIDATE
     assert Path(error.value.metadata["backup_path"]).read_bytes() == SOURCE
     _no_temporary_files(source.parent)
@@ -494,6 +768,43 @@ def test_darwin_native_xattrs_preserved_without_python_xattr_api(source: Path, m
         if result["backup_path"]:
             assert _native_attribute(Path(result["backup_path"]), name) == value
     assert source.read_bytes() == (SOURCE if copy else CANDIDATE)
+    _no_temporary_files(source.parent)
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="native macOS process provenance regression")
+@pytest.mark.parametrize("copy", [False, True])
+def test_different_process_provenance_does_not_prevent_save(source: Path, monkeypatch, copy: bool):
+    tags = plistlib.dumps(["Synthetic tagged document\n4"], fmt=plistlib.FMT_BINARY)
+    tag_name = "com.apple.metadata:_kMDItemUserTags"
+    subprocess.run(["xattr", "-wx", tag_name, tags.hex(), str(source)], check=True, capture_output=True)
+    source_identity = publishing._identity(source.stat())
+    attributes = publishing._darwin_attributes
+    setter = publishing._set_attributes
+    copied_names = []
+
+    def process_provenance(descriptor):
+        # The OS can return different provenance even after fsetxattr reports
+        # success. Other metadata is read from the real native filesystem API.
+        result = attributes(descriptor)
+        original = publishing._identity(os.fstat(descriptor)) == source_identity
+        result["com.apple.provenance"] = b"original process" if original else b"saving process"
+        return result
+
+    def record_setter(descriptor, values):
+        copied_names.append(set(values))
+        return setter(descriptor, values)
+
+    monkeypatch.setattr(publishing, "_darwin_attributes", process_provenance)
+    monkeypatch.setattr(publishing, "_set_attributes", record_setter)
+    output = source.parent / "copy.docx" if copy else None
+    result = _save(source, output)
+    assert source.read_bytes() == (SOURCE if copy else CANDIDATE)
+    assert copied_names and all("com.apple.provenance" not in names for names in copied_names)
+    assert all(tag_name in names for names in copied_names)
+    assert _native_attribute(Path(result["output_path"]), tag_name) == tags
+    if result["backup_path"]:
+        assert Path(result["backup_path"]).read_bytes() == SOURCE
+        assert _native_attribute(Path(result["backup_path"]), tag_name) == tags
     _no_temporary_files(source.parent)
 
 

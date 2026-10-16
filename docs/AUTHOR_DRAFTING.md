@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 # Author drafting in one working document
 
-Development version `0.5.0.dev0` adds three tools to the existing eleven-tool
+Development version `0.5.0.dev1` adds three tools to the existing eleven-tool
 surface. It is not a published release. This workflow supports repeated native
 Word edits under the configured author, ordinary anchored comments, and saving
 back to the same path with an exact backup. The legacy counterproposal tools
@@ -73,7 +73,19 @@ characters across a batch. Any refusal discards the entire candidate.
   not silently rewritten as the configured author's original text.
 - Original run formatting and unrelated package parts are preserved. New
   replacement text inherits the first replaced run's formatting. New revision
-  IDs follow the document sequence; new revisions omit the optional date.
+  IDs follow the document sequence. Preflight captures one timestamp with the
+  machine's local UTC offset, binds it into its proof and reuses it during apply.
+  New revisions and comments store that timestamp's local wall time, without a
+  timezone suffix, in legacy `w:date`, so Word displays the captured local time.
+  The proof retains the explicit offset and the actual instant; apply does not
+  consult the current timezone. No modern comment extensions are created for dates.
+  Updating an existing own insertion or comment retains its original date.
+- Word's cached `lastRenderedPageBreak` markers do not block text edits and
+  are preserved. Paragraph formatting history and neighboring paragraph-mark
+  revisions remain untouched. Whole runs with tracked character formatting can
+  be replaced while retaining their history on the deleted text; a replacement
+  inherits the current formatting. Splitting a run with tracked formatting, or
+  deleting its formatting history inside an own insertion, remains unsupported.
 - Text editing enables Word's Track Changes setting for subsequent manual work.
 - Fields, protected documents, unsupported structural revisions/containers and
   ranges crossing the edited span may be refused. A refusal is not permission
@@ -90,14 +102,17 @@ insertion. Updating/deleting requires exact author equality. Other authors'
 comments remain readable and unchanged. Existing simple comment updates retain
 their identity, author, date, initials and paragraph metadata. Rich/multiparagraph
 or threaded comment mutations may be refused. Reply creation and resolve/reopen
-are not provided. Modern comment metadata is preserved, with supported matching
-metadata removed on deletion. Headless rendering often omits comments; package
+are not provided. Modern comment metadata is resolved through package
+relationships, including nonstandard internal names. Supported matching metadata
+is removed on deletion; missing, external, ambiguous or unbound metadata refuses
+the operation. Headless rendering often omits comments; package
 relationships and range anchors are checked separately.
 
 ## Saving and recovery
 
 Preflight binds source path/hash, destination, operations, author, initials,
-producer build and candidate bytes. It writes no document, backup or journal.
+producer build, timestamp with explicit timezone and candidate bytes. It writes
+no document, backup or journal.
 Apply regenerates and verifies that same candidate before publication.
 
 In-place apply takes a cooperative exclusive lock, checks Word owner files and
@@ -106,8 +121,15 @@ previous source in `.veqtor-backups` beside the working file, and atomically
 replaces the working path. The result reports `backup_path`, `backup_sha256`,
 `source_sha256` and `output_sha256`. Completed backups survive late failures.
 Backups are not automatically deleted. File mode and extended attributes
-(including macOS Finder tags) are preserved and checked after copying; unsafe
+(including macOS Finder tags) are preserved and checked after copying. The
+system-managed macOS `com.apple.provenance` is excluded from copying/equality;
+the original document is not stripped of attributes. Unsafe
 source symlinks/hardlinks and unsafe backup locations are refused.
+The directory lock is released by the operating system if a writer crashes. A
+complete PID/token sidecar is published atomically for compatibility; a recognized
+dead writer's sidecar is recovered automatically. Live, unknown or invalid locks
+are refused and never removed automatically. An early crash can leave an inert
+temporary file, which does not block later saves.
 Extended access-control lists on source, staging or backup locations are
 refused with `unsupported_permissions` before document publication. Do not
 remove existing access restrictions to bypass that refusal.
@@ -115,8 +137,14 @@ remove existing access restrictions to bypass that refusal.
 Close Word before asking Veqtor to save; reopen the file afterwards. Owner-file
 and last-moment source checks detect observed changes, but Word/cloud-sync
 writers do not participate in Veqtor's lock, so this is not cross-application
-transactional editing. An error after publication can report
-`publication_completed=true`; reread the file before retrying. A changed source
+transactional editing. Publication failures return an MCP error with a closed
+`drafting_error.v1` recovery payload: `output_path`, `backup_path`,
+`backup_sha256`, `backup_path_verified` and `publication_completed`.
+Paths are limited to this requested document and its generated backup; raw
+exceptions are not exposed. A false `backup_path_verified` means the reported
+path is its last known location (for example, its folder moved externally).
+An error after publication reports `publication_completed=true`; reread the
+file before retrying. A changed source
 requires inspection and a new preflight, never blind repetition.
 
 The three drafting tools return `record_status=disabled`: immutable legacy

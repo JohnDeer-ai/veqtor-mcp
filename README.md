@@ -30,7 +30,7 @@ tamper-evident audit system. Review the
 [known limitations](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/KNOWN_LIMITATIONS.md)
 before using it on a real matter.
 
-This source tree carries unreleased package version `0.5.0.dev0` and the
+This source tree carries unreleased package version `0.5.0.dev1` and the
 fourteen-tool MCP contract `veqtor.mcp.v0.5.0`. The three new drafting tools
 support repeated edits under one configured author, comments and backup-backed
 saves to the working file. See [author drafting](#author-drafting-development).
@@ -40,8 +40,8 @@ and the two deal-position tools require `0.4.2`. Live `producer.version`
 identifies this package version and `producer.build` fingerprints the imported
 Python sources.
 
-Public `0.4.0` is the published release line. This candidate tree adds the
-Codex integration and safe error transport; it is not a new publication or
+Public installations must use an independently verified released version.
+This development tree is not a new publication or
 proof of client acceptance. The historical v0.4.0 contract is retained separately; its published
 artifacts are unchanged. The historical v0.3 release remains an immutable
 eight-tool `veqtor.mcp.v0.3` surface.

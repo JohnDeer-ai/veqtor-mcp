@@ -4,16 +4,18 @@
 These helpers deliberately do not save a package. The caller owns the source
 snapshot, whole-batch transaction and collateral checks. Existing authors,
 comment attributes and unrelated anchors are preserved. Replies, nonstandard
-comment part locations and rich comment body replacement fail closed.
+main comment part locations and rich comment body replacement fail closed.
+Modern metadata parts are located through their package relationships.
 """
 
 from __future__ import annotations
 
-from copy import deepcopy
 import re
+from copy import deepcopy
 
 from lxml import etree
 
+from ._drafting_text import annotation_date
 from ._ooxml import (
     W_NS,
     canonical_body_flow_v1,
@@ -25,6 +27,7 @@ from ._ooxml import (
     w,
 )
 from .apply import ApplyError
+from .inspect import _internal_relationship_part
 
 _COMMENTS = "word/comments.xml"
 _RELS = "word/_rels/document.xml.rels"
@@ -52,6 +55,20 @@ COMMENT_MUTABLE_PARTS = frozenset({
     "word/commentsIds.xml",
     "word/commentsExtensible.xml",
 })
+_MODERN_COMMENT_PARTS = {
+    "extended": (
+        "http://schemas.microsoft.com/office/2011/relationships/commentsExtended",
+        f"{{{_W15}}}commentsEx",
+    ),
+    "ids": (
+        "http://schemas.microsoft.com/office/2016/09/relationships/commentsIds",
+        f"{{{_W16CID}}}commentsIds",
+    ),
+    "extensible": (
+        "http://schemas.microsoft.com/office/2018/08/relationships/commentsExtensible",
+        f"{{{_W16CEX}}}commentsExtensible",
+    ),
+}
 
 
 def _unsupported(detail: str) -> ApplyError:
@@ -71,6 +88,77 @@ def _validate_text(value: str, name: str, *, allow_empty: bool = False) -> None:
 def _validate_author(author: str) -> None:
     if tracked_change_author_validation_error(author):
         raise ApplyError("invalid_comment", "author must be a nonempty valid tracked-change author")
+
+
+def _modern_comment_parts(parts: dict[str, bytes]) -> dict[str, str]:
+    """Resolve extension identities before deleting any comment or metadata.
+
+    Filenames are not part identities in OPC. Inspect roots as well as the
+    relationships so a renamed, unbound or conflicting extension cannot hide a
+    reply to the comment being deleted.
+    """
+    kinds = {relationship: kind for kind, (relationship, _) in _MODERN_COMMENT_PARTS.items()}
+    roots = {root: kind for kind, (_, root) in _MODERN_COMMENT_PARTS.items()}
+    resolved: dict[str, str] = {}
+    if _RELS in parts:
+        rels = parse_xml(parts[_RELS])
+        if rels.tag != f"{{{_REL_NS}}}Relationships":
+            raise _unsupported("unexpected document relationships root")
+        seen_ids = set()
+        for rel in rels:
+            identity = rel.get("Id")
+            if rel.tag != f"{{{_REL_NS}}}Relationship" or not identity or identity in seen_ids:
+                raise _unsupported("ambiguous document relationships")
+            seen_ids.add(identity)
+            relationship = rel.get("Type", "")
+            kind = kinds.get(relationship)
+            if kind is None:
+                if relationship != _COMMENT_REL and "comments" in relationship.rsplit("/", 1)[-1].lower():
+                    raise _unsupported("unknown comment metadata relationship")
+                continue
+            if kind in resolved or rel.get("TargetMode") not in (None, "Internal"):
+                raise _unsupported("ambiguous or external comment metadata relationship")
+            try:
+                target = _internal_relationship_part(rel.get("Target", ""))
+            except ValueError as exc:
+                raise _unsupported("malformed comment metadata target") from exc
+            if target is None or target not in parts or target in resolved.values():
+                raise _unsupported("missing or ambiguous comment metadata target")
+            if parse_xml(parts[target]).tag != _MODERN_COMMENT_PARTS[kind][1]:
+                raise _unsupported("comment metadata relationship targets the wrong part")
+            resolved[kind] = target
+
+    for name, payload in parts.items():
+        if not name.endswith(".xml") or name in (_COMMENTS, "word/document.xml"):
+            continue
+        if name in COMMENT_MUTABLE_PARTS - {_COMMENTS, _RELS, _TYPES} and name not in resolved.values():
+            raise _unsupported("unbound comment metadata part")
+        root = parse_xml(payload)
+        kind = roots.get(root.tag)
+        if kind is not None and resolved.get(kind) != name:
+            raise _unsupported("unbound or conflicting comment metadata part")
+        if name == _TYPES:
+            if root.tag != f"{{{_TYPE_NS}}}Types":
+                raise _unsupported("unexpected content-types root")
+            for node in root:
+                content_type = node.get("ContentType", "")
+                if "comments" not in content_type.lower() or content_type == _COMMENT_TYPE:
+                    continue
+                # An extension declared under a future content type must not be
+                # silently left with references to a removed comment either.
+                part_name = node.get("PartName", "")
+                try:
+                    target = _internal_relationship_part(part_name) if part_name.startswith("/") else None
+                except ValueError as exc:
+                    raise _unsupported("malformed comment metadata content type") from exc
+                if target not in resolved.values():
+                    raise _unsupported("unbound or unknown comment metadata content type")
+    return resolved
+
+
+def comment_mutable_parts(parts: dict[str, bytes]) -> frozenset[str]:
+    """Return the bounded part allowlist for a validated comment deletion."""
+    return COMMENT_MUTABLE_PARTS | frozenset(_modern_comment_parts(parts).values())
 
 
 def _validate_comment_location(parts: dict[str, bytes]) -> None:
@@ -269,9 +357,10 @@ def _quote_plan(paragraph: etree._Element, quote: str, author: str) -> tuple[etr
     container = runs[0].getparent()
     if any(run.getparent() is not container for run in runs):
         raise _unsupported("the comment quote crosses revision or other container boundaries")
-    if container is not paragraph:
-        if container.tag != w("ins") or container.getparent() is not paragraph or container.get(w("author")) != author:
-            raise _unsupported("comment quotes can lie in plain text or one own pending insertion")
+    if container is not paragraph and (
+        container.tag != w("ins") or container.getparent() is not paragraph or container.get(w("author")) != author
+    ):
+        raise _unsupported("comment quotes can lie in plain text or one own pending insertion")
     # Keep existing markers and comment-reference runs where they are. Reject
     # invisible revisions or other containers interleaved with the quote.
     children = list(container)
@@ -311,12 +400,17 @@ def _comment_paragraph(text: str, template: etree._Element | None = None) -> etr
 
 
 def add_comment(parts: dict[str, bytes], document: etree._Element, paragraph: etree._Element,
-                quote: str, text: str, author: str, initials: str) -> dict:
+                quote: str, text: str, author: str, initials: str,
+                *, timestamp: str | None = None) -> dict:
     """Anchor a new classic comment to one unique exact current-reading quote."""
     _validate_text(quote, "quote")
     _validate_text(text, "text")
     _validate_author(author)
     _validate_text(initials, "initials", allow_empty=True)
+    try:
+        date = annotation_date(timestamp)
+    except ValueError as exc:
+        raise ApplyError("invalid_comment", "timestamp must be a valid date with an explicit timezone") from exc
     if not any(item.element is paragraph for item in _body_paragraphs(document)):
         raise _unsupported("the comment target is not a canonical body paragraph")
     root = _comment_root(parts)
@@ -327,6 +421,8 @@ def add_comment(parts: dict[str, bytes], document: etree._Element, paragraph: et
     comment.set(w("id"), ident)
     comment.set(w("author"), author)
     comment.set(w("initials"), initials)
+    if date is not None:
+        comment.set(w("date"), date)
     comment.append(_comment_paragraph(text))
     staged[_COMMENTS] = _xml(root)
     # Build all replacements before touching the caller's document tree.
@@ -415,6 +511,7 @@ def _hex_identity(node: etree._Element, attribute: str, *, optional: bool = Fals
 
 
 def _metadata_for_delete(parts: dict[str, bytes], comment: etree._Element) -> dict[str, bytes]:
+    metadata_parts = _modern_comment_parts(parts)
     paragraph_ids = {_hex_identity(node, f"{{{_W14}}}paraId", optional=True)
                      for node in comment.iter(w("p"))}
     paragraph_ids.discard(None)
@@ -425,8 +522,8 @@ def _metadata_for_delete(parts: dict[str, bytes], comment: etree._Element) -> di
         ):
             raise _unsupported("multiple comments share a modern paragraph identifier")
     staged = {}
-    extended = "word/commentsExtended.xml"
-    if extended in parts:
+    extended = metadata_parts.get("extended")
+    if extended is not None:
         root = parse_xml(parts[extended])
         if root.tag != f"{{{_W15}}}commentsEx" or any(node.tag != f"{{{_W15}}}commentEx" for node in root):
             raise _unsupported("unsupported extended comment metadata")
@@ -443,9 +540,9 @@ def _metadata_for_delete(parts: dict[str, bytes], comment: etree._Element) -> di
             root.remove(node)
         if removed:
             staged[extended] = _xml(root)
-    ids_part = "word/commentsIds.xml"
+    ids_part = metadata_parts.get("ids")
     durable_ids = set()
-    if ids_part in parts:
+    if ids_part is not None:
         root = parse_xml(parts[ids_part])
         if root.tag != f"{{{_W16CID}}}commentsIds" or any(node.tag != f"{{{_W16CID}}}commentId" for node in root):
             raise _unsupported("unsupported comment identity metadata")
@@ -461,8 +558,8 @@ def _metadata_for_delete(parts: dict[str, bytes], comment: etree._Element) -> di
             root.remove(node)
         if removed:
             staged[ids_part] = _xml(root)
-    extensible = "word/commentsExtensible.xml"
-    if extensible in parts:
+    extensible = metadata_parts.get("extensible")
+    if extensible is not None:
         root = parse_xml(parts[extensible])
         if root.tag != f"{{{_W16CEX}}}commentsExtensible" or any(node.tag != f"{{{_W16CEX}}}commentExtensible" for node in root):
             raise _unsupported("unsupported extensible comment metadata")
@@ -483,9 +580,10 @@ def delete_comment(parts: dict[str, bytes], document: etree._Element,
     root, comment = _owned_comment(parts, comment_id, author)
     result = {**_summary(comment, document), "operation": "delete_comment"}
     staged = _metadata_for_delete(parts, comment)
+    mutable_parts = comment_mutable_parts(parts)
     # Do not orphan anchors in headers/footnotes or unknown modern extensions.
     for name, data in parts.items():
-        if not name.startswith("word/") or not name.endswith(".xml") or name == "word/document.xml" or name in COMMENT_MUTABLE_PARTS:
+        if not name.startswith("word/") or not name.endswith(".xml") or name == "word/document.xml" or name in mutable_parts:
             continue
         if name.rsplit("/", 1)[-1].startswith("comments"):
             raise _unsupported("unknown comments metadata prevents safe deletion")

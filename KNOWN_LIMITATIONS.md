@@ -2,7 +2,7 @@
 
 # Known limitations
 
-The current development package `0.5.0.dev0` adds the distinct
+The current development package `0.5.0.dev1` adds the distinct
 [author-drafting workflow](docs/AUTHOR_DRAFTING.md). Its same-file saves,
 own-insertion mutation and comments are outside the legacy guarantees below;
 its limits and backup/recovery behavior are documented in that contract.

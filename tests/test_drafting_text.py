@@ -2,20 +2,25 @@
 """Synthetic native-edit fixtures for the additive drafting text engine."""
 
 import copy
+from datetime import UTC
 
 import pytest
 from lxml import etree
 
-from veqtor_docx._drafting_text import replace_text
+from veqtor_docx._drafting_text import (
+    annotation_date,
+    parse_drafting_timestamp,
+    replace_text,
+)
 from veqtor_docx._ooxml import w
 from veqtor_docx.apply import (
-    ApplyError,
     MAX_REVISION_ID,
-    _RevisionIdAllocator,
+    ApplyError,
     _match_delete_span,
     _paragraph_segments,
     _reading_text,
     _revision_id_allocator,
+    _RevisionIdAllocator,
 )
 
 AUTHOR = "Shilov, Ilya"
@@ -280,7 +285,7 @@ def test_counterparty_suffix_edit_keeps_their_proposal_and_exact_reading(old, ne
         (
             _r(
                 "first",
-                '<w:rPrChange w:id="27" w:author="Other"><w:rPr/></w:rPrChange>',
+                '<w:rPrChange w:id="27" w:author="Other"/>',
             ),
             "first",
             "new",
@@ -466,3 +471,205 @@ def test_goback_exception_does_not_weaken_other_boundary_guards(shape):
     )
     assert etree.tostring(paragraph.getroottree()) == before
     assert allocator.next_value == next_id
+
+
+def _changed_style(identity="81"):
+    return (
+        '<w:b/><w:lang w:val="en-US"/>'
+        f'<w:rPrChange w:id="{identity}" w:author="{OTHER}" '
+        'w:date="2026-01-01T01:02:03Z"><w:rPr><w:i/></w:rPr></w:rPrChange>'
+    )
+
+
+@pytest.mark.parametrize("counter", [False, True])
+def test_whole_formatted_run_replacement_keeps_history_only_on_original_text(counter):
+    content = _r("existing wording", _changed_style())
+    paragraph = _p(_ins(content, author=OTHER) if counter else content)
+    history = etree.tostring(next(paragraph.iter(w("rPrChange"))))
+    result = _replace(paragraph, "existing wording", "revised wording")
+    assert result["operation"] == ("counter" if counter else "replace")
+    assert _reading(paragraph) == "revised wording"
+    changes = list(paragraph.iter(w("rPrChange")))
+    assert len(changes) == 1
+    assert etree.tostring(changes[0]) == history
+    deletion = next(paragraph.iter(w("del")))
+    assert changes[0] in list(deletion.iter())
+    assert [atom.text for atom in deletion.iter(w("delText"))] == ["existing wording"]
+    assert not list(deletion.iter(w("t")))
+    replacement = paragraph[-1]
+    assert replacement.tag == w("ins")
+    assert not list(replacement.iter(w("rPrChange")))
+    assert replacement.find(f"{w('r')}/{w('rPr')}/{w('b')}") is not None
+    assert replacement.find(f"{w('r')}/{w('rPr')}/{w('lang')}").get(w("val")) == "en-US"
+
+
+def test_own_whole_formatted_run_can_be_edited_repeatedly_without_changing_history():
+    paragraph = _p(_ins(_r("proposal", _changed_style())))
+    wrapper = dict(paragraph[0].attrib)
+    history = etree.tostring(next(paragraph.iter(w("rPrChange"))))
+    for old, new in [("proposal", "revision"), ("revision", "final draft")]:
+        result = _replace(paragraph, old, new)
+        assert result["operation"] == "edit_own_insertion"
+        assert dict(paragraph[0].attrib) == wrapper
+        assert [etree.tostring(node) for node in paragraph.iter(w("rPrChange"))] == [
+            history
+        ]
+        assert not list(paragraph.iter(w("del")))
+        assert _reading(paragraph) == new
+
+
+@pytest.mark.parametrize("own", [False, True])
+def test_partial_formatted_run_edit_refuses_without_duplicating_format_revision(own):
+    content = _r("old words here", _changed_style())
+    paragraph = _p(_ins(content) if own else content)
+    before = etree.tostring(paragraph)
+    allocator = _revision_id_allocator(paragraph)
+    next_id = allocator.next_value
+    with pytest.raises(ApplyError, match="unsupported_run_shape"):
+        replace_text(paragraph, "words", "text", AUTHOR, allocator)
+    assert etree.tostring(paragraph) == before
+    assert allocator.next_value == next_id
+
+
+@pytest.mark.parametrize("old,new", [("one", ""), ("onetwo", "replacement")])
+def test_own_edit_cannot_discard_format_history(old, new):
+    paragraph = _p(_ins(_r("one", _changed_style()) + _r("two", _changed_style("82"))))
+    before = etree.tostring(paragraph)
+    with pytest.raises(ApplyError, match="unsupported_run_shape"):
+        _replace(paragraph, old, new)
+    assert etree.tostring(paragraph) == before
+
+
+def test_unrelated_formatted_run_stays_identical_during_own_edit():
+    paragraph = _p(_ins(_r("history", _changed_style()) + _r(" change")))
+    history_run = etree.tostring(paragraph[0][0])
+    _replace(paragraph, "change", "edit")
+    assert etree.tostring(paragraph[0][0]) == history_run
+    assert _reading(paragraph) == "history edit"
+
+
+@pytest.mark.parametrize("own", [False, True])
+@pytest.mark.parametrize("position", ["before", "after", "both"])
+def test_partial_edit_preserves_page_cache_markers_once(own, position):
+    marker = "<w:lastRenderedPageBreak/>"
+    run = "<w:r><w:rPr><w:b/></w:rPr>"
+    run += marker if position in {"before", "both"} else ""
+    run += "<w:t>prefix old suffix</w:t>"
+    run += marker if position in {"after", "both"} else ""
+    run += "</w:r>"
+    paragraph = _p(_ins(run) if own else run)
+    count = len(list(paragraph.iter(w("lastRenderedPageBreak"))))
+    _replace(paragraph, "old", "new wording")
+    assert _reading(paragraph) == "prefix new wording suffix"
+    assert len(list(paragraph.iter(w("lastRenderedPageBreak")))) == count
+    assert all(
+        node.getparent().tag == w("r")
+        for node in paragraph.iter(w("lastRenderedPageBreak"))
+    )
+    for deletion in paragraph.iter(w("del")):
+        assert not list(deletion.iter(w("t")))
+
+
+@pytest.mark.parametrize("own", [False, True])
+@pytest.mark.parametrize("new", ["replacement", ""])
+def test_whole_span_with_page_markers_keeps_markers_when_text_is_removed(own, new):
+    content = (
+        "<w:r><w:lastRenderedPageBreak/><w:t>one</w:t></w:r>"
+        "<w:r><w:lastRenderedPageBreak/></w:r>"
+        "<w:r><w:t>two</w:t><w:lastRenderedPageBreak/></w:r>"
+    )
+    paragraph = _p(_ins(content) if own else content)
+    _replace(paragraph, "onetwo", new)
+    assert _reading(paragraph) == new
+    assert len(list(paragraph.iter(w("lastRenderedPageBreak")))) == 3
+    assert all(
+        node.getparent().tag == w("r")
+        for node in paragraph.iter(w("lastRenderedPageBreak"))
+    )
+    if own and not new:
+        assert not list(paragraph.iter(w("ins")))
+    for deletion in paragraph.iter(w("del")):
+        assert not list(deletion.iter(w("t")))
+
+
+@pytest.mark.parametrize("timestamp", [
+    "2026-10-16T12:34:56Z", "2026-10-16T15:34:56+03:00",
+    "2026-10-16T07:34:56-05:00", "2026-10-16T18:04:56+05:30",
+])
+def test_dates_are_added_to_new_revisions_but_existing_own_date_is_preserved(timestamp):
+    paragraph = _p(_r("original"))
+    replace_text(
+        paragraph,
+        "original",
+        "first draft",
+        AUTHOR,
+        _revision_id_allocator(paragraph),
+        timestamp=timestamp,
+    )
+    assert [node.get(w("date")) for node in paragraph] == [timestamp[:19], timestamp[:19]]
+    original_attrs = dict(paragraph[-1].attrib)
+    replace_text(
+        paragraph,
+        "first draft",
+        "revised draft",
+        AUTHOR,
+        _revision_id_allocator(paragraph),
+        timestamp="2026-10-17T01:02:03-05:00",
+    )
+    assert dict(paragraph[-1].attrib) == original_attrs
+    assert _reading(paragraph) == "revised draft"
+
+
+def test_foreign_insertion_counter_always_marks_deleted_text_as_deltext():
+    paragraph = _p(_ins(_r("one ") + _r("two", "<w:i/>"), author=OTHER))
+    replace_text(
+        paragraph,
+        "one two",
+        "three",
+        AUTHOR,
+        _revision_id_allocator(paragraph),
+        timestamp="2026-10-16T12:34:56Z",
+    )
+    deletion = paragraph[0].find(w("del"))
+    assert deletion is not None
+    assert not list(deletion.iter(w("t")))
+    assert "".join(atom.text for atom in deletion.iter(w("delText"))) == "one two"
+    assert (
+        deletion.get(w("date")) == paragraph[1].get(w("date")) == "2026-10-16T12:34:56"
+    )
+    assert _reading(paragraph) == "three"
+
+
+def test_annotation_date_retains_captured_wall_clock_without_losing_proof_instant():
+    from datetime import datetime
+
+    stamp = "2026-10-17T00:05:00+05:30"
+    assert annotation_date(stamp) == "2026-10-17T00:05:00"
+    assert parse_drafting_timestamp(stamp).astimezone(UTC) == datetime(
+        2026, 10, 16, 18, 35, tzinfo=UTC
+    )
+
+
+@pytest.mark.parametrize("timestamp", [
+    "2026-02-30T00:00:00Z", "2026-10-16T10:00:00",
+    "2026-10-16T10:00:00+14:01", "2026-10-16T10:00:00-15:00", 1,
+])
+def test_invalid_revision_timestamp_refuses_without_mutating_text(timestamp):
+    paragraph = _p(_r("original"))
+    original = etree.tostring(paragraph)
+    allocator = _revision_id_allocator(paragraph)
+    next_id = allocator.next_value
+    with pytest.raises(ApplyError, match="invalid_edit"):
+        replace_text(paragraph, "original", "replacement", AUTHOR, allocator, timestamp=timestamp)
+    assert etree.tostring(paragraph) == original
+    assert allocator.next_value == next_id
+
+
+def test_nested_foreign_insertion_is_never_wrapped_wholesale_as_a_deletion():
+    paragraph = _p(
+        _ins(_r("outer ") + _ins(_r("nested"), author=OTHER, revision_id="25"))
+    )
+    before = etree.tostring(paragraph)
+    with pytest.raises(ApplyError, match="overlaps_tracked_changes"):
+        _replace(paragraph, "outer nested", "new")
+    assert etree.tostring(paragraph) == before

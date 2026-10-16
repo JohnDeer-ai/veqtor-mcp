@@ -173,7 +173,7 @@ def test_positive_actual_payloads_with_predeclared_values(evidence):
 
 def test_frozen_acceptance_gate_rejects_development_producer(evidence):
     _, expected = evidence
-    expected["producer"]["version"] = "0.5.0.dev0"
+    expected["producer"]["version"] = "0.5.0.dev1"
     with pytest.raises(checker.EvidenceError, match="producer differs"):
         checker.baseline(expected)
 

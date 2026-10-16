@@ -11,10 +11,9 @@ import pytest
 from lxml import etree
 from mcp.client import Client
 
-from veqtor_docx import inspect_document
+from veqtor_docx import drafting, inspect_document
 from veqtor_docx._ooxml import w
 from veqtor_docx.apply import ApplyError
-from veqtor_docx import drafting
 from veqtor_mcp import server
 
 AUTHOR = "Shilov, Ilya"
@@ -374,7 +373,6 @@ def test_explicitly_disabled_document_protection_does_not_block_drafting(
         "row_inserted",
         "cell_deleted",
         "paragraph_mark",
-        "previous_paragraph_mark",
         "section_change",
         "move_range",
         "permission_range",
@@ -443,11 +441,7 @@ def test_readable_reference_does_not_authorize_unsafe_context(
             revision.set(w("author"), "Synthetic Other")
             cell.append(target)
             body.insert(0, table)
-        elif context in {"paragraph_mark", "previous_paragraph_mark"}:
-            if context == "previous_paragraph_mark":
-                target = etree.Element(w("p"))
-                body.insert(0, target)
-                target_index = 1
+        elif context == "paragraph_mark":
             props = target.find(w("pPr"))
             if props is None:
                 props = etree.Element(w("pPr"))
@@ -501,6 +495,110 @@ def test_readable_reference_does_not_authorize_unsafe_context(
     assert result["refusal_code"] == "drafting_context_unsupported", result
     assert result["blocking_operation_index"] == 0
     assert path.read_bytes() == before
+    assert not (path.parent / ".veqtor-backups").exists()
+
+
+@pytest.mark.parametrize("location", ["paragraph", "paragraph_mark", "previous_mark", "next_mark"])
+def test_native_word_property_history_and_neighbor_marks_survive_reedit(tmp_path, demo_dir, location):
+    path = _working(tmp_path, demo_dir)
+    _save(path, [_replace(path, "Supply", "Services")])
+
+    def word_save(document):
+        body = document.find(w("body"))
+        paragraph = body.find(w("p"))
+        if location in {"previous_mark", "next_mark"}:
+            neighbor = etree.Element(w("p"))
+            body.insert(0 if location == "previous_mark" else 1, neighbor)
+            paragraph = neighbor
+        props = paragraph.find(w("pPr"))
+        if props is None:
+            props = etree.Element(w("pPr"))
+            paragraph.insert(0, props)
+        if location == "paragraph":
+            change = etree.SubElement(props, w("pPrChange"))
+            etree.SubElement(change, w("pPr"))
+        else:
+            run_props = etree.SubElement(props, w("rPr"))
+            change = etree.SubElement(run_props, w("rPrChange" if location == "paragraph_mark" else "del"))
+            if location == "paragraph_mark":
+                old = etree.SubElement(change, w("rPr"))
+                etree.SubElement(old, w("lang")).set(w("val"), "en-US")
+        change.set(w("id"), "451")
+        change.set(w("author"), "Other Reviewer")
+        change.set(w("date"), "2026-10-15T10:00:00Z")
+
+    _rewrite_fixture(path, mutate_document=word_save)
+    original_revision = dict(next(_document(path).iter(w("ins"))).attrib)
+    properties = [etree.tostring(p, method="c14n") for p in _document(path).iter(w("pPr"))]
+    reference = next(p["paragraph_ref"] for p in inspect_document(str(path), "browse", max_items=100)["paragraphs"]
+                     if "Services" in p["text"])
+    saved = _save(path, [{"kind": "replace_text", "paragraph_ref": reference,
+                          "old_text": "Services", "new_text": "Manufacturing"}])
+    assert saved["operations"][0]["operation"] == "edit_own_insertion"
+    assert dict(next(_document(path).iter(w("ins"))).attrib) == original_revision
+    assert [etree.tostring(p, method="c14n") for p in _document(path).iter(w("pPr"))] == properties
+
+
+@pytest.mark.parametrize("stamp", [
+    "2026-10-16T10:00:00Z", "2026-10-16T13:00:00+03:00",
+    "2026-10-16T05:00:00-05:00", "2026-10-16T15:30:00+05:30",
+])
+def test_new_dates_are_bound_to_preflight_and_survive_later_reedit(tmp_path, demo_dir, monkeypatch, stamp):
+    path = _working(tmp_path, demo_dir)
+    operations = [_replace(path, "Supply", "Services"), {
+        "kind": "add_comment", "paragraph_ref": _ref(path),
+        "quote": "Services", "text": "Please confirm.",
+    }]
+    monkeypatch.setattr(drafting, "_new_timestamp", lambda: stamp)
+    digest = _hash(path)
+    dry = drafting.preflight_document_edits(str(path), digest, operations, **PROFILE)
+    assert dry["batch_applicable"], dry
+    assert dry["preflight_proof"]["timestamp"] == stamp
+    monkeypatch.setattr(drafting, "_new_timestamp", lambda: "2026-10-17T11:00:00-05:00")
+    saved = drafting.apply_document_edits(str(path), digest, operations, dry["preflight_proof"], **PROFILE)
+    assert saved["output_sha256"] == dry["preflight_proof"]["candidate_sha256"]
+    assert {node.get(w("date")) for tag in ("ins", "del") for node in _document(path).iter(w(tag))} == {stamp[:19]}
+    with zipfile.ZipFile(path) as archive:
+        comment = etree.fromstring(archive.read("word/comments.xml"))[0]
+        comment_id = comment.get(w("id"))
+        assert comment.get(w("date")) == stamp[:19]
+    _save(path, [_replace(path, "Services", "Manufacturing"),
+                 {"kind": "update_comment", "comment_id": comment_id, "text": "Confirmed."}])
+    assert next(_document(path).iter(w("ins"))).get(w("date")) == stamp[:19]
+    with zipfile.ZipFile(path) as archive:
+        assert etree.fromstring(archive.read("word/comments.xml"))[0].get(w("date")) == stamp[:19]
+
+
+@pytest.mark.parametrize("timestamp", [
+    None, "", "2026-02-30T10:00:00Z", "2026-10-16T10:00:00Z\n",
+    "2026-10-16T10:00:00", "2026-10-16T10:00:00+14:01",
+    "2026-10-16T10:00:00-15:00", "2026-10-16T10:00:00+03:60",
+])
+def test_invalid_proof_timestamp_never_publishes(tmp_path, demo_dir, timestamp):
+    path = _working(tmp_path, demo_dir)
+    operations = [_replace(path, "Supply", "Services")]
+    before = path.read_bytes()
+    dry = drafting.preflight_document_edits(str(path), _hash(path), operations, **PROFILE)
+    proof = {**dry["preflight_proof"], "timestamp": timestamp}
+    with pytest.raises(ApplyError, match="preflight_binding_mismatch"):
+        drafting._proof_timestamp(proof)
+    with pytest.raises(ApplyError, match="preflight_binding_mismatch"):
+        drafting.apply_document_edits(str(path), _hash(path), operations, proof, **PROFILE)
+    assert path.read_bytes() == before
+    assert not (path.parent / ".veqtor-backups").exists()
+
+
+def test_changing_only_proof_offset_cannot_reuse_same_wall_time_candidate(tmp_path, demo_dir, monkeypatch):
+    path = _working(tmp_path, demo_dir)
+    operations = [_replace(path, "Supply", "Services")]
+    original = path.read_bytes()
+    monkeypatch.setattr(drafting, "_new_timestamp", lambda: "2026-10-16T13:00:00+03:00")
+    dry = drafting.preflight_document_edits(str(path), _hash(path), operations, **PROFILE)
+    proof = {**dry["preflight_proof"], "timestamp": "2026-10-16T13:00:00-05:00"}
+    assert drafting._proof_timestamp(proof) == proof["timestamp"]
+    with pytest.raises(ApplyError, match="preflight_binding_mismatch"):
+        drafting.apply_document_edits(str(path), _hash(path), operations, proof, **PROFILE)
+    assert path.read_bytes() == original
     assert not (path.parent / ".veqtor-backups").exists()
 
 
@@ -637,8 +735,8 @@ def test_independent_check_detects_collateral_inside_touched_paragraph(
     assert proof
     real_replace = drafting.replace_text
 
-    def corrupt(paragraph, *args):
-        result = real_replace(paragraph, *args)
+    def corrupt(paragraph, *args, **kwargs):
+        result = real_replace(paragraph, *args, **kwargs)
         foreign = next(
             node for node in paragraph.iter(w("del")) if node.get(w("id")) == "700"
         )

@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import errno
 import ctypes
+import fcntl
 import hashlib
 import os
+import re
 import stat
 import sys
 import unicodedata
@@ -33,6 +35,7 @@ _ACL_ATTRIBUTES = frozenset({
 })
 _MAX_XATTR_BYTES = 64 * 1024 * 1024
 _MAX_XATTR_NAMES_BYTES = 1024 * 1024
+_DARWIN_SYSTEM_ATTRIBUTES = frozenset({"com.apple.provenance"})
 
 
 def _error(code: str, detail: str, **metadata: object) -> ApplyError:
@@ -108,33 +111,143 @@ def _write_all(descriptor: int, payload: bytes) -> None:
 
 
 def _word_unlocked(directory: int, basename: str) -> None:
-    # Word variants use either a prefixed name or replace its first two letters.
-    for name in {"~$" + basename, "~$" + basename[2:]}:
+    # Depending on the filename/Word version, the owner prefix is prepended or
+    # replaces one or two leading characters. Check all three conservatively.
+    for name in {"~$" + basename[offset:] for offset in (0, 1, 2)}:
         try:
             _at_stat(directory, name)
         except FileNotFoundError:
             continue
+        except OSError as exc:
+            if exc.errno == errno.ENAMETOOLONG:
+                # A prefix may exceed NAME_MAX for an otherwise legal source;
+                # such an owner entry cannot exist in this directory.
+                continue
+            raise
         raise _error("file_locked", "Word's owner file is present; close the document before saving")
 
 
-@contextmanager
-def _writer_lock(directory: int, basename: str) -> Iterator[None]:
-    # Conservatively serialize spelling aliases on case-insensitive filesystems.
+def _legacy_lock_name(basename: str) -> str:
     token = hashlib.sha256(unicodedata.normalize("NFC", basename).casefold().encode()).hexdigest()[:24]
-    name = f".veqtor-{token}.lock"
+    return f".veqtor-{token}.lock"
+
+
+def _reclaim_dead_lock(directory: int, name: str) -> bool:
+    """Under directory flock, reclaim only an unchanged, owned dead-PID lock."""
     try:
-        descriptor = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW | _CLOEXEC,
-                             0o600, dir_fd=directory)
-    except FileExistsError as exc:
-        raise _error("file_locked", "another Veqtor save or an unrecovered save lock exists") from exc
+        descriptor = os.open(name, os.O_RDONLY | _NOFOLLOW | _CLOEXEC | os.O_NONBLOCK,
+                             dir_fd=directory)
+    except FileNotFoundError:
+        return True  # The old writer released its lock before we opened it.
+    except OSError:
+        return False
+    try:
+        before = os.fstat(descriptor)
+        if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1
+                or before.st_uid != os.geteuid() or stat.S_IMODE(before.st_mode) != 0o600
+                or not 1 <= before.st_size <= 128):
+            return False
+        payload = os.read(descriptor, 129)
+        match = re.fullmatch(rb"pid=([1-9][0-9]{0,9}) token=[0-9a-f]{32}\n", payload)
+        if not match or _version(os.fstat(descriptor)) != _version(before):
+            return False
+        pid = int(match[1])
+        if pid > 2_147_483_647:
+            return False
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            pass
+        except (OSError, OverflowError):
+            return False  # Permission errors or uncertainty are never death proof.
+        else:
+            return False
+        if _version(_at_stat(directory, name)) != _version(before):
+            return False
+        _unlink_owned(directory, name, _identity(before))
+        return True
+    except OSError:
+        return False
+    finally:
+        os.close(descriptor)
+
+
+@contextmanager
+def _compatible_sidecar(directory: int, basename: str) -> Iterator[None]:
+    """Publish a complete PID record atomically for earlier O_EXCL writers.
+
+    A crash before publication may leave an inert unique temporary file, never
+    an empty active lock. No-replace rename keeps the published inode singly
+    linked, so a crash immediately afterward is recoverable by dead-PID checks.
+    """
+    name = _legacy_lock_name(basename)
+    temporary = f".veqtor-lock-{uuid.uuid4().hex}.tmp"
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW | _CLOEXEC,
+                         0o600, dir_fd=directory)
     identity = _identity(os.fstat(descriptor))
     try:
         _write_all(descriptor, f"pid={os.getpid()} token={uuid.uuid4().hex}\n".encode())
         os.fsync(descriptor)
+        for attempt in range(2):
+            try:
+                _rename_noreplace(directory, temporary, name)
+                break
+            except FileExistsError as exc:
+                if attempt or not _reclaim_dead_lock(directory, name):
+                    raise _error("file_locked", "another save or an unverifiable legacy save lock exists") from exc
         yield
     finally:
         os.close(descriptor)
+        # Check both names even if an exception interrupted immediately after
+        # the native rename returned; never depend on a later Python flag write.
         _unlink_owned(directory, name, identity)
+        _unlink_owned(directory, temporary, identity)
+
+
+def _rename_noreplace(directory: int, source: str, destination: str) -> None:
+    """Atomically publish an initialized lock without replacing an old writer."""
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        if sys.platform == "darwin":
+            rename, flag = libc.renameatx_np, 0x00000004  # RENAME_EXCL, sys/stdio.h
+        elif sys.platform.startswith("linux"):
+            rename, flag = libc.renameat2, 1  # RENAME_NOREPLACE, linux/fs.h
+        else:
+            raise OSError(errno.ENOTSUP, "atomic lock publication is unsupported")
+        rename.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int,
+                           ctypes.c_char_p, ctypes.c_uint)
+        rename.restype = ctypes.c_int
+    except (AttributeError, OSError) as exc:
+        raise OSError(errno.ENOTSUP, "atomic lock publication is unavailable") from exc
+    ctypes.set_errno(0)
+    if rename(directory, os.fsencode(source), directory, os.fsencode(destination), flag) != 0:
+        raise OSError(ctypes.get_errno() or errno.EIO, "atomic lock publication failed")
+
+
+@contextmanager
+def _writer_lock(directory: int, path: str, basename: str) -> Iterator[None]:
+    """Serialize saves in one directory, including earlier dev0 writers.
+
+    flock belongs to this open directory description and the OS releases it
+    after a crash. Keeping the directory itself as the lock object avoids the
+    split-lock race between current writers. A compatible sidecar also excludes
+    older writers. Only a well-formed, owned sidecar with a provably dead PID
+    can be reclaimed under flock; malformed or unverifiable files remain intact.
+    """
+    _directory_current(directory, path)
+    try:
+        fcntl.flock(directory, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as exc:
+        if exc.errno in {errno.EACCES, errno.EAGAIN, errno.EWOULDBLOCK}:
+            raise _error("file_locked", "another Veqtor save is active in this folder") from exc
+        raise
+    try:
+        _directory_current(directory, path)
+        with _compatible_sidecar(directory, basename):
+            yield
+            _directory_current(directory, path)
+    finally:
+        fcntl.flock(directory, fcntl.LOCK_UN)
 
 
 def _source_current(directory: int, basename: str, descriptor: int,
@@ -260,6 +373,13 @@ def _attributes(descriptor: int) -> dict[str, bytes]:
     # chmod/copy ordering that could change their effective permissions.
     if _ACL_ATTRIBUTES.intersection(values):
         raise _error("unsupported_permissions", "extended access-control lists cannot yet be preserved safely")
+    if sys.platform == "darwin":
+        # macOS manages provenance for the creating process. Setting it may
+        # succeed without reproducing its value; it is not user metadata or an
+        # ACL. Preserve and verify every other attribute, including Finder tags,
+        # quarantine and macl, while leaving provenance to the operating system.
+        values = {name: value for name, value in values.items()
+                  if name not in _DARWIN_SYSTEM_ATTRIBUTES}
     return values
 
 
@@ -349,6 +469,55 @@ def _backup(parent: int, directory: int, basename: str, payload: bytes,
     return name
 
 
+def _backup_path_verified(source_parent: str, backup_path: str | None, payload: bytes,
+                          parent_identity: tuple[int, int] | None,
+                          backup_identity: tuple[int, int] | None) -> bool:
+    """Verify the last known recovery path without following replacement links.
+
+    A parent directory may have been renamed after the backup was completed.
+    In that case the backup can still exist elsewhere, but this path is not a
+    verified recovery location. Never search other directories for it.
+    """
+    if backup_path is None or parent_identity is None or backup_identity is None:
+        return False
+    try:
+        with _directory(source_parent) as parent:
+            if _identity(os.fstat(parent)) != parent_identity:
+                return False
+            backups = os.open(_BACKUP_DIRECTORY, os.O_RDONLY | os.O_DIRECTORY | _NOFOLLOW | _CLOEXEC,
+                              dir_fd=parent)
+            try:
+                directory_identity = _identity(os.fstat(backups))
+                name = os.path.basename(backup_path)
+                descriptor = os.open(name, os.O_RDONLY | _NOFOLLOW | _CLOEXEC | os.O_NONBLOCK,
+                                     dir_fd=backups)
+                try:
+                    before = os.fstat(descriptor)
+                    _regular(before)
+                    if _identity(before) != backup_identity or before.st_size != len(payload):
+                        return False
+                    digest = hashlib.sha256()
+                    remaining = len(payload)
+                    while remaining:
+                        chunk = os.read(descriptor, min(remaining, 1024 * 1024))
+                        if not chunk:
+                            return False
+                        digest.update(chunk)
+                        remaining -= len(chunk)
+                    if (_version(os.fstat(descriptor)) != _version(before)
+                            or _version(_at_stat(backups, name)) != _version(before)
+                            or _identity(_at_stat(parent, _BACKUP_DIRECTORY)) != directory_identity):
+                        return False
+                    _directory_current(parent, source_parent)
+                    return digest.digest() == hashlib.sha256(payload).digest()
+                finally:
+                    os.close(descriptor)
+            finally:
+                os.close(backups)
+    except (ApplyError, OSError):
+        return False
+
+
 def publish_document(source_path: str, output_path: str | None, source_payload: bytes,
                      candidate_payload: bytes) -> dict:
     """Publish validated bytes, either as a new copy or a backed-up in-place save.
@@ -357,6 +526,8 @@ def publish_document(source_path: str, output_path: str | None, source_payload: 
     output is always create-only. A completed backup remains available if a
     later save fails. After publication, a durability error reports
     ``publication_completed=True`` rather than pretending the file is unchanged.
+    Failure metadata reports ``backup_path_verified=False`` when its last known
+    backup path cannot be confirmed (for example, after a directory rename).
     """
     if not isinstance(source_payload, bytes) or not isinstance(candidate_payload, bytes):
         raise _error("invalid_request", "source and candidate payloads must be bytes")
@@ -366,9 +537,12 @@ def publish_document(source_path: str, output_path: str | None, source_payload: 
     source_parent, basename = os.path.split(source)
     output_parent, output_name = os.path.split(output)
     backup_path: str | None = None
+    parent_identity: tuple[int, int] | None = None
+    backup_identity: tuple[int, int] | None = None
     publication_completed = False
     try:
-        with _directory(source_parent) as parent, _writer_lock(parent, basename):
+        with _directory(source_parent) as parent, _writer_lock(parent, source_parent, basename):
+            parent_identity = _identity(os.fstat(parent))
             _word_unlocked(parent, basename)
             _regular(_at_stat(parent, basename))
             source_descriptor = os.open(basename, os.O_RDONLY | _NOFOLLOW | _CLOEXEC | os.O_NONBLOCK,
@@ -392,6 +566,7 @@ def publish_document(source_path: str, output_path: str | None, source_payload: 
                                     backup_name = _backup(parent, backups, basename, source_payload,
                                                           source_info, attributes)
                                     backup_path = os.path.join(source_parent, _BACKUP_DIRECTORY, backup_name)
+                                    backup_identity = _identity(_at_stat(backups, backup_name))
                                     _directory_current(parent, source_parent)
                                     _directory_current(destination, output_parent)
                                     _backup_current(parent, backups)
@@ -425,6 +600,8 @@ def publish_document(source_path: str, output_path: str | None, source_payload: 
             exc = _error("output_unwritable", str(exc))
         exc.metadata.update(output_path=output, backup_path=backup_path,
                             backup_sha256=hashlib.sha256(source_payload).hexdigest() if backup_path else None,
+                            backup_path_verified=_backup_path_verified(
+                                source_parent, backup_path, source_payload, parent_identity, backup_identity),
                             publication_completed=publication_completed)
         raise exc
     return {

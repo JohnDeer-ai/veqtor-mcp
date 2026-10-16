@@ -15,17 +15,19 @@ import os
 import zipfile
 from collections import Counter
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from lxml import etree
 
 from ._drafting_comments import (
     add_comment,
+    comment_mutable_parts,
     delete_comment,
     read_comments,
     update_comment,
 )
 from ._drafting_io import publish_document
-from ._drafting_text import replace_text
+from ._drafting_text import annotation_date, parse_drafting_timestamp, replace_text
 from ._ooxml import (
     DOCUMENT_PART,
     UserPathError,
@@ -95,6 +97,19 @@ def _path(value: str) -> str:
 
 def _sha(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
+
+
+def _new_timestamp() -> str:
+    return datetime.now(UTC).astimezone().isoformat(timespec="seconds")
+
+
+def _proof_timestamp(proof: object) -> str:
+    value = proof.get("timestamp") if isinstance(proof, dict) else None
+    try:
+        parse_drafting_timestamp(value)
+    except ValueError as exc:
+        raise ApplyError("preflight_binding_mismatch", "preflight timestamp is invalid") from exc
+    return value
 
 
 def _xml(root: etree._Element) -> bytes:
@@ -277,13 +292,16 @@ def _require_drafting_context(
     for paragraph in targets:
         if len(paragraph.findall(w("pPr"))) > 1:
             refuse("duplicate paragraph properties")
-        for sibling in (paragraph.getprevious(), paragraph, paragraph.getnext()):
-            if sibling is not None and sibling.tag == w("p"):
-                props = sibling.find(w("pPr"))
-                if props is not None and _has_revision(props):
-                    refuse(
-                        "a paragraph mark or paragraph property has pending revisions"
-                    )
+        props = paragraph.find(w("pPr"))
+        if props is not None:
+            # Text surgery never edits paragraph properties or joins paragraphs.
+            # Preserve their formatting history verbatim; structural revisions
+            # of the target's own paragraph mark still require another workflow.
+            for node in props.iter():
+                if (node.tag in _REVISION_TAGS or (
+                    isinstance(node.tag, str) and etree.QName(node).localname.endswith("Change")
+                )) and node.tag not in {w("rPrChange"), w("pPrChange")}:
+                    refuse("the target paragraph mark has a structural revision")
         for ancestor in paragraph.iterancestors():
             if ancestor is body:
                 break
@@ -432,6 +450,7 @@ def _check_revision_preservation(
     mutable: etree._Element | None,
     applied: dict,
     author: str,
+    timestamp: str | None = None,
 ) -> None:
     """Prove unrelated revisions survived, including hidden deleted text."""
     immutable = Counter(signature for node, signature in before if node is not mutable)
@@ -441,6 +460,7 @@ def _check_revision_preservation(
         raise ApplyError("round_trip_failed", "an unrelated existing revision changed")
     extras = list((observed - immutable).elements())
     operation = applied.get("operation")
+    date = annotation_date(timestamp)
     allowed: list[tuple] = []
     if operation in {"replace", "delete", "counter"}:
         ids = applied["revision_ids"]
@@ -448,7 +468,8 @@ def _check_revision_preservation(
             (
                 (
                     w("del"),
-                    tuple(sorted({w("id"): ids[0], w("author"): author}.items())),
+                    tuple(sorted({w("id"): ids[0], w("author"): author,
+                                  **({w("date"): date} if date is not None else {})}.items())),
                 ),
                 applied["old_text"],
             )
@@ -458,7 +479,8 @@ def _check_revision_preservation(
                 (
                     (
                         w("ins"),
-                        tuple(sorted({w("id"): ids[1], w("author"): author}.items())),
+                        tuple(sorted({w("id"): ids[1], w("author"): author,
+                                      **({w("date"): date} if date is not None else {})}.items())),
                     ),
                     applied["new_text"],
                 )
@@ -506,6 +528,7 @@ class _Candidate:
     source_payload: bytes
     payload: bytes
     operations: list[dict]
+    timestamp: str | None = None
 
 
 def _prepare(
@@ -514,6 +537,7 @@ def _prepare(
     operations: list[dict],
     author: str,
     initials: str,
+    timestamp: str | None = None,
 ) -> _Candidate:
     _profile(author, initials)
     _validate_operations(operations)
@@ -571,7 +595,8 @@ def _prepare(
                     if len(containers) == 1:
                         mutable_revision = next(iter(containers))
                     applied = replace_text(
-                        paragraph, op["old_text"], op["new_text"], author, allocator
+                        paragraph, op["old_text"], op["new_text"], author, allocator,
+                        timestamp=timestamp,
                     )
                     current = expected_text[pindex]
                     if current.count(op["old_text"]) != 1:
@@ -592,6 +617,7 @@ def _prepare(
                         op["text"],
                         author,
                         initials,
+                        timestamp=timestamp,
                     )
                     allowed_parts |= _COMMENT_PARTS
             elif kind == "update_comment":
@@ -627,10 +653,10 @@ def _prepare(
                         {paragraphs[i].element for i in existing["paragraph_indexes"]},
                     )
                     touched.update(existing["paragraph_indexes"])
+                allowed_parts |= comment_mutable_parts(parts)
                 applied = delete_comment(parts, document, op["comment_id"], author)
-                allowed_parts |= _COMMENT_PARTS
             _check_revision_preservation(
-                revisions_before, document, mutable_revision, applied, author
+                revisions_before, document, mutable_revision, applied, author, timestamp
             )
             result.append({"index": index, **applied})
         except DocxError as exc:
@@ -691,7 +717,7 @@ def _prepare(
         )
     # Reparse comment linkage as well as text revisions before any filesystem write.
     read_comments(checked.parts, reread)
-    return _Candidate(source, payload, candidate, result)
+    return _Candidate(source, payload, candidate, result, timestamp)
 
 
 def _proof(
@@ -716,6 +742,7 @@ def _proof(
         "author": author,
         "initials": initials,
         "producer_build": producer_build,
+        "timestamp": candidate.timestamp,
         "candidate_sha256": _sha(candidate.payload),
     }
     return {**fields, "proof_sha256": _canonical_digest(fields)}
@@ -733,7 +760,8 @@ def preflight_document_edits(
 ) -> dict:
     """Dry-run the full sequential batch; no document, backup or journal is written."""
     try:
-        candidate = _prepare(source_path, file_sha256, operations, author, initials)
+        candidate = _prepare(source_path, file_sha256, operations, author, initials,
+                             timestamp=_new_timestamp())
         proof = _proof(
             candidate, operations, author, initials, producer_build, output_path
         )
@@ -776,7 +804,10 @@ def apply_document_edits(
     output_path: str | None = None,
 ) -> dict:
     """Apply the exact successful preflight candidate, with backup for in-place saves."""
-    candidate = _prepare(source_path, file_sha256, operations, author, initials)
+    _validate_operations(operations)
+    timestamp = _proof_timestamp(preflight_proof)
+    candidate = _prepare(source_path, file_sha256, operations, author, initials,
+                         timestamp=timestamp)
     expected = _proof(
         candidate, operations, author, initials, producer_build, output_path
     )

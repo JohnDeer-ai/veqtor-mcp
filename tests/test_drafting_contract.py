@@ -1,22 +1,24 @@
 # SPDX-License-Identifier: Apache-2.0
 """Drafting transport rejects malformed input without leaking it or writing."""
 
+import asyncio
 import copy
 import hashlib
 import json
 import zipfile
-
-from lxml import etree
+from pathlib import Path
 
 import jsonschema
 import pytest
+from lxml import etree
 from mcp.client import Client
 from pydantic import TypeAdapter, ValidationError
 
 from veqtor_docx import ApplyError, inspect_document
+from veqtor_docx._drafting_text import parse_drafting_timestamp
 from veqtor_docx._ooxml import w
 from veqtor_mcp import server
-from veqtor_mcp._drafting_contract import DraftingShaInput, SHA, _APPLIED
+from veqtor_mcp._drafting_contract import _APPLIED, SHA, TIMESTAMP, DraftingShaInput
 
 
 @pytest.fixture
@@ -53,6 +55,27 @@ def test_sha_runtime_and_advertised_schema_agree(invalid):
     assert not jsonschema.Draft202012Validator(SHA).is_valid(invalid)
     with pytest.raises(ValidationError):
         validator.validate_python(invalid)
+
+
+@pytest.mark.parametrize("timestamp", [
+    "2026-10-16T13:00:00Z", "2026-10-16T16:00:00+03:00",
+    "2026-10-16T08:00:00-05:00", "2026-10-16T18:30:00+05:30",
+    "2026-10-16T13:00:00+00:00", "2026-10-16T13:00:00+14:00",
+])
+def test_timestamp_contract_accepts_explicit_timezone(timestamp):
+    assert jsonschema.Draft202012Validator(TIMESTAMP).is_valid(timestamp)
+    assert parse_drafting_timestamp(timestamp).tzinfo is not None
+
+
+@pytest.mark.parametrize("timestamp", [
+    "2026-10-16T13:00:00", "2026-10-16T13:00:00Z\n",
+    "2026-10-16T13:00:00+14:01", "2026-10-16T13:00:00-15:00",
+    "2026-10-16T13:00:00+03:60", "2026-10-16T13:00:00+0300", None, 1,
+])
+def test_timestamp_contract_and_parser_reject_malformed_zone(timestamp):
+    assert not jsonschema.Draft202012Validator(TIMESTAMP).is_valid(timestamp)
+    with pytest.raises(ValueError):
+        parse_drafting_timestamp(timestamp)
 
 
 @pytest.mark.anyio
@@ -146,6 +169,78 @@ async def test_malformed_output_is_sanitized_at_transport(tmp_path, monkeypatch)
     assert "PRIVATE_OUTPUT_SENTINEL" not in _error_text(result)
     assert "PRIVATE_OUTPUT_KEY" not in _error_text(result)
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("published", [False, True])
+async def test_late_save_failure_exposes_only_bound_recovery_fields(tmp_path, demo_dir, monkeypatch, published):
+    path, arguments = _fixture(tmp_path, demo_dir)
+    original = path.read_bytes()
+    real_save = server.drafting.publish_document
+
+    def late_failure(*args, **kwargs):
+        from veqtor_docx import _drafting_io as io
+        replace = io.os.replace
+        fsync = io.os.fsync
+        replaced = False
+
+        def injected_replace(*a, **kw):
+            nonlocal replaced
+            if not published:
+                raise OSError("PRIVATE_FAILURE_DETAIL")
+            result = replace(*a, **kw)
+            replaced = True
+            return result
+
+        def injected_fsync(*a, **kw):
+            if replaced:
+                raise OSError("PRIVATE_DURABILITY_DETAIL")
+            return fsync(*a, **kw)
+
+        with monkeypatch.context() as scoped:
+            scoped.setattr(io.os, "replace", injected_replace)
+            scoped.setattr(io.os, "fsync", injected_fsync)
+            return real_save(*args, **kwargs)
+
+    monkeypatch.setattr(server.drafting, "publish_document", late_failure)
+    async with Client(server.mcp) as session:
+        dry = _payload(await session.call_tool("preflight_document_edits", arguments))
+        result = await session.call_tool("apply_document_edits", {**arguments, "preflight_proof": dry["preflight_proof"]})
+    assert result.is_error
+    payload = result.structured_content
+    assert payload["schema_version"] == "drafting_error.v1"
+    assert payload["error_code"] == ("publication_uncertain" if published else "output_unwritable")
+    recovery = payload["recovery"]
+    assert recovery["publication_completed"] is published
+    assert recovery["backup_path_verified"] is True
+    assert recovery["output_path"] == str(path)
+    from pathlib import Path
+    assert Path(recovery["backup_path"]).read_bytes() == original
+    assert recovery["backup_sha256"] == hashlib.sha256(original).hexdigest()
+    assert (path.read_bytes() != original) is published
+    assert "PRIVATE_FAILURE_DETAIL" not in _error_text(result)
+    assert "PRIVATE_DURABILITY_DETAIL" not in _error_text(result)
+    assert json.loads(_error_text(result)) == payload
+
+
+@pytest.mark.anyio
+async def test_recovery_rejects_unrelated_paths_and_arbitrary_metadata(tmp_path, demo_dir, monkeypatch):
+    path, arguments = _fixture(tmp_path, demo_dir)
+
+    def refused(*args, **kwargs):
+        raise ApplyError("publication_uncertain", "PRIVATE_EXCEPTION_TEXT",
+                         failure_phase="publication", output_path=str(path),
+                         backup_path="/private/unrelated/SECRET.docx", backup_sha256="a" * 64,
+                         publication_completed=True, secret="PRIVATE_METADATA")
+
+    monkeypatch.setattr(server.drafting, "apply_document_edits", refused)
+    async with Client(server.mcp) as session:
+        result = await session.call_tool("apply_document_edits", {**arguments, "preflight_proof": {}})
+    assert result.is_error
+    text = _error_text(result)
+    assert "publication_uncertain" in text
+    assert "SECRET" not in text and "PRIVATE_" not in text
+    assert result.structured_content is None
 
 
 @pytest.mark.parametrize("operation", ["replace", "delete", "edit_own_insertion", "counter"])
@@ -270,8 +365,7 @@ async def test_mcp_goback_roundtrip_preserves_author_revision_and_bookmark_ident
             saved = _payload(response)
             assert saved["operations"][0]["relocated_bookmarks"] == expected_relocation
             assert saved["tracked_change_author"] == "Shilov, Ilya"
-            with open(saved["backup_path"], "rb") as backup:
-                assert backup.read() == original
+            assert await asyncio.to_thread(Path(saved["backup_path"]).read_bytes) == original
             response = await client.call_tool("inspect_document", {"path": str(path), "mode": "browse", "max_items": 1})
             assert not response.is_error, _error_text(response)
             inspected = _payload(response)

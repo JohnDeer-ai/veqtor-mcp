@@ -6,7 +6,7 @@ All notable changes to Veqtor MCP are documented here.
 Publication dates are authoritative in each version's immutable GitHub Release
 through its `published_at` timestamp.
 
-## 0.5.0.dev0
+## 0.5.0.dev1
 
 Unreleased author-drafting development build; public `0.4.2` artifacts are unchanged.
 
@@ -16,7 +16,13 @@ Unreleased author-drafting development build; public `0.4.2` artifacts are uncha
 - Save to the same working file with mandatory exact-byte backups, stale-source
   checks, cooperative locking and Word owner-file detection; keep create-only copy mode.
 - Bind drafting preflight proofs to source, destination, author/initials, operations
-  and candidate bytes. Preserve the legacy counterproposal API and journal.
+  timestamp and candidate bytes. Preserve the legacy counterproposal API and journal.
+- Preserve portable file metadata without demanding a copy of macOS provenance;
+  recover abandoned save locks and return verified backup recovery details over MCP.
+- Resolve modern comment metadata through relationships so renamed parts cannot
+  bypass thread-preservation checks.
+- Preserve Word page-cache markers, paragraph formatting history and neighboring
+  paragraph-mark revisions; support bounded whole-run formatting revisions.
 - Require MCP SDK 2.2.0 or later and update the locked SDK pair to 2.2.0.
 
 ## 0.4.2

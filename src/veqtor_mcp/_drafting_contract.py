@@ -4,9 +4,13 @@ from typing import Annotated, Any, ClassVar
 
 from pydantic import StringConstraints, WithJsonSchema
 
+from veqtor_docx._drafting_text import DRAFTING_TIMESTAMP_PATTERN
+
 from .contracts import (
-    MCP_CONTRACT_SCHEMA_EXTENSION, MCP_CONTRACT_SCHEMA_VERSION,
-    PARAGRAPH_REF_SCHEMA, _ContractResult,
+    MCP_CONTRACT_SCHEMA_EXTENSION,
+    MCP_CONTRACT_SCHEMA_VERSION,
+    PARAGRAPH_REF_SCHEMA,
+    _ContractResult,
 )
 
 
@@ -24,6 +28,8 @@ SHA = {"type": "string", "minLength": 64, "maxLength": 64,
        "pattern": r"^[0-9a-f]{64}(?![\s\S])"}
 NONEMPTY = {"type": "string", "minLength": 1, "maxLength": 20_000}
 NEW_TEXT = {"type": "string", "maxLength": 20_000}
+TIMESTAMP = {"type": "string", "minLength": 20, "maxLength": 25,
+             "pattern": "^" + DRAFTING_TIMESTAMP_PATTERN + r"(?![\s\S])"}
 OPERATIONS = {"type": "array", "minItems": 1, "maxItems": 100, "items": {"oneOf": [
     obj(kind={"const": "replace_text"}, paragraph_ref=PARAGRAPH_REF_SCHEMA,
         old_text=NONEMPTY, new_text=NEW_TEXT),
@@ -34,7 +40,8 @@ OPERATIONS = {"type": "array", "minItems": 1, "maxItems": 100, "items": {"oneOf"
 ]}}
 PROOF = obj(schema_version={"const": "drafting_preflight.v1"}, source_path=TEXT,
             source_sha256=SHA, output_path=TEXT, operations_sha256=SHA, author=NONEMPTY,
-            initials=NONEMPTY, producer_build=NONEMPTY, candidate_sha256=SHA, proof_sha256=SHA)
+            initials=NONEMPTY, producer_build=NONEMPTY, timestamp=TIMESTAMP,
+            candidate_sha256=SHA, proof_sha256=SHA)
 DraftingOperationsInput = Annotated[list[dict[str, Any]], WithJsonSchema(OPERATIONS)]
 DraftingProofInput = Annotated[dict[str, Any], WithJsonSchema(PROOF)]
 DraftingShaInput = Annotated[

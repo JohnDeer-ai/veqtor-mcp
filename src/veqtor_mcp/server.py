@@ -13,6 +13,7 @@ import platform
 import sys
 from contextvars import ContextVar
 from functools import cache, wraps
+from inspect import signature
 from typing import Annotated, Any, Callable, Literal
 
 import jsonschema
@@ -107,6 +108,60 @@ def _tracked_change_author() -> str:
 class _SafeToolError(ToolError):
     """Only the Veqtor adapter may mint a client-visible diagnostic."""
 
+    def __init__(self, message: str, recovery: dict | None = None):
+        super().__init__(message)
+        self.recovery = recovery
+
+
+def _drafting_recovery(fn, args, kwargs, exc, code: str, detail: str) -> dict | None:
+    """Expose only publication facts bound to this requested document location.
+
+    Exception messages and arbitrary metadata remain private. The caller needs
+    its own output/backup paths to recover safely after a late save failure.
+    """
+    if fn.__name__ != "apply_document_edits":
+        return None
+    metadata = getattr(exc, "metadata", {})
+    if not isinstance(metadata, dict) or metadata.get("failure_phase") != "publication":
+        return None
+    try:
+        arguments = signature(fn).bind(*args, **kwargs).arguments
+        source = drafting._path(arguments["source_path"])
+        source = os.path.join(os.path.realpath(os.path.dirname(source)), os.path.basename(source))
+        output = drafting._path(arguments.get("output_path") or source)
+        output = os.path.join(os.path.realpath(os.path.dirname(output)), os.path.basename(output))
+        if (metadata.get("output_path") != output
+                or type(metadata.get("publication_completed")) is not bool):
+            return None
+        backup, digest = metadata.get("backup_path"), metadata.get("backup_sha256")
+        if backup is not None:
+            expected_dir = os.path.join(os.path.dirname(source), ".veqtor-backups")
+            source_name = os.fsencode(os.path.basename(source))[:140].decode(errors="ignore")
+            expected_digest = arguments.get("file_sha256")
+            if (not isinstance(backup, str) or os.path.dirname(backup) != expected_dir
+                    or os.path.normpath(backup) != backup or not backup.endswith(".docx")
+                    or not isinstance(digest, str) or len(digest) != 64
+                    or digest != expected_digest or any(c not in "0123456789abcdef" for c in digest)):
+                return None
+            prefix = f"{source_name}.{digest[:16]}."
+            basename = os.path.basename(backup)
+            token = basename[len(prefix):-5]
+            if (not basename.startswith(prefix) or len(token) != 32
+                    or any(c not in "0123456789abcdef" for c in token)):
+                return None
+        elif digest is not None:
+            return None
+    except (KeyError, TypeError, ValueError, veqtor_docx.DocxError):
+        return None
+    return {
+        "schema_version": "drafting_error.v1", "status": "error",
+        "error_code": code, "message": detail,
+        "recovery": {"output_path": output, "backup_path": backup,
+                     "backup_sha256": digest,
+                     "backup_path_verified": metadata.get("backup_path_verified") is True,
+                     "publication_completed": metadata["publication_completed"]},
+    }
+
 
 _TOOL_ENTRY: ContextVar[list[bool] | None] = ContextVar("veqtor_tool_entry", default=None)
 
@@ -129,6 +184,11 @@ class _VeqtorMCPServer(MCPServer):
             while cause is not None and id(cause) not in seen:
                 seen.add(id(cause))
                 if isinstance(cause, _SafeToolError):
+                    if cause.recovery is not None:
+                        return CallToolResult(
+                            content=[TextContent(type="text", text=json.dumps(cause.recovery, ensure_ascii=False))],
+                            structured_content=cause.recovery, is_error=True,
+                        )
                     # The registered tool names, unlike request data, are fixed.
                     tool_name = name if name in _RESULT_MODELS else "tool"
                     raise ToolError(f"Error executing tool {tool_name}: {cause}") from None
@@ -510,13 +570,18 @@ def _mcp_tool(**options: Any) -> Callable:
                     detail = "file may already be saved; reread the working file and backup before retrying"
                 elif code == "unsupported_permissions":
                     detail = "save refused because extended file permissions cannot be preserved; keep the original permissions and use a supported working location"
+                elif code == "file_locked" and fn.__name__ == "apply_document_edits":
+                    detail = "close the document in Word and wait for any other Veqtor save, then retry with a fresh preflight"
+                elif code in {"source_changed", "file_sha256_mismatch"} and fn.__name__ == "apply_document_edits":
+                    detail = "the document or its folder changed; reread the working file and obtain a new preflight before saving"
                 elif isinstance(exc, positions.PositionError) and code == "commit_uncertain":
                     detail = "outcome uncertain; reread revision before retrying"
                 elif fn.__name__ == "list_rounds" and isinstance(
                     exc.__cause__, ExpandedOutputBudgetExceeded
                 ):
                     detail = "aggregate expanded-output limit; split the folder and retry"
-                raise _SafeToolError(f"{code}: {detail}") from None
+                recovery = _drafting_recovery(fn, args, kwargs, exc, code, detail)
+                raise _SafeToolError(f"{code}: {detail}", recovery=recovery) from None
             except Exception:
                 # SDK 2.0 exposed arbitrary exception messages; 2.2 masks them.
                 # Keep unexpected failures private on both versions.

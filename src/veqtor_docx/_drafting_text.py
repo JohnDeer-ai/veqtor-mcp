@@ -12,6 +12,8 @@ paragraph nor its revision-id allocator.
 from __future__ import annotations
 
 import copy
+import re
+from datetime import datetime
 
 from lxml import etree
 
@@ -21,15 +23,18 @@ from ._ooxml import (
     w,
 )
 from .apply import (
-    ApplyError,
     MAX_NEW_TEXT_CHARS_PER_EDIT,
-    _RevisionIdAllocator,
+    ApplyError,
     _paragraph_segments,
     _reading_text,
-    _split_run_at,
+    _RevisionIdAllocator,
 )
 
 _XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
+DRAFTING_TIMESTAMP_PATTERN = (
+    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
+    r"(?:Z|[+-](?:0[0-9]|1[0-3]):[0-5][0-9]|[+-]14:00)"
+)
 _OUTSIDE_MARKERS = frozenset(
     w(name)
     for name in (
@@ -42,19 +47,113 @@ _OUTSIDE_MARKERS = frozenset(
 )
 
 
+def parse_drafting_timestamp(value: object) -> datetime:
+    """Validate one captured instant, including its explicit original offset."""
+    if not isinstance(value, str) or re.fullmatch(DRAFTING_TIMESTAMP_PATTERN, value) is None:
+        raise ValueError("timestamp must include an explicit timezone and whole seconds")
+    # The lexical check bounds offsets to XML Schema's +/-14:00 range. Parsing
+    # additionally rejects impossible dates and times, without normalizing the
+    # string retained in the proof.
+    return datetime.fromisoformat(value)
+
+
+def annotation_date(timestamp: str | None) -> str | None:
+    """Render captured local wall time for Word's legacy annotation-date UI.
+
+    Word displays w:date as a wall clock and normalizes explicit offsets to UTC.
+    Omitting the zone here retains the captured local display time; the proof
+    keeps the complete timezone-aware timestamp and therefore the real instant.
+    Never consult the machine clock or current timezone during this conversion.
+    """
+    if timestamp is None:
+        return None
+    return parse_drafting_timestamp(timestamp).replace(tzinfo=None).isoformat(timespec="seconds")
+
+
 def _simple_run(run: etree._Element | None) -> bool:
-    """One literal atom, unambiguous formatting, and no revision properties."""
+    """One literal atom and at most one well-formed run-format revision."""
+    if (
+        run is None
+        or run.tag != w("r")
+        or len(run.findall(w("t"))) != 1
+        or len(run.findall(w("rPr"))) > 1
+        or any(
+            child.tag not in (w("t"), w("rPr"), w("lastRenderedPageBreak"))
+            for child in run
+        )
+    ):
+        return False
+    changes = [
+        node
+        for node in run.iter()
+        if isinstance(node.tag, str) and etree.QName(node).localname.endswith("Change")
+    ]
+    if not changes:
+        return True
+    props = run.find(w("rPr"))
     return (
-        run is not None
-        and run.tag == w("r")
-        and len(run.findall(w("t"))) == 1
+        len(changes) == 1
+        and changes[0].tag == w("rPrChange")
+        and changes[0].getparent() is props
+        and bool(changes[0].get(w("id")))
+        and bool(changes[0].get(w("author")))
+        and len(changes[0]) == 1
+        and changes[0][0].tag == w("rPr")
+    )
+
+
+def _layout_run(run: etree._Element) -> bool:
+    """Cached page boundaries have no text or semantic range endpoints."""
+    return (
+        run.tag == w("r")
+        and bool(run.findall(w("lastRenderedPageBreak")))
         and len(run.findall(w("rPr"))) <= 1
-        and all(child.tag in (w("t"), w("rPr")) for child in run)
+        and all(child.tag in (w("rPr"), w("lastRenderedPageBreak")) for child in run)
         and not any(
             isinstance(node.tag, str) and etree.QName(node).localname.endswith("Change")
             for node in run.iter()
         )
     )
+
+
+def _format_change(run: etree._Element) -> etree._Element | None:
+    return run.find(f"{w('rPr')}/{w('rPrChange')}")
+
+
+def _split_run_at(segments: list, offset: int) -> None:
+    """Split literal text without duplicating cached page-boundary markers.
+
+    A marker before the text stays with the prefix and one after it stays with
+    the suffix. Format revisions cannot be split: their original identity and
+    scope must survive as a single record.
+    """
+    for segment in segments:
+        if segment.start < offset < segment.end:
+            run = segment.run
+            if not _simple_run(run) or _format_change(run) is not None:
+                raise ApplyError(
+                    "unsupported_run_shape",
+                    "a partial edit cannot split tracked run formatting",
+                )
+            text_index = run.index(segment.node)
+            right = copy.deepcopy(run)
+            for index, (left_child, right_child) in enumerate(
+                zip(list(run), list(right))
+            ):
+                if left_child.tag == w("lastRenderedPageBreak"):
+                    (right if index < text_index else run).remove(
+                        right_child if index < text_index else left_child
+                    )
+            cut = offset - segment.start
+            segment.node.text = segment.text[:cut]
+            segment.node.set(_XML_SPACE, "preserve")
+            right_atom = right.find(w("t"))
+            right_atom.text = segment.text[cut:]
+            right_atom.set(_XML_SPACE, "preserve")
+            run.addnext(right)
+            return
+        if segment.start == offset:
+            return
 
 
 def _comment_reference_run(run: etree._Element) -> bool:
@@ -124,18 +223,31 @@ def _assert_outside_fields(
             )
 
 
-def _new_run(template: etree._Element, text: str) -> etree._Element:
+def _new_run(
+    template: etree._Element, text: str, *, preserve_format_history: bool
+) -> etree._Element:
     run = copy.deepcopy(template)
+    for marker in run.findall(w("lastRenderedPageBreak")):
+        run.remove(marker)
+    change = _format_change(run)
+    if change is not None and not preserve_format_history:
+        # The original revision stays on the old text. Newly inserted text
+        # inherits its current style, not another author's historical edit.
+        change.getparent().remove(change)
     atom = run.find(w("t"))
     atom.text = text
     atom.set(_XML_SPACE, "preserve")
     return run
 
 
-def _new_revision(kind: str, revision_id: str, author: str) -> etree._Element:
+def _new_revision(
+    kind: str, revision_id: str, author: str, timestamp: str | None
+) -> etree._Element:
     revision = etree.Element(w(kind))
     revision.set(w("id"), revision_id)
     revision.set(w("author"), author)
+    if timestamp is not None:
+        revision.set(w("date"), timestamp)
     return revision
 
 
@@ -145,6 +257,7 @@ def _replace_candidate(
     new_text: str,
     author: str,
     allocator: _RevisionIdAllocator,
+    timestamp: str | None,
 ) -> dict:
     segments = _paragraph_segments(paragraph)
     before = _reading_text(segments)
@@ -191,6 +304,7 @@ def _replace_candidate(
         if any(
             child.tag not in _OUTSIDE_MARKERS
             and not _simple_run(child)
+            and not _layout_run(child)
             and not (
                 operation == "edit_own_insertion" and _comment_reference_run(child)
             )
@@ -229,6 +343,16 @@ def _replace_candidate(
             "the matched span requires direct, simple text runs",
         )
     _assert_outside_fields(paragraph, touched_runs)
+    formatted = [seg for seg in touched if _format_change(seg.run) is not None]
+    if any(seg.start < start or seg.end > end for seg in formatted) or (
+        formatted
+        and operation == "edit_own_insertion"
+        and (len(touched_runs) != 1 or not new_text)
+    ):
+        raise ApplyError(
+            "unsupported_run_shape",
+            "the edit would split or discard an existing run-format revision",
+        )
     children = list(parent)
     first_index = children.index(touched[0].run)
     last_index = children.index(touched[-1].run)
@@ -243,7 +367,9 @@ def _replace_candidate(
         if operation == "edit_own_insertion"
         and _movable_goback_start(paragraph, parent, child)
     ]
-    if len(movable_markers) != len(interleaved):
+    if any(
+        child not in movable_markers and not _layout_run(child) for child in interleaved
+    ):
         raise ApplyError(
             "unsupported_run_shape",
             "the matched span crosses a range boundary or non-text markup",
@@ -260,16 +386,37 @@ def _replace_candidate(
         if seg.start >= start and seg.end <= end and seg.end > seg.start
     ]
     first_index = parent.index(covered[0])
-    replacement = _new_run(covered[0], new_text) if new_text else None
+    replacement = (
+        _new_run(
+            covered[0],
+            new_text,
+            preserve_format_history=operation == "edit_own_insertion",
+        )
+        if new_text
+        else None
+    )
     target_revision_id = container.get(w("id")) if container is not None else None
     target_author = container.get(w("author")) if container is not None else None
     if operation == "edit_own_insertion":
         revision_ids = [target_revision_id]
+        layout_markers = [
+            marker
+            for run in covered
+            for marker in run.findall(w("lastRenderedPageBreak"))
+        ]
         for run in covered:
             parent.remove(run)
         for marker in movable_markers:
             parent.remove(marker)
             parent.insert(first_index, marker)
+            first_index += 1
+        if layout_markers:
+            # Keep each cached marker once, including when all own text is
+            # removed. Word recalculates page positions after subsequent edits.
+            layout = etree.Element(w("r"))
+            for marker in layout_markers:
+                layout.append(marker)
+            parent.insert(first_index, layout)
             first_index += 1
         if replacement is not None:
             parent.insert(first_index, replacement)
@@ -281,7 +428,7 @@ def _replace_candidate(
             paragraph.remove(parent)
     else:
         revision_ids = list(allocator.reserve(2 if new_text else 1))
-        deletion = _new_revision("del", revision_ids[0], author)
+        deletion = _new_revision("del", revision_ids[0], author, timestamp)
         parent.insert(first_index, deletion)
         for run in covered:
             deletion.append(run)
@@ -289,7 +436,7 @@ def _replace_candidate(
             atom.tag = w("delText")
             atom.set(_XML_SPACE, "preserve")
         if replacement is not None:
-            insertion = _new_revision("ins", revision_ids[1], author)
+            insertion = _new_revision("ins", revision_ids[1], author, timestamp)
             insertion.append(replacement)
             if operation == "counter":
                 parent.addnext(insertion)
@@ -330,6 +477,8 @@ def replace_text(
     new_text: str,
     author: str,
     allocator: _RevisionIdAllocator,
+    *,
+    timestamp: str | None = None,
 ) -> dict:
     """Replace one unique literal span, retaining native tracked-change markup.
 
@@ -366,10 +515,14 @@ def replace_text(
         )
     if author_error := tracked_change_author_validation_error(author):
         raise ApplyError("invalid_author", author_error)
+    try:
+        date = annotation_date(timestamp)
+    except ValueError as exc:
+        raise ApplyError("invalid_edit", "timestamp must be a valid date with an explicit timezone") from exc
     candidate = copy.deepcopy(paragraph)
     candidate_allocator = _RevisionIdAllocator(allocator.next_value)
     result = _replace_candidate(
-        candidate, old_text, new_text, author, candidate_allocator
+        candidate, old_text, new_text, author, candidate_allocator, date
     )
     for child in list(paragraph):
         paragraph.remove(child)
