@@ -39,7 +39,7 @@ from ._history_contract import (
     PARAGRAPH_HISTORY_SEED_SCHEMA,
 )
 
-MCP_CONTRACT_SCHEMA_VERSION = "veqtor.mcp.v0.4.2"
+MCP_CONTRACT_SCHEMA_VERSION = "veqtor.mcp.v0.5.0"
 MCP_CONTRACT_META_KEY = "veqtor.pro/contractSchemaVersion"
 MCP_CONTRACT_SCHEMA_EXTENSION = "x-veqtor-contract-schema-version"
 RECORD_ID_PATTERN = r"^dr_[0-9]+(?![\s\S])"

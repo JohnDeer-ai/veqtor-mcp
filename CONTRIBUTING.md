@@ -42,8 +42,9 @@ uvx twine check dist/*.whl dist/*.tar.gz
 
 ### MCP transport compatibility
 
-The normal frozen environment tests MCP SDK 2.0.0. For changes to the transport
-boundary, also test SDK 2.2.0 with its hash-pinned pair in
+The normal frozen environment tests MCP SDK 2.2.0, which includes the upstream
+client schema-resolution security fix. For changes to the transport boundary,
+the isolated SDK check below uses the same hash-pinned pair in
 `tests/compat/mcp-2.2.0.txt`. Every other dependency comes from the same
 repository lock. Keep this environment and its reports outside the checkout:
 

@@ -24,6 +24,14 @@ def content(**changes):
 
 
 def build(tmp_path, monkeypatch, *, observer=None):
+    # These synthetic envelopes exercise the frozen NR-02 0.4.2 acceptance
+    # checker. They are not current-build installation/native acceptance proof.
+    # Keep the historical checker unchanged as development adds tool families.
+    historical_producer = {
+        "name": "veqtor-mcp", "version": "0.4.2",
+        "build": "source-snapshot-v1-sha256:" + "1" * 64,
+    }
+    monkeypatch.setattr(server, "_producer", lambda: deepcopy(historical_producer))
     original = tmp_path / "matter"
     files = generate_demo_rounds(original, profile="paragraph-edits")
     first = files[0]
@@ -161,6 +169,13 @@ def resync(item):
 def test_positive_actual_payloads_with_predeclared_values(evidence):
     events, expected = evidence
     assert checker.validate_evidence(events, expected)["status"] == "passed"
+
+
+def test_frozen_acceptance_gate_rejects_development_producer(evidence):
+    _, expected = evidence
+    expected["producer"]["version"] = "0.5.0.dev0"
+    with pytest.raises(checker.EvidenceError, match="producer differs"):
+        checker.baseline(expected)
 
 
 @pytest.mark.parametrize("name", sorted(checker.SESSIONS))

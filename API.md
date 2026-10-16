@@ -5,15 +5,23 @@
 This file defines the public tool surface. Output examples are part of the API
 because models use them to decide how to call tools and how to cite results.
 
-The release-candidate source is package `0.4.2` and advertises the
-eleven-tool MCP contract `veqtor.mcp.v0.4.2`. Package version, contract and
+The current source is unreleased package `0.5.0.dev0` and advertises the
+fourteen-tool MCP contract `veqtor.mcp.v0.5.0`. The three additive drafting tools
+are documented in [AUTHOR_DRAFTING.md](docs/AUTHOR_DRAFTING.md):
+`read_document_comments`, `preflight_document_edits`, `apply_document_edits`.
+They use `document_drafting.v1` and `drafting_preflight.v1`, permit intentional
+mutation of the configured author's pending insertions, and save back to the
+working path with a mandatory exact-byte backup. Their `record_status` is
+`disabled`; immutable legacy counterproposal journal records are unchanged.
+
+Package version, contract and
 publication status are separate identities: only matching entries on public
 PyPI and the immutable GitHub Releases list establish distribution. This file
 alone does not. Every current tool exposes
-`veqtor.pro/contractSchemaVersion: veqtor.mcp.v0.4.2` in its MCP metadata and the
+`veqtor.pro/contractSchemaVersion: veqtor.mcp.v0.5.0` in its MCP metadata and the
 same value under `x-veqtor-contract-schema-version` in its output schema. The
 contract version covers the complete tool surface, so all eight tool names
-carried forward from v0.3 also advertise v0.4.2, even where an individual tool's
+carried forward from v0.3 also advertise v0.5.0, even where an individual tool's
 schema and behavior are otherwise unchanged. Nested anchors, edits and
 preflight proofs are closed objects; top-level results remain additive where
 the advertised schema says so. `trace_paragraph_history` and the v2
@@ -25,7 +33,7 @@ build adds independent deal positions and retains clean-paragraph edits under
 integration and safe error transport; it does not modify the archived v0.4.0
 release contract or published artifacts. Historical v0.3 artifacts retain the
 eight-tool `veqtor.mcp.v0.3` surface. Historical examples and golden records
-retain their recorded producer identities; current live examples below use
+retain their recorded producer identities; historical examples below retain
 `0.4.2`. Client observations for public 0.4.0 and the earlier unpublished
 patch are recorded separately in [CODEX.md](docs/CODEX.md); neither establishes
 acceptance of this candidate build.
@@ -38,7 +46,7 @@ transport teardown separately reaps the stdio server process.
 
 Every successful live tool response includes the same bounded `producer`
 object with `name`, package `version`, and the process-start Python source
-snapshot `build`. This applies to all eleven tools, including read-only results
+snapshot `build`. This applies to all fourteen tools, including read-only results
 and decision-record export. Error envelopes are not successful tool results.
 `producer`, `record_id`, `record_status`, and `record_error` are server-owned;
 core tool results cannot supply them. `record_error` is present only with
@@ -241,6 +249,24 @@ non-hostile single-user workspace: static unsafe targets and workspace
 rebinding during open are refused, but hostile same-user filesystem mutation
 is not a supported security boundary. Automatic journal rotation and indexing
 remain outside v1.
+
+## `read_document_comments`
+
+Read ordinary Word comments with authors, initials, text, paragraph indexes and
+the current file hash. `offset` and `max_items` provide bounded paging. See the
+[drafting contract](docs/AUTHOR_DRAFTING.md#comments).
+
+## `preflight_document_edits`
+
+Dry-run sequential exact text replacements and own-comment operations. The
+result binds author, initials, source and destination to the candidate. It
+writes no files. See the [drafting contract](docs/AUTHOR_DRAFTING.md#tool-sequence).
+
+## `apply_document_edits`
+
+Apply that exact preflight candidate; omit `output_path` to save back to the same
+working file with a mandatory exact-byte backup. This tool intentionally permits
+editing existing own insertions. See [saving and recovery](docs/AUTHOR_DRAFTING.md#saving-and-recovery).
 
 ## `list_rounds`
 

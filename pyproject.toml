@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "veqtor-mcp"
-version = "0.4.2"
+version = "0.5.0.dev0"
 description = "Local MCP server for verifiable DOCX redline history and fail-closed tracked-change edits"
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
@@ -33,7 +33,7 @@ classifiers = [
 dependencies = [
   "jsonschema>=4.20,<5",
   "lxml>=6.1,<7",
-  "mcp>=2.0.0,<3",
+  "mcp>=2.2.0,<3",
 ]
 
 [project.urls]
@@ -62,6 +62,11 @@ include = [
   "/src/veqtor_docx/_projection.py",
   "/src/veqtor_docx/_paragraph_edits.py",
   "/src/veqtor_docx/apply.py",
+  "/src/veqtor_docx/drafting.py",
+  "/src/veqtor_docx/_drafting_text.py",
+  "/src/veqtor_docx/_drafting_comments.py",
+  "/src/veqtor_docx/_drafting_io.py",
+  "/src/veqtor_mcp/_drafting_contract.py",
   "/src/veqtor_docx/contracts.py",
   "/src/veqtor_docx/extract.py",
   "/src/veqtor_docx/inspect.py",
@@ -87,6 +92,7 @@ include = [
 include = [
   "/.agents/skills/veqtor-next-round/SKILL.md",
   "/docs/CODEX.md",
+  "/docs/AUTHOR_DRAFTING.md",
   "/docs/releases/v0.4.0-contract.md",
   "/docs/NR03_ACCEPTANCE.md",
   "/docs/NR03_ADVERSE_OBLIGATIONS.md",
@@ -119,6 +125,11 @@ include = [
   "/src/veqtor_docx/_projection.py",
   "/src/veqtor_docx/_paragraph_edits.py",
   "/src/veqtor_docx/apply.py",
+  "/src/veqtor_docx/drafting.py",
+  "/src/veqtor_docx/_drafting_text.py",
+  "/src/veqtor_docx/_drafting_comments.py",
+  "/src/veqtor_docx/_drafting_io.py",
+  "/src/veqtor_mcp/_drafting_contract.py",
   "/src/veqtor_docx/contracts.py",
   "/src/veqtor_docx/extract.py",
   "/src/veqtor_docx/inspect.py",

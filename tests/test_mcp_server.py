@@ -59,6 +59,9 @@ EXPECTED_TOOL_NAMES = (
     "export_decision_record",
     "read_deal_positions",
     "mutate_deal_positions",
+    "read_document_comments",
+    "preflight_document_edits",
+    "apply_document_edits",
 )
 
 
@@ -1254,7 +1257,13 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
     async with Client(mcp) as session:
         tools = {tool.name: tool for tool in (await session.list_tools()).tools}
 
-    assert set(tools) == records.WRITABLE_TOOL_NAMES | {"read_deal_positions", "mutate_deal_positions"}
+    drafting_names = {"read_document_comments", "preflight_document_edits", "apply_document_edits"}
+    assert set(tools) == records.WRITABLE_TOOL_NAMES | {"read_deal_positions", "mutate_deal_positions"} | drafting_names
+    expected_output_core.update({
+        "read_document_comments": {"file_sha256", "comments", "total_count", "next_offset"},
+        "preflight_document_edits": {"batch_applicable", "operations", "preflight_proof"},
+        "apply_document_edits": {"output_path", "backup_path", "backup_sha256", "save_mode"},
+    })
     for name in ("read_deal_positions", "mutate_deal_positions"):
         expected_output_core[name] = {"state", "revision", "positions", "history", "source_observations", "server_session_id"}
     assert set(server._RESULT_MODELS) == set(tools)
@@ -1271,6 +1280,15 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
         )
         assert tool.output_schema["type"] == "object"
         assert expected_output_core[name] <= set(tool.output_schema["properties"])
+        if name in drafting_names:
+            assert tool.output_schema["additionalProperties"] is False
+            assert tool.output_schema["properties"]["record_id"] == {"type": "null"}
+            assert tool.output_schema["properties"]["record_status"] == {"const": "disabled"}
+            assert tool.annotations.read_only_hint is (name != "apply_document_edits")
+            assert tool.annotations.idempotent_hint is (name != "apply_document_edits")
+            assert tool.annotations.destructive_hint is (name == "apply_document_edits")
+            assert tool.annotations.open_world_hint is False
+            continue
         if name in {"read_deal_positions", "mutate_deal_positions"}:
             assert tool.output_schema["additionalProperties"] is False
             assert tool.output_schema["properties"]["record_id"] == {"type": "null"}
@@ -2405,7 +2423,10 @@ async def test_tools_are_exposed_and_callable(demo_dir: Path) -> None:
                 flags=re.MULTILINE,
             )
         )
-        assert runtime_tools == records.WRITABLE_TOOL_NAMES | {"read_deal_positions", "mutate_deal_positions"}
+        assert runtime_tools == records.WRITABLE_TOOL_NAMES | {
+            "read_deal_positions", "mutate_deal_positions", "read_document_comments",
+            "preflight_document_edits", "apply_document_edits",
+        }
         assert documented_tools == runtime_tools
         export_tool = next(
             tool for tool in tools.tools if tool.name == "export_decision_record"

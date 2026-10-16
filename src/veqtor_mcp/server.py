@@ -36,6 +36,11 @@ from veqtor_mcp import records
 from veqtor_mcp import round_map
 from veqtor_mcp import positions
 from veqtor_mcp._positions_contract import DealPositionsResult, OperationsInput, RevisionInput
+from veqtor_docx import drafting
+from veqtor_mcp._drafting_contract import (
+    ApplyDocumentEditsResult, DraftingOperationsInput, DraftingProofInput,
+    DraftingShaInput, PreflightDocumentEditsResult, ReadDocumentCommentsResult,
+)
 from veqtor_mcp._verification_v2 import verify_quote_v2
 from veqtor_mcp._inspection_live import (
     CheckedInspectionError,
@@ -69,6 +74,20 @@ from veqtor_mcp.contracts import (
 )
 
 TRACKED_CHANGE_AUTHOR_ENV = "VEQTOR_TRACKED_CHANGE_AUTHOR"
+COMMENT_INITIALS_ENV = "VEQTOR_COMMENT_INITIALS"
+
+
+@cache
+def _comment_initials() -> str:
+    author = _tracked_change_author()
+    if "," in author:
+        family, given = author.split(",", 1)
+        words = given.split() + family.split()
+    else:
+        words = author.split()
+    initials = os.environ.get(COMMENT_INITIALS_ENV, "".join(word[0] for word in words))
+    drafting._profile(author, initials)
+    return initials
 
 
 def _tracked_change_author_from_environment() -> str:
@@ -152,6 +171,9 @@ _RESULT_MODELS = {
     "export_decision_record": ExportDecisionRecordResult,
     "read_deal_positions": DealPositionsResult,
     "mutate_deal_positions": DealPositionsResult,
+    "read_document_comments": ReadDocumentCommentsResult,
+    "preflight_document_edits": PreflightDocumentEditsResult,
+    "apply_document_edits": ApplyDocumentEditsResult,
 }
 
 
@@ -484,6 +506,10 @@ def _mcp_tool(**options: Any) -> Callable:
                 detail = "operation refused"
                 if isinstance(exc, _OutputContractError):
                     detail = "tool output failed contract validation"
+                elif code == "publication_uncertain":
+                    detail = "file may already be saved; reread the working file and backup before retrying"
+                elif code == "unsupported_permissions":
+                    detail = "save refused because extended file permissions cannot be preserved; keep the original permissions and use a supported working location"
                 elif isinstance(exc, positions.PositionError) and code == "commit_uncertain":
                     detail = "outcome uncertain; reread revision before retrying"
                 elif fn.__name__ == "list_rounds" and isinstance(
@@ -1646,6 +1672,77 @@ def mutate_deal_positions(
         validate_result=lambda result: _position_result("mutate_deal_positions", result))
 
 
+def _drafting_result(name: str, result: dict) -> dict:
+    normalized = _validated_success_result(name, result)
+    return {**normalized, "record_id": None, "record_status": "disabled"}
+
+
+@_mcp_tool(annotations=ToolAnnotations(title="Read Word comments", read_only_hint=True,
+           destructive_hint=False, idempotent_hint=True, open_world_hint=False),
+           meta=contract_meta(), structured_output=True)
+def read_document_comments(path: str, offset: StrictInt = 0,
+                           max_items: StrictInt = 100) -> ReadDocumentCommentsResult:
+    """Read Word comments, author names and paragraph indexes without writing files.
+
+    Returns the file_sha256 required by the drafting tools. Page with next_offset;
+    compare file hashes between pages. Existing replies can be read, but editing
+    threaded/rich comments may be refused. Use inspect_document for paragraph refs.
+    """
+    return _drafting_result("read_document_comments",
+        drafting.read_document_comments(path, offset=offset, max_items=max_items))
+
+
+@_mcp_tool(annotations=ToolAnnotations(title="Preview working-document edits", read_only_hint=True,
+           destructive_hint=False, idempotent_hint=True, open_world_hint=False),
+           meta=contract_meta(), structured_output=True)
+def preflight_document_edits(source_path: str, file_sha256: DraftingShaInput,
+                             operations: DraftingOperationsInput,
+                             output_path: str | None = None) -> PreflightDocumentEditsResult:
+    """Dry-run author drafting: precise text edits and own comments in one batch.
+
+    For iterative drafting, prefer this tool then apply_document_edits. Operations
+    run in order. Use paragraph_ref from inspect_document for replace_text
+    (old_text/new_text) and add_comment (quote/text); comment_id from
+    read_document_comments for update_comment (text) or delete_comment.
+    A replacement wholly inside this author's simple pending insertion updates
+    it in place, retaining its revision id and author, as in Word. Plain text gets
+    tracked deletion/insertion. Other authors' comments cannot be changed/deleted.
+    Source hash and paragraph references must describe the same current file.
+    Omit output_path (or use the source path) to save back to the working file
+    with a mandatory backup at apply; another output_path selects create-only copy.
+    This call writes no files. A successful proof binds source, destination,
+    operations, configured author/initials, build and the complete candidate.
+    """
+    return _drafting_result("preflight_document_edits", drafting.preflight_document_edits(
+        source_path, file_sha256, operations, output_path=output_path,
+        author=_tracked_change_author(), initials=_comment_initials(),
+        producer_build=records.SOURCE_SNAPSHOT_IDENTITY))
+
+
+@_mcp_tool(annotations=ToolAnnotations(title="Save working-document edits", read_only_hint=False,
+           destructive_hint=True, idempotent_hint=False, open_world_hint=False),
+           meta=contract_meta(), structured_output=True)
+def apply_document_edits(source_path: str, file_sha256: DraftingShaInput,
+                         operations: DraftingOperationsInput, preflight_proof: DraftingProofInput,
+                         output_path: str | None = None) -> ApplyDocumentEditsResult:
+    """Save the exact successful preflight batch as native Word revisions/comments.
+
+    Use only for user-requested document edits, with the unchanged successful
+    preflight proof and inputs. Omitted/same output_path replaces the working
+    file only after retaining an exact durable backup; the result reports its
+    path/hash. A different path creates a new file and refuses overwrite.
+    Source changes, Word owner locks and concurrent Veqtor saves refuse the write.
+    Reread paragraph refs and comment IDs after every save. Text revisions enable
+    Word Track Changes. Existing own insertion identities are retained.
+    These mutable drafting operations are separate from the immutable legacy
+    counterproposal journal; record_status is disabled for this tool family.
+    """
+    return _drafting_result("apply_document_edits", drafting.apply_document_edits(
+        source_path, file_sha256, operations, preflight_proof, output_path=output_path,
+        author=_tracked_change_author(), initials=_comment_initials(),
+        producer_build=records.SOURCE_SNAPSHOT_IDENTITY))
+
+
 def main() -> None:
     if sys.argv[1:] == ["--version"]:
         print(f"veqtor-mcp {__version__}")
@@ -1656,12 +1753,17 @@ def main() -> None:
         configuration_error: dict[str, str] | None = None
         try:
             tracked_change_author = _tracked_change_author()
+            comment_initials = _comment_initials()
         except RuntimeError as exc:
             tracked_change_author = None
+            comment_initials = None
             configuration_error = {
                 "code": "tracked_change_author_invalid",
                 "message": str(exc),
             }
+        except veqtor_docx.DocxError as exc:
+            comment_initials = None
+            configuration_error = {"code": "comment_initials_invalid", "message": str(exc)}
         status = (
             "error"
             if configuration_error is not None
@@ -1680,6 +1782,7 @@ def main() -> None:
                     "supported_python": supported_python,
                     "supported_platform": supported_platform,
                     "tracked_change_author": tracked_change_author,
+                    "comment_initials": comment_initials,
                     "configuration_error": configuration_error,
                     "decision_records": (
                         "disabled" if records.disabled() else "enabled"
@@ -1704,7 +1807,8 @@ def main() -> None:
         raise SystemExit(2)
     try:
         _tracked_change_author()
-    except RuntimeError as exc:
+        _comment_initials()
+    except (RuntimeError, veqtor_docx.DocxError) as exc:
         print(f"configuration error: {exc}", file=sys.stderr)
         raise SystemExit(2) from None
     mcp.run()

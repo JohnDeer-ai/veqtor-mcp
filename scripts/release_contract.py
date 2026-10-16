@@ -83,8 +83,12 @@ RUNTIME_SOURCE_FILES = (
     "src/veqtor_mcp/server.py",
 )
 
-# The current release includes the previously development-only runtime files.
-DEVELOPMENT_RUNTIME_SOURCE_FILES = RUNTIME_SOURCE_FILES
+# The frozen 0.4.2 inventory stays immutable; these additions are development-only.
+DEVELOPMENT_RUNTIME_SOURCE_FILES = (*RUNTIME_SOURCE_FILES,
+    "src/veqtor_docx/drafting.py", "src/veqtor_docx/_drafting_text.py",
+    "src/veqtor_docx/_drafting_comments.py", "src/veqtor_docx/_drafting_io.py",
+    "src/veqtor_mcp/_drafting_contract.py",
+)
 
 MCPB_REQUIRED_TOOLS = (
     "list_rounds",

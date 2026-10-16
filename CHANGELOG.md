@@ -6,6 +6,19 @@ All notable changes to Veqtor MCP are documented here.
 Publication dates are authoritative in each version's immutable GitHub Release
 through its `published_at` timestamp.
 
+## 0.5.0.dev0
+
+Unreleased author-drafting development build; public `0.4.2` artifacts are unchanged.
+
+- Add `read_document_comments`, `preflight_document_edits`, and `apply_document_edits`.
+- Re-edit simple own pending insertions while retaining their author, ID and date.
+- Read comments, add anchored comments, and update/delete supported own comments.
+- Save to the same working file with mandatory exact-byte backups, stale-source
+  checks, cooperative locking and Word owner-file detection; keep create-only copy mode.
+- Bind drafting preflight proofs to source, destination, author/initials, operations
+  and candidate bytes. Preserve the legacy counterproposal API and journal.
+- Require MCP SDK 2.2.0 or later and update the locked SDK pair to 2.2.0.
+
 ## 0.4.2
 
 Veqtor v0.4.2 Alpha release contents. Publication is established only by the
