@@ -232,24 +232,26 @@ def test_development_preserves_the_complete_frozen_v04_surface() -> None:
 
     source_version = project["project"]["version"]
     frozen_version = release["VERSION"]
-    assert source_version == development_version == "0.4.2"
+    assert source_version == development_version == "0.5.0.dev3"
     assert "/CLAUSE_HISTORY_V0.4.md" in sdist_includes
     assert frozen_version == "0.4.0"
     assert frozen_version != source_version
     assert "CLAUSE_HISTORY_V0.4.md" in release["PUBLIC_DOCUMENT_FILES"]
     assert "CLAUSE_HISTORY_V0.4.md" in release["SDIST_GIT_FILES"]
-    assert MCP_CONTRACT_SCHEMA_VERSION == "veqtor.mcp.v0.4.2"
+    assert MCP_CONTRACT_SCHEMA_VERSION == "veqtor.mcp.v0.5.0"
     assert len(records.WRITABLE_TOOL_NAMES) == 9
     assert "trace_paragraph_history" in records.WRITABLE_TOOL_NAMES
     assert len(release["MCPB_REQUIRED_TOOLS"]) == 9
     assert "trace_paragraph_history" in release["MCPB_REQUIRED_TOOLS"]
-    assert f"release-candidate source is package `{source_version}`" in api
-    assert "eleven-tool MCP contract `veqtor.mcp.v0.4.2`" in api
+    assert f"current source is unreleased package `{source_version}`" in api
+    assert "fourteen-tool MCP contract `veqtor.mcp.v0.5.0`" in api
     assert "Public `0.4.0`" in api
-    assert f"release-candidate source `{source_version}`" in limitations
+    assert "release-candidate source `0.4.2`" in limitations
     assert "veqtor.mcp.v0.4" in limitations
-    assert "compatible with public `0.4.0`" in limitations
-    assert f'"version": "{source_version}"' in api
+    assert "compatible with public `0.4.0`" in " ".join(
+        limitations.split()
+    )
+    assert '"version": "0.4.2"' in api  # Historical examples retain their producer.
 
 
 def test_frozen_clause_history_spec_has_closed_projection_fixture_contract() -> None:

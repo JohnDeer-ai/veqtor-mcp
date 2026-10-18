@@ -16,6 +16,7 @@ DEVELOPMENT_TOOLS = (
     "list_rounds", "extract_redlines", "inspect_document", "map_rounds",
     "trace_paragraph_history", "preflight_edits", "apply_edits", "verify_quote",
     "export_decision_record", "read_deal_positions", "mutate_deal_positions",
+    "read_document_comments", "preflight_document_edits", "apply_document_edits",
 )
 FROZEN_TOOLS = (
     "list_rounds", "extract_redlines", "inspect_document", "map_rounds",
@@ -25,7 +26,8 @@ FROZEN_TOOLS = (
 
 
 @pytest.fixture
-def smoke():
+def smoke(monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
     spec = importlib.util.spec_from_file_location(
         "installed_wheel_smoke_under_test", ROOT / "scripts" / "installed_wheel_smoke.py",
     )
@@ -38,8 +40,8 @@ def inventory(names):
     return SimpleNamespace(tools=[SimpleNamespace(name=name) for name in names])
 
 
-def test_explicit_eleven_tool_development_inventory_passes(smoke):
-    assert smoke.__version__ == "0.4.2"
+def test_explicit_fourteen_tool_development_inventory_passes(smoke):
+    assert smoke.__version__ == "0.5.0.dev3"
     assert smoke._assert_tool_inventory(inventory(DEVELOPMENT_TOOLS)) == DEVELOPMENT_TOOLS
 
 
@@ -53,7 +55,7 @@ def test_explicit_eleven_tool_development_inventory_passes(smoke):
     pytest.param((*FROZEN_TOOLS, "read_deal_positions", "read_deal_positions"), id="duplicate-replaces-mutate"),
 ])
 def test_development_inventory_rejects_weaker_or_different_surface(smoke, names):
-    assert smoke.__version__ == "0.4.2"
+    assert smoke.__version__ == "0.5.0.dev3"
     with pytest.raises(AssertionError, match="tool inventory differs"):
         smoke._assert_tool_inventory(inventory(names))
     assert smoke._assert_tool_inventory(inventory(DEVELOPMENT_TOOLS)) == DEVELOPMENT_TOOLS
@@ -67,6 +69,14 @@ def test_frozen_v04_contract_remains_exactly_nine(smoke, monkeypatch):
         with pytest.raises(AssertionError, match="tool inventory differs"):
             smoke._assert_tool_inventory(inventory(names))
     assert smoke._assert_tool_inventory(inventory(FROZEN_TOOLS)) == FROZEN_TOOLS
+
+
+def test_frozen_v042_contract_remains_exactly_eleven(smoke, monkeypatch):
+    monkeypatch.setattr(smoke, "__version__", "0.4.2")
+    historical_tools = (*FROZEN_TOOLS, "read_deal_positions", "mutate_deal_positions")
+    assert smoke._assert_tool_inventory(inventory(historical_tools)) == historical_tools
+    with pytest.raises(AssertionError, match="tool inventory differs"):
+        smoke._assert_tool_inventory(inventory(DEVELOPMENT_TOOLS))
 
 
 def test_unknown_version_cannot_infer_a_contract_from_observed_tools(smoke, monkeypatch):
@@ -90,5 +100,5 @@ def test_complete_smoke_validates_inventory_in_both_stdio_eras_and_inmemory(smok
     monkeypatch.setattr(smoke, "_assert_tool_inventory", observe)
     result = asyncio.run(smoke.smoke())
     assert observed == [DEVELOPMENT_TOOLS, DEVELOPMENT_TOOLS, DEVELOPMENT_TOOLS]
-    assert result["tool_count"] == 11
+    assert result["tool_count"] == 14
     assert result["stdio_protocol_versions"] == {"auto": "2026-07-28", "legacy": "2025-11-25"}

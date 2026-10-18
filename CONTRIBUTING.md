@@ -42,8 +42,9 @@ uvx twine check dist/*.whl dist/*.tar.gz
 
 ### MCP transport compatibility
 
-The normal frozen environment tests MCP SDK 2.0.0. For changes to the transport
-boundary, also test SDK 2.2.0 with its hash-pinned pair in
+The normal frozen environment tests MCP SDK 2.2.0, which includes the upstream
+client schema-resolution security fix. For changes to the transport boundary,
+the isolated SDK check below uses the same hash-pinned pair in
 `tests/compat/mcp-2.2.0.txt`. Every other dependency comes from the same
 repository lock. Keep this environment and its reports outside the checkout:
 
@@ -68,6 +69,21 @@ SDK-only compatibility substitution; it is
 not used for the normal development/full-suite command. These transport tests
 do not replace exact-candidate native Codex or rendered-DOCX acceptance in
 [CODEX.md](docs/CODEX.md).
+
+The Python SDK skips output validation for tool errors. Also exercise the
+independent TypeScript SDK path whenever drafting transport or publication
+changes. Its pinned dependencies are isolated from the Python application:
+
+```bash
+npm ci --prefix scripts/compat-typescript --ignore-scripts
+node scripts/compat-typescript/drafting.mjs \
+  --python "$PWD/.venv/bin/python" --report /tmp/veqtor-typescript.json
+```
+
+The harness uses synthetic DOCX files and a test-only stdio server to check real
+success, Word-lock refusal, invalid input, and failure before/after publication.
+It independently validates every structured result, including errors, against
+the advertised schema. To check an installed wheel, pass its Python executable.
 
 ### Frozen-release checks
 

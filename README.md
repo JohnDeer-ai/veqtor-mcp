@@ -30,14 +30,18 @@ tamper-evident audit system. Review the
 [known limitations](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/KNOWN_LIMITATIONS.md)
 before using it on a real matter.
 
-This source tree is release-candidate package `0.4.2` and advertises the
-eleven-tool MCP contract `veqtor.mcp.v0.4.2`. All eleven tools report that one
-contract-wide marker. Legacy calls remain compatible
-with public `0.4.0`; the additive paragraph target requires this candidate build; live `producer.version` identifies this package version
-and `producer.build` fingerprints the imported Python sources.
+This source tree carries unreleased package version `0.5.0.dev3` and the
+fourteen-tool MCP contract `veqtor.mcp.v0.5.0`. The three new drafting tools
+support repeated edits under one configured author, comments and backup-backed
+saves to the working file. See [author drafting](#author-drafting-development).
+All current tools report the new contract-wide marker. Legacy calls remain
+compatible with the historical `0.4.0` release; the additive paragraph target
+and the two deal-position tools require `0.4.2`. Live `producer.version`
+identifies this package version and `producer.build` fingerprints the imported
+Python sources.
 
-Public `0.4.0` is the published release line. This candidate tree adds the
-Codex integration and safe error transport; it is not a new publication or
+Public installations must use an independently verified released version.
+This development tree is not a new publication or
 proof of client acceptance. The historical v0.4.0 contract is retained separately; its published
 artifacts are unchanged. The historical v0.3 release remains an immutable
 eight-tool `veqtor.mcp.v0.3` surface.
@@ -53,6 +57,16 @@ select one exact version for every command below:
 | Otherwise | `0.4.0` |
 
 Do not run the placeholder literally or mix versions within one installation.
+
+## Author drafting development
+
+The development-only `read_document_comments`, `preflight_document_edits` and
+`apply_document_edits` tools support editing one's own pending insertions,
+ordinary comments and saving the same working DOCX with a mandatory backup.
+Configure `VEQTOR_TRACKED_CHANGE_AUTHOR` and `VEQTOR_COMMENT_INITIALS` once, close
+Word before a save, and refresh document references afterwards. The complete
+operation and recovery contract is in `docs/AUTHOR_DRAFTING.md` in this tree.
+The public installation commands below continue to select the published release.
 
 ## Claude Desktop Extension status
 

@@ -13,7 +13,7 @@ ROOT = Path(__file__).parents[1]
 
 
 def test_package_versions_match() -> None:
-    assert docx_version == "0.4.2"
+    assert docx_version == "0.5.0.dev3"
     assert mcp_version == docx_version
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
     lock = tomllib.loads((ROOT / "uv.lock").read_text())
@@ -166,9 +166,9 @@ def test_release_copy_is_state_neutral_and_site_uses_public_v042() -> None:
     assert "https://pypi.org/project/veqtor-mcp/" in readme
     assert "Both sources expose `0.4.2`" in readme
     assert "| Otherwise | `0.4.0` |" in readme
-    assert "release-candidate package `0.4.2`" in readme
-    assert "eleven-tool MCP contract `veqtor.mcp.v0.4.2`" in readme
-    assert "Public `0.4.0` is the published release line" in readme
+    assert "unreleased package version `0.5.0.dev3`" in readme
+    assert "fourteen-tool MCP contract `veqtor.mcp.v0.5.0`" in readme
+    assert "Public installations must use an independently verified released version" in readme
     assert "not a new publication" in immutable_docs
     for name in ("README.md", "API.md", "KNOWN_LIMITATIONS.md", "ROADMAP.md", "docs/CODEX.md"):
         current = (ROOT / name).read_text()
@@ -217,7 +217,6 @@ def test_release_copy_is_state_neutral_and_site_uses_public_v042() -> None:
 
 def test_public_site_v042_tool_and_history_instructions_match_the_release() -> None:
     from veqtor_mcp._verification_v2 import PARAGRAPH_PROJECTION_MODES
-    from veqtor_mcp.contracts import MCP_CONTRACT_SCHEMA_VERSION
     from veqtor_mcp.records import WRITABLE_TOOL_NAMES
 
     pages = ROOT / "website" / "src" / "pages"
@@ -229,7 +228,7 @@ def test_public_site_v042_tool_and_history_instructions_match_the_release() -> N
         "read_deal_positions", "mutate_deal_positions",
     }
     for marker in (
-        MCP_CONTRACT_SCHEMA_VERSION,
+        "veqtor.mcp.v0.4.2",  # Public site stays on the published release.
         "filename_lexicographic_v1",
         "explicit_filename_sequence_v1",
         *PARAGRAPH_PROJECTION_MODES,
@@ -244,7 +243,7 @@ def test_public_site_v042_tool_and_history_instructions_match_the_release() -> N
     assert f"<blockquote>{prompt}</blockquote>" in setup
     assert "${PUBLIC_MCPB_FILENAME}" in setup
     assert "eleven tools" in setup
-    assert MCP_CONTRACT_SCHEMA_VERSION in setup
+    assert "veqtor.mcp.v0.4.2" in setup
     assert "read_deal_positions" in setup
     assert "mutate_deal_positions" in setup
     assert "not a full acceptance test" in setup

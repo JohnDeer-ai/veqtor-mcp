@@ -13,6 +13,7 @@ import platform
 import sys
 from contextvars import ContextVar
 from functools import cache, wraps
+from inspect import signature
 from typing import Annotated, Any, Callable, Literal
 
 import jsonschema
@@ -36,6 +37,12 @@ from veqtor_mcp import records
 from veqtor_mcp import round_map
 from veqtor_mcp import positions
 from veqtor_mcp._positions_contract import DealPositionsResult, OperationsInput, RevisionInput
+from veqtor_docx import drafting
+from veqtor_mcp._drafting_contract import (
+    ApplyDocumentEditsResult, ApplyDocumentEditsSuccessResult, DRAFTING_ERROR_RESULT,
+    DraftingOperationsInput, DraftingProofInput,
+    DraftingShaInput, PreflightDocumentEditsResult, ReadDocumentCommentsResult,
+)
 from veqtor_mcp._verification_v2 import verify_quote_v2
 from veqtor_mcp._inspection_live import (
     CheckedInspectionError,
@@ -69,6 +76,20 @@ from veqtor_mcp.contracts import (
 )
 
 TRACKED_CHANGE_AUTHOR_ENV = "VEQTOR_TRACKED_CHANGE_AUTHOR"
+COMMENT_INITIALS_ENV = "VEQTOR_COMMENT_INITIALS"
+
+
+@cache
+def _comment_initials() -> str:
+    author = _tracked_change_author()
+    if "," in author:
+        family, given = author.split(",", 1)
+        words = given.split() + family.split()
+    else:
+        words = author.split()
+    initials = os.environ.get(COMMENT_INITIALS_ENV, "".join(word[0] for word in words))
+    drafting._profile(author, initials)
+    return initials
 
 
 def _tracked_change_author_from_environment() -> str:
@@ -87,6 +108,81 @@ def _tracked_change_author() -> str:
 
 class _SafeToolError(ToolError):
     """Only the Veqtor adapter may mint a client-visible diagnostic."""
+
+    def __init__(self, message: str, recovery: dict | None = None):
+        super().__init__(message)
+        self.recovery = recovery
+
+
+def _drafting_recovery(fn, args, kwargs, exc, code: str, detail: str) -> dict | None:
+    """Expose only publication facts bound to this requested document location.
+
+    Exception messages and arbitrary metadata remain private. The caller needs
+    its own output/backup paths to recover safely after a late save failure.
+    """
+    if fn.__name__ != "apply_document_edits":
+        return None
+    metadata = getattr(exc, "metadata", {})
+    if not isinstance(metadata, dict) or metadata.get("failure_phase") != "publication":
+        return None
+    try:
+        arguments = signature(fn).bind(*args, **kwargs).arguments
+        source = drafting._path(arguments["source_path"])
+        source = os.path.join(os.path.realpath(os.path.dirname(source)), os.path.basename(source))
+        output = drafting._path(arguments.get("output_path") or source)
+        output = os.path.join(os.path.realpath(os.path.dirname(output)), os.path.basename(output))
+        if (metadata.get("output_path") != output
+                or type(metadata.get("publication_completed")) is not bool):
+            return None
+        backup, digest = metadata.get("backup_path"), metadata.get("backup_sha256")
+        if backup is not None:
+            expected_dir = os.path.join(os.path.dirname(source), ".veqtor-backups")
+            source_name = os.fsencode(os.path.basename(source))[:140].decode(errors="ignore")
+            expected_digest = arguments.get("file_sha256")
+            if (not isinstance(backup, str) or os.path.dirname(backup) != expected_dir
+                    or os.path.normpath(backup) != backup or not backup.endswith(".docx")
+                    or not isinstance(digest, str) or len(digest) != 64
+                    or digest != expected_digest or any(c not in "0123456789abcdef" for c in digest)):
+                return None
+            prefix = f"{source_name}.{digest[:16]}."
+            basename = os.path.basename(backup)
+            token = basename[len(prefix):-5]
+            if (not basename.startswith(prefix) or len(token) != 32
+                    or any(c not in "0123456789abcdef" for c in token)):
+                return None
+        elif digest is not None:
+            return None
+    except (KeyError, TypeError, ValueError, veqtor_docx.DocxError):
+        return None
+    payload = {
+        "schema_version": "drafting_error.v1", "status": "error",
+        "error_code": code, "message": detail,
+        "recovery": {"output_path": output, "backup_path": backup,
+                     "backup_sha256": digest,
+                     "backup_path_verified": metadata.get("backup_path_verified") is True,
+                     "publication_completed": metadata["publication_completed"],
+                     "lock_path": None, "lock_reason": None},
+    }
+    lock_path = metadata.get("lock_path")
+    if isinstance(lock_path, str) and metadata.get("lock_reason") == "owner_not_proven_dead":
+        from veqtor_docx._drafting_io import _legacy_lock_name
+
+        allowed_locks = {
+            os.path.join(os.path.dirname(path), _legacy_lock_name(os.path.basename(path)))
+            for path in (source, output)
+        }
+        if lock_path in allowed_locks:
+            payload["recovery"].update(lock_path=lock_path, lock_reason="owner_not_proven_dead")
+            payload["message"] = (
+                "another save or an unverifiable save lock prevents writing; close Word and other "
+                "Veqtor writers, then inspect the reported lock before manual recovery; do not "
+                "remove a lock while its writer may be active"
+            )
+    # This is validated independently from the successful result gate. Never
+    # expose arbitrary exception metadata, even when a core failure is expected.
+    if not jsonschema.Draft202012Validator(DRAFTING_ERROR_RESULT).is_valid(payload):
+        return None
+    return payload
 
 
 _TOOL_ENTRY: ContextVar[list[bool] | None] = ContextVar("veqtor_tool_entry", default=None)
@@ -110,6 +206,11 @@ class _VeqtorMCPServer(MCPServer):
             while cause is not None and id(cause) not in seen:
                 seen.add(id(cause))
                 if isinstance(cause, _SafeToolError):
+                    if cause.recovery is not None:
+                        return CallToolResult(
+                            content=[TextContent(type="text", text=json.dumps(cause.recovery, ensure_ascii=False))],
+                            structured_content=cause.recovery, is_error=True,
+                        )
                     # The registered tool names, unlike request data, are fixed.
                     tool_name = name if name in _RESULT_MODELS else "tool"
                     raise ToolError(f"Error executing tool {tool_name}: {cause}") from None
@@ -152,6 +253,9 @@ _RESULT_MODELS = {
     "export_decision_record": ExportDecisionRecordResult,
     "read_deal_positions": DealPositionsResult,
     "mutate_deal_positions": DealPositionsResult,
+    "read_document_comments": ReadDocumentCommentsResult,
+    "preflight_document_edits": PreflightDocumentEditsResult,
+    "apply_document_edits": ApplyDocumentEditsSuccessResult,
 }
 
 
@@ -484,13 +588,24 @@ def _mcp_tool(**options: Any) -> Callable:
                 detail = "operation refused"
                 if isinstance(exc, _OutputContractError):
                     detail = "tool output failed contract validation"
+                elif code == "publication_uncertain":
+                    detail = "file may already be saved; reread the working file and backup before retrying"
+                elif code == "unsupported_permissions":
+                    detail = "save refused because extended file permissions cannot be preserved; keep the original permissions and use a supported working location"
+                elif code == "unsupported_filesystem":
+                    detail = "safe saving is not supported on this filesystem; use a local supported working folder, close Word, and obtain a fresh preflight"
+                elif code == "file_locked" and fn.__name__ == "apply_document_edits":
+                    detail = "close the document in Word and wait for any other Veqtor save, then retry with a fresh preflight"
+                elif code in {"source_changed", "file_sha256_mismatch"} and fn.__name__ == "apply_document_edits":
+                    detail = "the document or its folder changed; reread the working file and obtain a new preflight before saving"
                 elif isinstance(exc, positions.PositionError) and code == "commit_uncertain":
                     detail = "outcome uncertain; reread revision before retrying"
                 elif fn.__name__ == "list_rounds" and isinstance(
                     exc.__cause__, ExpandedOutputBudgetExceeded
                 ):
                     detail = "aggregate expanded-output limit; split the folder and retry"
-                raise _SafeToolError(f"{code}: {detail}") from None
+                recovery = _drafting_recovery(fn, args, kwargs, exc, code, detail)
+                raise _SafeToolError(f"{code}: {detail}", recovery=recovery) from None
             except Exception:
                 # SDK 2.0 exposed arbitrary exception messages; 2.2 masks them.
                 # Keep unexpected failures private on both versions.
@@ -1646,6 +1761,77 @@ def mutate_deal_positions(
         validate_result=lambda result: _position_result("mutate_deal_positions", result))
 
 
+def _drafting_result(name: str, result: dict) -> dict:
+    normalized = _validated_success_result(name, result)
+    return {**normalized, "record_id": None, "record_status": "disabled"}
+
+
+@_mcp_tool(annotations=ToolAnnotations(title="Read Word comments", read_only_hint=True,
+           destructive_hint=False, idempotent_hint=True, open_world_hint=False),
+           meta=contract_meta(), structured_output=True)
+def read_document_comments(path: str, offset: StrictInt = 0,
+                           max_items: StrictInt = 100) -> ReadDocumentCommentsResult:
+    """Read Word comments, author names and paragraph indexes without writing files.
+
+    Returns the file_sha256 required by the drafting tools. Page with next_offset;
+    compare file hashes between pages. Existing replies can be read, but editing
+    threaded/rich comments may be refused. Use inspect_document for paragraph refs.
+    """
+    return _drafting_result("read_document_comments",
+        drafting.read_document_comments(path, offset=offset, max_items=max_items))
+
+
+@_mcp_tool(annotations=ToolAnnotations(title="Preview working-document edits", read_only_hint=True,
+           destructive_hint=False, idempotent_hint=True, open_world_hint=False),
+           meta=contract_meta(), structured_output=True)
+def preflight_document_edits(source_path: str, file_sha256: DraftingShaInput,
+                             operations: DraftingOperationsInput,
+                             output_path: str | None = None) -> PreflightDocumentEditsResult:
+    """Dry-run author drafting: precise text edits and own comments in one batch.
+
+    For iterative drafting, prefer this tool then apply_document_edits. Operations
+    run in order. Use paragraph_ref from inspect_document for replace_text
+    (old_text/new_text) and add_comment (quote/text); comment_id from
+    read_document_comments for update_comment (text) or delete_comment.
+    A replacement wholly inside this author's simple pending insertion updates
+    it in place, retaining its revision id and author, as in Word. Plain text gets
+    tracked deletion/insertion. Other authors' comments cannot be changed/deleted.
+    Source hash and paragraph references must describe the same current file.
+    Omit output_path (or use the source path) to save back to the working file
+    with a mandatory backup at apply; another output_path selects create-only copy.
+    This call writes no files. A successful proof binds source, destination,
+    operations, configured author/initials, build and the complete candidate.
+    """
+    return _drafting_result("preflight_document_edits", drafting.preflight_document_edits(
+        source_path, file_sha256, operations, output_path=output_path,
+        author=_tracked_change_author(), initials=_comment_initials(),
+        producer_build=records.SOURCE_SNAPSHOT_IDENTITY))
+
+
+@_mcp_tool(annotations=ToolAnnotations(title="Save working-document edits", read_only_hint=False,
+           destructive_hint=True, idempotent_hint=False, open_world_hint=False),
+           meta=contract_meta(), structured_output=True)
+def apply_document_edits(source_path: str, file_sha256: DraftingShaInput,
+                         operations: DraftingOperationsInput, preflight_proof: DraftingProofInput,
+                         output_path: str | None = None) -> ApplyDocumentEditsResult:
+    """Save the exact successful preflight batch as native Word revisions/comments.
+
+    Use only for user-requested document edits, with the unchanged successful
+    preflight proof and inputs. Omitted/same output_path replaces the working
+    file only after retaining an exact durable backup; the result reports its
+    path/hash. A different path creates a new file and refuses overwrite.
+    Source changes, Word owner locks and concurrent Veqtor saves refuse the write.
+    Reread paragraph refs and comment IDs after every save. Text revisions enable
+    Word Track Changes. Existing own insertion identities are retained.
+    These mutable drafting operations are separate from the immutable legacy
+    counterproposal journal; record_status is disabled for this tool family.
+    """
+    return _drafting_result("apply_document_edits", drafting.apply_document_edits(
+        source_path, file_sha256, operations, preflight_proof, output_path=output_path,
+        author=_tracked_change_author(), initials=_comment_initials(),
+        producer_build=records.SOURCE_SNAPSHOT_IDENTITY))
+
+
 def main() -> None:
     if sys.argv[1:] == ["--version"]:
         print(f"veqtor-mcp {__version__}")
@@ -1656,12 +1842,17 @@ def main() -> None:
         configuration_error: dict[str, str] | None = None
         try:
             tracked_change_author = _tracked_change_author()
+            comment_initials = _comment_initials()
         except RuntimeError as exc:
             tracked_change_author = None
+            comment_initials = None
             configuration_error = {
                 "code": "tracked_change_author_invalid",
                 "message": str(exc),
             }
+        except veqtor_docx.DocxError as exc:
+            comment_initials = None
+            configuration_error = {"code": "comment_initials_invalid", "message": str(exc)}
         status = (
             "error"
             if configuration_error is not None
@@ -1680,6 +1871,7 @@ def main() -> None:
                     "supported_python": supported_python,
                     "supported_platform": supported_platform,
                     "tracked_change_author": tracked_change_author,
+                    "comment_initials": comment_initials,
                     "configuration_error": configuration_error,
                     "decision_records": (
                         "disabled" if records.disabled() else "enabled"
@@ -1704,7 +1896,8 @@ def main() -> None:
         raise SystemExit(2)
     try:
         _tracked_change_author()
-    except RuntimeError as exc:
+        _comment_initials()
+    except (RuntimeError, veqtor_docx.DocxError) as exc:
         print(f"configuration error: {exc}", file=sys.stderr)
         raise SystemExit(2) from None
     mcp.run()

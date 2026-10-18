@@ -154,11 +154,13 @@ jobs:
           /tmp/veqtor-wheel-smoke/bin/veqtor-mcp --version
           /tmp/veqtor-wheel-smoke/bin/veqtor-mcp doctor
           /tmp/veqtor-wheel-smoke/bin/python "$GITHUB_WORKSPACE/scripts/installed_wheel_smoke.py"
+          /tmp/veqtor-wheel-smoke/bin/python "$GITHUB_WORKSPACE/scripts/drafting_smoke.py" \
+            --output-dir /tmp/veqtor-drafting-wheel-smoke
       - name: Smoke the wheel with exact declared minimums
         run: |
           uv venv /tmp/veqtor-wheel-min-smoke --python 3.12
           uv pip install --python /tmp/veqtor-wheel-min-smoke/bin/python \
-            "jsonschema==4.20.0" "lxml==6.1.0" "mcp==2.0.0"
+            "jsonschema==4.20.0" "lxml==6.1.0" "mcp==2.2.0"
           uv pip install --python /tmp/veqtor-wheel-min-smoke/bin/python --no-deps dist/*.whl
           cd /tmp
           /tmp/veqtor-wheel-min-smoke/bin/veqtor-mcp --version

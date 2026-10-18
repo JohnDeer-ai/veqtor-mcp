@@ -1,0 +1,10 @@
+{
+  "name": "veqtor-typescript-transport-check",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": { "node": ">=20" },
+  "scripts": { "test": "node drafting.mjs" },
+  "dependencies": { "@modelcontextprotocol/sdk": "1.32.1" }
+}

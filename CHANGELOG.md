@@ -6,6 +6,53 @@ All notable changes to Veqtor MCP are documented here.
 Publication dates are authoritative in each version's immutable GitHub Release
 through its `published_at` timestamp.
 
+## 0.5.0.dev3
+
+Unreleased author-drafting save stabilization; public `0.4.2` artifacts and
+its frozen release/acceptance contract are unchanged.
+
+- Allow standard macOS parent-folder ACLs that do not inherit onto children;
+  retain strict file/private-directory ACL checks and kernel-enforced permissions.
+- Identify reused process IDs across macOS user boundaries without treating
+  permission failures as evidence that a writer has ended.
+- Recover complete abandoned lock temporaries and retain stage ownership through
+  interrupted cleanup. Preserve unregistered bootstrap files rather than guess
+  ownership from a filename.
+- Avoid truncated Word owner-file probes for one- and two-character names.
+
+## 0.5.0.dev2
+
+Unreleased author-drafting review fixes; public `0.4.2` artifacts are unchanged.
+
+- Declare structured save errors in the tool output schema and independently
+  validate success/refusal/late-publication responses through the TypeScript SDK.
+- Preserve the required settings order when enabling Word Track Changes.
+- Refuse edits that would extend another author's tracked formatting onto new
+  text inside an own insertion; keep same-author formatting history editable.
+- Recover recognized process-instance locks and owned temporary saves after
+  crashes; recognize same-file case aliases without weakening path checks.
+- Give explicit filesystem and lock recovery diagnostics while retaining exact
+  backups and refusing unsupported storage rather than weakening publication.
+
+## 0.5.0.dev1
+
+Unreleased author-drafting development build; public `0.4.2` artifacts are unchanged.
+
+- Add `read_document_comments`, `preflight_document_edits`, and `apply_document_edits`.
+- Re-edit simple own pending insertions while retaining their author, ID and date.
+- Read comments, add anchored comments, and update/delete supported own comments.
+- Save to the same working file with mandatory exact-byte backups, stale-source
+  checks, cooperative locking and Word owner-file detection; keep create-only copy mode.
+- Bind drafting preflight proofs to source, destination, author/initials, operations
+  timestamp and candidate bytes. Preserve the legacy counterproposal API and journal.
+- Preserve portable file metadata without demanding a copy of macOS provenance;
+  recover abandoned save locks and return verified backup recovery details over MCP.
+- Resolve modern comment metadata through relationships so renamed parts cannot
+  bypass thread-preservation checks.
+- Preserve Word page-cache markers, paragraph formatting history and neighboring
+  paragraph-mark revisions; support bounded whole-run formatting revisions.
+- Require MCP SDK 2.2.0 or later and update the locked SDK pair to 2.2.0.
+
 ## 0.4.2
 
 Veqtor v0.4.2 Alpha release contents. Publication is established only by the

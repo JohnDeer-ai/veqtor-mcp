@@ -2,7 +2,12 @@
 
 # Known limitations
 
-This file describes release-candidate source `0.4.2` and its eleven-tool MCP
+The current development package `0.5.0.dev3` adds the distinct
+[author-drafting workflow](docs/AUTHOR_DRAFTING.md). Its same-file saves,
+own-insertion mutation and comments are outside the legacy guarantees below;
+its limits and backup/recovery behavior are documented in that contract.
+
+The legacy guarantees below describe release-candidate source `0.4.2` and its eleven-tool MCP
 contract `veqtor.mcp.v0.4.2`. Legacy calls remain compatible with public `0.4.0`. All eleven tools expose
 the same contract-wide metadata value. Development source and test results do
 not establish a new publication or exact-candidate client acceptance. The
@@ -88,7 +93,11 @@ permissions.
   silently chooses one duplicate OPC part over another.
 - Extraction and writing cover `word/document.xml`. `inspect_document` is
   narrower still: it exposes only the canonical main-body paragraph flow.
-  Comments, headers, footers, footnotes and endnotes are not analyzed or edited.
+  Headers, footers, footnotes and endnotes are not analyzed or edited.
+  The additive development drafting tools read comments and add/update/delete
+  simple own comments anchored in the main body; the legacy tools do not.
+  Threaded/rich comments and unsupported anchors can be refused. See
+  [author drafting](docs/AUTHOR_DRAFTING.md) for its distinct mutation contract.
 - `inspect_document` and `extract_redlines` require a `w:document` root with
   exactly one direct `w:body`; preflight and apply inherit that refusal before
   editing. `list_rounds` is a bounded scanner and does not make the same full
