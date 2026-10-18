@@ -83,7 +83,9 @@ single MCP config alone does not establish the actual runtime boundary.
 Before `turn/start`, original selected-thread startup must progress from
 `starting` to `ready`. The recorded full `mcpServerStatus/list` response must have
 one connected `veqtor_nr03`, no next cursor, plugin, resource, template or error,
-the pinned Veqtor producer metadata and exactly the eleven supported tools.
+the pinned candidate producer metadata and exactly the fourteen supported tools
+for 0.5.0. Historical captures retain their recorded eleven-tool inventory and
+original verdict; this update does not requalify them.
 There is no `codex_apps` exception. A complete inventory cannot erase an earlier
 unexpected-server notification. The [App Server interface](https://learn.chatgpt.com/docs/app-server)
 supplies this original runtime inventory without starting a model turn.

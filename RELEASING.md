@@ -346,8 +346,10 @@ tree, runtime-build, wheel-byte and MCPB-byte bound. Its executable schema is
   digest case) and `unsupported_filesystem` with controlled Python fault injection
   in a test-only installed-server process. Keep installed package bytes unchanged;
   inject only the refusal condition, never a fabricated MCP response. The SDK
-  must call the actual tool and validate its output schema in every case. Each
-  call must deliver its expected code without a protocol or schema exception.
+  must call the actual tool and validate the protocol response in every case,
+  with output-schema validation enabled for every present structured response.
+  A text-only MCP error has no structured content to validate. Each call must
+  deliver its expected code without a protocol or schema exception.
   Record the SDK version, transport-log digest and fault-injection harness digest.
   The packet labels injected cases separately; these transport checks do not
   claim an actual publication race, network-drive test or native Word operation.
