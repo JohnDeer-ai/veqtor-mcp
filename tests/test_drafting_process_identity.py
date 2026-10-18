@@ -9,6 +9,7 @@ import hashlib
 import os
 import select
 import signal
+import subprocess
 import sys
 import time
 import uuid
@@ -294,8 +295,27 @@ def test_linux_inaccessible_zombie_metadata_retains_lock(monkeypatch, error):
     assert not native.instance_ended(PID, "0" * 64)
 
 
-@pytest.mark.skipif(not hasattr(os, "fork") or not hasattr(os, "WNOWAIT"),
-                    reason="native fork and non-reaping wait are required")
+def _child_exited_without_reaping(pid):
+    if hasattr(os, "waitid") and hasattr(os, "WNOWAIT"):
+        ended = os.waitid(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+        if ended is None:
+            return False
+        assert ended.si_pid == pid and ended.si_status == 0 and ended.si_code == os.CLD_EXITED
+        return True
+    # Some macOS Python builds expose WNOWAIT but not waitid. Query the owned
+    # child's state independently of Veqtor without consuming its exit status.
+    result = subprocess.run(
+        ["/bin/ps", "-o", "pid=,ppid=,stat=", "-p", str(pid)],
+        check=True, capture_output=True, text=True, timeout=5,
+    )
+    child_pid, parent_pid, status = result.stdout.split()
+    assert int(child_pid) == pid and int(parent_pid) == os.getpid()
+    return status.startswith("Z")
+
+
+@pytest.mark.skipif(not hasattr(os, "fork") or (
+    sys.platform != "darwin" and not (hasattr(os, "waitid") and hasattr(os, "WNOWAIT"))),
+    reason="native fork and an independent non-reaping process probe are required")
 def test_native_save_recovers_zombie_writer_before_parent_reaps(tmp_path):
     from veqtor_docx import ApplyError
     from veqtor_docx import _drafting_io as publishing
@@ -332,13 +352,9 @@ def test_native_save_recovers_zombie_writer_before_parent_reaps(tmp_path):
         assert source.read_bytes() == original and lock.exists()
         os.write(exit_write, b"x")
         deadline = time.monotonic() + 10
-        while True:
-            ended = os.waitid(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
-            if ended is not None:
-                break
+        while not _child_exited_without_reaping(pid):
             assert time.monotonic() < deadline, "child did not exit"
             time.sleep(0.01)
-        assert ended.si_pid == pid and ended.si_status == 0 and ended.si_code == os.CLD_EXITED
         os.kill(pid, 0)  # The PID still exists; no waitpid/reaping has occurred.
         assert native.instance_ended(pid, identity)
         if sys.platform == "darwin":
@@ -350,7 +366,7 @@ def test_native_save_recovers_zombie_writer_before_parent_reaps(tmp_path):
         assert not lock.exists()
         assert not list(tmp_path.glob(".veqtor-lock-*.tmp"))
         assert not list(tmp_path.glob(".veqtor-stage-*"))
-        assert os.waitid(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT).si_pid == pid
+        assert _child_exited_without_reaping(pid)
     finally:
         os.close(ready_read)
         os.close(exit_write)
