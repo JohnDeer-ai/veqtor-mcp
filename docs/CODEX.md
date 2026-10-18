@@ -8,12 +8,11 @@ a selected-issue brief, asks for missing decisions and creates a separate Word
 counterproposal with tracked changes for your review.
 
 Select one exact `X.Y.Z` using the [README version-selection table](../README.md).
-Use `0.4.2` only when both PyPI and the immutable GitHub release expose the
-complete verified artifact set; otherwise the public fallback is `0.4.0`.
-The released-version instructions below describe the eleven-tool
-`veqtor.mcp.v0.4.2` contract, paragraph edits, saved positions and the repeated
-next-round workflow. The current development tree is `0.5.0.dev3`; its additional
-same-file editing tools are documented in [Author drafting](AUTHOR_DRAFTING.md).
+Use `0.5.0` only when both PyPI and the immutable GitHub release expose the
+complete verified artifact set; otherwise select a verified fallback using that
+table. Version `0.5.0` exposes fourteen tools under `veqtor.mcp.v0.5.0`,
+including the eleven document/position tools from `0.4.2`. Its same-file
+editing tools are documented in [Author drafting](AUTHOR_DRAFTING.md).
 Public `0.4.0` retains its nine-tool `veqtor.mcp.v0.4` contract and cannot run
 the saved-position workflow. Source presence is not publication.
 Veqtor supports macOS and Linux with Python 3.12–3.14. Windows is outside the
@@ -116,13 +115,13 @@ establish suitability for every real contract or independent-user acceptance.
 
 ## Use saved positions for the next round (NR-03 development)
 
-Use an installed, verified release candidate exposing all eleven tools,
+Use an installed, verified release exposing the eleven document/position tools,
 including `read_deal_positions` and `mutate_deal_positions`. The public `0.4.0`
 registration above cannot run this complete workflow. Candidate installation and
 isolated native checks are described in [NR03_ACCEPTANCE.md](NR03_ACCEPTANCE.md);
 they do not change your permanent public MCP configuration.
 
-The source checkout and development sdist include the canonical
+The source checkout and sdist include the canonical
 [next-round prompt](prompts/next-round.md) and the thin
 [veqtor-next-round skill](../.agents/skills/veqtor-next-round/SKILL.md). With a
 local Codex task rooted at that checkout, invoke `$veqtor-next-round`. Alternatively,
@@ -241,7 +240,7 @@ They do not establish native acceptance of the subsequent `0.4.1.dev0` changes.
 
 ## Exact candidate acceptance
 
-Acceptance of `0.4.2` is pending independent review and the final gates.
+Acceptance of `0.5.0` is established only by its exact-package review and final gates.
 After Reviewer PASS, run the required full tests, locked runtime audit and
 wheel/sdist checks from the exact reviewed commit and tree. Keep gate evidence
 outside the repository. The current release inventory explicitly includes the
@@ -267,7 +266,7 @@ Apply this only to the isolated test configuration or per-run overrides.
 Keep the user's public registration separate. Record the selected command,
 exact Git commit/tree, wheel/sdist hashes and source snapshot build. Compare
 the candidate's `doctor` build with `producer.build` from every successful
-native call and require `producer.version` to be `0.4.2`. Source identity
+native call and require `producer.version` to be `0.5.0`. Source identity
 alone does not verify wheel packaging; inspect the exact built artifacts too.
 
 The retained NR-00/NR-01 profiles use synthetic documents and actual
@@ -312,7 +311,7 @@ they contain paths and document text.
 
 ## NR-01 native profile
 
-The release-candidate package `0.4.2` advertises `veqtor.mcp.v0.4.2`. The retained
+Package `0.5.0` advertises `veqtor.mcp.v0.5.0`. The retained
 NR-01 paragraph target and delete-only scenario uses a separate checker. The original
 `check_codex_acceptance.py` and its nine-tool v1 profile stay unchanged.
 

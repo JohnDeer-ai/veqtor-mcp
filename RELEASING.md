@@ -9,7 +9,7 @@ contradicts a public claim, or demonstrates concrete privacy/reliability harm
 inside the threat model. The validator scripts and workflows are the executable
 source of truth when this document and implementation differ.
 
-Version `0.4.2` supersedes the archived [v0.4.0 contract](docs/releases/v0.4.0-contract.md).
+Version `0.5.0` supersedes the archived [v0.4.2 contract](docs/releases/v0.4.2-contract.md).
 Historical package bytes and evidence remain unchanged.
 
 ## Threat model
@@ -55,7 +55,7 @@ signing and trusted-builder design.
 - The MCPB member set equals its separate allowlist. Reviewed source members
   equal the exact candidate git blobs, the four DOCX members equal the
   deterministic synthetic generator, and the manifest, locked UV project,
-  required author configuration, eleven-tool list and macOS-only compatibility
+  required author configuration, fourteen-tool list and macOS-only compatibility
   equal the extension contract.
 - Every source-derived member is byte-identical to its approved git blob.
 - Complete raw Core Metadata bytes (headers, separator and README body), wheel
@@ -266,7 +266,7 @@ and rolls back the complete batch after an expected publication failure.
   `five_edit_batch` scenario passes preflight and apply for all five edits,
   reports a passing round trip and zero collateral changes, and produces the
   exact output SHA-256 pinned in `scripts/release_contract.py`.
-- The installed wheel completes the eleven-tool synthetic smoke. Its two compact
+- The installed wheel completes the fourteen-tool synthetic smoke. Its two compact
   exports report access counts 0 then 1, omit the first access event from both
   returned record windows, and keep each current event outside its own snapshot.
 - A Claude Desktop rehearsal runs under the maintainer's existing macOS user
@@ -281,7 +281,7 @@ and rolls back the complete batch after an expected publication failure.
   Record whether Claude selected pre-existing system UV or its own managed UV,
   the UV and Python runtime versions, and a digest of retained launch evidence.
   Acceptance confirms that the extension is enabled and connected, exposes and
-  calls exactly eleven tools, completes the English bundled prompt, and exercises
+  calls exactly fourteen tools, completes the English bundled prompt, and exercises
   paragraph history, rejected-pending `verify_quote` v2, compact privacy,
   client request abandonment while a tool request is in flight, observation of
   whether the client sends an MCP cancellation notification, post-abandonment
@@ -292,10 +292,10 @@ and rolls back the complete batch after an expected publication failure.
   outside the immutable extension. It proves the source hash is unchanged and
   that apply, `list_rounds` and re-extraction agree on the output hash.
 - The same existing user profile performs a real immutable-extension lifecycle:
-  public v0.4.0 (nine tools) → candidate v0.4.2 (eleven) → public v0.4.0
-  (nine) → the same candidate v0.4.2 (eleven), with checksum and runtime-version
+  public v0.4.2 (eleven tools) → candidate v0.5.0 (fourteen) → public v0.4.2
+  (eleven) → the same candidate v0.5.0 (fourteen), with checksum and runtime-version
   checks at every transition. Rollback covers only extension runtime and tool
-  surface; the packet must not claim that v0.4.0 can read or downgrade v0.4.2
+  surface; the packet must not claim that v0.4.2 can read or downgrade v0.5.0
   journal records.
 - Any maintainer-only corpus, transcript and journal evidence stays outside the
   repository. Only the canonical path-free acceptance packet may enter the
@@ -316,11 +316,57 @@ tree, runtime-build, wheel-byte and MCPB-byte bound. Its executable schema is
   session evidence outside the repository and record its digests in `next_round`.
   Runtime rollback does not claim position-store downgrade compatibility.
 
-### Construct the v9 acceptance packet
+- Final-candidate drafting acceptance uses the same independently installed
+  candidate wheel as `next_round`, through native Codex MCP. On fresh test copies
+  it completes a bounded scenario of seven saves to the same document path and checks all seven
+  backups byte-for-byte against their respective pre-save files. Retain a private
+  manifest of those pairs and publish only its digest. The separately recorded
+  Word cycle is not included in these counters. The source original stays
+  unchanged. Exercise a tracked text edit, a second edit of the author's own
+  pending insertion, adding/editing/explicitly deleting own comments, preservation
+  of an own comment when deleting its entire inserted anchor collapses its range
+  to a point, and a refusal to alter another author's pending revision. The
+  collapsed comment must keep its body, author and references; deleting the
+  insertion does not implicitly delete the comment. Check dates and preservation of foreign revisions,
+  comments and formatting history; Veqtor must keep the own insertion's identity
+  during re-editing. Native Word may normalize IDs during its own saves.
+- Record SHA-256 of the exact UTF-8 configured author and initials, the actual
+  output values and Word's configured author. Author digests must agree across
+  configuration, runtime and Word; initials must agree with configuration. Names
+  and initials themselves stay outside the packet. The actual Word → Veqtor →
+  Word test must save and reopen the test copy, confirm native editing of the
+  author's own insertion, and retain three distinct document-stage digests plus
+  a transcript digest. Inspect final text, Track Changes and every rendered page.
+  This is a new final-candidate check; earlier development-build or second-machine
+  observations do not establish acceptance of these package bytes.
+- Through the official TypeScript MCP SDK, exercise `file_locked` with a Word
+  owner-file fixture and `file_sha256_mismatch` by changing the test document
+  after preflight. Both use the normal installed server. Separately exercise
+  `source_changed` (a late publication guard refusal, not the stale preflight
+  digest case) and `unsupported_filesystem` with controlled Python fault injection
+  in a test-only installed-server process. Keep installed package bytes unchanged;
+  inject only the refusal condition, never a fabricated MCP response. The SDK
+  must call the actual tool and validate its output schema in every case. Each
+  call must deliver its expected code without a protocol or schema exception.
+  Record the SDK version, transport-log digest and fault-injection harness digest.
+  The packet labels injected cases separately; these transport checks do not
+  claim an actual publication race, network-drive test or native Word operation.
+  Python-only tests and earlier dev-build transcripts cannot replace the final
+  SDK checks, and a Word owner-file fixture cannot satisfy the separate actual
+  Word cycle. Unsupported filesystems remain an intentional save refusal.
+
+The seven-save drafting scenario can use this sequence: create an own tracked
+insertion; re-edit it; add an own comment on it; update that comment; explicitly
+delete the comment; add a second own comment; delete the entire own insertion
+and verify that the second comment survives with a collapsed range. Check the
+other-author refusal separately; it must not save or create a backup. The native
+Word cycle uses a separate fresh copy and is excluded from these seven counters.
+
+### Construct the v10 acceptance packet
 
 Freeze one clean candidate before collecting evidence. These values must come
 from that checkout, and the same `producer_build` must appear at the packet
-root and in all four runtime sections:
+root and in every runtime section:
 
 ```bash
 test -z "$(git status --porcelain --untracked-files=all)"
@@ -337,8 +383,8 @@ download the Actions artifact named
 confirm that it contains the exact four-file release set, and compare:
 
 ```bash
-shasum -a 256 veqtor-mcp-0.4.2-macos.mcpb
-grep ' veqtor-mcp-0.4.2-macos.mcpb$' SHA256SUMS.txt
+shasum -a 256 veqtor-mcp-0.5.0-macos.mcpb
+grep ' veqtor-mcp-0.5.0-macos.mcpb$' SHA256SUMS.txt
 ```
 
 The two digests must match. Install that exact MCPB in the existing
@@ -359,14 +405,15 @@ retained evidence.
 | `private_dogfood.used` and `.clean` | Run `VEQTOR_PRIVATE_FIXTURE_DIR=... uv run --frozen pytest -m private tests/test_private_dogfood.py` separately for the maintained used corpus and clean copy. Record each pytest pass/skip count and a retained private corpus-manifest SHA-256 before and after; each pair must match. |
 | `payment_preflight` | The maintained private scenario is refused with `batch_applicable: false`, `refusal_code: "counter_position_unsupported"` and `match_count: 1`. |
 | `five_edit_batch` | Applicable preflight, successful apply of five edits, passing round trip, zero collateral changes and the fixed output digest below. |
-| `installed_two_export` | Copy the fields printed by `scripts/installed_wheel_smoke.py` from the installed candidate wheel, including the eleven-tool modern/legacy stdio result and compact-export counters. |
+| `installed_two_export` | Copy the fields printed by `scripts/installed_wheel_smoke.py` from the installed candidate wheel, including the fourteen-tool modern/legacy stdio result and compact-export counters. |
 | `next_round` | Record the exact installed wheel, runtime identity, two fresh native model sessions, restored positions, brief, explicit decisions, source hashes, actual delivered output hashes and complete text/Track Changes/page inspection. Historical NR-03 acceptance is not evidence for a new candidate. |
+| `drafting` | Use the same final installed wheel/build as `next_round`. Record seven same-file saves and seven exact backups; author/initials digests; own-edit/comment/refusal scenarios, dates and foreign-content preservation; the actual native Word cycle with complete final inspection; and schema-validated official TypeScript refusal observations. Keep all detailed manifests, names, paths, document bytes and transcripts outside git. |
 | `desktop_rehearsal` | Record the existing-user client identity and `fresh_user_profile: false`, runtime identity and SHA-256 digests of the retained private transcript and raw journal. |
-| `desktop_extension` | Record exact CI artifact provenance; existing-user conditions and explicit clean-install non-claims; launch/runtime origin and evidence digest; client/OS versions; the eleven visible and called tools; history, verify-v2 and privacy results; client abandonment/cancellation-notification/session-recovery status and actual Desktop observation digests; explicit false server-cancellation and side-effect-absence claims; forced transport-owner process teardown; post-apply hashes; private evidence digests; and the real v0.4.0→v0.4.2→v0.4.0→v0.4.2 lifecycle. |
+| `desktop_extension` | Record exact CI artifact provenance; existing-user conditions and explicit clean-install non-claims; launch/runtime origin and evidence digest; client/OS versions; the fourteen visible and called tools; history, verify-v2 and privacy results; client abandonment/cancellation-notification/session-recovery status and actual Desktop observation digests; explicit false server-cancellation and side-effect-absence claims; forced transport-owner process teardown; post-apply hashes; private evidence digests; and the real v0.4.2→v0.5.0→v0.4.2→v0.5.0 lifecycle. |
 
 ### Same-Mac existing-user rehearsal
 
-The v9 packet accepts the maintainer's existing macOS user on `maintainer_mac`.
+The v10 packet accepts the maintainer's existing macOS user on `maintainer_mac`.
 This intentionally replaces the v6 fresh-user requirement for the v0.4 Alpha.
 Reinstallation in an existing profile can reuse configuration, permissions and
 caches; it does not establish first-install success in an untouched user or
@@ -385,28 +432,28 @@ transport and upgrade/rollback gates below remain required.
    Record the resolved UV origin, actual UV/Python versions and the SHA-256 of
    the private runtime-origin evidence. Pre-existing system UV is permitted;
    it is not evidence of a runtime downloaded by Claude.
-2. In that profile, verify and install the immutable public v0.4.0 MCPB using
-   its published checksum. Confirm runtime `0.4.0`, exactly nine tools and a
-   passing read-only smoke on a fresh v0.4.0-compatible workspace. Record the
+2. In that profile, verify and install the immutable public v0.4.2 MCPB using
+   its published checksum. Confirm runtime `0.4.2`, exactly eleven tools and a
+   passing read-only smoke on a fresh v0.4.2-compatible workspace. Record the
    checked bytes as `initial_artifact_sha256`.
-3. Download the exact v0.4.2 MCPB from the successful `main` CI artifact,
+3. Download the exact v0.5.0 MCPB from the successful `main` CI artifact,
    verify it against that artifact's checksum manifest, upgrade in place and
-   confirm runtime `0.4.2` plus exactly eleven tools. Record the installed bytes
+   confirm runtime `0.5.0` plus exactly fourteen tools. Record the installed bytes
    as `post_upgrade_artifact_sha256`; they must equal
    `desktop_extension.artifact_sha256`.
 4. Run the English bundled demo and collect the required paragraph-history,
    `verify_quote` v2, compact-privacy, abandonment/cancellation-notification,
    session-recovery, teardown and writable-copy results. Keep transcripts,
    journals, filenames, paths and document content outside the repository.
-5. Roll back to the immutable v0.4.0 MCPB and test it only against a different
-   fresh v0.4.0-compatible workspace. Do not present a v0.4.2 `.veqtor` position store or journal or
-   claim journal downgrade compatibility. Recheck and record the v0.4.0 bytes as
+5. Roll back to the immutable v0.4.2 MCPB and test it only against a different
+   fresh v0.4.2-compatible workspace. Do not present a v0.5.0 `.veqtor` position store or journal or
+   claim journal downgrade compatibility. Recheck and record the v0.4.2 bytes as
    `post_rollback_artifact_sha256`.
-6. Reinstall the same exact v0.4.2 candidate, confirm runtime `0.4.2` and all
-   eleven tools again, recheck and record the bytes as
+6. Reinstall the same exact v0.5.0 candidate, confirm runtime `0.5.0` and all
+   fourteen tools again, recheck and record the bytes as
    `post_reinstall_artifact_sha256`, then uninstall and confirm that its tools
    are absent.
-7. Build the canonical v9 packet from the observed values and retained digests,
+7. Build the canonical v10 packet from the observed values and retained digests,
    validate it against the exact candidate, and preserve the private supporting
    evidence outside git.
 
@@ -433,7 +480,7 @@ the cancellation and recovery checks. Fresh writable test folders isolate
 document/journal state but are not an operating-system filesystem sandbox.
 
 MCP [cancellation is optional](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation).
-The v9 `stdio_lifecycle.cancellation_notification_status` records one of two
+The v10 `stdio_lifecycle.cancellation_notification_status` records one of two
 observed outcomes for the actual Desktop attempt:
 
 - `passed`: the retained protocol log shows at least one `notifications/cancelled`
@@ -461,18 +508,21 @@ shape and consistency, not the authenticity or contents of private files.
 and `process_teardown_status` must still be `passed` for either outcome. Both
 server-work-cancellation and side-effect-absence claims must remain `false`.
 The SDK stdio smoke continues to require a real cancellation notification; it
-does not substitute for actual Desktop observations. v8 packets must be rebuilt
-as v9 from retained evidence, not relabeled with assumed passes.
+does not substitute for actual Desktop observations. v9 packets must be rebuilt
+as v10 from retained evidence, not relabeled with assumed passes.
 
-The complete, type-correct v9 working template follows. Its sample SHA/tree,
-runtime-build and private digests are placeholders; replace them with observed
-values. Fixed statuses, booleans, versions, previous-public MCPB identity and
-tool inventories are release-contract values.
+The complete, type-correct v10 working template follows. It is a synthetic schema
+example, not evidence that any candidate passed. Its sample SHA/tree, runtime-build
+and private digests are placeholders; replace them with observed values. The
+displayed passing statuses, booleans and counts express release requirements,
+not pre-filled observations. Do not submit the example or relabel old evidence.
+Versions, previous-public MCPB identity and tool inventories are fixed contract
+values. No passing 0.5.0 acceptance packet is supplied by this document.
 
-<!-- acceptance-v9-template-begin -->
+<!-- acceptance-v10-template-begin -->
 ```json
 {
-  "schema_version": "veqtor_release_acceptance.v9",
+  "schema_version": "veqtor_release_acceptance.v10",
   "candidate_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "candidate_tree": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "producer_build": "source-snapshot-v1-sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
@@ -515,7 +565,7 @@ tool inventories are release-contract values.
     "first_event_absent_from_windows": true,
     "current_event_outside_own_snapshot": true,
     "runtime_producer_build": "source-snapshot-v1-sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-    "runtime_version": "0.4.2"
+    "runtime_version": "0.5.0"
   },
   "desktop_rehearsal": {
     "verdict": "passed",
@@ -525,7 +575,7 @@ tool inventories are release-contract values.
     "current_event_not_in_access_count": true,
     "raw_vs_compact_explained": true,
     "runtime_producer_build": "source-snapshot-v1-sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-    "runtime_version": "0.4.2",
+    "runtime_version": "0.5.0",
     "transcript_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
     "raw_journal_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
   },
@@ -569,7 +619,10 @@ tool inventories are release-contract values.
       "verify_quote",
       "export_decision_record",
       "read_deal_positions",
-      "mutate_deal_positions"
+      "mutate_deal_positions",
+      "read_document_comments",
+      "preflight_document_edits",
+      "apply_document_edits"
     ],
     "called_tools": [
       "list_rounds",
@@ -582,10 +635,13 @@ tool inventories are release-contract values.
       "verify_quote",
       "export_decision_record",
       "read_deal_positions",
-      "mutate_deal_positions"
+      "mutate_deal_positions",
+      "read_document_comments",
+      "preflight_document_edits",
+      "apply_document_edits"
     ],
     "runtime_producer_build": "source-snapshot-v1-sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-    "runtime_version": "0.4.2",
+    "runtime_version": "0.5.0",
     "demo_round_count": 4,
     "bundled_demo_prompt_completed": true,
     "inspection_map": {
@@ -684,10 +740,10 @@ tool inventories are release-contract values.
     "session_transcript_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
     "demo_journal_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
     "lifecycle": {
-      "scenario": "v0.4.0_to_v0.4.2_upgrade_rollback_v1",
-      "previous_artifact_source": "immutable_github_release_v0.4.0",
-      "previous_artifact_version": "0.4.0",
-      "initial_artifact_sha256": "44a75ee286c701f1a14a2c96fba531e8290240fb8d554eff886565b380b5bd2c",
+      "scenario": "v0.4.2_to_v0.5.0_upgrade_rollback_v1",
+      "previous_artifact_source": "immutable_github_release_v0.4.2",
+      "previous_artifact_version": "0.4.2",
+      "initial_artifact_sha256": "9779d4526b1b86553e6639e6cffd3e80e3e87a747f8ca93c5261869b83500cf5",
       "initial_checksum_status": "passed",
       "previous_install_status": "passed",
       "previous_visible_tools": [
@@ -699,12 +755,14 @@ tool inventories are release-contract values.
         "preflight_edits",
         "apply_edits",
         "verify_quote",
-        "export_decision_record"
+        "export_decision_record",
+        "read_deal_positions",
+        "mutate_deal_positions"
       ],
       "upgrade_status": "passed",
       "post_upgrade_artifact_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
       "post_upgrade_checksum_status": "passed",
-      "post_upgrade_runtime_version": "0.4.2",
+      "post_upgrade_runtime_version": "0.5.0",
       "post_upgrade_visible_tools": [
         "list_rounds",
         "extract_redlines",
@@ -716,33 +774,16 @@ tool inventories are release-contract values.
         "verify_quote",
         "export_decision_record",
         "read_deal_positions",
-        "mutate_deal_positions"
+        "mutate_deal_positions",
+        "read_document_comments",
+        "preflight_document_edits",
+        "apply_document_edits"
       ],
       "rollback_status": "passed",
-      "post_rollback_artifact_sha256": "44a75ee286c701f1a14a2c96fba531e8290240fb8d554eff886565b380b5bd2c",
+      "post_rollback_artifact_sha256": "9779d4526b1b86553e6639e6cffd3e80e3e87a747f8ca93c5261869b83500cf5",
       "post_rollback_checksum_status": "passed",
-      "post_rollback_runtime_version": "0.4.0",
+      "post_rollback_runtime_version": "0.4.2",
       "post_rollback_visible_tools": [
-        "list_rounds",
-        "extract_redlines",
-        "inspect_document",
-        "map_rounds",
-        "trace_paragraph_history",
-        "preflight_edits",
-        "apply_edits",
-        "verify_quote",
-        "export_decision_record"
-      ],
-      "post_rollback_smoke_status": "passed",
-      "post_rollback_workspace_kind": "fresh_v040_compatible_workspace_v1",
-      "rollback_scope": "extension_runtime_and_tool_surface_only",
-      "candidate_workspace_presented_to_previous": false,
-      "position_or_journal_downgrade_claimed": false,
-      "candidate_reinstall_status": "passed",
-      "post_reinstall_artifact_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
-      "post_reinstall_checksum_status": "passed",
-      "post_reinstall_runtime_version": "0.4.2",
-      "post_reinstall_visible_tools": [
         "list_rounds",
         "extract_redlines",
         "inspect_document",
@@ -755,6 +796,31 @@ tool inventories are release-contract values.
         "read_deal_positions",
         "mutate_deal_positions"
       ],
+      "post_rollback_smoke_status": "passed",
+      "post_rollback_workspace_kind": "fresh_v042_compatible_workspace_v1",
+      "rollback_scope": "extension_runtime_and_tool_surface_only",
+      "candidate_workspace_presented_to_previous": false,
+      "position_or_journal_downgrade_claimed": false,
+      "candidate_reinstall_status": "passed",
+      "post_reinstall_artifact_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "post_reinstall_checksum_status": "passed",
+      "post_reinstall_runtime_version": "0.5.0",
+      "post_reinstall_visible_tools": [
+        "list_rounds",
+        "extract_redlines",
+        "inspect_document",
+        "map_rounds",
+        "trace_paragraph_history",
+        "preflight_edits",
+        "apply_edits",
+        "verify_quote",
+        "export_decision_record",
+        "read_deal_positions",
+        "mutate_deal_positions",
+        "read_document_comments",
+        "preflight_document_edits",
+        "apply_document_edits"
+      ],
       "uninstall_status": "passed",
       "post_uninstall_tools_absent": true
     }
@@ -763,7 +829,7 @@ tool inventories are release-contract values.
     "client": "native_codex_mcp",
     "model": "gpt-6-astra",
     "reasoning_effort": "high",
-    "runtime_version": "0.4.2",
+    "runtime_version": "0.5.0",
     "runtime_producer_build": "source-snapshot-v1-sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
     "installed_wheel_sha256": "7777777777777777777777777777777777777777777777777777777777777777",
     "saved_positions_restored": true,
@@ -791,12 +857,73 @@ tool inventories are release-contract values.
       "delivered_by_model": true,
       "fresh_session": true
     }
+  },
+  "drafting": {
+    "client": "native_codex_mcp",
+    "runtime_version": "0.5.0",
+    "runtime_producer_build": "source-snapshot-v1-sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "installed_wheel_sha256": "7777777777777777777777777777777777777777777777777777777777777777",
+    "configured_author_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "runtime_author_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "word_author_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "configured_initials_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "runtime_initials_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "same_file_save_count": 7,
+    "exact_backup_count": 7,
+    "backup_manifest_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+    "own_insert_id_preserved_by_veqtor": true,
+    "revision_and_comment_dates_present": true,
+    "foreign_revisions_preserved": true,
+    "foreign_comments_preserved": true,
+    "foreign_formatting_preserved": true,
+    "original_before_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+    "original_after_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+    "scenarios": {
+      "tracked_text_edit": "passed",
+      "own_insert_reedit": "passed",
+      "comment_add": "passed",
+      "comment_edit": "passed",
+      "comment_delete": "passed",
+      "collapsed_comment_preserved": "passed",
+      "other_author_refusal": "passed"
+    },
+    "native_word_cycle": {
+      "source": "actual_microsoft_word",
+      "word_before_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+      "veqtor_after_sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+      "word_after_sha256": "7777777777777777777777777777777777777777777777777777777777777777",
+      "word_saved_and_reopened": true,
+      "word_own_insert_reedit_confirmed": true,
+      "text_checked": true,
+      "track_changes_checked": true,
+      "rendered_pages": 3,
+      "inspected_pages": 3,
+      "transcript_sha256": "8888888888888888888888888888888888888888888888888888888888888888"
+    },
+    "typescript_transport": {
+      "sdk": "@modelcontextprotocol/sdk",
+      "sdk_version": "1.32.1",
+      "output_schema_validation_enabled": true,
+      "refusals": {
+        "file_locked": "passed",
+        "file_sha256_mismatch": "passed"
+      },
+      "transcript_sha256": "9999999999999999999999999999999999999999999999999999999999999999",
+      "injected_refusals": {
+        "source_changed": "passed",
+        "unsupported_filesystem": "passed"
+      },
+      "injection_method": "controlled_python_faults_in_installed_server_process_v1",
+      "fault_injection_harness_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "installed_source_bytes_unchanged": true
+    },
+    "transcript_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   }
 }
 ```
-<!-- acceptance-v9-template-end -->
+<!-- acceptance-v10-template-end -->
 
-Every field is required and exact; v1 through v8 packets are rejected. Runtime
+Every field is required and exact; v1 through v9 packets are rejected. Runtime
 origin and version examples must be replaced with actual observations. No
 filenames, local paths, quotes or document text are allowed by the packet
 schema. The packet has one accepted byte representation: UTF-8 JSON produced
@@ -805,8 +932,8 @@ with sorted keys, `ensure_ascii=False`, `allow_nan=False`, separators
 sample values in a private working copy, create the canonical compact file with:
 
 ```bash
-WORKING_PACKET=/secure/external/veqtor-v0.4.2-acceptance.working.json
-EVIDENCE_PACKET=/secure/external/veqtor-v0.4.2-acceptance.json
+WORKING_PACKET=/secure/external/veqtor-v0.5.0-acceptance.working.json
+EVIDENCE_PACKET=/secure/external/veqtor-v0.5.0-acceptance.json
 uv run --frozen python - "$WORKING_PACKET" "$EVIDENCE_PACKET" <<'PY'
 import json
 import sys
@@ -830,7 +957,7 @@ the canonical file against that exact candidate:
 
 ```bash
 uv run --frozen python scripts/check_acceptance_evidence.py \
-  --source-root . /secure/external/veqtor-v0.4.2-acceptance.json
+  --source-root . /secure/external/veqtor-v0.5.0-acceptance.json
 ```
 
 The validator rejects every non-canonical representation and prints the SHA-256
@@ -838,7 +965,7 @@ of the exact packet bytes. Retain supporting private material outside git.
 Before dispatch, capture the same digest:
 
 ```bash
-EVIDENCE_PACKET=/secure/external/veqtor-v0.4.2-acceptance.json
+EVIDENCE_PACKET=/secure/external/veqtor-v0.5.0-acceptance.json
 EVIDENCE_SHA256=$(shasum -a 256 "$EVIDENCE_PACKET" | awk '{print $1}')
 ```
 
@@ -848,7 +975,7 @@ candidate and runs that candidate's validator with locked dependencies:
 
 ```bash
 gh workflow run release.yml \
-  -f version=0.4.2 \
+  -f version=0.5.0 \
   -f commit_sha="$(git rev-parse HEAD)" \
   -f acceptance_evidence="$(<"$EVIDENCE_PACKET")" \
   -f acceptance_evidence_sha256="$EVIDENCE_SHA256"
@@ -877,17 +1004,17 @@ test implementation tip
 → publish and verify PyPI
 → publish and verify the immutable GitHub Release
 → install the exact public PyPI release for the demo
-→ activate the website's v0.4.2 release copy in a separate docs/site change
+→ activate the website's v0.5.0 release copy in a separate docs/site change
 → verify the deployed setup page and every public download/install link
 ```
 
 Public installation copy follows that external state; it never predicts it.
 The immutable README and package metadata use a state-neutral version-selection
-rule: `0.4.2` is selected only when both public verifiers expose it; otherwise
-the explicit fallback is public `0.4.0`. Before those verifiers pass, website
-install commands and download links remain pinned to public v0.4.0, and the
-Desktop Extension is labelled a v0.4.2 candidate or preview. After both pass,
-a separate docs/site change must activate the public v0.4.2 links and release
+rule: `0.5.0` is selected only when both public verifiers expose it; otherwise
+the explicit fallback is public `0.4.2`. Before those verifiers pass, website
+install commands and download links remain pinned to public v0.4.2, and the
+Desktop Extension is labelled a v0.5.0 candidate or preview. After both pass,
+a separate docs/site change must activate the public v0.5.0 links and release
 wording, deploy them, and smoke the live setup page. That required copy
 activation does not amend the tag, replace existing-user Desktop acceptance, or
 waive any gate above.

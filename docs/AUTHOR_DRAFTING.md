@@ -1,8 +1,8 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 # Author drafting in one working document
 
-Development version `0.5.0.dev3` adds three tools to the existing eleven-tool
-surface. It is not a published release. This workflow supports repeated native
+Version `0.5.0` adds three tools to the existing eleven-tool surface.
+Publication is established by the matching verified PyPI and GitHub release. This workflow supports repeated native
 Word edits under the configured author, ordinary anchored comments, and saving
 back to the same path with an exact backup. The legacy counterproposal tools
 keep their original separate-output and revision-preservation contract.
@@ -23,6 +23,7 @@ to that person's account or change Word's own preferences. Match the author in
 Word on each computer to continue native editing with that name. Initials
 default to the name's initials (given name first for `Family, Given`). The
 profile is fixed for a server process, and every successful preflight reports it.
+The Claude Desktop extension asks for both author and initials during setup.
 
 ## Tool sequence
 
@@ -137,7 +138,8 @@ The directory lock is released by the operating system if a writer crashes. A
 complete sidecar with PID, token and process-instance identity is published
 atomically for compatibility. The identity includes the machine boot and process
 start, so a reused PID cannot impersonate the crashed writer. Recognized dead
-writers are recovered automatically. An older PID-only lock is recovered only
+writers are recovered automatically, including a confirmed exited process
+that is still waiting for its parent to reap it. An older PID-only lock is recovered only
 when that PID is absent; live, unknown or invalid locks remain protected.
 On macOS, a public process-start query can identify a reused PID even when the
 usual process query is denied across user accounts. A permission error alone

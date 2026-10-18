@@ -22,7 +22,7 @@ from release_contract import (
 )
 
 
-SCHEMA_VERSION = "veqtor_release_acceptance.v9"
+SCHEMA_VERSION = "veqtor_release_acceptance.v10"
 MAX_EVIDENCE_BYTES = 64 * 1024
 MAX_PACKET_INTEGER_DIGITS = 128
 HEX = frozenset("0123456789abcdef")
@@ -159,6 +159,99 @@ def _validate_next_round(value: Any, producer_build: str) -> None:
             raise EvidenceError(f"next_round rounds reuse the same {field}")
 
 
+def _validate_drafting(value: Any, producer_build: str, wheel_sha256: str) -> None:
+    """Require final-candidate drafting evidence without publishing private data."""
+    drafting = _exact_keys(value, {
+        "client", "runtime_version", "runtime_producer_build", "installed_wheel_sha256",
+        "configured_author_sha256", "runtime_author_sha256", "word_author_sha256",
+        "configured_initials_sha256", "runtime_initials_sha256",
+        "same_file_save_count", "exact_backup_count", "backup_manifest_sha256",
+        "own_insert_id_preserved_by_veqtor", "revision_and_comment_dates_present",
+        "foreign_revisions_preserved", "foreign_comments_preserved",
+        "foreign_formatting_preserved", "original_before_sha256", "original_after_sha256",
+        "scenarios", "native_word_cycle", "typescript_transport", "transcript_sha256",
+    }, "drafting")
+    for field, expected in {
+        "client": "native_codex_mcp",
+        "runtime_version": VERSION,
+        "runtime_producer_build": producer_build,
+        "installed_wheel_sha256": wheel_sha256,
+    }.items():
+        if drafting[field] != expected:
+            raise EvidenceError(f"drafting.{field} differs from the accepted candidate")
+    for field in (
+        "configured_author_sha256", "runtime_author_sha256", "word_author_sha256",
+        "configured_initials_sha256", "runtime_initials_sha256", "backup_manifest_sha256",
+        "original_before_sha256", "original_after_sha256", "transcript_sha256",
+    ):
+        _hex_digest(drafting[field], 64, f"drafting.{field}")
+    if len({drafting[field] for field in (
+        "configured_author_sha256", "runtime_author_sha256", "word_author_sha256",
+    )}) != 1:
+        raise EvidenceError("drafting author identity differs between configuration, runtime and Word")
+    if drafting["configured_initials_sha256"] != drafting["runtime_initials_sha256"]:
+        raise EvidenceError("drafting comment initials differ from configuration")
+    if drafting["original_before_sha256"] != drafting["original_after_sha256"]:
+        raise EvidenceError("drafting modified original source instead of the test copy")
+    for field in ("same_file_save_count", "exact_backup_count"):
+        _exact_count(drafting[field], 7, f"drafting.{field}")
+    for field in (
+        "own_insert_id_preserved_by_veqtor", "revision_and_comment_dates_present",
+        "foreign_revisions_preserved", "foreign_comments_preserved", "foreign_formatting_preserved",
+    ):
+        _boolean(drafting[field], True, f"drafting.{field}")
+    scenarios = _exact_keys(drafting["scenarios"], {
+        "tracked_text_edit", "own_insert_reedit", "comment_add", "comment_edit",
+        "comment_delete", "collapsed_comment_preserved", "other_author_refusal",
+    }, "drafting.scenarios")
+    for name, result in scenarios.items():
+        _passed(result, f"drafting.scenarios.{name}")
+    cycle = _exact_keys(drafting["native_word_cycle"], {
+        "source", "word_before_sha256", "veqtor_after_sha256", "word_after_sha256",
+        "word_saved_and_reopened", "word_own_insert_reedit_confirmed", "text_checked",
+        "track_changes_checked", "rendered_pages", "inspected_pages", "transcript_sha256",
+    }, "drafting.native_word_cycle")
+    if cycle["source"] != "actual_microsoft_word":
+        raise EvidenceError("drafting native Word cycle needs actual Microsoft Word")
+    for field in ("word_before_sha256", "veqtor_after_sha256", "word_after_sha256", "transcript_sha256"):
+        _hex_digest(cycle[field], 64, f"drafting.native_word_cycle.{field}")
+    if len({cycle[field] for field in (
+        "word_before_sha256", "veqtor_after_sha256", "word_after_sha256",
+    )}) != 3:
+        raise EvidenceError("drafting native Word cycle reuses an unchanged document stage")
+    for field in (
+        "word_saved_and_reopened", "word_own_insert_reedit_confirmed", "text_checked", "track_changes_checked",
+    ):
+        _boolean(cycle[field], True, f"drafting.native_word_cycle.{field}")
+    pages = _count(cycle["rendered_pages"], 1, "drafting.native_word_cycle.rendered_pages")
+    _exact_count(cycle["inspected_pages"], pages, "drafting.native_word_cycle.inspected_pages")
+    transport = _exact_keys(drafting["typescript_transport"], {
+        "sdk", "sdk_version", "output_schema_validation_enabled", "refusals", "transcript_sha256",
+        "injected_refusals", "injection_method", "fault_injection_harness_sha256",
+        "installed_source_bytes_unchanged",
+    }, "drafting.typescript_transport")
+    if transport["sdk"] != "@modelcontextprotocol/sdk":
+        raise EvidenceError("drafting transport requires the official TypeScript SDK")
+    _version(transport["sdk_version"], pattern=_RUNTIME_VERSION_PATTERN,
+             grammar="MAJOR.MINOR.PATCH", location="drafting.typescript_transport.sdk_version")
+    _boolean(transport["output_schema_validation_enabled"], True,
+             "drafting.typescript_transport.output_schema_validation_enabled")
+    _hex_digest(transport["transcript_sha256"], 64, "drafting.typescript_transport.transcript_sha256")
+    if transport["injection_method"] != "controlled_python_faults_in_installed_server_process_v1":
+        raise EvidenceError("drafting transport fault injection method differs")
+    _hex_digest(transport["fault_injection_harness_sha256"], 64,
+                "drafting.typescript_transport.fault_injection_harness_sha256")
+    _boolean(transport["installed_source_bytes_unchanged"], True,
+             "drafting.typescript_transport.installed_source_bytes_unchanged")
+    for section, codes in {
+        "refusals": {"file_locked", "file_sha256_mismatch"},
+        "injected_refusals": {"source_changed", "unsupported_filesystem"},
+    }.items():
+        refusals = _exact_keys(transport[section], codes, f"drafting.typescript_transport.{section}")
+        for name, result in refusals.items():
+            _passed(result, f"drafting.typescript_transport.{section}.{name}")
+
+
 def validate_evidence(
     value: Any,
     *,
@@ -185,6 +278,7 @@ def validate_evidence(
             "desktop_rehearsal",
             "desktop_extension",
             "next_round",
+            "drafting",
         },
         "packet",
     )
@@ -196,6 +290,8 @@ def validate_evidence(
         raise EvidenceError("packet producer build does not equal the source tree")
 
     _validate_next_round(packet["next_round"], producer_build)
+    _validate_drafting(packet["drafting"], producer_build,
+                       packet["next_round"]["installed_wheel_sha256"])
 
     matrix = _exact_keys(
         packet["public_matrix"],
@@ -814,14 +910,14 @@ def validate_evidence(
         "desktop_extension.lifecycle",
     )
     if (
-        lifecycle["scenario"] != "v0.4.0_to_v0.4.2_upgrade_rollback_v1"
-        or lifecycle["previous_artifact_source"] != "immutable_github_release_v0.4.0"
+        lifecycle["scenario"] != "v0.4.2_to_v0.5.0_upgrade_rollback_v1"
+        or lifecycle["previous_artifact_source"] != "immutable_github_release_v0.4.2"
         or lifecycle["previous_artifact_version"] != PREVIOUS_PUBLIC_VERSION
         or lifecycle["post_upgrade_runtime_version"] != VERSION
         or lifecycle["post_rollback_runtime_version"] != PREVIOUS_PUBLIC_VERSION
         or lifecycle["post_reinstall_runtime_version"] != VERSION
         or lifecycle["post_rollback_workspace_kind"]
-        != "fresh_v040_compatible_workspace_v1"
+        != "fresh_v042_compatible_workspace_v1"
         or lifecycle["rollback_scope"] != "extension_runtime_and_tool_surface_only"
     ):
         raise EvidenceError("Desktop extension lifecycle identity differs")

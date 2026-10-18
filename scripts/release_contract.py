@@ -1,15 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Frozen v0.4.2 release-candidate inventory; v0.4.0 is retained separately."""
+"""Frozen v0.5.0 release-candidate inventory; earlier contracts are retained separately."""
 
 from __future__ import annotations
 
 
 PROJECT_NAME = "veqtor-mcp"
 DIST_NAME = "veqtor_mcp"
-VERSION = "0.4.2"
-PREVIOUS_PUBLIC_VERSION = "0.4.0"
+VERSION = "0.5.0"
+PREVIOUS_PUBLIC_VERSION = "0.4.2"
 PREVIOUS_PUBLIC_MCPB_SHA256 = (
-    "44a75ee286c701f1a14a2c96fba531e8290240fb8d554eff886565b380b5bd2c"
+    "9779d4526b1b86553e6639e6cffd3e80e3e87a747f8ca93c5261869b83500cf5"
 )
 PREVIOUS_PUBLIC_MCPB_TOOLS = (
     "list_rounds",
@@ -21,6 +21,8 @@ PREVIOUS_PUBLIC_MCPB_TOOLS = (
     "apply_edits",
     "verify_quote",
     "export_decision_record",
+    "read_deal_positions",
+    "mutate_deal_positions",
 )
 WHEEL_FILENAME = f"{DIST_NAME}-{VERSION}-py3-none-any.whl"
 SDIST_FILENAME = f"{DIST_NAME}-{VERSION}.tar.gz"
@@ -81,12 +83,10 @@ RUNTIME_SOURCE_FILES = (
     "src/veqtor_mcp/_positions_contract.py",
     "src/veqtor_mcp/positions.py",
     "src/veqtor_mcp/server.py",
-)
-
-# The frozen 0.4.2 inventory stays immutable; these additions are development-only.
-DEVELOPMENT_RUNTIME_SOURCE_FILES = (*RUNTIME_SOURCE_FILES,
-    "src/veqtor_docx/drafting.py", "src/veqtor_docx/_drafting_text.py",
-    "src/veqtor_docx/_drafting_comments.py", "src/veqtor_docx/_drafting_io.py",
+    "src/veqtor_docx/drafting.py",
+    "src/veqtor_docx/_drafting_text.py",
+    "src/veqtor_docx/_drafting_comments.py",
+    "src/veqtor_docx/_drafting_io.py",
     "src/veqtor_docx/_drafting_fs.py",
     "src/veqtor_mcp/_drafting_contract.py",
 )
@@ -103,6 +103,9 @@ MCPB_REQUIRED_TOOLS = (
     "export_decision_record",
     "read_deal_positions",
     "mutate_deal_positions",
+    "read_document_comments",
+    "preflight_document_edits",
+    "apply_document_edits",
 )
 MCPB_DEMO_FILENAMES = (
     "round-1-outgoing-draft.docx",
@@ -121,6 +124,7 @@ MCPB_SOURCE_MAP = {
     "pyproject.toml": "pyproject.toml",
     "uv.lock": "uv.lock",
     "docs/prompts/next-round.md": "docs/prompts/next-round.md",
+    "docs/AUTHOR_DRAFTING.md": "docs/AUTHOR_DRAFTING.md",
     "NR-01_PARAGRAPH_EDITS.md": "NR-01_PARAGRAPH_EDITS.md",
     "NR-02_DEAL_POSITIONS.md": "NR-02_DEAL_POSITIONS.md",
     "NR-03_NEXT_ROUND.md": "NR-03_NEXT_ROUND.md",
@@ -141,6 +145,8 @@ PUBLIC_DOCUMENT_FILES = (
     ".gitignore",
     ".agents/skills/veqtor-next-round/SKILL.md",
     "docs/CODEX.md",
+    "docs/AUTHOR_DRAFTING.md",
+    "docs/releases/v0.4.2-contract.md",
     "docs/releases/v0.4.0-contract.md",
     "docs/NR03_ACCEPTANCE.md",
     "docs/NR03_ADVERSE_OBLIGATIONS.md",

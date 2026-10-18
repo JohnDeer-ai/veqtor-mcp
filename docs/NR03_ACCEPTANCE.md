@@ -10,7 +10,8 @@ and separate user replies are [NR03_SCENARIO.md](NR03_SCENARIO.md) and
 construct synthetic envelopes around real local tool results; they test the checker,
 not native Codex behavior. The checker never decides legal equivalence.
 
-The server/API/storage identity remains `0.4.2.dev0` / `veqtor.mcp.v0.4.2`.
+The current server/API identity is `0.5.0` / `veqtor.mcp.v0.5.0`.
+Position storage and the workflow schema retain their existing versions.
 The workflow has separate version `nr03-next-round.v3` and hashes for both the
 canonical prompt and thin skill. All code and commands below are maintainer
 acceptance tooling in the source checkout; the sdist also delivers the prompt,
@@ -24,7 +25,8 @@ wheel/sdist build and Twine. Put build outputs and audit exports outside checkou
 for example `uv build --clear --out-dir /private/nr03-gates/dist` supplies the same
 build with an external destination. Transport compatibility is required if that
 boundary changes; otherwise retain its unchanged evidence and record applicability.
-Do not run frozen-release commands against this development identity.
+The current release-contract checks also apply when the package and release
+contract versions match; historical contract files remain unchanged.
 
 Install the exact local wheel in a separate locked environment. Substitute real
 absolute paths and frozen H/T below; do not run placeholders literally:
@@ -33,9 +35,9 @@ absolute paths and frozen H/T below; do not run placeholders literally:
 uv export --frozen --no-dev --no-emit-project --format requirements-txt --output-file /private/nr03-gates/runtime.txt
 uv venv /private/nr03-gates/env --python .venv/bin/python
 uv pip sync --python /private/nr03-gates/env/bin/python --require-hashes /private/nr03-gates/runtime.txt
-uv pip install --python /private/nr03-gates/env/bin/python --no-deps /private/nr03-gates/dist/veqtor_mcp-0.4.2.dev0-py3-none-any.whl
+uv pip install --python /private/nr03-gates/env/bin/python --no-deps /private/nr03-gates/dist/veqtor_mcp-0.5.0-py3-none-any.whl
 uv pip check --python /private/nr03-gates/env/bin/python
-uv run --frozen python scripts/check_position_install.py --source-root /absolute/reviewed-checkout --commit EXACT_H --tree EXACT_T --wheel /private/nr03-gates/dist/veqtor_mcp-0.4.2.dev0-py3-none-any.whl --sdist /private/nr03-gates/dist/veqtor_mcp-0.4.2.dev0.tar.gz --python /private/nr03-gates/env/bin/python > /private/nr03-gates/installation.json
+uv run --frozen python scripts/check_position_install.py --source-root /absolute/reviewed-checkout --commit EXACT_H --tree EXACT_T --wheel /private/nr03-gates/dist/veqtor_mcp-0.5.0-py3-none-any.whl --sdist /private/nr03-gates/dist/veqtor_mcp-0.5.0.tar.gz --python /private/nr03-gates/env/bin/python > /private/nr03-gates/installation.json
 ```
 
 The reused installation verifier checks complete source/wheel/sdist/installed

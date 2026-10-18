@@ -50,7 +50,7 @@ requires = ["hatchling==1.31.0"]
 build-backend = "hatchling.build"
 [project]
 name = "veqtor-mcp"
-version = "0.4.2"
+version = "0.5.0"
 description = "Synthetic unit fixture"
 readme = "README.md"
 license = "Apache-2.0"
@@ -70,7 +70,7 @@ include = ["/pyproject.toml", "/README.md", "/LICENSE", "/NOTICE", "/src/veqtor_
         (root / name).write_bytes(data)
     metadata = b"""Metadata-Version: 2.4
 Name: veqtor-mcp
-Version: 0.4.2
+Version: 0.5.0
 Summary: Synthetic unit fixture
 License-Expression: Apache-2.0
 License-File: LICENSE
@@ -88,12 +88,12 @@ Description-Content-Type: text/markdown
     def write_sdist(values):
         with tarfile.open(sd, "w:gz") as archive:
             for name, data in values.items():
-                member = tarfile.TarInfo("veqtor_mcp-0.4.2/" + name)
+                member = tarfile.TarInfo("veqtor_mcp-0.5.0/" + name)
                 member.size = len(data)
                 archive.addfile(member, io.BytesIO(data))
 
     write_sdist(sdist_files)
-    dist = "veqtor_mcp-0.4.2.dist-info"
+    dist = "veqtor_mcp-0.5.0.dist-info"
     generated = {"METADATA": metadata, "RECORD": b"",
         "WHEEL": b"Wheel-Version: 1.0\nGenerator: hatchling 1.31.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
         "entry_points.txt": b"[console_scripts]\nveqtor-demo-rounds = veqtor_docx.synthetic:main\nveqtor-mcp = veqtor_mcp.server:main\n",
@@ -114,13 +114,14 @@ Description-Content-Type: text/markdown
                                                         for n, d in sorted(files.items())]}
     build_id = "source-snapshot-v1-sha256:" + hashlib.sha256(json.dumps(manifest, sort_keys=True,
         separators=(",", ":")).encode()).hexdigest()
-    probe = dict(version="0.4.2", distribution_version="0.4.2", build=build_id,
+    probe = dict(version="0.5.0", distribution_version="0.5.0", build=build_id,
         prefix=str(environment), base_prefix="/synthetic/base-python", executable=str(environment / "bin/python"),
         distribution_path=str(installed / dist),
         roots={n: str(installed / n) for n in ("veqtor_mcp", "veqtor_docx")},
         tools=["list_rounds", "extract_redlines", "inspect_document", "map_rounds", "trace_paragraph_history",
                "preflight_edits", "apply_edits", "verify_quote", "export_decision_record",
-               "read_deal_positions", "mutate_deal_positions"])
+               "read_deal_positions", "mutate_deal_positions", "read_document_comments",
+               "preflight_document_edits", "apply_document_edits"])
     monkeypatch.setattr(install, "git", lambda _, *args: "" if args[0] == "status" else ".gitignore" if args[0] == "ls-files"
         else "a" * 40 if args[-1] == "HEAD" else "b" * 40)
     monkeypatch.setattr(install.subprocess, "check_output", lambda *a, **kw: json.dumps(probe).encode())

@@ -22,17 +22,17 @@ server uses the external environment's absolute interpreter path with `-I`.
 ```bash
 uv run --frozen python scripts/check_position_install.py \
   --source-root /absolute/reviewed-checkout --commit EXACT_H --tree EXACT_T \
-  --wheel /private/gates/veqtor_mcp-0.4.2.dev0-py3-none-any.whl \
-  --sdist /private/gates/veqtor_mcp-0.4.2.dev0.tar.gz \
+  --wheel /private/gates/veqtor_mcp-0.5.0-py3-none-any.whl \
+  --sdist /private/gates/veqtor_mcp-0.5.0.tar.gz \
   --python /private/gates/environment/bin/python > /private/gates/installation.json
 uv run --frozen python scripts/prepare_position_acceptance.py \
   --bundle /private/gates/native --installation /private/gates/installation.json \
   --model gpt-6-astra --reasoning-effort ultra
 ```
 
-The installation check requires clean exact H/T, the complete development source
+The installation check requires clean exact H/T, the complete current source
 inventory, exact wheel and sdist bytes, an installed distribution outside the
-checkout, all eleven tools, every installed Python source byte, and its producer
+checkout, all fourteen tools, every installed Python source byte, and its producer
 fingerprint. It does not modify frozen v0.4 artifact manifests or goldens.
 `prepare_position_acceptance.py` explicitly generates synthetic DOCX setup and
 writes a private baseline **before** any position save. Five complete values,

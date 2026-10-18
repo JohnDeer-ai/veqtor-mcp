@@ -1,7 +1,7 @@
 # Veqtor for Claude Desktop
 
 > **Release-candidate packaging notes:** there is no official public
-> `v0.4.2` MCPB merely because this directory can build one. These installation
+> `v0.5.0` MCPB merely because this directory can build one. These installation
 > steps apply only after the exact candidate passes existing-user acceptance and is
 > attached to the immutable GitHub Release by the promotion workflow.
 
@@ -23,7 +23,8 @@ or decide whether contract wording is legally or commercially suitable.
 3. Open the `.mcpb`, review the requested local access and configuration, and
    approve installation in Claude Desktop.
 4. Enter the name that should appear as the author of any new Word tracked
-   changes. Veqtor does not infer this name from the document.
+   changes and comments, and the initials for comments. Veqtor does not infer
+   this identity from the document or change Word preferences.
 5. Open Claude Desktop's extension settings and confirm that Veqtor is enabled
    and its local MCP server is connected. If the status does not become
    connected, fully quit Claude Desktop and reopen it before continuing.
@@ -36,7 +37,7 @@ Python runtime and the dependencies pinned in
 `uv.lock`. Later availability depends on the host cache; this package does not
 promise a fully offline first install.
 
-The v0.4 Alpha acceptance profile uses the maintainer's existing macOS user.
+The Alpha acceptance profile uses the maintainer's existing macOS user.
 It verifies the installed artifact and actual extension workflow, but does not
 establish first-install success in a clean user or independence from an
 existing development toolchain.
@@ -61,9 +62,9 @@ file's hashes from `apply_edits`, `list_rounds` and `extract_redlines` agree.
 
 ## Update, rollback and uninstall
 
-- The v0.4.2 release gate starts from public v0.4.0, installs the exact v0.4.2
-  candidate, manually rolls back to immutable v0.4.0, and reinstalls the same
-  v0.4.2 candidate. Verify every checksum; do not assume automatic updates.
+- The v0.5.0 release gate starts from public v0.4.2, installs the exact v0.5.0
+  candidate, manually rolls back to immutable v0.4.2, and reinstalls the same
+  v0.5.0 candidate. Verify every checksum; do not assume automatic updates.
 - Rollback means uninstalling the candidate and reinstalling the previous
   immutable extension where Claude Desktop permits it. Veqtor does not promise
   an in-app rollback mechanism.

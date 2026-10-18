@@ -6,6 +6,19 @@ All notable changes to Veqtor MCP are documented here.
 Publication dates are authoritative in each version's immutable GitHub Release
 through its `published_at` timestamp.
 
+## 0.5.0
+
+- Add the fourteen-tool `veqtor.mcp.v0.5.0` surface with configured-author
+  drafting, own pending-insertion re-editing, and anchored comment operations.
+- Save the working DOCX in place with an exact backup, source-byte checks,
+  supported local-filesystem validation and recoverable writer locks.
+- Preserve unrelated revisions, comments, formatting history and portable file
+  metadata; return schema-valid refusal and recovery details to MCP clients.
+- Recover a confirmed exited writer before reaping and distinguish short Word
+  owner filenames from those belonging to other documents.
+- Package author and comment-initial settings in the macOS extension and bind
+  release acceptance to the exact installed artifacts and native Word workflow.
+
 ## 0.5.0.dev3
 
 Unreleased author-drafting save stabilization; public `0.4.2` artifacts and
