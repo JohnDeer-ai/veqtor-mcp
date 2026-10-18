@@ -47,8 +47,8 @@ class _DarwinExternProcPrefix(ctypes.Structure):
     ]
 
 
-def _darwin_sysctl_process_start(libc, pid: int) -> tuple[int, int]:
-    """Read public process start time when proc_pidinfo cannot cross UIDs.
+def _darwin_sysctl_process_info(libc, pid: int) -> tuple[int, int, int]:
+    """Read public process start time and state when proc_pidinfo is unavailable.
 
     KERN_PROC_PID exposes the same start time as PROC_PIDTBSDINFO without
     requiring access to the other user's task. Keep the identity format stable
@@ -76,10 +76,11 @@ def _darwin_sysctl_process_start(libc, pid: int) -> tuple[int, int]:
     if not ctypes.sizeof(_DarwinExternProcPrefix) <= length.value <= ctypes.sizeof(buffer):
         raise OSError(errno.EIO, "invalid process instance information")
     value = _DarwinExternProcPrefix.from_buffer(buffer)
-    if (value.pid != pid or value.start_seconds <= 0
+    status = value.status[0]
+    if (value.pid != pid or status not in {1, 2, 3, 4, 5} or value.start_seconds <= 0
             or not 0 <= value.start_microseconds < 1_000_000):
         raise OSError(errno.EIO, "invalid process instance information")
-    return value.start_seconds, value.start_microseconds
+    return value.start_seconds, value.start_microseconds, status
 
 
 def filesystem_supported(descriptor: int) -> bool:
@@ -122,7 +123,8 @@ def process_instance(pid: int) -> str:
     """Identify a process across PID reuse and machine reboots.
 
     Unavailable information raises OSError and is never treated as death.
-    ProcessLookupError is reserved for a PID proven absent by the OS.
+    ProcessLookupError means the OS proved absence or an exited zombie. A
+    zombie cannot resume writing even while its parent has not reaped it.
     """
     if sys.platform == "darwin":
         libc = ctypes.CDLL(None, use_errno=True)
@@ -141,15 +143,17 @@ def process_instance(pid: int) -> str:
         ctypes.set_errno(0)
         count = getter(pid, 3, 0, ctypes.byref(value), ctypes.sizeof(value))
         if count != ctypes.sizeof(value):
-            seconds, microseconds = _darwin_sysctl_process_start(libc, pid)
+            seconds, microseconds, status = _darwin_sysctl_process_info(libc, pid)
         else:
-            if value.prefix[3] != pid:
+            status = value.prefix[1]  # proc_bsdinfo.pbi_status, sys/proc_info.h
+            if value.prefix[3] != pid or status not in {1, 2, 3, 4, 5}:
                 raise OSError(errno.EIO, "invalid process instance information")
             seconds, microseconds = value.start_seconds, value.start_microseconds
         if seconds <= 0 or not 0 <= microseconds < 1_000_000 or length.value > len(boot):
             raise OSError(errno.EIO, "invalid process instance information")
         boot_value = boot.value
         start_value = f"{seconds}:{microseconds}".encode()
+        ended = status == 5  # SZOMB, sys/proc.h
     elif sys.platform.startswith("linux"):
         try:
             boot = Path("/proc/sys/kernel/random/boot_id").read_bytes().strip()
@@ -159,21 +163,26 @@ def process_instance(pid: int) -> str:
             raise OSError(errno.EIO, "process instance information unavailable") from None
         # comm can contain spaces and ')'; the fixed fields follow its last ')'.
         try:
-            prefix, fields = raw.rsplit(b")", 1)
-            if int(prefix.split(b"(", 1)[0]) != pid:
+            prefix, tail = raw.rsplit(b")", 1)
+            if not prefix.startswith(str(pid).encode() + b" ("):
                 raise ValueError
-            start = fields.split()[19]  # field 22, counted after pid and comm
-            if not boot or int(start) < 0:
+            fields = tail.split()
+            start = fields[19]  # field 22, counted after pid and comm
+            if fields[0] not in {b"R", b"S", b"D", b"Z", b"T", b"t", b"X", b"x",
+                                  b"K", b"W", b"P", b"I"} or not boot or int(start) < 0:
                 raise ValueError
         except (ValueError, IndexError) as exc:
             raise OSError(errno.EIO, "invalid process instance information") from exc
         boot_value, start_value = boot, start
+        ended = fields[0] == b"Z"
     else:
         raise OSError(errno.ENOTSUP, "process instance identity is unavailable")
     try:
         boot_identity = uuid.UUID(boot_value.decode("ascii")).bytes
     except (ValueError, UnicodeError) as exc:
         raise OSError(errno.EIO, "invalid machine boot identity") from exc
+    if ended:
+        raise ProcessLookupError(errno.ESRCH, "process has exited and awaits reaping")
     return hashlib.sha256(boot_identity + b":" + start_value).hexdigest()
 
 

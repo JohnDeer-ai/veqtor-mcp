@@ -127,13 +127,21 @@ def test_unsafe_source_refused(source: Path, tmp_path: Path, kind: str):
 
 @pytest.mark.parametrize(("basename", "lock_name"), [
     ("Agreement.docx", "~$Agreement.docx"),
-    ("Agreement.docx", "~$greement.docx"),
     ("Agreement.docx", "~$reement.docx"),
     ("A.docx", "~$A.docx"),
     ("AB.docx", "~$AB.docx"),
     ("ABC.docx", "~$ABC.docx"),
-    ("ABC.docx", "~$BC.docx"),
-    ("ABC.docx", "~$C.docx"),
+    ("ABCDEF.docx", "~$ABCDEF.docx"),
+    ("ABCDEFG.docx", "~$BCDEFG.docx"),
+    ("ABCDEFGH.docx", "~$CDEFGH.docx"),
+    ("АБВ.docx", "~$АБВ.docx"),
+    ("Договор.docx", "~$оговор.docx"),
+    ("ABCDÉFG.docx", "~$BCDÉFG.docx"),
+    ("ABCDE\u0301FG.docx", "~$BCDÉFG.docx"),
+    ("ABCDE\u0301FG.docx", "~$BCDE\u0301FG.docx"),
+    ("ABCDÉFG.docx", "~$BCDE\u0301FG.docx"),
+    ("ABCDÉF.docx", "~$ABCDÉF.docx"),
+    ("ABCDE\u0301F.docx", "~$ABCDÉF.docx"),
 ])
 def test_word_owner_file_refuses_save(source: Path, basename: str, lock_name: str):
     if source.name != basename:
@@ -151,6 +159,12 @@ def test_word_owner_file_refuses_save(source: Path, basename: str, lock_name: st
 @pytest.mark.parametrize(("basename", "lock_name"), [
     ("A.docx", "~$.docx"), ("AB.docx", "~$.docx"), ("CD.docx", "~$.docx"),
     ("AB.docx", "~$B.docx"), ("11.docx", "~$1.docx"),
+    ("ABC.docx", "~$BC.docx"), ("ABC.docx", "~$C.docx"),
+    ("ABCD.docx", "~$BCD.docx"), ("ABCDE.docx", "~$CDE.docx"),
+    ("ABCDEF.docx", "~$BCDEF.docx"), ("ABCDEF.docx", "~$CDEF.docx"),
+    ("ABCDEFG.docx", "~$CDEFG.docx"),
+    ("Agreement.docx", "~$greement.docx"),
+    ("АБВ.docx", "~$БВ.docx"), ("Договор.docx", "~$говор.docx"),
 ])
 def test_short_document_ignores_unrelated_owner(source: Path, basename: str, lock_name: str):
     source = source.rename(source.with_name(basename))
