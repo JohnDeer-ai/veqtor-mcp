@@ -41,7 +41,7 @@ def inventory(names):
 
 
 def test_explicit_fourteen_tool_development_inventory_passes(smoke):
-    assert smoke.__version__ == "0.5.0.dev2"
+    assert smoke.__version__ == "0.5.0.dev3"
     assert smoke._assert_tool_inventory(inventory(DEVELOPMENT_TOOLS)) == DEVELOPMENT_TOOLS
 
 
@@ -55,7 +55,7 @@ def test_explicit_fourteen_tool_development_inventory_passes(smoke):
     pytest.param((*FROZEN_TOOLS, "read_deal_positions", "read_deal_positions"), id="duplicate-replaces-mutate"),
 ])
 def test_development_inventory_rejects_weaker_or_different_surface(smoke, names):
-    assert smoke.__version__ == "0.5.0.dev2"
+    assert smoke.__version__ == "0.5.0.dev3"
     with pytest.raises(AssertionError, match="tool inventory differs"):
         smoke._assert_tool_inventory(inventory(names))
     assert smoke._assert_tool_inventory(inventory(DEVELOPMENT_TOOLS)) == DEVELOPMENT_TOOLS

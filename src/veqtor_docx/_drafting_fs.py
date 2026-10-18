@@ -37,6 +37,51 @@ class _DarwinBSDInfo(ctypes.Structure):
     ]
 
 
+class _DarwinExternProcPrefix(ctypes.Structure):
+    # sys/proc.h: 64-bit extern_proc, the first member of kinfo_proc.
+    # The initial union contains timeval (long seconds, int microseconds).
+    _fields_ = [
+        ("start_seconds", ctypes.c_int64), ("start_microseconds", ctypes.c_int32),
+        ("vmspace", ctypes.c_uint64), ("sigacts", ctypes.c_uint64),
+        ("flags", ctypes.c_int32), ("status", ctypes.c_char), ("pid", ctypes.c_int32),
+    ]
+
+
+def _darwin_sysctl_process_start(libc, pid: int) -> tuple[int, int]:
+    """Read public process start time when proc_pidinfo cannot cross UIDs.
+
+    KERN_PROC_PID exposes the same start time as PROC_PIDTBSDINFO without
+    requiring access to the other user's task. Keep the identity format stable
+    for existing locks; permission errors alone never establish PID reuse.
+    """
+    if ctypes.sizeof(ctypes.c_void_p) != 8:
+        raise OSError(errno.ENOTSUP, "process metadata ABI is unavailable")
+    mib = (ctypes.c_int * 4)(1, 14, 1, pid)  # CTL_KERN, KERN_PROC, KERN_PROC_PID
+    # Only the stable extern_proc prefix is read. Allow space for the rest of
+    # kinfo_proc without depending on private credentials or trailing fields.
+    buffer = (ctypes.c_uint64 * 128)()
+    length = ctypes.c_size_t(ctypes.sizeof(buffer))
+    getter = libc.sysctl
+    getter.argtypes = (ctypes.POINTER(ctypes.c_int), ctypes.c_uint, ctypes.c_void_p,
+                       ctypes.POINTER(ctypes.c_size_t), ctypes.c_void_p, ctypes.c_size_t)
+    getter.restype = ctypes.c_int
+    ctypes.set_errno(0)
+    if getter(mib, len(mib), ctypes.byref(buffer), ctypes.byref(length), None, 0):
+        raise OSError(ctypes.get_errno() or errno.EIO, "cannot identify process instance")
+    if not length.value:
+        # An empty sysctl result can indicate absence. Confirm it independently
+        # instead of treating filtered or inaccessible metadata as a dead PID.
+        os.kill(pid, 0)
+        raise OSError(errno.EIO, "process instance information unavailable")
+    if not ctypes.sizeof(_DarwinExternProcPrefix) <= length.value <= ctypes.sizeof(buffer):
+        raise OSError(errno.EIO, "invalid process instance information")
+    value = _DarwinExternProcPrefix.from_buffer(buffer)
+    if (value.pid != pid or value.start_seconds <= 0
+            or not 0 <= value.start_microseconds < 1_000_000):
+        raise OSError(errno.EIO, "invalid process instance information")
+    return value.start_seconds, value.start_microseconds
+
+
 def filesystem_supported(descriptor: int) -> bool:
     """Allow local implementations whose required save primitives are defined.
 
@@ -96,13 +141,15 @@ def process_instance(pid: int) -> str:
         ctypes.set_errno(0)
         count = getter(pid, 3, 0, ctypes.byref(value), ctypes.sizeof(value))
         if count != ctypes.sizeof(value):
-            # proc_pidinfo can return 0 without errno for an absent process.
-            os.kill(pid, 0)
-            raise OSError(ctypes.get_errno() or errno.EIO, "cannot identify process instance")
-        if value.prefix[3] != pid or not value.start_seconds or length.value > len(boot):
+            seconds, microseconds = _darwin_sysctl_process_start(libc, pid)
+        else:
+            if value.prefix[3] != pid:
+                raise OSError(errno.EIO, "invalid process instance information")
+            seconds, microseconds = value.start_seconds, value.start_microseconds
+        if seconds <= 0 or not 0 <= microseconds < 1_000_000 or length.value > len(boot):
             raise OSError(errno.EIO, "invalid process instance information")
         boot_value = boot.value
-        start_value = f"{value.start_seconds}:{value.start_microseconds}".encode()
+        start_value = f"{seconds}:{microseconds}".encode()
     elif sys.platform.startswith("linux"):
         try:
             boot = Path("/proc/sys/kernel/random/boot_id").read_bytes().strip()

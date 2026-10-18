@@ -232,7 +232,7 @@ def test_development_preserves_the_complete_frozen_v04_surface() -> None:
 
     source_version = project["project"]["version"]
     frozen_version = release["VERSION"]
-    assert source_version == development_version == "0.5.0.dev2"
+    assert source_version == development_version == "0.5.0.dev3"
     assert "/CLAUSE_HISTORY_V0.4.md" in sdist_includes
     assert frozen_version == "0.4.0"
     assert frozen_version != source_version

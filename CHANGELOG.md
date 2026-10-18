@@ -6,6 +6,20 @@ All notable changes to Veqtor MCP are documented here.
 Publication dates are authoritative in each version's immutable GitHub Release
 through its `published_at` timestamp.
 
+## 0.5.0.dev3
+
+Unreleased author-drafting save stabilization; public `0.4.2` artifacts and
+its frozen release/acceptance contract are unchanged.
+
+- Allow standard macOS parent-folder ACLs that do not inherit onto children;
+  retain strict file/private-directory ACL checks and kernel-enforced permissions.
+- Identify reused process IDs across macOS user boundaries without treating
+  permission failures as evidence that a writer has ended.
+- Recover complete abandoned lock temporaries and retain stage ownership through
+  interrupted cleanup. Preserve unregistered bootstrap files rather than guess
+  ownership from a filename.
+- Avoid truncated Word owner-file probes for one- and two-character names.
+
 ## 0.5.0.dev2
 
 Unreleased author-drafting review fixes; public `0.4.2` artifacts are unchanged.

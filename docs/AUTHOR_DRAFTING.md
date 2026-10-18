@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 # Author drafting in one working document
 
-Development version `0.5.0.dev2` adds three tools to the existing eleven-tool
+Development version `0.5.0.dev3` adds three tools to the existing eleven-tool
 surface. It is not a published release. This workflow supports repeated native
 Word edits under the configured author, ordinary anchored comments, and saving
 back to the same path with an exact backup. The legacy counterproposal tools
@@ -139,6 +139,9 @@ atomically for compatibility. The identity includes the machine boot and process
 start, so a reused PID cannot impersonate the crashed writer. Recognized dead
 writers are recovered automatically. An older PID-only lock is recovered only
 when that PID is absent; live, unknown or invalid locks remain protected.
+On macOS, a public process-start query can identify a reused PID even when the
+usual process query is denied across user accounts. A permission error alone
+never proves that the original writer has ended.
 
 Staged bytes are held in private operation directories with an ownership
 manifest. A later save recovers verified abandoned complete or partial stages,
@@ -146,11 +149,28 @@ including stages inside the backup directory, without deleting the published
 document or completed backup. Stages with unexpected entries, changed completed
 bytes, links or unverifiable ownership are left untouched. Old unregistered
 `.veqtor-*.tmp` files from earlier versions are not deleted by filename alone.
+Complete abandoned `.veqtor-lock-*.tmp` ownership records are recovered too.
+During cleanup, the stage manifest moves atomically to a `.veqtor-cleanup-*.json`
+record beside its directory and remains until directory removal is synchronized.
+A later save can finish that cleanup after another crash.
+
+There is a deliberately conservative bootstrap boundary: a crash before a valid
+ownership record is written can leave an empty/partial `.veqtor-lock-*.tmp` or a
+`.veqtor-stage-*` directory with no valid `owner.json`. These unregistered entries
+do not prevent later saves, but cannot be deleted automatically on name alone.
+Retain unknown entries; after closing all writers, manually remove only entries
+whose origin has been verified. A permission change during cleanup can also
+leave a registered stage; a later save recovers it once the owning process has
+ended and permissions allow cleanup.
 Case-only aliases of the same regular file are recognized by file identity on
 case-insensitive filesystems; distinct files and symlinks remain protected.
 Extended access-control lists on source, staging or backup locations are
 refused with `unsupported_permissions` before document publication. Do not
 remove existing access restrictions to bypass that refusal.
+The publication parent may have non-inheritable macOS ACL rules, such as the
+standard Desktop/Documents/Downloads rule protecting the folder itself from
+deletion. File/directory inheritance flags still cause a refusal. Actual create,
+rename and delete permissions remain enforced by macOS.
 
 Close Word before asking Veqtor to save; reopen the file afterwards. Owner-file
 and last-moment source checks detect observed changes, but Word/cloud-sync

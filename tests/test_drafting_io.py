@@ -130,7 +130,8 @@ def test_unsafe_source_refused(source: Path, tmp_path: Path, kind: str):
     ("Agreement.docx", "~$greement.docx"),
     ("Agreement.docx", "~$reement.docx"),
     ("A.docx", "~$A.docx"),
-    ("A.docx", "~$.docx"),
+    ("AB.docx", "~$AB.docx"),
+    ("ABC.docx", "~$ABC.docx"),
     ("ABC.docx", "~$BC.docx"),
     ("ABC.docx", "~$C.docx"),
 ])
@@ -145,6 +146,19 @@ def test_word_owner_file_refuses_save(source: Path, basename: str, lock_name: st
     assert source.read_bytes() == SOURCE
     assert lock.read_bytes() == b"Word owns this document"
     _no_temporary_files(source.parent)
+
+
+@pytest.mark.parametrize(("basename", "lock_name"), [
+    ("A.docx", "~$.docx"), ("AB.docx", "~$.docx"), ("CD.docx", "~$.docx"),
+    ("AB.docx", "~$B.docx"), ("11.docx", "~$1.docx"),
+])
+def test_short_document_ignores_unrelated_owner(source: Path, basename: str, lock_name: str):
+    source = source.rename(source.with_name(basename))
+    unrelated = source.parent / lock_name
+    unrelated.write_bytes(b"unrelated owner file")
+    _save(source)
+    assert unrelated.read_bytes() == b"unrelated owner file"
+    assert source.read_bytes() == CANDIDATE
 
 
 def test_stale_snapshot_refused_before_backup(source: Path):
@@ -543,10 +557,13 @@ publishing.publish_document(str(source), None, source.read_bytes(), b'unreachabl
         assert source.read_bytes() == CANDIDATE
         assert Path(result["backup_path"]).read_bytes() == SOURCE
         assert not lock.exists()
-        # Unpublished unique files are inert. Do not delete an unknown empty
-        # file just to make a cleanup assertion pass after the killed writer.
-        assert {path: (path.stat().st_ino, path.read_bytes()) for path in pending} == pending_before
-        assert set(source.parent.glob(".veqtor-lock-*.tmp")) == set(pending)
+        if phase == "before_first_write":
+            # No ownership record exists yet: an unknown empty file stays inert.
+            assert {path: (path.stat().st_ino, path.read_bytes()) for path in pending} == pending_before
+            assert set(source.parent.glob(".veqtor-lock-*.tmp")) == set(pending)
+        else:
+            # A complete ownership record proves the killed writer is gone.
+            assert not list(source.parent.glob(".veqtor-lock-*.tmp"))
     finally:
         if process.poll() is None:
             process.kill()

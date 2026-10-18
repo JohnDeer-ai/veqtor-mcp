@@ -5,7 +5,7 @@
 This file defines the public tool surface. Output examples are part of the API
 because models use them to decide how to call tools and how to cite results.
 
-The current source is unreleased package `0.5.0.dev2` and advertises the
+The current source is unreleased package `0.5.0.dev3` and advertises the
 fourteen-tool MCP contract `veqtor.mcp.v0.5.0`. The three additive drafting tools
 are documented in [AUTHOR_DRAFTING.md](docs/AUTHOR_DRAFTING.md):
 `read_document_comments`, `preflight_document_edits`, `apply_document_edits`.

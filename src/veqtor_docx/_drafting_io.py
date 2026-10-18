@@ -127,8 +127,12 @@ def _write_all(descriptor: int, payload: bytes) -> None:
 
 def _word_unlocked(directory: int, basename: str) -> None:
     # Depending on the filename/Word version, the owner prefix is prepended or
-    # replaces one or two leading characters. Check all three conservatively.
-    for name in {"~$" + basename[offset:] for offset in (0, 1, 2)}:
+    # replaces one or two leading characters. Native Word prepends the prefix
+    # for one/two-character stems; truncated probes such as '~$1.docx' or
+    # '~$.docx' would falsely lock unrelated short documents in the directory.
+    stem = os.path.splitext(basename)[0]
+    offsets = (0,) if len(stem) <= 2 else (0, 1, 2)
+    for name in {"~$" + basename[offset:] for offset in offsets}:
         try:
             _at_stat(directory, name)
         except FileNotFoundError:
@@ -147,7 +151,7 @@ def _legacy_lock_name(basename: str) -> str:
     return f".veqtor-{token}.lock"
 
 
-def _reclaim_dead_lock(directory: int, name: str) -> bool:
+def _reclaim_dead_lock(directory: int, name: str, *, require_instance: bool = False) -> bool:
     """Under directory flock, reclaim only an unchanged, owned dead-PID lock."""
     try:
         descriptor = os.open(name, os.O_RDONLY | _NOFOLLOW | _CLOEXEC | os.O_NONBLOCK,
@@ -164,7 +168,8 @@ def _reclaim_dead_lock(directory: int, name: str) -> bool:
             return False
         payload = os.read(descriptor, 257)
         match = re.fullmatch(rb"pid=([1-9][0-9]{0,9}) token=[0-9a-f]{32}(?: instance=([0-9a-f]{64}))?\n", payload)
-        if not match or _version(os.fstat(descriptor)) != _version(before):
+        if (not match or (require_instance and match[2] is None)
+                or _version(os.fstat(descriptor)) != _version(before)):
             return False
         pid = int(match[1])
         if pid > 2_147_483_647:
@@ -226,7 +231,8 @@ def _compatible_sidecar(directory: int, basename: str, path: str) -> Iterator[No
         _unlink_owned(directory, temporary, identity)
 
 
-def _rename_noreplace(directory: int, source: str, destination: str) -> None:
+def _rename_noreplace(directory: int, source: str, destination: str,
+                      *, destination_directory: int | None = None) -> None:
     """Atomically publish an initialized lock without replacing an old writer."""
     try:
         libc = ctypes.CDLL(None, use_errno=True)
@@ -242,8 +248,18 @@ def _rename_noreplace(directory: int, source: str, destination: str) -> None:
     except (AttributeError, OSError) as exc:
         raise OSError(errno.ENOTSUP, "atomic lock publication is unavailable") from exc
     ctypes.set_errno(0)
-    if rename(directory, os.fsencode(source), directory, os.fsencode(destination), flag) != 0:
+    target = directory if destination_directory is None else destination_directory
+    if rename(directory, os.fsencode(source), target, os.fsencode(destination), flag) != 0:
         raise OSError(ctypes.get_errno() or errno.EIO, "atomic lock publication failed")
+
+
+def _recover_lock_temporaries(directory: int) -> None:
+    # Only a complete modern ownership record proves an unpublished sidecar is
+    # ours. Empty/partial bootstrap files have no such proof and remain intact.
+    with os.scandir(directory) as entries:
+        for entry in entries:
+            if re.fullmatch(r"\.veqtor-lock-[0-9a-f]{32}\.tmp", entry.name):
+                _reclaim_dead_lock(directory, entry.name, require_instance=True)
 
 
 @contextmanager
@@ -265,6 +281,7 @@ def _writer_lock(directory: int, path: str, basename: str) -> Iterator[None]:
         raise
     try:
         _directory_current(directory, path)
+        _recover_lock_temporaries(directory)
         with _compatible_sidecar(directory, basename, path):
             _recover_stages(directory)
             yield
@@ -302,13 +319,14 @@ def _source_current(directory: int, basename: str, descriptor: int,
     return after
 
 
-def _darwin_acl_present(descriptor: int) -> bool:
+def _darwin_acl_present(descriptor: int, *, inheritable_only: bool = False) -> bool:
     """Darwin ACLs are native metadata, not entries returned by listxattr.
 
     ACL_TYPE_EXTENDED is 0x100 in macOS sys/acl.h. acl_get_fd_np returns
-    ENOENT when no extended ACL exists. Treat any existing ACL object
-    conservatively as unsupported instead of silently dropping its entries
-    or inheritance flags when replacing the file.
+    ENOENT when no extended ACL exists. Files and private save directories
+    reject any existing ACL. A publication parent only needs the narrower
+    inheritance check: its own non-inheritable permissions remain enforced
+    by the kernel when creating or replacing children.
     """
     try:
         libc = ctypes.CDLL(None, use_errno=True)
@@ -322,12 +340,61 @@ def _darwin_acl_present(descriptor: int) -> bool:
     ctypes.set_errno(0)
     acl = getter(descriptor, 0x100)
     if acl:
-        release(acl)
-        return True
+        try:
+            if not inheritable_only:
+                return True
+            try:
+                validate = libc.acl_valid
+                entry_getter = libc.acl_get_entry
+                flagset_getter = libc.acl_get_flagset_np
+                flag_getter = libc.acl_get_flag_np
+                validate.argtypes, validate.restype = (ctypes.c_void_p,), ctypes.c_int
+                entry_getter.argtypes = (ctypes.c_void_p, ctypes.c_int,
+                                         ctypes.POINTER(ctypes.c_void_p))
+                entry_getter.restype = ctypes.c_int
+                flagset_getter.argtypes = (ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p))
+                flagset_getter.restype = ctypes.c_int
+                flag_getter.argtypes = (ctypes.c_void_p, ctypes.c_int)
+                flag_getter.restype = ctypes.c_int
+            except (AttributeError, OSError) as exc:
+                raise _error("unsupported_permissions", "cannot verify native macOS ACL inheritance") from exc
+            if validate(acl) != 0:
+                raise _error("unsupported_permissions", "cannot verify native macOS ACL inheritance")
+            # Darwin returns 0 for an entry and -1/EINVAL for an index past
+            # the end of a valid ACL. ACL_MAX_ENTRIES is 128 in sys/acl.h.
+            for index in range(129):
+                entry = ctypes.c_void_p()
+                ctypes.set_errno(0)
+                result = entry_getter(acl, index, ctypes.byref(entry))
+                if result == -1 and ctypes.get_errno() == errno.EINVAL:
+                    return False
+                if result != 0 or not entry.value:
+                    raise _error("unsupported_permissions", "cannot verify native macOS ACL inheritance")
+                flags = ctypes.c_void_p()
+                if flagset_getter(entry, ctypes.byref(flags)) != 0 or not flags.value:
+                    raise _error("unsupported_permissions", "cannot verify native macOS ACL inheritance")
+                # FILE_INHERIT / DIRECTORY_INHERIT, not ENTRY_INHERITED:
+                # the latter only describes where this parent's entry came from.
+                for flag in (1 << 5, 1 << 6):
+                    value = flag_getter(flags, flag)
+                    if value not in {0, 1}:
+                        raise _error("unsupported_permissions", "cannot verify native macOS ACL inheritance")
+                    if value:
+                        return True
+            raise _error("unsupported_permissions", "cannot verify native macOS ACL inheritance")
+        finally:
+            release(acl)
     error = ctypes.get_errno()
     if error in {errno.ENOENT, errno.ENOTSUP, errno.EOPNOTSUPP}:
         return False
     raise _error("unsupported_permissions", "cannot verify native macOS access-control metadata")
+
+
+def _check_parent_acl(descriptor: int) -> None:
+    if sys.platform != "darwin":
+        _attributes(descriptor)
+    elif _darwin_acl_present(descriptor, inheritable_only=True):
+        raise _error("unsupported_permissions", "inherited access-control lists cannot yet be preserved safely")
 
 
 def _darwin_xattr_api():
@@ -418,13 +485,15 @@ def _set_attributes(descriptor: int, attributes: dict[str, bytes]) -> None:
 
 
 _STAGE_NAME = re.compile(r"\.veqtor-stage-[0-9a-f]{32}\Z")
+_CLEANUP_NAME = re.compile(r"\.veqtor-cleanup-([0-9a-f]{32})\.json\Z")
 _STAGE_FILE = "candidate.tmp"
 _STAGE_MANIFEST = "owner.json"
 
 
-def _stage_manifest(directory: int) -> tuple[dict, os.stat_result] | None:
+def _stage_manifest(directory: int, name: str = _STAGE_MANIFEST,
+                    *, directory_identity: tuple[int, int] | None = None) -> tuple[dict, os.stat_result] | None:
     """Read a bounded private ownership record without following any link."""
-    descriptor = os.open(_STAGE_MANIFEST, os.O_RDONLY | _NOFOLLOW | _CLOEXEC | os.O_NONBLOCK,
+    descriptor = os.open(name, os.O_RDONLY | _NOFOLLOW | _CLOEXEC | os.O_NONBLOCK,
                          dir_fd=directory)
     try:
         before = os.fstat(descriptor)
@@ -434,7 +503,7 @@ def _stage_manifest(directory: int) -> tuple[dict, os.stat_result] | None:
             return None
         value = json.loads(os.read(descriptor, 4097))
         if (_version(before) != _version(os.fstat(descriptor))
-                or _version(before) != _version(_at_stat(directory, _STAGE_MANIFEST))):
+                or _version(before) != _version(_at_stat(directory, name))):
             return None
         keys = {"version", "pid", "instance", "directory", "file", "size", "sha256", "uid", "gid", "mode"}
         if (not isinstance(value, dict) or set(value) != keys
@@ -453,11 +522,91 @@ def _stage_manifest(directory: int) -> tuple[dict, os.stat_result] | None:
             if (not isinstance(value[key], list) or len(value[key]) != 2
                     or any(type(number) is not int or number < 0 for number in value[key])):
                 return None
-        if tuple(value["directory"]) != _identity(os.fstat(directory)):
+        if directory_identity is not None and tuple(value["directory"]) != directory_identity:
             return None
         return value, before
     finally:
         os.close(descriptor)
+
+
+def _finish_stage_cleanup(parent: int, name: str, directory: int,
+                          directory_identity: tuple[int, int], manifest_info: os.stat_result) -> None:
+    """Retain the ownership record until the now-empty stage is gone.
+
+    Moving the existing record is atomic. A crash before the move leaves the
+    ordinary manifest; a crash afterward leaves a verifiable cleanup record.
+    Never replace another cleanup entry or delete a changed/replaced directory.
+    """
+    if (not _STAGE_NAME.fullmatch(name)
+            or _identity(_at_stat(parent, name)) != directory_identity
+            or _identity(os.fstat(directory)) != directory_identity
+            or set(os.listdir(directory)) != {_STAGE_MANIFEST}
+            or _version(_at_stat(directory, _STAGE_MANIFEST)) != _version(manifest_info)):
+        return
+    cleanup = f".veqtor-cleanup-{name.removeprefix('.veqtor-stage-')}.json"
+    _rename_noreplace(directory, _STAGE_MANIFEST, cleanup, destination_directory=parent)
+    moved_info = _at_stat(parent, cleanup)
+    # Rename changes ctime; every other captured identity/content attribute
+    # must still match. Recheck the moved record before its eventual unlink.
+    expected, moved = _version(manifest_info), _version(moved_info)
+    if expected[:4] + expected[5:] != moved[:4] + moved[5:]:
+        return
+    try:
+        os.fsync(parent)
+    except OSError:
+        # The empty directory can still be removed. The ownership record must
+        # remain unless a subsequent parent sync confirms that removal.
+        pass
+    if (_identity(_at_stat(parent, name)) != directory_identity
+            or os.listdir(directory)):
+        return
+    os.rmdir(name, dir_fd=parent)
+    os.fsync(parent)
+    if _version(_at_stat(parent, cleanup)) == _version(moved_info):
+        _unlink_owned(parent, cleanup, _identity(manifest_info))
+        os.fsync(parent)
+
+
+def _recover_cleanup(parent: int, name: str) -> None:
+    match = _CLEANUP_NAME.fullmatch(name)
+    if match is None:
+        return
+    record = _stage_manifest(parent, name)
+    if record is None:
+        return
+    value, manifest_info = record
+    if not instance_ended(value["pid"], value["instance"]):
+        return
+    stage = f".veqtor-stage-{match[1]}"
+    try:
+        before = _at_stat(parent, stage)
+    except FileNotFoundError:
+        before = None
+    if before is not None:
+        if (not stat.S_ISDIR(before.st_mode) or before.st_uid != os.geteuid()
+                or stat.S_IMODE(before.st_mode) != 0o700
+                or _identity(before) != tuple(value["directory"])):
+            return
+        directory = os.open(stage, os.O_RDONLY | os.O_DIRECTORY | _NOFOLLOW | _CLOEXEC,
+                            dir_fd=parent)
+        try:
+            if _identity(os.fstat(directory)) != _identity(before):
+                return
+            _supported_filesystem(directory, parent)
+            _attributes(directory)
+            if (os.listdir(directory)
+                    or _identity(_at_stat(parent, stage)) != _identity(before)
+                    or _version(_at_stat(parent, name)) != _version(manifest_info)):
+                return
+            os.rmdir(stage, dir_fd=parent)
+        finally:
+            os.close(directory)
+    # Persist directory removal before losing the last ownership record. This
+    # also completes recovery after a crash immediately following rmdir.
+    os.fsync(parent)
+    if _version(_at_stat(parent, name)) == _version(manifest_info):
+        _unlink_owned(parent, name, _identity(manifest_info))
+        os.fsync(parent)
 
 
 def _recover_stage(parent: int, name: str) -> None:
@@ -472,7 +621,7 @@ def _recover_stage(parent: int, name: str) -> None:
         _supported_filesystem(directory, parent)
         # An inherited ACL could give other principals access despite mode 700.
         _attributes(directory)
-        record = _stage_manifest(directory)
+        record = _stage_manifest(directory, directory_identity=_identity(before))
         if record is None:
             return
         value, manifest_info = record
@@ -521,10 +670,7 @@ def _recover_stage(parent: int, name: str) -> None:
             _unlink_owned(directory, _STAGE_FILE, _identity(file_info))
             if _STAGE_FILE in os.listdir(directory):
                 return
-        _unlink_owned(directory, _STAGE_MANIFEST, _identity(manifest_info))
-        if not os.listdir(directory) and _identity(_at_stat(parent, name)) == _identity(before):
-            os.rmdir(name, dir_fd=parent)
-            os.fsync(parent)
+        _finish_stage_cleanup(parent, name, directory, _identity(before), manifest_info)
     finally:
         os.close(directory)
 
@@ -534,9 +680,12 @@ def _recover_stages(directory: int) -> None:
     # for the private backup folder). Old unregistered .tmp files are untouched.
     with os.scandir(directory) as entries:
         for entry in entries:
-            if _STAGE_NAME.fullmatch(entry.name):
+            if _STAGE_NAME.fullmatch(entry.name) or _CLEANUP_NAME.fullmatch(entry.name):
                 try:
-                    _recover_stage(directory, entry.name)
+                    if _CLEANUP_NAME.fullmatch(entry.name):
+                        _recover_cleanup(directory, entry.name)
+                    else:
+                        _recover_stage(directory, entry.name)
                 except (OSError, ApplyError, ValueError, TypeError, KeyError):
                     continue  # Unverifiable contents are retained, never guessed away.
 
@@ -553,7 +702,7 @@ def _staged(parent: int, payload: bytes, source_info: os.stat_result,
             attributes: dict[str, bytes]) -> Iterator[_Stage]:
     # A private child must not silently bypass restrictions inherited by a
     # direct output in this folder (including file-only ACL inheritance).
-    _attributes(parent)
+    _check_parent_acl(parent)
     name = f".veqtor-stage-{uuid.uuid4().hex}"
     os.mkdir(name, 0o700, dir_fd=parent)
     directory = os.open(name, os.O_RDONLY | os.O_DIRECTORY | _NOFOLLOW | _CLOEXEC, dir_fd=parent)
@@ -603,11 +752,23 @@ def _staged(parent: int, payload: bytes, source_info: os.stat_result,
             os.close(descriptor)
         if identity is not None:
             _unlink_owned(directory, _STAGE_FILE, identity)
-        if manifest_identity is not None:
-            _unlink_owned(directory, _STAGE_MANIFEST, manifest_identity)
         try:
-            if _identity(_at_stat(parent, name)) == directory_identity and not os.listdir(directory):
-                os.rmdir(name, dir_fd=parent)
+            registered = None
+            if manifest_identity is not None:
+                try:
+                    registered = _stage_manifest(directory, directory_identity=directory_identity)
+                except (OSError, ValueError, TypeError, KeyError):
+                    pass
+            if registered is not None and _identity(registered[1]) == manifest_identity:
+                _finish_stage_cleanup(parent, name, directory, directory_identity, registered[1])
+            else:
+                # This live writer still knows the exact inodes it created if
+                # initialization failed. Dead-writer recovery cannot infer that
+                # ownership for an absent/partial manifest and preserves it.
+                if manifest_identity is not None:
+                    _unlink_owned(directory, _STAGE_MANIFEST, manifest_identity)
+                if _identity(_at_stat(parent, name)) == directory_identity and not os.listdir(directory):
+                    os.rmdir(name, dir_fd=parent)
         except OSError:
             pass  # Cleanup must not mask the publication outcome/recovery path.
         finally:
@@ -779,6 +940,7 @@ def publish_document(source_path: str, output_path: str | None, source_payload: 
                                     _directory_current(destination, output_parent)
                                     _backup_current(parent, backups)
                                     _source_current(parent, basename, source_descriptor, source_payload, version)
+                                    _check_parent_acl(destination)
                                     os.replace(staged.name, output_name, src_dir_fd=staged.directory, dst_dir_fd=parent)
                                     publication_completed = True
                             except ApplyError:
@@ -791,6 +953,7 @@ def publish_document(source_path: str, output_path: str | None, source_payload: 
                             _directory_current(parent, source_parent)
                             _directory_current(destination, output_parent)
                             _source_current(parent, basename, source_descriptor, source_payload, version)
+                            _check_parent_acl(destination)
                             try:
                                 os.link(staged.name, output_name, src_dir_fd=staged.directory,
                                         dst_dir_fd=destination, follow_symlinks=False)
