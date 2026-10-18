@@ -126,13 +126,23 @@ def _write_all(descriptor: int, payload: bytes) -> None:
 
 
 def _word_unlocked(directory: int, basename: str) -> None:
-    # Depending on the filename/Word version, the owner prefix is prepended or
-    # replaces one or two leading characters. Native Word prepends the prefix
-    # for one/two-character stems; truncated probes such as '~$1.docx' or
-    # '~$.docx' would falsely lock unrelated short documents in the directory.
-    stem = os.path.splitext(basename)[0]
-    offsets = (0,) if len(stem) <= 2 else (0, 1, 2)
-    for name in {"~$" + basename[offset:] for offset in offsets}:
+    # Native Word keeps stems up to six characters, drops one for seven,
+    # and two for longer names. Retain the full-prefix variant for clients
+    # that always prepend it, but do not probe other documents' short names.
+    # Supplementary Unicode characters can occupy two native UTF-16 units;
+    # retain conservative probes there until their naming rule is verified.
+    # APFS can resolve an NFC/NFD alias to the same open document. Calculate
+    # truncation from its composed spelling so an equivalent path cannot
+    # change the six/seven-character boundary and bypass the owner check.
+    composed = unicodedata.normalize("NFC", basename)
+    stem = os.path.splitext(composed)[0]
+    offsets = ((0, 1, 2) if any(ord(char) > 0xffff for char in stem)
+               else (0, min(2, max(0, len(stem) - 6))))
+    names = {"~$" + basename, *("~$" + composed[offset:] for offset in offsets)}
+    # Linux filename lookup does not equate NFC and NFD. An owner file copied
+    # from Word on macOS can retain decomposed characters there.
+    names.update(unicodedata.normalize("NFD", name) for name in tuple(names))
+    for name in names:
         try:
             _at_stat(directory, name)
         except FileNotFoundError:
