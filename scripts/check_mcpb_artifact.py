@@ -166,6 +166,7 @@ def _validate_manifest(manifest_bytes: bytes, prompt_bytes: bytes) -> None:
                 "VEQTOR_TRACKED_CHANGE_AUTHOR": (
                     "${user_config.tracked_change_author}"
                 ),
+                "VEQTOR_COMMENT_INITIALS": "${user_config.comment_initials}",
                 "UV_NO_PROGRESS": "1",
             },
         },
@@ -176,14 +177,22 @@ def _validate_manifest(manifest_bytes: bytes, prompt_bytes: bytes) -> None:
         "type": "string",
         "title": "Tracked-change author",
         "description": (
-            "The name written into new Word tracked changes. Veqtor refuses a "
-            "blank name or a value longer than 255 characters."
+            "The name written into new Word tracked changes and comments. Use the "
+            "same name in Word to continue editing your revisions. Veqtor refuses "
+            "a blank name or a value longer than 255 characters."
         ),
         "required": True,
         "sensitive": False,
     }
     if manifest.get("user_config") != {
-        "tracked_change_author": expected_author_config
+        "tracked_change_author": expected_author_config,
+        "comment_initials": {
+            "type": "string",
+            "title": "Comment initials",
+            "description": "Initials written into new Word comments, for example IS. Veqtor requires 1-32 XML-compatible characters.",
+            "required": True,
+            "sensitive": False,
+        },
     }:
         raise McpbArtifactError("tracked-change author configuration differs")
     tools = manifest.get("tools")

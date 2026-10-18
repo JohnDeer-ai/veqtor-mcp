@@ -20,3 +20,10 @@ copies only these four DOCX files to a fresh writable folder outside the
 installed extension, writes the new output there, then uses `list_rounds` and
 `extract_redlines` to confirm the source hash stayed unchanged and the output
 hash agrees with `apply_edits`.
+
+For author drafting in 0.5.0, use a separate writable copy, close it in Word,
+then ask Claude to inspect its text/comments, preflight a precise replacement
+and apply it with `apply_document_edits`. This saves the copy in place and
+reports a byte-exact backup. Re-read after every save; earlier references become
+stale. The bundled `docs/AUTHOR_DRAFTING.md` describes own-insertion re-editing,
+comment operations, supported filesystems and recovery limits.

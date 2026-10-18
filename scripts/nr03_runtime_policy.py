@@ -6,7 +6,8 @@ from nr03_scenario import SERVER
 NOTIFICATIONS = {"remoteControl/status/changed", "mcpServer/startupStatus/updated", "thread/goal/cleared"}
 TOOLS = {"list_rounds", "extract_redlines", "inspect_document", "map_rounds",
          "trace_paragraph_history", "preflight_edits", "apply_edits", "verify_quote",
-         "export_decision_record", "read_deal_positions", "mutate_deal_positions"}
+         "export_decision_record", "read_deal_positions", "mutate_deal_positions",
+         "read_document_comments", "preflight_document_edits", "apply_document_edits"}
 
 
 def inventory_params(thread):
@@ -26,7 +27,7 @@ def validate_inventory(result):
              "source runtime server/capability boundary differs")
     info = row["serverInfo"]
     _require(isinstance(info, dict) and set(info) == {"name", "title", "version", "description", "icons", "websiteUrl"}
-             and info["name"] == "veqtor" and info["version"] == "0.4.2"
+             and info["name"] == "veqtor" and info["version"] == "0.5.0"
              and all(info[k] is None for k in ("title", "description", "icons", "websiteUrl")),
              "source runtime producer metadata differs")
     tools = row["tools"]

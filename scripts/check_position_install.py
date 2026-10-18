@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Exact development wheel/source/install binding; independent of frozen releases."""
+"""Exact candidate wheel/source/install binding for native acceptance."""
 from __future__ import annotations
 
 import argparse
@@ -14,10 +14,11 @@ import tarfile
 import tomllib
 import zipfile
 
-# These two helpers derive content from the supplied project/README and member
-# bytes. They do not invoke the frozen release identity or its inventories.
+# Archive helpers derive content from the supplied project/README and members.
+# The current release contract supplies the expected version and MCP tool surface.
 from check_release_artifacts import _metadata_contract, _verify_wheel_record
 from position_source_launch import SOURCE_ONLY_BOOTSTRAP
+from release_contract import VERSION, MCPB_REQUIRED_TOOLS
 
 
 CORE_DISTRIBUTION_FILES = ("METADATA", "WHEEL", "entry_points.txt", "licenses/LICENSE", "licenses/NOTICE")
@@ -152,7 +153,7 @@ def verify(root, commit, tree, wheel, sdist, python):
     require(git(root, "rev-parse", "HEAD^{tree}") == tree, "source tree differs")
     require(not git(root, "status", "--porcelain=v1", "--untracked-files=all"), "source checkout is dirty")
     config = tomllib.loads((root / "pyproject.toml").read_text())
-    require(config["project"]["name"] == "veqtor-mcp" and config["project"]["version"] == "0.4.2", "wrong development identity")
+    require(config["project"]["name"] == "veqtor-mcp" and config["project"]["version"] == VERSION, "wrong release candidate identity")
     runtime = {name.removeprefix("/src/"): source_file(root, name.lstrip("/"))
                for name in config["tool"]["hatch"]["build"]["targets"]["wheel"]["include"]}
     require(set(runtime) == {p.relative_to(root / "src").as_posix()
@@ -180,9 +181,7 @@ asyncio.run(main())
         [str(python), "-I", "-B", "-c", SOURCE_ONLY_BOOTSTRAP + probe], cwd=wheel.parent))
     require(observed["version"] == observed["distribution_version"] == config["project"]["version"],
             "installed distribution version differs")
-    require(len(observed["tools"]) == 11 and set(observed["tools"]) == {"list_rounds", "extract_redlines", "inspect_document", "map_rounds",
-        "trace_paragraph_history", "preflight_edits", "apply_edits", "verify_quote", "export_decision_record",
-        "read_deal_positions", "mutate_deal_positions"}, "installed tool set differs")
+    require(tuple(observed["tools"]) == MCPB_REQUIRED_TOOLS, "installed tool set differs")
     distribution_path = installed_distribution(observed, root, python, dist_info, distribution_files)
     actual = {}
     for package, raw in observed["roots"].items():

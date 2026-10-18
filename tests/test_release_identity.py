@@ -24,7 +24,6 @@ ROOT = Path(__file__).parents[1]
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 from release_contract import (  # noqa: E402
-    DEVELOPMENT_RUNTIME_SOURCE_FILES,
     RUNTIME_SOURCE_FILES,
     SDIST_GIT_FILES,
     SDIST_MEMBERS,
@@ -171,6 +170,12 @@ def _rewrite_zip_metadata(
     replacement.replace(wheel)
 
 
+def test_frozen_v042_contract_is_retained_byte_for_byte() -> None:
+    assert hashlib.sha256((SCRIPTS / "release_contract_v042.py").read_bytes()).hexdigest() == (
+        "a5e792acd780c0125efb389adb9ba7e7e10e4c440926cf91c9f5cc3c6c932378"
+    )
+
+
 def test_hatch_source_selection_is_scoped_by_package_version() -> None:
     config = tomllib.loads((ROOT / "pyproject.toml").read_text())
     wheel = config["tool"]["hatch"]["build"]["targets"]["wheel"]
@@ -178,7 +183,6 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
     wheel_includes = set(wheel["include"])
     sdist_includes = set(sdist["include"])
     frozen_runtime = {f"/{path}" for path in RUNTIME_SOURCE_FILES}
-    development_runtime = {f"/{path}" for path in DEVELOPMENT_RUNTIME_SOURCE_FILES}
     discovered_runtime = {
         f"/{path.relative_to(ROOT).as_posix()}"
         for package in (ROOT / "src" / "veqtor_docx", ROOT / "src" / "veqtor_mcp")
@@ -187,14 +191,11 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
 
     assert wheel["sources"] == ["src"]
     assert "/src" not in sdist["include"]
-    assert len(DEVELOPMENT_RUNTIME_SOURCE_FILES) == len(development_runtime)
-    assert development_runtime == discovered_runtime
-    assert frozen_runtime < discovered_runtime
+    assert len(RUNTIME_SOURCE_FILES) == len(frozen_runtime) == 30
+    assert frozen_runtime == discovered_runtime
     assert {"/src/veqtor_docx/_paragraph_edits.py",
         "/src/veqtor_mcp/_positions_contract.py", "/src/veqtor_mcp/positions.py"} <= frozen_runtime
-    assert config["project"]["version"] == "0.5.0.dev3"
-    assert config["project"]["version"] != VERSION
-    assert VERSION == "0.4.2"
+    assert config["project"]["version"] == VERSION == "0.5.0"
     assert wheel_includes == discovered_runtime
     assert discovered_runtime <= sdist_includes
     assert "/src/veqtor_mcp/_inspection_live.py" in wheel_includes
@@ -211,7 +212,7 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
 release_contract_only = pytest.mark.skipif(
     tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
     != VERSION,
-    reason="closed v0.4 artifact ratchets apply only to source version 0.4.0",
+    reason="closed artifact ratchets require the exact release-contract source",
 )
 
 

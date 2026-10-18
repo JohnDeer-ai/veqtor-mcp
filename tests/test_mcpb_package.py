@@ -40,9 +40,9 @@ release_contract_source_only = pytest.mark.skipif(
 
 
 def test_previous_public_mcpb_identity_is_pinned_for_lifecycle_acceptance() -> None:
-    assert PREVIOUS_PUBLIC_VERSION == "0.4.0"
+    assert PREVIOUS_PUBLIC_VERSION == "0.4.2"
     assert PREVIOUS_PUBLIC_MCPB_SHA256 == (
-        "44a75ee286c701f1a14a2c96fba531e8290240fb8d554eff886565b380b5bd2c"
+        "9779d4526b1b86553e6639e6cffd3e80e3e87a747f8ca93c5261869b83500cf5"
     )
     assert PREVIOUS_PUBLIC_MCPB_TOOLS == (
         "list_rounds",
@@ -54,6 +54,8 @@ def test_previous_public_mcpb_identity_is_pinned_for_lifecycle_acceptance() -> N
         "apply_edits",
         "verify_quote",
         "export_decision_record",
+        "read_deal_positions",
+        "mutate_deal_positions",
     )
 
 
@@ -81,12 +83,15 @@ def test_manifest_declares_uv_author_tools_and_macos_only() -> None:
                 "VEQTOR_TRACKED_CHANGE_AUTHOR": (
                     "${user_config.tracked_change_author}"
                 ),
+                "VEQTOR_COMMENT_INITIALS": "${user_config.comment_initials}",
                 "UV_NO_PROGRESS": "1",
             },
         },
     }
     assert manifest["user_config"]["tracked_change_author"]["required"] is True
     assert manifest["user_config"]["tracked_change_author"]["sensitive"] is False
+    assert manifest["user_config"]["comment_initials"]["required"] is True
+    assert manifest["user_config"]["comment_initials"]["sensitive"] is False
     assert tuple(tool["name"] for tool in manifest["tools"]) == MCPB_REQUIRED_TOOLS
     assert manifest["tools_generated"] is False
     assert manifest["compatibility"] == {

@@ -30,10 +30,10 @@ tamper-evident audit system. Review the
 [known limitations](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/KNOWN_LIMITATIONS.md)
 before using it on a real matter.
 
-This source tree carries unreleased package version `0.5.0.dev3` and the
+This source tree defines package version `0.5.0` and the
 fourteen-tool MCP contract `veqtor.mcp.v0.5.0`. The three new drafting tools
 support repeated edits under one configured author, comments and backup-backed
-saves to the working file. See [author drafting](#author-drafting-development).
+saves to the working file. See [author drafting](#author-drafting).
 All current tools report the new contract-wide marker. Legacy calls remain
 compatible with the historical `0.4.0` release; the additive paragraph target
 and the two deal-position tools require `0.4.2`. Live `producer.version`
@@ -41,8 +41,7 @@ identifies this package version and `producer.build` fingerprints the imported
 Python sources.
 
 Public installations must use an independently verified released version.
-This development tree is not a new publication or
-proof of client acceptance. The historical v0.4.0 contract is retained separately; its published
+Source presence does not establish publication or exact-package client acceptance. The historical v0.4.0 contract is retained separately; its published
 artifacts are unchanged. The historical v0.3 release remains an immutable
 eight-tool `veqtor.mcp.v0.3` surface.
 
@@ -53,14 +52,15 @@ select one exact version for every command below:
 
 | Official state | Replace `X.Y.Z` with |
 |---|---|
-| Both sources expose `0.4.2`, and the GitHub release contains the complete verified asset set | `0.4.2` |
+| Both sources expose `0.5.0`, and the GitHub release contains the complete verified asset set | `0.5.0` |
+| Otherwise, both sources expose verified `0.4.2` | `0.4.2` |
 | Otherwise | `0.4.0` |
 
 Do not run the placeholder literally or mix versions within one installation.
 
-## Author drafting development
+## Author drafting
 
-The development-only `read_document_comments`, `preflight_document_edits` and
+The `0.5.0` tools `read_document_comments`, `preflight_document_edits` and
 `apply_document_edits` tools support editing one's own pending insertions,
 ordinary comments and saving the same working DOCX with a mandatory backup.
 Configure `VEQTOR_TRACKED_CHANGE_AUTHOR` and `VEQTOR_COMMENT_INITIALS` once, close
@@ -74,11 +74,12 @@ The public installation commands below continue to select the published release.
 chosen version appears inside the matching verified immutable `vX.Y.Z` entry
 in the live GitHub Releases list with its checksum manifest. Replace the
 placeholder using the table above. Presence in source, CI, a branch, chat or
-issue is not publication; if either public verifier is missing v0.4.2, keep
-using the verified public v0.4.0 extension and never guess a release-asset URL.
+issue is not publication. Use the first verified version in the table above
+and never guess a release-asset URL.
 
 Opening an official MCPB requests installation approval and the tracked-change
-author name. Its first activation may download a compatible Python runtime and
+author name; version 0.5.0 also asks for comment initials. Its first activation
+may download a compatible Python runtime and
 locked dependencies. The artifact is checksum-bound by `SHA256SUMS.txt`, but
 not digitally signed.
 
@@ -89,7 +90,8 @@ connects the exact version selected above to local Codex over stdio. The
 [next-round workflow](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/docs/CODEX.md#use-saved-positions-for-the-next-round-nr-03-development)
 reuses saved positions, presents a selected-issue brief and prepares a separate
 tracked Word counterproposal after your decisions. That workflow requires
-`0.4.2` and all eleven tools; the fallback `0.4.0` supports the historical
+`0.4.2` or later and its eleven document/position tools; `0.5.0` adds three
+author-drafting tools. The fallback `0.4.0` supports the historical
 nine-tool document workflow only.
 
 After installing [uv](https://docs.astral.sh/uv/), find its executable with
@@ -105,7 +107,7 @@ configuration; browser ChatGPT requires a separate connection.
 [Official OpenAI MCP documentation](https://learn.chatgpt.com/docs/extend/mcp).
 Registration alone does not establish a working document workflow. The guide
 separates the historical public-package observations from pending acceptance of
-the exact `0.4.2` candidate. Select that version only after both public verifiers pass.
+the exact `0.5.0` package. Select a version only after both public verifiers pass.
 
 ## Install a verified published version for Claude Code
 
@@ -231,8 +233,8 @@ or environment.
 
 ## Tool surface
 
-The descriptions below follow release-candidate package `0.4.2` and its
-eleven-tool MCP contract `veqtor.mcp.v0.4.2`. Public `0.4.0` retains the frozen
+The descriptions below follow package `0.5.0` and its
+fourteen-tool MCP contract `veqtor.mcp.v0.5.0`. Public `0.4.0` retains the frozen
 `veqtor.mcp.v0.4` contract. For an
 installed version, use the API file carried by that exact artifact or its
 matching immutable tag. Historical v0.3 artifacts retain their eight tools.
@@ -266,6 +268,15 @@ matching immutable tag. Historical v0.3 artifacts retain their eight tools.
   `pending_text_revisions_rejected_v1` and a closed
   `verification_result.v2` result.
 - `export_decision_record`: compact privacy-aware local provenance.
+- `read_deal_positions`: bounded reads of saved negotiation positions and their
+  explicit confirmation state.
+- `mutate_deal_positions`: expected-revision position updates, confirmation and
+  withdrawal, independently of document edits.
+- `read_document_comments`: paginated comment text, author metadata and source hash.
+- `preflight_document_edits`: dry-run exact text changes and supported own-comment
+  operations, bound to the configured author and the working document.
+- `apply_document_edits`: apply that unchanged proof and save in place with an
+  exact backup, or create a separate copy.
 
 The complete request, response and error contract is in the versioned
 [MCP Tool API](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/API.md). The
@@ -312,7 +323,7 @@ for hostile same-user processes.
 | Operating systems | macOS, Linux |
 | Python | 3.12, 3.13, 3.14 |
 | Transport | local stdio MCP; modern `2026-07-28` and legacy through `2025-11-25` |
-| Historical client observations | Claude Code, Claude Desktop; bounded synthetic workflow in Codex CLI 0.153.4 with published Veqtor 0.4.0 ([evidence](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/docs/evidence/codex-v0.4.0-20260911.json)); this is not acceptance of 0.4.2 |
+| Historical client observations | Claude Code, Claude Desktop; bounded synthetic workflow in Codex CLI 0.153.4 with published Veqtor 0.4.0 ([evidence](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/docs/evidence/codex-v0.4.0-20260911.json)); this is not acceptance of 0.5.0 |
 | DOCX part | `word/document.xml` |
 | Writes | tracked replace, delete, counter, reinstate |
 | Distribution | Versioned PyPI packages with matching immutable GitHub wheel/sdist/checksums; macOS MCPB only when attached to the matching verified release |

@@ -232,7 +232,7 @@ def test_development_preserves_the_complete_frozen_v04_surface() -> None:
 
     source_version = project["project"]["version"]
     frozen_version = release["VERSION"]
-    assert source_version == development_version == "0.5.0.dev3"
+    assert source_version == development_version == "0.5.0"
     assert "/CLAUSE_HISTORY_V0.4.md" in sdist_includes
     assert frozen_version == "0.4.0"
     assert frozen_version != source_version
@@ -243,10 +243,10 @@ def test_development_preserves_the_complete_frozen_v04_surface() -> None:
     assert "trace_paragraph_history" in records.WRITABLE_TOOL_NAMES
     assert len(release["MCPB_REQUIRED_TOOLS"]) == 9
     assert "trace_paragraph_history" in release["MCPB_REQUIRED_TOOLS"]
-    assert f"current source is unreleased package `{source_version}`" in api
+    assert f"current source defines package `{source_version}`" in api
     assert "fourteen-tool MCP contract `veqtor.mcp.v0.5.0`" in api
     assert "Public `0.4.0`" in api
-    assert "release-candidate source `0.4.2`" in limitations
+    assert "Package `0.5.0`" in limitations
     assert "veqtor.mcp.v0.4" in limitations
     assert "compatible with public `0.4.0`" in " ".join(
         limitations.split()

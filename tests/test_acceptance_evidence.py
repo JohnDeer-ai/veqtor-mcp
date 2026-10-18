@@ -44,9 +44,73 @@ RUNTIME_VERSION = VERSION
 CANCELLATION_STATUSES = ("passed", "not_observed_after_client_abandonment")
 
 
+def _drafting_packet() -> dict:
+    return {
+        "client": "native_codex_mcp",
+        "runtime_version": RUNTIME_VERSION,
+        "runtime_producer_build": PRODUCER_BUILD,
+        "installed_wheel_sha256": "7" * 64,
+        "configured_author_sha256": "1" * 64,
+        "runtime_author_sha256": "1" * 64,
+        "word_author_sha256": "1" * 64,
+        "configured_initials_sha256": "2" * 64,
+        "runtime_initials_sha256": "2" * 64,
+        "same_file_save_count": 7,
+        "exact_backup_count": 7,
+        "backup_manifest_sha256": "3" * 64,
+        "own_insert_id_preserved_by_veqtor": True,
+        "revision_and_comment_dates_present": True,
+        "foreign_revisions_preserved": True,
+        "foreign_comments_preserved": True,
+        "foreign_formatting_preserved": True,
+        "original_before_sha256": "4" * 64,
+        "original_after_sha256": "4" * 64,
+        "scenarios": {
+            "tracked_text_edit": "passed",
+            "own_insert_reedit": "passed",
+            "comment_add": "passed",
+            "comment_edit": "passed",
+            "comment_delete": "passed",
+            "collapsed_comment_preserved": "passed",
+            "other_author_refusal": "passed"
+        },
+        "native_word_cycle": {
+            "source": "actual_microsoft_word",
+            "word_before_sha256": "5" * 64,
+            "veqtor_after_sha256": "6" * 64,
+            "word_after_sha256": "7" * 64,
+            "word_saved_and_reopened": True,
+            "word_own_insert_reedit_confirmed": True,
+            "text_checked": True,
+            "track_changes_checked": True,
+            "rendered_pages": 3,
+            "inspected_pages": 3,
+            "transcript_sha256": "8" * 64
+        },
+        "typescript_transport": {
+            "sdk": "@modelcontextprotocol/sdk",
+            "sdk_version": "1.32.1",
+            "output_schema_validation_enabled": True,
+            "refusals": {
+                "file_locked": "passed",
+                "file_sha256_mismatch": "passed"
+            },
+            "injected_refusals": {
+                "source_changed": "passed",
+                "unsupported_filesystem": "passed"
+            },
+            "injection_method": "controlled_python_faults_in_installed_server_process_v1",
+            "fault_injection_harness_sha256": "b" * 64,
+            "installed_source_bytes_unchanged": True,
+            "transcript_sha256": "9" * 64
+        },
+        "transcript_sha256": "a" * 64
+    }
+
 def _packet() -> dict:
     return {
         "schema_version": SCHEMA_VERSION,
+        "drafting": _drafting_packet(),
         "candidate_sha": CANDIDATE_SHA,
         "candidate_tree": CANDIDATE_TREE,
         "producer_build": PRODUCER_BUILD,
@@ -91,7 +155,7 @@ def _packet() -> dict:
             "runtime_producer_build": PRODUCER_BUILD,
             "runtime_version": RUNTIME_VERSION,
         },
-        "next_round": {'client': 'native_codex_mcp', 'model': 'gpt-6-astra', 'reasoning_effort': 'high', 'runtime_version': '0.4.2', 'runtime_producer_build': 'source-snapshot-v1-sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc', 'installed_wheel_sha256': '7777777777777777777777777777777777777777777777777777777777777777', 'saved_positions_restored': True, 'brief_present': True, 'explicit_decisions': True, 'sources_before_sha256': '8888888888888888888888888888888888888888888888888888888888888888', 'sources_after_sha256': '8888888888888888888888888888888888888888888888888888888888888888', 'first_round': {'transcript_sha256': '5555555555555555555555555555555555555555555555555555555555555555', 'output_sha256': '6666666666666666666666666666666666666666666666666666666666666666', 'text_checked': True, 'track_changes_checked': True, 'rendered_pages': 1, 'inspected_pages': 1, 'delivered_by_model': True, 'fresh_session': True}, 'second_round': {'transcript_sha256': '9999999999999999999999999999999999999999999999999999999999999999', 'output_sha256': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'text_checked': True, 'track_changes_checked': True, 'rendered_pages': 1, 'inspected_pages': 1, 'delivered_by_model': True, 'fresh_session': True}},
+        "next_round": {'client': 'native_codex_mcp', 'model': 'gpt-6-astra', 'reasoning_effort': 'high', 'runtime_version': '0.5.0', 'runtime_producer_build': 'source-snapshot-v1-sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc', 'installed_wheel_sha256': '7777777777777777777777777777777777777777777777777777777777777777', 'saved_positions_restored': True, 'brief_present': True, 'explicit_decisions': True, 'sources_before_sha256': '8888888888888888888888888888888888888888888888888888888888888888', 'sources_after_sha256': '8888888888888888888888888888888888888888888888888888888888888888', 'first_round': {'transcript_sha256': '5555555555555555555555555555555555555555555555555555555555555555', 'output_sha256': '6666666666666666666666666666666666666666666666666666666666666666', 'text_checked': True, 'track_changes_checked': True, 'rendered_pages': 1, 'inspected_pages': 1, 'delivered_by_model': True, 'fresh_session': True}, 'second_round': {'transcript_sha256': '9999999999999999999999999999999999999999999999999999999999999999', 'output_sha256': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'text_checked': True, 'track_changes_checked': True, 'rendered_pages': 1, 'inspected_pages': 1, 'delivered_by_model': True, 'fresh_session': True}},
         "desktop_rehearsal": {
             "verdict": "passed",
             "client": "claude_desktop_existing_user_profile",
@@ -235,8 +299,8 @@ def _packet() -> dict:
             "session_transcript_sha256": "2" * 64,
             "demo_journal_sha256": "3" * 64,
             "lifecycle": {
-                "scenario": "v0.4.0_to_v0.4.2_upgrade_rollback_v1",
-                "previous_artifact_source": "immutable_github_release_v0.4.0",
+                "scenario": "v0.4.2_to_v0.5.0_upgrade_rollback_v1",
+                "previous_artifact_source": "immutable_github_release_v0.4.2",
                 "previous_artifact_version": PREVIOUS_PUBLIC_VERSION,
                 "initial_artifact_sha256": PREVIOUS_PUBLIC_MCPB_SHA256,
                 "initial_checksum_status": "passed",
@@ -253,7 +317,7 @@ def _packet() -> dict:
                 "post_rollback_runtime_version": PREVIOUS_PUBLIC_VERSION,
                 "post_rollback_visible_tools": list(PREVIOUS_PUBLIC_MCPB_TOOLS),
                 "post_rollback_smoke_status": "passed",
-                "post_rollback_workspace_kind": ("fresh_v040_compatible_workspace_v1"),
+                "post_rollback_workspace_kind": ("fresh_v042_compatible_workspace_v1"),
                 "rollback_scope": "extension_runtime_and_tool_surface_only",
                 "candidate_workspace_presented_to_previous": False,
                 "position_or_journal_downgrade_claimed": False,
@@ -278,9 +342,126 @@ def _validate(packet: dict) -> None:
     )
 
 
+@pytest.mark.parametrize("field", [
+    "client", "runtime_version", "runtime_producer_build", "installed_wheel_sha256",
+])
+def test_drafting_must_use_the_exact_accepted_installed_wheel(field: str) -> None:
+    packet = _packet()
+    packet["drafting"][field] = "old-candidate"
+    with pytest.raises(EvidenceError, match="differs from the accepted candidate"):
+        _validate(packet)
+
+
+@pytest.mark.parametrize("field", [
+    "own_insert_id_preserved_by_veqtor", "revision_and_comment_dates_present",
+    "foreign_revisions_preserved", "foreign_comments_preserved", "foreign_formatting_preserved",
+])
+def test_drafting_requires_observed_preservation_and_dates(field: str) -> None:
+    packet = _packet()
+    packet["drafting"][field] = False
+    with pytest.raises(EvidenceError, match=field):
+        _validate(packet)
+
+
+@pytest.mark.parametrize("field", ["same_file_save_count", "exact_backup_count"])
+@pytest.mark.parametrize("count", [True, 0, 6, 8])
+def test_drafting_requires_exactly_seven_saves_and_exact_backups(field: str, count) -> None:
+    packet = _packet()
+    packet["drafting"][field] = count
+    with pytest.raises(EvidenceError, match=field):
+        _validate(packet)
+
+
+@pytest.mark.parametrize(("field", "message"), [
+    ("runtime_author_sha256", "author identity differs"),
+    ("word_author_sha256", "author identity differs"),
+    ("runtime_initials_sha256", "initials differ"),
+    ("original_after_sha256", "modified original source"),
+])
+def test_drafting_rejects_attribution_or_original_source_mismatch(field: str, message: str) -> None:
+    packet = _packet()
+    packet["drafting"][field] = "f" * 64
+    with pytest.raises(EvidenceError, match=message):
+        _validate(packet)
+
+
+@pytest.mark.parametrize("scenario", list(_drafting_packet()["scenarios"]))
+def test_drafting_requires_every_edit_and_comment_scenario(scenario: str) -> None:
+    packet = _packet()
+    packet["drafting"]["scenarios"][scenario] = "not_run"
+    with pytest.raises(EvidenceError, match=scenario):
+        _validate(packet)
+
+
+@pytest.mark.parametrize(("field", "value", "message"), [
+    ("source", "scripted_ooxml", "actual Microsoft Word"),
+    ("veqtor_after_sha256", "5" * 64, "unchanged document stage"),
+    ("word_saved_and_reopened", False, "word_saved_and_reopened"),
+    ("word_own_insert_reedit_confirmed", False, "word_own_insert_reedit_confirmed"),
+    ("track_changes_checked", False, "track_changes_checked"),
+    ("inspected_pages", 2, "inspected_pages"),
+    ("transcript_sha256", "/Users/private/transcript", "lowercase hex digest"),
+])
+def test_drafting_requires_actual_complete_native_word_cycle(field: str, value, message: str) -> None:
+    packet = _packet()
+    packet["drafting"]["native_word_cycle"][field] = value
+    with pytest.raises(EvidenceError, match=message):
+        _validate(packet)
+
+
+@pytest.mark.parametrize(("field", "value", "message"), [
+    ("sdk", "python-sdk", "official TypeScript SDK"),
+    ("sdk_version", "unknown", "MAJOR.MINOR.PATCH"),
+    ("output_schema_validation_enabled", False, "output_schema_validation_enabled"),
+    ("transcript_sha256", "unrecorded", "lowercase hex digest"),
+    ("injection_method", "native_word", "fault injection method differs"),
+    ("fault_injection_harness_sha256", "unrecorded", "lowercase hex digest"),
+    ("installed_source_bytes_unchanged", False, "installed_source_bytes_unchanged"),
+])
+def test_drafting_requires_schema_validated_typescript_transport(field: str, value, message: str) -> None:
+    packet = _packet()
+    packet["drafting"]["typescript_transport"][field] = value
+    with pytest.raises(EvidenceError, match=message):
+        _validate(packet)
+
+
+@pytest.mark.parametrize(("section", "code"), [
+    ("refusals", "file_locked"),
+    ("refusals", "file_sha256_mismatch"),
+    ("injected_refusals", "source_changed"),
+    ("injected_refusals", "unsupported_filesystem"),
+])
+def test_drafting_requires_each_typescript_refusal(section: str, code: str) -> None:
+    packet = _packet()
+    packet["drafting"]["typescript_transport"][section][code] = "protocol_error"
+    with pytest.raises(EvidenceError, match=code):
+        _validate(packet)
+
+
+def test_drafting_does_not_label_injected_transport_refusals_as_native_observations() -> None:
+    packet = _packet()
+    transport = packet["drafting"]["typescript_transport"]
+    transport["refusals"]["source_changed"] = transport["injected_refusals"].pop("source_changed")
+    with pytest.raises(EvidenceError, match="refusals fields differ"):
+        _validate(packet)
+
+
+@pytest.mark.parametrize("section", [None, "scenarios", "native_word_cycle", "typescript_transport"])
+def test_drafting_is_complete_and_path_free(section: str | None) -> None:
+    packet = _packet()
+    target = packet["drafting"] if section is None else packet["drafting"][section]
+    target["private_path"] = "/Users/private/matter.docx"
+    with pytest.raises(EvidenceError, match="fields differ"):
+        _validate(packet)
+    target.pop("private_path")
+    target.pop(next(iter(target)))
+    with pytest.raises(EvidenceError, match="fields differ"):
+        _validate(packet)
+
+
 @pytest.mark.parametrize("field,value", [
     ("client", "scripted_mcp"), ("model", "unknown"),
-    ("reasoning_effort", "ultra"), ("runtime_version", "0.4.2.dev0"),
+    ("reasoning_effort", "ultra"), ("runtime_version", "0.5.0.dev0"),
     ("runtime_producer_build", "old-build"),
     ("installed_wheel_sha256", "not-a-digest"),
     ("saved_positions_restored", False), ("brief_present", False),
@@ -434,10 +615,10 @@ def test_cancellation_observation_is_complete_and_path_free(status, mutation):
         _validate(packet)
 
 
-def test_documented_working_template_matches_executable_v9_schema() -> None:
+def test_documented_working_template_matches_executable_v10_schema() -> None:
     releasing = (ROOT / "RELEASING.md").read_text()
-    template = releasing.split("<!-- acceptance-v9-template-begin -->", 1)[1]
-    template = template.split("<!-- acceptance-v9-template-end -->", 1)[0]
+    template = releasing.split("<!-- acceptance-v10-template-begin -->", 1)[1]
+    template = template.split("<!-- acceptance-v10-template-end -->", 1)[0]
     packet = _parse_packet(
         template.split("```json\n", 1)[1].split("\n```", 1)[0].encode()
     )
@@ -736,6 +917,7 @@ def test_lifecycle_requires_checksum_at_every_transition(field: str) -> None:
         "veqtor_release_acceptance.v6",
         "veqtor_release_acceptance.v7",
         "veqtor_release_acceptance.v8",
+        "veqtor_release_acceptance.v9",
     ],
 )
 def test_older_packet_is_rejected_before_shape_validation(

@@ -5,7 +5,7 @@
 This file defines the public tool surface. Output examples are part of the API
 because models use them to decide how to call tools and how to cite results.
 
-The current source is unreleased package `0.5.0.dev3` and advertises the
+The current source defines package `0.5.0` and advertises the
 fourteen-tool MCP contract `veqtor.mcp.v0.5.0`. The three additive drafting tools
 are documented in [AUTHOR_DRAFTING.md](docs/AUTHOR_DRAFTING.md):
 `read_document_comments`, `preflight_document_edits`, `apply_document_edits`.
@@ -27,11 +27,10 @@ preflight proofs are closed objects; top-level results remain additive where
 the advertised schema says so. `trace_paragraph_history` and the v2
 `verify_quote` result are closed at the top level as well.
 
-Public `0.4.0` retains the nine-tool `veqtor.mcp.v0.4` contract. This candidate
-build adds independent deal positions and retains clean-paragraph edits under
-`veqtor.mcp.v0.4.2`, alongside Codex
-integration and safe error transport; it does not modify the archived v0.4.0
-release contract or published artifacts. Historical v0.3 artifacts retain the
+Public `0.4.0` retains the nine-tool `veqtor.mcp.v0.4` contract. Public `0.4.2`
+adds independent deal positions and clean-paragraph edits. Version `0.5.0`
+retains those operations and adds author drafting under `veqtor.mcp.v0.5.0`;
+archived contracts and published artifacts remain unchanged. Historical v0.3 artifacts retain the
 eight-tool `veqtor.mcp.v0.3` surface. Historical examples and golden records
 retain their recorded producer identities; historical examples below retain
 `0.4.2`. Client observations for public 0.4.0 and the earlier unpublished

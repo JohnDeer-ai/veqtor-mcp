@@ -24,14 +24,12 @@ def content(**changes):
 
 
 def build(tmp_path, monkeypatch, *, observer=None):
-    # These synthetic envelopes exercise the frozen NR-02 0.4.2 acceptance
-    # checker. They are not current-build installation/native acceptance proof.
-    # Keep the historical checker unchanged as development adds tool families.
-    historical_producer = {
-        "name": "veqtor-mcp", "version": "0.4.2",
+    # Synthetic current-release envelopes are checker tests, not native proof.
+    synthetic_producer = {
+        "name": "veqtor-mcp", "version": "0.5.0",
         "build": "source-snapshot-v1-sha256:" + "1" * 64,
     }
-    monkeypatch.setattr(server, "_producer", lambda: deepcopy(historical_producer))
+    monkeypatch.setattr(server, "_producer", lambda: deepcopy(synthetic_producer))
     original = tmp_path / "matter"
     files = generate_demo_rounds(original, profile="paragraph-edits")
     first = files[0]

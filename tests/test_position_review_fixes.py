@@ -221,13 +221,12 @@ def test_r1_r2_r3_combined_weak_receipt_and_partial_restorations(bundle):
 
 @pytest.fixture
 def prepared(tmp_path, monkeypatch):
-    # The capture-interface fixtures exercise the frozen NR-02 0.4.2 gate,
-    # independently of the producer version in the current development build.
-    historical_producer = {
-        "name": "veqtor-mcp", "version": "0.4.2",
+    # Synthetic current-release capture controls, not native acceptance proof.
+    synthetic_producer = {
+        "name": "veqtor-mcp", "version": "0.5.0",
         "build": "source-snapshot-v1-sha256:" + "1" * 64,
     }
-    monkeypatch.setattr(server, "_producer", lambda: deepcopy(historical_producer))
+    monkeypatch.setattr(server, "_producer", lambda: deepcopy(synthetic_producer))
     installation = tmp_path / "installation.json"
     installation.write_text(json.dumps({"source_root": str(tmp_path / "synthetic-source"),
         "producer": server._producer(), "python": "/synthetic/installed/python"}))

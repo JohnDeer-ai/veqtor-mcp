@@ -2,35 +2,35 @@
 
 # Known limitations
 
-The current development package `0.5.0.dev3` adds the distinct
+Package `0.5.0` adds the distinct
 [author-drafting workflow](docs/AUTHOR_DRAFTING.md). Its same-file saves,
 own-insertion mutation and comments are outside the legacy guarantees below;
 its limits and backup/recovery behavior are documented in that contract.
 
-The legacy guarantees below describe release-candidate source `0.4.2` and its eleven-tool MCP
-contract `veqtor.mcp.v0.4.2`. Legacy calls remain compatible with public `0.4.0`. All eleven tools expose
-the same contract-wide metadata value. Development source and test results do
+The legacy guarantees below still apply to the eleven document/position tools.
+All fourteen current tools expose `veqtor.mcp.v0.5.0`; legacy calls remain
+compatible with public `0.4.0`. Source presence and test results do
 not establish a new publication or exact-candidate client acceptance. The
 archived v0.4.0 release contract, historical golden records and published artifacts
 are unchanged; v0.3 remains a historical eight-tool artifact.
 
 The [Codex guide](docs/CODEX.md) records historical public 0.4.0 CLI write and
 desktop read observations, plus a distinct unpublished error-transport patch.
-These are not tests of `0.4.2`. The development adapter keeps controlled
+These are not tests of `0.5.0`. The current adapter keeps controlled
 refusal codes and safe hints, and sanitizes SDK input-validation errors before
 tool entry. NR-01 adds bounded clean-paragraph replace/delete-only; native client
 and rendered-Word acceptance must still be established on the exact final build.
 
 Public v0.4.0 MCPB is macOS-only. Its frozen release policy binds the exact
 artifact to existing-user acceptance on the maintainer's Mac and to the matching
-verified immutable release. The v0.4.2 gate requires its own exact-artifact acceptance; historical
+verified immutable release. The v0.5.0 gate requires its own exact-artifact acceptance; historical
 results do not establish acceptance of this candidate. This profile permits pre-existing system UV and
 caches; it does not verify installation in an untouched user,
 on a separate clean Mac, or without a development toolchain. Claude must launch
 the installed MCPB, with source bytes and runtime origin checked. Linux keeps
 the CLI setup. There is no Windows extension, catalog listing, automatic update promise, silent
 installation or guaranteed in-app rollback. `0.3.0` remains the
-first public MCPB. The v0.4.2 release gate requires a real upgrade from v0.4.0,
+first public MCPB. The v0.5.0 release gate requires a real upgrade from v0.4.2,
 rollback to that immutable release, and candidate reinstallation. The first UV
 activation may download a compatible Python runtime and locked dependencies, so
 it is not guaranteed to work offline. MCPB installation does not add an
@@ -94,7 +94,7 @@ permissions.
 - Extraction and writing cover `word/document.xml`. `inspect_document` is
   narrower still: it exposes only the canonical main-body paragraph flow.
   Headers, footers, footnotes and endnotes are not analyzed or edited.
-  The additive development drafting tools read comments and add/update/delete
+  The additive author-drafting tools read comments and add/update/delete
   simple own comments anchored in the main body; the legacy tools do not.
   Threaded/rich comments and unsupported anchors can be refused. See
   [author drafting](docs/AUTHOR_DRAFTING.md) for its distinct mutation contract.

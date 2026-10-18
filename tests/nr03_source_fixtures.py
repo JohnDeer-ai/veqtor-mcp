@@ -24,9 +24,10 @@ def runtime_inventory():
     """Independent synthetic definition of the pinned selected-server inventory."""
     names = ("list_rounds", "extract_redlines", "inspect_document", "map_rounds", "trace_paragraph_history",
              "preflight_edits", "apply_edits", "verify_quote", "export_decision_record",
-             "read_deal_positions", "mutate_deal_positions")
+             "read_deal_positions", "mutate_deal_positions", "read_document_comments",
+             "preflight_document_edits", "apply_document_edits")
     return dict(data=[dict(name="veqtor_nr03", runtimeStatus="connected", pluginId=None,
-        serverInfo=dict(name="veqtor", title=None, version="0.4.2", description=None, icons=None, websiteUrl=None),
+        serverInfo=dict(name="veqtor", title=None, version="0.5.0", description=None, icons=None, websiteUrl=None),
         tools={n: dict(name=n, inputSchema=dict(type="object")) for n in names}, toolsError=None,
         resources=[], resourceTemplates=[], authStatus="unsupported")], nextCursor=None)
 

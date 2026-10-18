@@ -6,6 +6,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import hashlib
+import shutil
+import tempfile
 import os
 from pathlib import Path
 import sys
@@ -29,6 +32,9 @@ EXPECTED_TOOLS = {
     "export_decision_record",
     "read_deal_positions",
     "mutate_deal_positions",
+    "read_document_comments",
+    "preflight_document_edits",
+    "apply_document_edits",
 }
 
 
@@ -37,6 +43,44 @@ def _payload(result) -> dict:
         data = result.structured_content
         return data.get("result", data)
     return json.loads(result.content[0].text)
+
+
+async def _exercise_drafting(session: ClientSession, source: Path) -> dict:
+    """Exercise the three added tools through this same extension transport."""
+    original = source.read_bytes()
+    with tempfile.TemporaryDirectory(prefix="veqtor-mcpb-drafting-") as directory:
+        target = Path(directory).resolve() / "working.docx"
+        shutil.copyfile(source, target)
+        inspected = _payload(await session.call_tool("inspect_document", {
+            "path": str(target), "mode": "browse", "max_items": 1,
+        }))
+        ref = inspected["paragraphs"][0]["paragraph_ref"]
+        arguments = {
+            "source_path": str(target), "file_sha256": inspected["file_sha256"],
+            "operations": [{"kind": "add_comment", "paragraph_ref": ref,
+                            "quote": "Supply Agreement", "text": "Synthetic packaging check."}],
+        }
+        preview = _payload(await session.call_tool("preflight_document_edits", arguments))
+        if not preview.get("batch_applicable") or target.read_bytes() != original:
+            raise ValueError("MCPB drafting preview refused or modified the source")
+        if preview["tracked_change_author"] != "Veqtor MCPB stdio CI" or preview["comment_initials"] != "VM":
+            raise ValueError("MCPB drafting author profile differs")
+        applied = _payload(await session.call_tool("apply_document_edits", {
+            **arguments, "preflight_proof": preview["preflight_proof"],
+        }))
+        if applied.get("status") != "ok" or applied.get("save_mode") != "in_place":
+            raise ValueError("MCPB drafting same-file save failed")
+        backup = Path(applied["backup_path"])
+        if backup.read_bytes() != original or backup.parent != target.parent / ".veqtor-backups":
+            raise ValueError("MCPB drafting backup differs")
+        comments = _payload(await session.call_tool("read_document_comments", {"path": str(target)}))
+        if not any(row["author"] == "Veqtor MCPB stdio CI" and row["initials"] == "VM"
+                   and row["text"] == "Synthetic packaging check." for row in comments["comments"]):
+            raise ValueError("MCPB drafting comment readback differs")
+        if comments["file_sha256"] != hashlib.sha256(target.read_bytes()).hexdigest() or source.read_bytes() != original:
+            raise ValueError("MCPB drafting readback or immutable demo source changed")
+        return {"same_file_save": "passed", "exact_backup": "passed",
+                "configured_author_and_initials": "passed", "comment_readback": "passed"}
 
 
 async def _prove_forced_transport_teardown(
@@ -102,6 +146,7 @@ async def smoke(stage_dir: Path) -> dict:
         env={
             **os.environ,
             "VEQTOR_TRACKED_CHANGE_AUTHOR": "Veqtor MCPB stdio CI",
+            "VEQTOR_COMMENT_INITIALS": "VM",
             "UV_NO_PROGRESS": "1",
         },
     )
@@ -131,6 +176,7 @@ async def smoke(stage_dir: Path) -> dict:
                 filenames = [round_["filename"] for round_ in listed["rounds"]]
                 if len(filenames) != 4 or listed["skipped"]:
                     raise ValueError("bundled demo is not available from MCPB cwd")
+                drafting_result = await _exercise_drafting(session, stage_dir / listed["rounds"][0]["path"])
                 source = listed["rounds"][-1]["path"]
                 inspected = _payload(
                     await session.call_tool(
@@ -311,6 +357,7 @@ async def smoke(stage_dir: Path) -> dict:
                     ],
                     "stdio_tool_count": len(names),
                     "positions": positions_result,
+                    "drafting": drafting_result,
                     "server_work_cancellation_verified": False,
                     "verification_schema_version": verified["schema_version"],
                 }
