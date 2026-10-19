@@ -5,7 +5,7 @@ import SiteCta from '../components/SiteCta.astro'
 import { PUBLIC_PYPI_URL, PUBLIC_RELEASE_URL, PUBLIC_RELEASE_VERSION } from '../lib/public-release'
 
 const title = 'Veqtor MCP Documentation — Tools, Workflow and Boundaries'
-const description = `Technical overview of public Veqtor ${PUBLIC_RELEASE_VERSION}: eleven tools, saved negotiation positions, exact paragraph history, supported Word edits and privacy boundaries.`
+const description = `Technical overview of public Veqtor ${PUBLIC_RELEASE_VERSION}: fourteen tools, saved negotiation positions, exact paragraph history, supported Word edits and privacy boundaries.`
 ---
 
 <BaseLayout title={title} description={description} canonicalPath="/docs">
@@ -13,7 +13,7 @@ const description = `Technical overview of public Veqtor ${PUBLIC_RELEASE_VERSIO
     eyebrow="Documentation"
     title={`A technical map of public Veqtor ${PUBLIC_RELEASE_VERSION}.`}
     lede={`Start here for the v${PUBLIC_RELEASE_VERSION} tool surface, operating model and assurance boundaries. Installation artifacts are available through the immutable public release.`}
-    meta={`Public v${PUBLIC_RELEASE_VERSION} · Eleven tools · macOS and Linux`}
+    meta={`Public v${PUBLIC_RELEASE_VERSION} · Fourteen tools · macOS and Linux`}
     breadcrumbs={[{ label: 'Documentation' }]}
   />
 
@@ -40,6 +40,9 @@ const description = `Technical overview of public Veqtor ${PUBLIC_RELEASE_VERSIO
             <article><code>export_decision_record</code><h3>Export compact local provenance</h3><p>Returns a privacy-aware summary of the best-effort local activity journal for later review.</p></article>
             <article><code>read_deal_positions</code><h3>Restore saved negotiation positions</h3><p>Reads complete saved wording and versions from the selected matter, with optional history and checks of source-file freshness.</p></article>
             <article><code>mutate_deal_positions</code><h3>Save and confirm specific versions</h3><p>Creates, updates, confirms or withdraws positions with revision checks. Confirmation requires the user to approve the displayed exact version.</p></article>
+            <article><code>read_document_comments</code><h3>Read ordinary Word comments</h3><p>Returns comment IDs, author metadata, text, paragraph locations and the file hash, with pagination.</p></article>
+            <article><code>preflight_document_edits</code><h3>Check working-document edits</h3><p>Checks a complete text/comment batch under the configured author and returns an exact proof without writing a document or backup.</p></article>
+            <article><code>apply_document_edits</code><h3>Save working-document edits</h3><p>Applies the verified batch to a new copy or the same path. Same-path saves require an exact backup; another existing destination is never overwritten.</p></article>
           </div>
         </section>
 
@@ -54,7 +57,15 @@ const description = `Technical overview of public Veqtor ${PUBLIC_RELEASE_VERSIO
             <li>Apply only when the batch is reported as applicable.</li>
             <li>Re-extract the output and export the decision record.</li>
           </ol>
-          <p>Veqtor never overwrites the source or an existing output file. A successful write creates a new Word document and normally appends to a private local journal.</p>
+          <p>This sequence uses <code>preflight_edits</code> and <code>apply_edits</code> to create a separate counterproposal. It never overwrites the source or an existing output file, and normally appends to a private local journal.</p>
+        </section>
+
+        <section id="author-drafting">
+          <h2>Author drafting in a working document</h2>
+          <p>Configure the author name and optional comment initials, and match the author setting in Word when continuing your own pending insertion there. The profile is a literal author string, not an account or verified identity.</p>
+          <p>Read current paragraph references and comments, check the complete batch with <code>preflight_document_edits</code>, then pass its unchanged proof to <code>apply_document_edits</code>. Ordinary text changes are tracked; supported edits inside your own pending insertion retain its identity. You can add ordinary anchored comments and update or delete your own comments. Another author’s comments remain readable and unchanged.</p>
+          <p>Omitting the output path, or using the same path, saves to the working document with an exact prior-file backup in <code>.veqtor-backups</code>. A different path creates a new file and refuses an existing destination. Use a supported local filesystem, close Word before saving and reopen afterwards. Word and sync software do not share Veqtor’s lock; refresh all references after every save.</p>
+          <p>These three drafting tools return <code>record_status=disabled</code> and do not append the legacy decision journal. Backups and individual results support recovery, not a complete negotiation history. See the <a href={`${PUBLIC_RELEASE_URL.replace('/releases/tag/', '/blob/')}/docs/AUTHOR_DRAFTING.md`}>tagged author-drafting contract</a> for supported ranges, refusals and recovery.</p>
         </section>
 
         <section id="history">
@@ -64,7 +75,7 @@ const description = `Technical overview of public Veqtor ${PUBLIC_RELEASE_VERSIO
           <p>For <code>verify_quote</code>, paragraph references default to <code>accepted_current_v1</code>. Set <code>paragraph_projection</code> to <code>pending_text_revisions_rejected_v1</code> explicitly to check the mechanical reading with supported pending text revisions rejected. This is not a recovered original or necessarily the wording of a prior round, does not establish legal effect, and does not write or reject changes in Word. Use the returned <code>checked_projection</code> to identify what was checked.</p>
           <p>Author and date strings are literal Word metadata only. For example, an author value of <code>53</code> does not identify a person: <code>authorship_verified</code> and <code>time_verified</code> remain <code>false</code>.</p>
           <p>History pages default to 50 observations, with a maximum of 100. Follow <code>next_cursor</code> until it is null; an observation is never split. Files, seed, order, policies and result must remain unchanged between pages. A complete page is not proof that all pages were retrieved.</p>
-          <div class="notice"><strong>One contract version for all eleven tools.</strong><p>Every tool advertises <code>veqtor.mcp.v0.4.2</code>. Existing document calls remain compatible with v0.4.0. Clients that pin a contract marker must deliberately adopt the current marker; the two position tools are not available in v0.4.0.</p></div>
+          <div class="notice"><strong>One contract version for all fourteen tools.</strong><p>Every tool advertises <code>veqtor.mcp.v0.5.0</code>. Existing document calls remain compatible with v0.4.0. Clients that pin a contract marker must deliberately adopt the current marker; the two position tools require v0.4.2 or later and the three author-drafting tools require v0.5.0.</p></div>
         </section>
 
         <section id="positions">
@@ -76,7 +87,7 @@ const description = `Technical overview of public Veqtor ${PUBLIC_RELEASE_VERSIO
 
         <section id="records">
           <h2>Local decision records</h2>
-          <p>Unless disabled, tool calls append JSON Lines records to <code>&lt;matter&gt;/.veqtor/decision-records.jsonl</code>. The raw journal may contain verbatim matter text and should not be committed or shared.</p>
+          <p>Unless disabled, the legacy document tools append JSON Lines records to <code>&lt;matter&gt;/.veqtor/decision-records.jsonl</code>. The raw journal may contain verbatim matter text and should not be committed or shared. Author-drafting tools do not append this journal; saved positions use their separate snapshot.</p>
           <p>These records are best-effort local provenance. They are not authenticated, signed, hash-chained or tamper-evident. Always check <code>record_status</code> before treating an operation as durably recorded.</p>
         </section>
 
@@ -98,6 +109,7 @@ const description = `Technical overview of public Veqtor ${PUBLIC_RELEASE_VERSIO
         <a href="#model">Operating model</a>
         <a href="#tools">Public tools</a>
         <a href="#sequence">Trust sequence</a>
+        <a href="#author-drafting">Author drafting</a>
         <a href="#history">History &amp; quotations</a>
         <a href="#positions">Saved positions</a>
         <a href="#records">Decision records</a>

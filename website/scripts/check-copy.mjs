@@ -50,6 +50,12 @@ const OBSOLETE_PATTERNS = [
   ['stale v0.4.2 unpublished status', /\bv0\.4\.2 is not public(?: yet)?\b/i],
   ['stale v0.4.2 release-candidate status', /\bv0\.4\.2 (?:release )?candidate\b/i],
   ['stale missing v0.4.2 download status', /\bthere is no official v0\.4\.2 download(?: yet)?\b/i],
+  ['stale current-public v0.4.2 status', /\b(?:current public (?:Veqtor )?v?0\.4\.2|v?0\.4\.2 is (?:the )?current public|public v0\.4\.2 technical Alpha)\b/i],
+  ['stale v0.5.0 unpublished status', /\bv0\.5\.0 is not public(?: yet)?\b/i],
+  ['stale v0.5.0 release-candidate status', /\bv0\.5\.0 (?:release )?candidate\b/i],
+  ['stale 0.5 Alpha candidate status', /\b(?:the )?0\.5 Alpha candidate\b/i],
+  ['stale missing v0.5.0 download status', /\bthere is no official v0\.5\.0 download(?: yet)?\b/i],
+  ['unqualified source preservation', /\bVeqtor never overwrites the source\b/i],
   ['stale pending-promotion status', /\bnot a public download until promotion\b/i],
 ]
 
@@ -86,7 +92,7 @@ const FORBIDDEN_PLAIN_PATTERNS = [
   ['change-unit jargon', /\beditable change units?\b/i],
   ['normalization jargon', /\blimited normalization\b/i],
   ['filename-order jargon', /\bfilename order\b/i],
-  ['MCP tool name', /\b(?:list_rounds|extract_redlines|inspect_document|map_rounds|trace_paragraph_history|verify_quote|preflight_edits|apply_edits|export_decision_record|read_deal_positions|mutate_deal_positions)\b/],
+  ['MCP tool name', /\b(?:list_rounds|extract_redlines|inspect_document|map_rounds|trace_paragraph_history|verify_quote|preflight_edits|apply_edits|export_decision_record|read_deal_positions|mutate_deal_positions|read_document_comments|preflight_document_edits|apply_document_edits)\b/],
 ]
 
 const PLAIN_MARKETING_ROUTES = new Set([

@@ -23,7 +23,7 @@ const description = `Plain-language and technical limits of the public Veqtor ${
       <div class="section-heading"><div><p class="eyebrow">Read this first</p><h2 id="quick-heading">The practical limits in plain language.</h2></div><p>These are the limits most likely to change whether Veqtor is suitable for a real negotiation.</p></div>
       <div class="limit-grid">
         <article><span>PLATFORM</span><h3>Mac and Linux only</h3><p>Windows and hosted use are outside the current release.</p></article>
-        <article><span>WORD CONTENT</span><h3>Main document text only</h3><p>Comments, headers, footers, footnotes and endnotes are not analyzed or edited.</p></article>
+        <article><span>WORD CONTENT</span><h3>Main text and ordinary comments</h3><p>Supported body text, table cells and ordinary anchored comments are covered. Headers, footers, footnotes and endnotes remain outside scope.</p></article>
         <article><span>CHANGES</span><h3>Not every Word revision</h3><p>Formatting changes, moved text and some complex layouts may be counted but cannot always be edited.</p></article>
         <article><span>DECISIONS</span><h3>No accept or reject button</h3><p>Veqtor can create supported new tracked changes. It does not accept or reject existing ones.</p></article>
         <article><span>HISTORY</span><h3>Declared order, exact matches only</h3><p>Veqtor can follow an exact paragraph match, but does not prove chronology or guess its way past an unclear step.</p></article>
@@ -43,7 +43,9 @@ const description = `Plain-language and technical limits of the public Veqtor ${
         <p>The supported container is an unencrypted, non-ZIP64 ZIP package using STORED or DEFLATED members. Ambiguous, malformed or unsupported package structures are refused.</p>
 
         <h3>Tracked changes and structure</h3>
-        <p>Extraction and writing cover <code>word/document.xml</code>. The writer supports a narrow set of tracked text replace, delete, counter and reinstate operations, plus exact text edits in supported clean paragraphs and table cells. Deeply nested revisions, unsupported element shapes and complex adjacent structures may be refused.</p>
+        <p>Tracked-text extraction and edits cover <code>word/document.xml</code>; supported comment operations also use the document’s comment parts. The writer supports a narrow set of tracked text replace, delete, counter and reinstate operations, plus exact text edits in supported clean paragraphs and table cells. Deeply nested revisions, unsupported element shapes and complex adjacent structures may be refused.</p>
+        <p>Author drafting can revise supported text within an existing insertion by the exact configured author. Other authors’ proposals are not silently rewritten; supported counter-edits remain visible as tracked changes. Unsupported foreign formatting and nested or mixed spans are refused.</p>
+        <p>Ordinary comments can be read and added to a unique quote in supported text. Updating or deleting a comment requires an exact author-name match. Other authors’ comments remain unchanged; rich or threaded comment changes may be refused. Replies and resolve/reopen actions are not supported.</p>
         <p>Numbering and clause labels are navigation aids, not evidence. Durable references combine the document hash, change-unit identity, structural location and checked wording.</p>
 
         <h3>Round interpretation</h3>
@@ -52,11 +54,13 @@ const description = `Plain-language and technical limits of the public Veqtor ${
         <p>Rejected-pending wording is a mechanical reading, not a recovered original, a proven prior round or a legal-effect conclusion. Literal author and date metadata do not verify who made a change or when. The <a href="/docs#history">history and quotation documentation</a> explains these distinctions.</p>
 
         <h3>Preflight and apply</h3>
-        <p>One atomic batch accepts up to 100 edits, 20,000 new characters per edit and 200,000 across the batch. Preflight runs the same document pipeline in memory, but apply can still fail if the source changes, the destination already exists or the filesystem refuses publication.</p>
+        <p>The legacy counterproposal workflow accepts up to 100 edits, 20,000 new characters per edit and 200,000 across an atomic batch. Author drafting accepts up to 100 operations, 20,000 characters per text field and 200,000 across the batch. Preflight runs the same document pipeline in memory, but apply can still fail if the source changes or the filesystem refuses publication. The legacy counterproposal workflow requires a new destination and refuses an existing output.</p>
+        <p>Author drafting can save to the working path only with an exact backup, on a supported local filesystem. Close Word before saving and reopen it afterwards. Word and cloud-sync software do not participate in Veqtor’s lock. Network filesystems, FAT/exFAT, FUSE and unknown storage are refused; an error after replacement requires checking the reported result and rereading the file before retrying.</p>
 
         <h3>Provenance and threat model</h3>
         <p>Saved negotiation positions are private local matter data. Confirmation applies to one displayed version; it does not prove user identity or corporate authority, resolve a business question, or authorize a later Word edit. Updating wording resets confirmation. Copies of a matter do not synchronize automatically.</p>
         <p>Decision records are best-effort local provenance. They are not authenticated, signed, hash-chained or tamper-evident. The supported threat model is a non-hostile, single-user Mac or Linux workspace. A malicious process running as the same user is outside scope.</p>
+        <p>The three author-drafting tools do not append decision records. Their per-call results and backups support recovery, not a complete negotiation history.</p>
 
         <h3>Canonical release document</h3>
         <p>This page is an accessible summary. The <a href={`${PUBLIC_RELEASE_URL.replace('/releases/tag/', '/blob/')}/KNOWN_LIMITATIONS.md`}>immutable v{PUBLIC_RELEASE_VERSION} limitations file</a> is authoritative for the public release; the <a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/KNOWN_LIMITATIONS.md">default-branch file</a> may describe later merged development.</p>
