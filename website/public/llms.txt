@@ -2,7 +2,7 @@
 
 > Veqtor is a local, open-source MCP server that gives compatible AI clients defined tools for working with tracked changes in Microsoft Word documents.
 
-Public v0.4.2 technical Alpha: eleven tools under veqtor.mcp.v0.4.2; macOS and Linux; Python 3.12-3.14; Claude Code on macOS/Linux; Claude Desktop on macOS.
+Public v0.5.0 technical Alpha: fourteen tools under veqtor.mcp.v0.5.0; macOS and Linux; Python 3.12-3.14; Claude Code on macOS/Linux; Claude Desktop on macOS.
 
 What Veqtor can do:
 - find Word negotiation drafts in deterministic filename order;
@@ -15,14 +15,18 @@ What Veqtor can do:
 - create a separate Word document with supported tracked changes;
 - make exact text edits in supported clean paragraphs and table cells;
 - save and restore negotiation positions, conditional fallbacks and open business questions for a later round;
-- export a compact local activity record.
+- export a compact local activity record for the legacy document workflow;
+- edit supported text under a configured author and re-edit that author’s own pending insertions;
+- read ordinary comments, add anchored comments, and update or delete the configured author’s own comments;
+- save author-drafting edits to the working path with an exact backup, or create a new copy.
 
 Important boundaries:
 - Claude supplies reasoning and drafting; Veqtor supplies document facts and defined writes.
 - Veqtor does not provide legal advice.
-- Veqtor never overwrites the source or an existing output file.
+- Legacy counterproposal tools create a separate output and never overwrite the source or an existing destination. Author drafting can save to the same path with a required exact backup; another existing destination is never overwritten. Close Word before saving, reopen afterwards and refresh references. Word and sync software do not share Veqtor’s lock.
 - It is not a generic Word editor or a tamper-evident audit system.
-- Comments, headers, footers, footnotes, accept/reject, Windows and hosted MCP are outside v0.4.2.
+- Headers, footers, footnotes, accept/reject, Windows and hosted MCP are outside v0.5.0. Comment replies and resolve/reopen are not provided; complex, threaded or rich comment mutations may be refused. Saving requires a supported local filesystem.
+- The three author-drafting tools return record_status=disabled and do not append the legacy activity journal. Backups and individual results support recovery, not a complete negotiation history.
 - Saved positions are confidential local data, separate from the activity journal. Confirmation is specific to a displayed version and does not authorize later edits or settle business decisions. Copies do not synchronize automatically.
 - Paragraph history is not semantic lineage or verified chronology. Ambiguous or unresolved steps stop backward propagation.
 - Rejected-pending wording is a mechanical reading, not a recovered original or a proven prior round. Literal author and date metadata remain unverified.
@@ -37,5 +41,5 @@ Important boundaries:
 - [Limitations](https://veqtor.pro/limitations): plain-language and technical Alpha limits.
 - [Contract guides](https://veqtor.pro/guides): English-law commercial contract library.
 - [Source](https://github.com/JohnDeer-ai/veqtor-mcp): versioned code and release documentation.
-- [Public v0.4.2 release](https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/v0.4.2): immutable macOS extension, wheel, source archive and checksums.
-- [PyPI v0.4.2](https://pypi.org/project/veqtor-mcp/0.4.2/): exact public Python package.
+- [Public v0.5.0 release](https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/v0.5.0): immutable macOS extension, wheel, source archive and checksums.
+- [PyPI v0.5.0](https://pypi.org/project/veqtor-mcp/0.5.0/): exact public Python package.

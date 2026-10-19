@@ -2,6 +2,7 @@
 import BaseLayout from '../layouts/BaseLayout.astro'
 import PageHero from '../components/PageHero.astro'
 import SiteCta from '../components/SiteCta.astro'
+import { PUBLIC_RELEASE_VERSION } from '../lib/public-release'
 
 const title = 'Veqtor MCP vs Claude for Word — Contract Review Workflows'
 const description = 'Compare Claude for Word with Veqtor MCP for reviewing Word contracts, working across negotiation drafts, checking tracked wording, and creating a separate counterproposal.'
@@ -15,12 +16,12 @@ const rows = [
   {
     label: 'What it can read',
     claude: 'The open document, including text, comments, tracked changes, footnotes, tables and bookmarks.',
-    veqtor: 'Accepted/current main-body text, supported tracked text changes and exact paragraph history across Word documents in a selected folder.',
+    veqtor: 'Accepted/current main-body text, supported tracked text changes, ordinary comments and exact paragraph history across Word documents in a selected folder.',
   },
   {
     label: 'Editing',
     claude: 'Broad in-document drafting and editing, with tracked changes that preserve surrounding styles and numbering.',
-    veqtor: 'A narrow set of supported text replacements, deletions and counterproposals in the public Alpha.',
+    veqtor: 'Supported text replacements, deletions, counterproposals and repeat edits within own-author insertions. Ordinary comments can be added; updates and deletions require the exact configured author.',
   },
   {
     label: 'Checking the source',
@@ -30,7 +31,7 @@ const rows = [
   {
     label: 'Output',
     claude: 'Works in the open document. The user reviews and approves the edits in Word.',
-    veqtor: 'Creates a separate Word document and does not replace the source or an existing output.',
+    veqtor: 'Creates a separate counterproposal, or saves supported author-drafting changes to the working file with an exact backup. Close Word before saving and reopen it afterwards.',
   },
   {
     label: 'Setup and availability',
@@ -56,7 +57,7 @@ const structuredData = {
     eyebrow="Choose the right workflow"
     title="Veqtor and Claude for Word solve different parts of contract review."
     lede="Claude for Word is designed for asking, drafting and editing inside Word. Veqtor MCP is a narrower, open-source workflow for comparing negotiation drafts and creating a separate counterproposal."
-    meta="Veqtor v0.4.2 · Claude for Word information checked 17 July 2026"
+    meta={`Veqtor v${PUBLIC_RELEASE_VERSION} · Claude for Word information checked 17 July 2026`}
     breadcrumbs={[{ label: 'Veqtor vs Claude for Word' }]}
   >
     <div slot="actions" class="actions">
@@ -95,7 +96,7 @@ const structuredData = {
       <div class="comparison" role="region" aria-label="Veqtor and Claude for Word comparison" tabindex="0">
         <table>
           <thead>
-            <tr><th scope="col">Workflow</th><th scope="col">Claude for Word</th><th scope="col">Veqtor MCP 0.4.2</th></tr>
+            <tr><th scope="col">Workflow</th><th scope="col">Claude for Word</th><th scope="col">Veqtor MCP {PUBLIC_RELEASE_VERSION}</th></tr>
           </thead>
           <tbody>
             {rows.map((row) => (
@@ -118,7 +119,7 @@ const structuredData = {
         <h2 id="limits-title">Neither workflow removes the need to review the result.</h2>
       </div>
       <div class="boundary-list">
-        <div><span>01</span><p><strong>Veqtor is deliberately narrower.</strong> It does not currently analyze comments, headers, footers or footnotes, and it is not a general Word editor.</p></div>
+        <div><span>01</span><p><strong>Veqtor is deliberately narrower.</strong> It supports ordinary anchored comments and a limited set of author edits. Headers, footers and footnotes remain outside scope; complex or threaded comment changes may be refused.</p></div>
         <div><span>02</span><p><strong>“Local” describes Veqtor’s document operations.</strong> Text returned to Claude becomes part of the Claude conversation and is handled under the terms of the Claude account you use.</p></div>
         <div><span>03</span><p><strong>This is not a claim that one product is more accurate.</strong> No comparative accuracy, security or privacy benchmark has been performed.</p></div>
       </div>
@@ -130,7 +131,7 @@ const structuredData = {
       <article class="prose">
         <p class="eyebrow">Sources and version</p>
         <h2 id="sources-title">What this comparison is based on.</h2>
-        <p>Claude for Word information is based on <a href="https://claude.com/docs/office-agents/word">Anthropic’s product documentation</a>, checked on 17 July 2026 and not revalidated for this Veqtor update. Veqtor information describes the public 0.4.2 Alpha and should be read together with the <a href="/limitations">current limitations</a> and <a href="/security">security and privacy explanation</a>.</p>
+        <p>Claude for Word information is based on <a href="https://claude.com/docs/office-agents/word">Anthropic’s product documentation</a>, checked on 17 July 2026 and not revalidated for this Veqtor update. Veqtor information describes the public {PUBLIC_RELEASE_VERSION} Alpha and should be read together with the <a href="/limitations">current limitations</a> and <a href="/security">security and privacy explanation</a>.</p>
         <p>The products may also complement each other. The useful distinction is not which name is better; it is whether the task begins inside one open document or across a declared set of negotiation drafts.</p>
       </article>
     </div>

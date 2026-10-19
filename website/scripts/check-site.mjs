@@ -628,36 +628,71 @@ function assertStaticDeploymentFiles() {
 
 function assertSetupCommandIntegrity(pagesByRoute) {
   const html = pagesByRoute.get('/setup')?.html ?? ''
-  const packageSpecifier = 'veqtor-mcp@0.4.2'
+  const packageSpecifier = 'veqtor-mcp@0.5.0'
   const occurrences = html.split(packageSpecifier).length - 1
   if (occurrences !== 6) {
     fail(`/setup: expected six literal ${packageSpecifier} commands in built HTML, found ${occurrences}`)
   }
-  const packagePin = 'veqtor-mcp==0.4.2'
+  const packagePin = 'veqtor-mcp==0.5.0'
   const pinOccurrences = html.split(packagePin).length - 1
   if (pinOccurrences !== 1) {
     fail(`/setup: expected one literal ${packagePin} demo command in built HTML, found ${pinOccurrences}`)
   }
-  for (const staleSpecifier of ['veqtor-mcp@0.1.2', 'veqtor-mcp==0.1.2', 'veqtor-mcp@0.3.0', 'veqtor-mcp==0.3.0', 'veqtor-mcp@0.4.0', 'veqtor-mcp==0.4.0']) {
+  for (const staleSpecifier of ['veqtor-mcp@0.1.2', 'veqtor-mcp==0.1.2', 'veqtor-mcp@0.3.0', 'veqtor-mcp==0.3.0', 'veqtor-mcp@0.4.0', 'veqtor-mcp==0.4.0', 'veqtor-mcp@0.4.2', 'veqtor-mcp==0.4.2']) {
     if (html.includes(staleSpecifier)) fail(`/setup: built HTML contains stale package specifier ${staleSpecifier}`)
   }
   for (const requiredValue of [
-    'https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/v0.4.2',
-    'https://github.com/JohnDeer-ai/veqtor-mcp/releases/download/v0.4.2/veqtor-mcp-0.4.2-macos.mcpb',
-    'https://github.com/JohnDeer-ai/veqtor-mcp/releases/download/v0.4.2/SHA256SUMS.txt',
-    '9779d4526b1b86553e6639e6cffd3e80e3e87a747f8ca93c5261869b83500cf5',
-    'shasum -a 256 veqtor-mcp-0.4.2-macos.mcpb',
+    'https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/v0.5.0',
+    'https://github.com/JohnDeer-ai/veqtor-mcp/releases/download/v0.5.0/veqtor-mcp-0.5.0-macos.mcpb',
+    'https://github.com/JohnDeer-ai/veqtor-mcp/releases/download/v0.5.0/SHA256SUMS.txt',
+    '8e29e12cc272ac168441e6affdeedd51199294db94ec6c2f206a0a810d587075',
+    'shasum -a 256 veqtor-mcp-0.5.0-macos.mcpb',
   ]) {
     if (!html.includes(requiredValue)) fail(`/setup: built HTML is missing public release value ${requiredValue}`)
   }
-  if (/v0\.4\.2 is not public(?: yet)?/i.test(html)) {
-    fail('/setup: built HTML still describes v0.4.2 as unpublished')
+  if (/v0\.5\.0 is not public(?: yet)?/i.test(html)) {
+    fail('/setup: built HTML still describes v0.5.0 as unpublished')
   }
   for (const route of ['/setup', '/docs']) {
     const releaseHtml = pagesByRoute.get(route)?.html ?? ''
-    for (const value of ['veqtor.mcp.v0.4.2', 'read_deal_positions', 'mutate_deal_positions', 'eleven tools']) {
+    for (const value of ['veqtor.mcp.v0.5.0', 'read_deal_positions', 'mutate_deal_positions', 'read_document_comments', 'preflight_document_edits', 'apply_document_edits', 'fourteen tools']) {
       if (!releaseHtml.includes(value)) fail(`${route}: missing current tool contract value ${value}`)
     }
+  }
+  const docsHtml = pagesByRoute.get('/docs')?.html ?? ''
+  const toolList = docsHtml.match(/<div\b[^>]*class="tool-list"[^>]*>([\s\S]*?)<\/div>/i)?.[1] ?? ''
+  const documentedTools = [...toolList.matchAll(/<article\b[^>]*>\s*<code\b[^>]*>([^<]+)<\/code>/gi)]
+    .map((match) => normalizeText(match[1]))
+  const expectedTools = [
+    'list_rounds', 'extract_redlines', 'inspect_document', 'map_rounds',
+    'trace_paragraph_history', 'verify_quote', 'preflight_edits', 'apply_edits',
+    'export_decision_record', 'read_deal_positions', 'mutate_deal_positions',
+    'read_document_comments', 'preflight_document_edits', 'apply_document_edits',
+  ]
+  if (documentedTools.length !== 14 || new Set(documentedTools).size !== 14
+    || expectedTools.some((tool) => !documentedTools.includes(tool))) {
+    fail('/docs: the tool list must document exactly the fourteen public v0.5.0 tools once each')
+  }
+  const profileSamples = pairedContents(html, 'code').filter((value) => value.startsWith('"env":'))
+  if (profileSamples.length !== 1) fail('/setup: expected one manual author-profile JSON example')
+  for (const sample of profileSamples) {
+    try {
+      const profile = JSON.parse(`{${sample}}`).env
+      if (Object.keys(profile).sort().join(',') !== 'VEQTOR_COMMENT_INITIALS,VEQTOR_TRACKED_CHANGE_AUTHOR'
+        || Object.values(profile).some((value) => typeof value !== 'string' || !value.trim())) {
+        fail('/setup: manual author profile must contain a nonempty author and comment initials')
+      }
+    } catch {
+      fail('/setup: manual author-profile example is not valid JSON')
+    }
+  }
+  const authorCommands = pairedContents(html, 'code').filter((value) => value.startsWith('claude mcp add') && value.includes('VEQTOR_TRACKED_CHANGE_AUTHOR'))
+  if (authorCommands.length !== 1 || !authorCommands[0].includes('-e VEQTOR_COMMENT_INITIALS=')) {
+    fail('/setup: the optional Claude Code author command must configure comment initials too')
+  }
+  if (!docsHtml.includes('record_status=disabled') || !docsHtml.includes('.veqtor-backups')
+    || !docsHtml.includes('/blob/v0.5.0/docs/AUTHOR_DRAFTING.md')) {
+    fail('/docs: author drafting must disclose its separate backup/record contract and link the tagged documentation')
   }
   for (const marker of ['/cdn-cgi/l/email-protection', 'data-cfemail', '__cf_email__', 'email-decode.min.js']) {
     if (html.includes(marker)) fail(`/setup: built HTML contains unexpected Cloudflare obfuscation marker ${marker}`)
@@ -673,11 +708,11 @@ function assertSchemaContracts(schemasByRoute) {
   if (homeSoftware.some((node) => Object.hasOwn(node, 'codeRepository'))) {
     fail('/: SoftwareApplication must not use the SoftwareSourceCode-only codeRepository property')
   }
-  if (homeSoftware[0]?.softwareVersion !== '0.4.2') {
-    fail('/: SoftwareApplication softwareVersion must match public v0.4.2')
+  if (homeSoftware[0]?.softwareVersion !== '0.5.0') {
+    fail('/: SoftwareApplication softwareVersion must match public v0.5.0')
   }
-  if (homeSoftware[0]?.downloadUrl !== 'https://github.com/JohnDeer-ai/veqtor-mcp/releases/download/v0.4.2/veqtor-mcp-0.4.2-macos.mcpb') {
-    fail('/: SoftwareApplication downloadUrl must point to the public v0.4.2 MCPB')
+  if (homeSoftware[0]?.downloadUrl !== 'https://github.com/JohnDeer-ai/veqtor-mcp/releases/download/v0.5.0/veqtor-mcp-0.5.0-macos.mcpb') {
+    fail('/: SoftwareApplication downloadUrl must point to the public v0.5.0 MCPB')
   }
   const homeVideos = nodesOfType('/', 'VideoObject')
   if (homeVideos.length !== 0) fail(`/: homepage must not compete with /demo as a video watch page, found ${homeVideos.length} VideoObject node(s)`)
@@ -998,17 +1033,13 @@ function main() {
   }
   const expectedLastmodsByRoute = new Map([
     ...[
-      '/security',
-      '/ai-contract-review',
       '/contract-redline-analysis',
-      '/docx-track-changes-review',
       '/guides',
     ].map((route) => [route, LINK_ARCHITECTURE_LASTMOD]),
-    ['/author/ilya-shilov', '2026-10-02'],
     ...[
-      '/', '/product', '/how-it-works', '/demo', '/setup', '/docs',
-      '/limitations', '/terms', '/veqtor-vs-claude-for-word',
-    ].map((route) => [route, '2026-09-11']),
+      '/', '/product', '/how-it-works', '/security', '/ai-contract-review', '/demo', '/setup', '/docs',
+      '/limitations', '/terms', '/veqtor-vs-claude-for-word', '/docx-track-changes-review', '/author/ilya-shilov',
+    ].map((route) => [route, '2026-10-18']),
     ...guideSource.clusters.map((cluster) => [
       `/guides/topics/${cluster.id}`,
       cluster.id === 'limitation-of-liability' ? undefined : LINK_ARCHITECTURE_LASTMOD,

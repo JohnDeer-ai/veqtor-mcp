@@ -6,7 +6,7 @@ import { AUTHOR, GUIDES, TOPICS } from '../lib/guides'
 import { PUBLIC_MCPB_URL, PUBLIC_RELEASE_VERSION } from '../lib/public-release'
 
 const title = 'Veqtor MCP — Review Word Redlines with Claude'
-const description = 'Ask Claude what changed across Word contract drafts and create a separate counterproposal with tracked changes. Veqtor runs locally and keeps the original files unchanged.'
+const description = 'Ask Claude what changed across Word contract drafts and create a separate counterproposal with tracked changes. This local counterproposal workflow keeps the original files unchanged.'
 const structuredData = [
   {
     '@type': 'SoftwareApplication',
@@ -34,7 +34,7 @@ const structuredData = [
     <div class="home-hero__copy">
       <p class="eyebrow">For lawyers and contract teams reviewing Word redlines</p>
       <h1 id="home-title">Ask Claude what changed.&nbsp;Get your counterproposal back in Word.</h1>
-      <p class="home-hero__intro">Compare the drafts, check the exact wording Claude found, and prepare a separate Word document with the edits shown in Word’s Track Changes. Your original files stay unchanged.</p>
+      <p class="home-hero__intro">Compare the drafts, check the exact wording Claude found, and prepare a separate Word document with the edits shown in Word’s Track Changes. In this counterproposal workflow, your original files stay unchanged.</p>
       <div class="actions home-hero__actions">
         <a class="button button--primary" href="#demo">Watch the demo</a>
         <a class="button button--secondary" href="/setup">Connect Veqtor</a>
@@ -146,7 +146,7 @@ const structuredData = [
         </a>
       </div>
       <div class="video-caption"><strong>Recorded with Veqtor v0.1.2 · Real Claude prompts · Sample documents</strong><span>Compare drafts → check wording → create the next Word document · <a href="/demo#watch">Open the demo page</a> · <a href="/demo#transcript">Read transcript</a></span></div>
-      <p class="demo-install-note">This video remains a historical v0.1.2 recording: its “one command” line refers to Claude Code and its Desktop path used a configuration edit. Public v{PUBLIC_RELEASE_VERSION} includes the downloadable macOS Claude Desktop extension and exact paragraph history described in the current connection guide; the video does not demonstrate the new history tool. One correction to the recording still applies: v0.1.2 checks the proposed Word document in memory before saving it; it does not reopen the saved copy for a separate final check.</p>
+      <p class="demo-install-note">This video remains a historical v0.1.2 recording: its “one command” line refers to Claude Code and its Desktop path used a configuration edit. Public v{PUBLIC_RELEASE_VERSION} includes the downloadable macOS Claude Desktop extension, exact paragraph history, author drafting and ordinary comments described in the current guides; the video does not demonstrate those later features. One correction to the recording still applies: v0.1.2 checks the proposed Word document in memory before saving it; it does not reopen the saved copy for a separate final check.</p>
     </div>
   </section>
 
@@ -173,7 +173,7 @@ const structuredData = [
           <p class="mono-note safety-status">Early public version · Mac and Linux · Community support only</p>
         </div>
         <div class="trust-list">
-          <div><span aria-hidden="true">✓</span><p><strong>Your original stays unchanged</strong>Every successful edit creates a separate Word document. Veqtor will not replace your original or an existing file with the same name.</p></div>
+          <div><span aria-hidden="true">✓</span><p><strong>Choose how the document is saved</strong>The counterproposal workflow creates a separate file. Author drafting can save to the working file with an exact backup; close it in Word before saving and reopen it afterwards.</p></div>
           <div><span aria-hidden="true">✓</span><p><strong>All requested changes are checked together</strong>If even one requested change cannot be completed, Veqtor does not create the final Word document.</p></div>
           <div><span aria-hidden="true">✓</span><p><strong>Veqtor refuses changes it cannot make exactly</strong>It stops rather than risk changing the wrong text.</p></div>
           <div><span aria-hidden="true">✓</span><p><strong>Veqtor can keep an activity history</strong>The history is a helpful record on your computer, but it is an ordinary file—not independent proof that nobody changed it.</p></div>
@@ -182,7 +182,7 @@ const structuredData = [
       </div>
       <div class="privacy-line">
         <strong>What information may leave your computer?</strong>
-        <p>Veqtor does not send whole Word documents anywhere on its own. Text that Veqtor gives Claude becomes part of your Claude conversation and may be processed by the AI service you use. Veqtor also normally tries to save an activity history on your computer. It may include contract wording, so keep it confidential.</p>
+        <p>Veqtor does not send whole Word documents anywhere on its own. Text that Veqtor gives Claude becomes part of your Claude conversation and may be processed by the AI service you use. Its legacy review and counterproposal tools normally try to save a local activity history; author-drafting tools do not. The history may include contract wording, so keep it confidential.</p>
       </div>
     </div>
   </section>
@@ -200,7 +200,7 @@ const structuredData = [
           <div><strong>You ask Claude</strong><span>→</span><small>normal language</small></div>
           <div><strong>Claude asks Veqtor</strong><span>→</span><small>MCP connection</small></div>
           <div><strong>Veqtor checks Word</strong><span>→</span><small>read · check · test</small></div>
-          <div><strong>Veqtor creates a new file</strong><span>→</span><small>tracked changes · original unchanged</small></div>
+          <div><strong>Veqtor saves supported edits</strong><span>→</span><small>new copy · exact backup for working-file saves</small></div>
           <p class="tech-note">Local stdio MCP · list_rounds · inspect_document · extract_redlines · map_rounds · trace_paragraph_history · verify_quote · preflight_edits · apply_edits · export_decision_record</p>
         </div>
       </div>

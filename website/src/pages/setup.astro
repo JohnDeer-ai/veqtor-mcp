@@ -37,7 +37,8 @@ const freshDesktopConfig = `{
 }`
 
 const desktopAuthorSetting = `"env": {
-  "VEQTOR_TRACKED_CHANGE_AUTHOR": "Alex Morgan"
+  "VEQTOR_TRACKED_CHANGE_AUTHOR": "Alex Morgan",
+  "VEQTOR_COMMENT_INITIALS": "AM"
 }`
 ---
 
@@ -68,9 +69,9 @@ const desktopAuthorSetting = `"env": {
           <ul>
             <li>For the recommended extension path: Claude Desktop on a Mac.</li>
             <li>For Claude Code: a Mac or Linux computer with <a href="https://docs.astral.sh/uv/getting-started/installation/">uv installed</a>.</li>
-            <li>No separate Python or uv installation is required for the Claude Desktop extension.</li>
+            <li>The extension uses uv to start its local server. It may reuse an existing uv installation and download a compatible Python runtime and locked dependencies.</li>
           </ul>
-          <div class="notice notice--lime"><strong>v{PUBLIC_RELEASE_VERSION} is the current public Alpha.</strong><p>The macOS extension, wheel and source archive are bound to the same verified immutable GitHub Release; the Python package is also published on PyPI. This version adds exact paragraph history across drafts and checks of current or rejected-pending paragraph wording.</p></div>
+          <div class="notice notice--lime"><strong>v{PUBLIC_RELEASE_VERSION} is the current public Alpha.</strong><p>The macOS extension, wheel and source archive are bound to the same verified immutable GitHub Release; the Python package is also published on PyPI. This version adds edits under a configured author, ordinary comments and saving to the working file with an exact backup. Paragraph history and quotation checks remain available.</p></div>
           <div class="notice"><strong>Windows is not supported in the public Alpha.</strong><p>Do not improvise a Windows installation for real matters; the current local record locking and release tests target Mac and Linux.</p></div>
         </section>
 
@@ -86,22 +87,23 @@ const desktopAuthorSetting = `"env": {
           <ol>
             <li>Download and open <code>{PUBLIC_MCPB_FILENAME}</code>.</li>
             <li>Approve installation in Claude Desktop.</li>
-            <li>Enter the name that Word should show as the author of new tracked changes.</li>
+            <li>Enter the author name and comment initials to use for new Word revisions and comments.</li>
             <li>Open Claude Desktop's extension settings. Make sure Veqtor is enabled and its local server shows as connected. If it does not connect, fully quit and reopen Claude Desktop.</li>
             <li>Open a new chat and run the bundled <strong>try_veqtor_demo</strong> prompt.</li>
           </ol>
-          <p>The first start may download a compatible Python runtime and the dependencies pinned in the extension. Later starts can use the local host cache.</p>
+          <p>The first start may download a compatible Python runtime and the dependencies pinned in the extension. The release was checked in an existing maintainer profile using system uv; this does not establish a clean-machine installation without prior tools or caches.</p>
           <h3>First prompt</h3>
           <blockquote>Using the Veqtor tools, what happened to the limitation of liability across the four Word rounds in the folder named demo? Start with list_rounds, use inspect_document to select the liability-cap paragraph in the last declared file, then use trace_paragraph_history with that exact reference and filename order. Verify the immediately prior rejected-pending wording with verify_quote, and use map_rounds only as separate navigation and recorded-derivation evidence. Keep tool-confirmed document facts separate from your interpretation; do not treat filename order as verified chronology or lineage, and do not claim that the literal tracked-change author metadata identifies a person.</blockquote>
-          <p>The bundled prompt is read-only. For a write test, first copy the four synthetic DOCX files to a new writable folder outside the installed extension and create the output only in that copy. After apply, ask Claude to list the folder again and re-extract the output; the source hash should stay unchanged and the output hash should agree across apply, list and extraction.</p>
+          <p>The bundled prompt is read-only. For a separate-counterproposal write test, first copy the four synthetic DOCX files to a new writable folder outside the installed extension and create the output only in that copy. After apply, ask Claude to list the folder again and re-extract the output; the source hash should stay unchanged and the output hash should agree across apply, list and extraction.</p>
           <h3>Optional advanced integrity check</h3>
           <p>Advanced users can also download <a href={PUBLIC_CHECKSUMS_URL}><code>SHA256SUMS.txt</code></a> and verify the file before opening it. The expected MCPB SHA-256 is <code>{PUBLIC_MCPB_SHA256}</code>. This checksum verifies integrity; the MCPB is not separately digitally signed.</p>
           <div class="code-block"><div class="code-block__head"><span>Terminal · optional</span><span>SHA-256</span></div><pre><code>{`shasum -a 256 ${PUBLIC_MCPB_FILENAME}
 grep ' ${PUBLIC_MCPB_FILENAME}$' SHA256SUMS.txt`}</code></pre></div>
-          <h3>Update from v0.3, remove or reinstall</h3>
+          <p>Author drafting can instead save to the working file with a required exact backup. Close that file in Word before saving, reopen it afterwards and refresh its references after each save. See the <a href="/docs#author-drafting">author-drafting workflow</a>.</p>
+          <h3>Update from v0.4.2, remove or reinstall</h3>
           <p>To replace an older extension or a preview, uninstall only Veqtor from Claude Desktop's extension settings, fully quit Claude, reopen it and install the public MCPB above. Use the same sequence to reinstall v{PUBLIC_RELEASE_VERSION}. Preserve your document folders and their private journals; do not delete them to refresh the connection.</p>
           <p>If you also registered Veqtor manually, back up the configuration and remove only that duplicate Veqtor entry before enabling the extension. Keep all unrelated servers and settings.</p>
-          <p>For a temporary rollback, use the <a href="https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/v0.3.0">immutable v0.3.0 release</a> and its checksum manifest. That restores the older eight-tool runtime, not v0.4 paragraph history. Test rollback in a fresh disposable folder: it does not establish compatibility with v0.4 journals or downgrade their records.</p>
+          <p>For a temporary rollback, use the <a href="https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/v0.4.2">immutable v0.4.2 release</a> and its checksum manifest. That restores the older eleven-tool runtime without the three author-drafting tools. Test rollback in a fresh disposable folder: it does not establish compatibility with v0.5.0 journals or saved positions, or downgrade their records.</p>
         </section>
 
         <section id="claude-code">
@@ -112,12 +114,13 @@ grep ' ${PUBLIC_MCPB_FILENAME}$' SHA256SUMS.txt`}</code></pre></div>
           <p>Then confirm that Claude Code can see the registration:</p>
           <div class="code-block"><div class="code-block__head"><span>Terminal</span><span>Verify</span></div><pre><code>claude mcp get veqtor</code></pre></div>
           <p>Open a new Claude Code session after registering Veqtor. The user scope keeps this private local connection available across your projects on this computer. It does not make Veqtor a network service.</p>
-          <h3>Set the author shown in new tracked changes</h3>
-          <p>If you want Word to show your name as the author of new changes, register the server with this environment setting. Replace <code>Your Name</code> with your actual name:</p>
+          <h3>Set the author and comment initials</h3>
+          <p>If you want Word to show your name as the author of new changes, register the server with these environment settings. Replace <code>Your Name</code> and <code>YN</code> with your actual name and initials:</p>
           <div class="code-block"><div class="code-block__head"><span>Terminal</span><span>Optional · public v{PUBLIC_RELEASE_VERSION}</span></div><pre><code>{`claude mcp add --transport stdio --scope user veqtor \
-  -e VEQTOR_TRACKED_CHANGE_AUTHOR="Your Name" -- \
+  -e VEQTOR_TRACKED_CHANGE_AUTHOR="Your Name" \
+  -e VEQTOR_COMMENT_INITIALS="YN" -- \
   uvx ${PUBLIC_PACKAGE_SPECIFIER}`}</code></pre></div>
-          <p>If you do not set a name, Word will show <code>Veqtor MCP</code>. The author is fixed when the server starts and Claude cannot change it for an individual edit.</p>
+          <p>If you do not set a name, Word will show <code>Veqtor MCP</code>. Initials default to the configured name’s initials if omitted. The profile is fixed when the server starts and Claude cannot change it for an individual edit.</p>
         </section>
 
         <section id="desktop-manual">
@@ -137,10 +140,10 @@ grep ' ${PUBLIC_MCPB_FILENAME}$' SHA256SUMS.txt`}</code></pre></div>
           <h3>If the file is empty</h3>
           <p>Use this complete configuration. In either example, replace <code>/absolute/path/to/uvx</code> with the result from <code>command -v uvx</code>.</p>
           <div class="code-block"><div class="code-block__head"><span>claude_desktop_config.json</span><span>New configuration only</span></div><pre><code set:text={freshDesktopConfig}></code></pre></div>
-          <h3>Choose the author shown in new tracked changes</h3>
-          <p>The examples above use the default author, <code>Veqtor MCP</code>. To show your own name in Word, add this <code>env</code> setting inside the <code>veqtor</code> entry, after the <code>args</code> line. Add a comma after the <code>args</code> line, and replace <code>Alex Morgan</code> with your actual name. Do not leave the example name in your configuration.</p>
-          <div class="code-block"><div class="code-block__head"><span>Optional author setting</span><span>Replace the example name</span></div><pre><code set:text={desktopAuthorSetting}></code></pre></div>
-          <p>Quit Claude Desktop fully and reopen it after changing the executable, version or author name.</p>
+          <h3>Choose the author and comment initials</h3>
+          <p>The examples above use the default author, <code>Veqtor MCP</code>. To show your own name in Word, add this <code>env</code> setting inside the <code>veqtor</code> entry, after the <code>args</code> line. Add a comma after the <code>args</code> line, and replace <code>Alex Morgan</code> and <code>AM</code> with your actual name and initials. Initials are optional in manual configuration and otherwise derive from the name. Do not leave the example profile in your configuration.</p>
+          <div class="code-block"><div class="code-block__head"><span>Optional author and initials</span><span>Replace the example profile</span></div><pre><code set:text={desktopAuthorSetting}></code></pre></div>
+          <p>Quit Claude Desktop fully and reopen it after changing the executable, version, author name or initials.</p>
           <h3>Confirm the Claude Desktop connection</h3>
           <p>Start a new chat, click the <strong>+</strong> button beside the message box, then open <strong>Connectors</strong>. Veqtor should appear with its tools. You can also open <strong>Settings → Developer</strong> to see its connection status and logs. The <code>claude mcp get veqtor</code> command checks Claude Code only; it does not verify this Desktop configuration.</p>
         </section>
@@ -152,7 +155,7 @@ grep ' ${PUBLIC_MCPB_FILENAME}$' SHA256SUMS.txt`}</code></pre></div>
           <div class="code-block"><div class="code-block__head"><span>Terminal</span><span>Public v{PUBLIC_RELEASE_VERSION}</span></div><pre><code>{`uvx --from "${PUBLIC_PACKAGE_PIN}" veqtor-demo-rounds ~/veqtor-demo-rounds`}</code></pre></div>
           <p>In a new Claude session, ask:</p>
           <blockquote>Using the Veqtor tools, what happened to the limitation of liability across the rounds in ~/veqtor-demo-rounds?</blockquote>
-          <p>Ask Claude to report the producer version from an actual tool response. It should be <code>{PUBLIC_RELEASE_VERSION}</code>; the tool definitions should show eleven tools, including <code>trace_paragraph_history</code>, <code>read_deal_positions</code> and <code>mutate_deal_positions</code>, under <code>veqtor.mcp.v0.4.2</code>. Four demo documents and a successful history call confirm this read-only connection check, not a full acceptance test.</p>
+          <p>Ask Claude to report the producer version from an actual tool response. It should be <code>{PUBLIC_RELEASE_VERSION}</code>; the tool definitions should show fourteen tools, including <code>trace_paragraph_history</code>, <code>read_deal_positions</code>, <code>mutate_deal_positions</code>, <code>read_document_comments</code>, <code>preflight_document_edits</code> and <code>apply_document_edits</code>, under <code>veqtor.mcp.v0.5.0</code>. Four demo documents and a successful history call confirm this read-only connection check, not a full acceptance test.</p>
           <p>For a later round, see how to <a href="/docs#positions">restore saved positions and prepare a new counterproposal</a>. Keep the entire matter folder when moving saved positions to another location.</p>
           <p>The history follows the declared order, not independently verified chronology. The rejected-pending reading mechanically reverses supported pending text revisions; it is not a recovered original or a legal conclusion. See the <a href="/docs#history">history and quotation boundaries</a>, then the <a href="/demo">historical recorded demo</a> before trying a write workflow.</p>
         </section>

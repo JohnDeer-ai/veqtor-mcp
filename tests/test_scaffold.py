@@ -130,7 +130,7 @@ def test_changelog_keeps_timeless_release_copy() -> None:
     assert "`published_at` timestamp" in releasing
 
 
-def test_release_copy_is_state_neutral_and_site_uses_public_v042() -> None:
+def test_release_copy_is_state_neutral_and_site_uses_public_v050() -> None:
     readme = (ROOT / "README.md").read_text()
     immutable_docs = "\n".join(
         (ROOT / name).read_text()
@@ -153,9 +153,9 @@ def test_release_copy_is_state_neutral_and_site_uses_public_v042() -> None:
         '-e VEQTOR_TRACKED_CHANGE_AUTHOR="Your Name" -- '
         "uvx veqtor-mcp@X.Y.Z"
     ) in readme
-    assert "PUBLIC_RELEASE_VERSION = '0.4.2'" in release_config
+    assert "PUBLIC_RELEASE_VERSION = '0.5.0'" in release_config
     assert (
-        "9779d4526b1b86553e6639e6cffd3e80e3e87a747f8ca93c5261869b83500cf5"
+        "8e29e12cc272ac168441e6affdeedd51199294db94ec6c2f206a0a810d587075"
     ) in release_config
     assert "PUBLIC_MCPB_URL" in setup
     assert "PUBLIC_RELEASE_URL" in setup
@@ -182,8 +182,8 @@ def test_release_copy_is_state_neutral_and_site_uses_public_v042() -> None:
     assert "v0.3.0 is not public yet" not in setup
     assert "Download Veqtor v{PUBLIC_RELEASE_VERSION} (.mcpb)" in setup
     assert "This is the first public MCPB" not in setup
-    assert "immutable v0.3.0 release" in setup
-    assert "does not establish compatibility with v0.4 journals" in setup
+    assert "immutable v0.4.2 release" in setup
+    assert "does not establish compatibility with v0.5.0 journals" in setup
     for forbidden in ("releases/tag/v0.4.0", "releases/download/v0.4.0"):
         assert forbidden not in readme
     for stale_site_copy in (
@@ -203,6 +203,9 @@ def test_release_copy_is_state_neutral_and_site_uses_public_v042() -> None:
         "v0.4.2 is not public yet",
         "v0.4.2 release candidate",
         "there is no official v0.4.2 download yet",
+        "v0.5.0 is not public yet",
+        "v0.5.0 release candidate",
+        "there is no official v0.5.0 download yet",
     ):
         assert stale_site_copy not in public_pages.lower()
     assert "Recorded with Veqtor v0.1.2" in public_pages
@@ -216,7 +219,7 @@ def test_release_copy_is_state_neutral_and_site_uses_public_v042() -> None:
     )
 
 
-def test_public_site_v042_tool_and_history_instructions_match_the_release() -> None:
+def test_public_site_v050_tool_and_history_instructions_match_the_release() -> None:
     from veqtor_mcp._verification_v2 import PARAGRAPH_PROJECTION_MODES
     from veqtor_mcp.records import WRITABLE_TOOL_NAMES
 
@@ -224,12 +227,13 @@ def test_public_site_v042_tool_and_history_instructions_match_the_release() -> N
     docs = (pages / "docs.astro").read_text()
     setup = (pages / "setup.astro").read_text()
     tool_cards = re.findall(r"<article><code>(\w+)</code><h3>", docs)
-    assert len(tool_cards) == len(set(tool_cards)) == 11
+    assert len(tool_cards) == len(set(tool_cards)) == 14
     assert set(tool_cards) == set(WRITABLE_TOOL_NAMES) | {
         "read_deal_positions", "mutate_deal_positions",
+        "read_document_comments", "preflight_document_edits", "apply_document_edits",
     }
     for marker in (
-        "veqtor.mcp.v0.4.2",  # Public site stays on the published release.
+        "veqtor.mcp.v0.5.0",  # Public site follows the verified published release.
         "filename_lexicographic_v1",
         "explicit_filename_sequence_v1",
         *PARAGRAPH_PROJECTION_MODES,
@@ -243,10 +247,14 @@ def test_public_site_v042_tool_and_history_instructions_match_the_release() -> N
     prompt = (ROOT / "packaging/mcpb/demo/FIRST_PROMPT.txt").read_text().strip()
     assert f"<blockquote>{prompt}</blockquote>" in setup
     assert "${PUBLIC_MCPB_FILENAME}" in setup
-    assert "eleven tools" in setup
-    assert "veqtor.mcp.v0.4.2" in setup
+    assert "fourteen tools" in setup
+    assert "veqtor.mcp.v0.5.0" in setup
     assert "read_deal_positions" in setup
     assert "mutate_deal_positions" in setup
+    for tool in ("read_document_comments", "preflight_document_edits", "apply_document_edits"):
+        assert tool in setup
+    assert "record_status=disabled" in docs
+    assert ".veqtor-backups" in docs
     assert "not a full acceptance test" in setup
 
 

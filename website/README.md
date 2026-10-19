@@ -6,29 +6,47 @@ does not need `@astrojs/cloudflare`. The generated `dist/` directory can be
 served by any static host, including Cloudflare Pages. Astro telemetry is
 disabled in the project scripts.
 
-## Public v0.4.0 activation
+## v0.5.0 activation
 
-The public installation instructions now select **v0.4.0 Alpha**, following
-verified PyPI publication and the immutable GitHub Release published on
-**2026-09-11 at 06:17:17 UTC**:
+The installation instructions target the published **v0.5.0 Alpha** release.
+[Release run 39156615444, attempt 1](https://github.com/JohnDeer-ai/veqtor-mcp/actions/runs/39156615444)
+completed successfully for commit `f4ef637690cf9e8c2b6927fba6b46c2577c1931a`.
+GitHub reports immutable publication at `2026-10-19T10:18:45Z`. Public targets:
 
-- [Immutable v0.4.0 release](https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/v0.4.0)
-- [Exact PyPI v0.4.0 package](https://pypi.org/project/veqtor-mcp/0.4.0/)
-- MCPB SHA-256: `44a75ee286c701f1a14a2c96fba531e8290240fb8d554eff886565b380b5bd2c`
+- [Immutable v0.5.0 release](https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/v0.5.0)
+- [Exact PyPI v0.5.0 package](https://pypi.org/project/veqtor-mcp/0.5.0/)
+- Verified public MCPB SHA-256: `8e29e12cc272ac168441e6affdeedd51199294db94ec6c2f206a0a810d587075`
+
+The exact candidate's `.github/scripts/verify_published_pypi.py` and
+`.github/scripts/verify_published_release.py` passed against the successful
+attempt's artifacts on 19 October 2026, both in the release workflow and in
+separate tokenless local checks. The public wheel, source distribution, MCPB
+and checksum manifest match the approved bytes; the PyPI checks also verify
+Trusted Publisher provenance. A separate installation of `veqtor-mcp==0.5.0`
+from public PyPI passed the version and doctor checks and generated four demo
+DOCX files in an isolated directory before this website activation.
+
+Package publication and website deployment are separate. Retain the Cloudflare
+deployment commit and fresh production checks with the activation evidence;
+the release timestamp above does not establish a website deployment time.
 
 `src/lib/public-release.ts` supplies the current release links, install pins
 and checksum. `/setup` covers installation, upgrade, disposable-folder rollback
-and a read-only connection check; `/docs` describes all nine tools, paragraph
-history and projection-aware verification. The v0.1.2 video stays historical.
+and a read-only connection check; `/docs` describes all fourteen tools,
+paragraph history, projection-aware verification, own-author drafting and
+ordinary anchored comments. The legacy counterproposal path creates a new
+file. Author drafting can save to the working path with a required exact
+backup and Word closed; its three tools do not append the legacy decision
+journal. The v0.1.2 video stays historical.
 The source update date is not deployment evidence: after production deployment,
 check the live `/setup`, `/docs`, homepage structured data, `/llms.txt`, and all
 release, download, checksum and PyPI links.
 
 This is a separate website activation, not a new software release. Preserve the
 tagged README's conditional version-selection rule, package inputs, release
-assets and accepted evidence. That activation preserved the website's existing
-static deployment, dependencies, guide URLs/SEO inventory and media. Subsequent
-build-dependency maintenance is covered by the checks below.
+assets and accepted evidence. Preserve the website's existing static hosting,
+dependencies, guide URLs/SEO inventory and media. Subsequent build-dependency
+maintenance is covered by the checks below.
 
 ## Local development
 
@@ -127,6 +145,7 @@ operational steps and are intentionally not performed by this repository.
 ## Repository isolation
 
 The Python wheel and source distribution use explicit allowlists in the root
-`pyproject.toml` and `scripts/release_contract.py`. The `website/` tree is not a
-package input. Do not add it to those release allowlists and do not make the
-website build part of the Python release workflow.
+`pyproject.toml` and `scripts/release_contract.py`. Website page sources are not
+Python package inputs, but `website/public/logo-512.png` is a frozen MCPB input
+and must not change in a website-only activation. Do not expand the release
+allowlists or make the website build part of the Python release workflow.

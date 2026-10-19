@@ -12,20 +12,21 @@ const sections = [
   },
   {
     id: 'source-files',
-    title: 'Source documents are not overwritten',
+    title: 'Choose a new copy or a backed-up working file',
     body: [
-      'A successful edit creates a new Word document. Veqtor refuses to replace the source file and refuses to replace an existing output file with the same name.',
-      'Before writing, Veqtor can test the complete requested edit set in memory. If any requested edit cannot be completed, it refuses the whole set rather than producing a partial counterproposal.',
+      'The counterproposal workflow creates a new Word document and refuses to replace the source or an existing output. Author drafting can instead save to the working file, with an exact backup of its previous bytes required before replacement.',
+      'Before writing, Veqtor tests the complete requested edit set in memory. If any requested edit cannot be completed, it refuses the whole set. Close the file in Word before an author-drafting save and reopen it afterwards; Veqtor cannot coordinate its save with Word or cloud-sync software.',
     ],
   },
   {
     id: 'activity-history',
     title: 'The local activity history is useful, but not independent proof',
     body: [
-      'Veqtor normally tries to save a private activity history inside the matter folder. It can help you review which tool ran, what was checked, and what was written. The raw history may contain contract wording, so it should be treated as confidential.',
+      'The legacy review and counterproposal tools normally try to save a private activity history inside the matter folder. It can help you review which tool ran, what was checked, and what was written. The raw history may contain contract wording, so it should be treated as confidential.',
+      'The three author-drafting tools do not add entries to that history. Their results and exact backups support recovery, but do not form a complete negotiation history.',
       'The history is an ordinary file on your computer. Someone with access to the computer could change it, and some actions may be missing if saving failed. Use it to review the work—not as independent proof of what happened.',
     ],
-    note: 'The local journal is stored under <matter>/.veqtor/decision-records.jsonl unless VEQTOR_DISABLE_DECISION_RECORD=1. Read-only calls normally append provenance too.',
+    note: 'The legacy local journal is stored under <matter>/.veqtor/decision-records.jsonl unless VEQTOR_DISABLE_DECISION_RECORD=1. Legacy read-only calls normally append provenance too. read_document_comments, preflight_document_edits and apply_document_edits return record_status=disabled.',
   },
   {
     id: 'saved-positions',

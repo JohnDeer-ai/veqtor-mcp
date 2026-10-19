@@ -1,12 +1,13 @@
 ---
 import NarrativePage from '../components/NarrativePage.astro'
+import { PUBLIC_RELEASE_URL, PUBLIC_RELEASE_VERSION } from '../lib/public-release'
 
 const sections = [
   {
     id: 'connect',
     title: '1. Connect Veqtor to Claude',
     body: [
-      'Veqtor runs on your computer and connects to Claude using a standard called MCP. You do not need to understand MCP to use it. On a Mac, install the public v0.4.2 extension directly in Claude Desktop. For Claude Code on Mac or Linux, register the exact public v0.4.2 package after installing uv.',
+      `Veqtor runs on your computer and connects to Claude using a standard called MCP. You do not need to understand MCP to use it. On a Mac, install the public v${PUBLIC_RELEASE_VERSION} extension directly in Claude Desktop. For Claude Code on Mac or Linux, register the exact public v${PUBLIC_RELEASE_VERSION} package after installing uv.`,
       'You only need to do this once for each Claude app you use. The setup guide shows both paths separately.',
     ],
   },
@@ -45,13 +46,19 @@ const sections = [
     title: '4. Test the full proposal, then create a new file',
     body: [
       'Before writing, Veqtor runs the entire proposed set of edits through the same document process it uses for the final operation. If one edit cannot be completed, the whole set is refused and no final Word document is created.',
-      'If the test succeeds and Claude proceeds, Veqtor creates a separate Word document. It never overwrites the source or an existing output with the same name.',
+      'In this counterproposal workflow, if the test succeeds and Claude proceeds, Veqtor creates a separate Word document. This path never overwrites the source or an existing output with the same name.',
+      'Author drafting is a separate option for supported edits and ordinary comments in one working document. Saving to that file requires an exact backup. Close the file in Word before saving and reopen it afterwards.',
     ],
     links: [
       {
         href: '/docx-track-changes-review',
         title: 'See how Veqtor works with supported Word Track Changes',
         description: 'Learn which changes it can read and create, and which parts of Word remain outside the Alpha.',
+      },
+      {
+        href: `${PUBLIC_RELEASE_URL.replace('/releases/tag/', '/blob/')}/docs/AUTHOR_DRAFTING.md`,
+        title: 'Read the author-drafting and saving guide',
+        description: 'Check supported own-author edits, ordinary comments, exact backups and local storage requirements.',
       },
     ],
   },
@@ -79,7 +86,7 @@ const sections = [
   path="/how-it-works"
   eyebrow="The workflow"
   heading="From negotiation drafts to a counterproposal you can review."
-  lede="Veqtor lets Claude read, check, and make the Word changes it supports while keeping every source document unchanged."
+  lede="This counterproposal workflow lets Claude read, check, and make supported Word changes in a separate file while keeping the source documents unchanged."
   meta="Connect → read → check → test → write → review"
   breadcrumbs={[{ label: 'Product', href: '/product' }, { label: 'How it works' }]}
   sections={sections}
