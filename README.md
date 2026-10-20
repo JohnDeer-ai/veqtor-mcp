@@ -30,10 +30,11 @@ tamper-evident audit system. Review the
 [known limitations](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/KNOWN_LIMITATIONS.md)
 before using it on a real matter.
 
-This source tree defines package version `0.5.0` and the
-fourteen-tool MCP contract `veqtor.mcp.v0.5.0`. The three new drafting tools
-support repeated edits under one configured author, comments and backup-backed
-saves to the working file. See [author drafting](#author-drafting).
+This source tree defines package version `0.6.0.dev1` and the
+fourteen-tool MCP contract `veqtor.mcp.v0.6.0`. The three drafting tools
+support paragraph insertion and replacement, comment replies and thread status,
+a selected author for each batch, and backup-backed saves to the working file.
+This is a development version; the public release remains 0.5.0. See [author drafting](#author-drafting).
 All current tools report the new contract-wide marker. Legacy calls remain
 compatible with the historical `0.4.0` release; the additive paragraph target
 and the two deal-position tools require `0.4.2`. Live `producer.version`
@@ -60,11 +61,13 @@ Do not run the placeholder literally or mix versions within one installation.
 
 ## Author drafting
 
-The `0.5.0` tools `read_document_comments`, `preflight_document_edits` and
-`apply_document_edits` tools support editing one's own pending insertions,
-ordinary comments and saving the same working DOCX with a mandatory backup.
-Configure `VEQTOR_TRACKED_CHANGE_AUTHOR` and `VEQTOR_COMMENT_INITIALS` once, close
-Word before a save, and refresh document references afterwards. The complete
+The tools introduced in `0.5.0`—`read_document_comments`, `preflight_document_edits`
+and `apply_document_edits`—support editing one's own pending insertions and
+saving the same working DOCX with a mandatory backup. Development version
+`0.6.0.dev1` adds paragraph insertion/replacement and comment threads.
+Configure `VEQTOR_TRACKED_CHANGE_AUTHOR` and `VEQTOR_COMMENT_INITIALS` for the default,
+or pass `author_profile: {name, initials}` to both preview and save for a selected
+batch. Close Word before a save and refresh document references afterwards. The complete
 operation and recovery contract is in `docs/AUTHOR_DRAFTING.md` in this tree.
 The public installation commands below continue to select the published release.
 
@@ -233,8 +236,8 @@ or environment.
 
 ## Tool surface
 
-The descriptions below follow package `0.5.0` and its
-fourteen-tool MCP contract `veqtor.mcp.v0.5.0`. Public `0.4.0` retains the frozen
+The descriptions below follow development package `0.6.0.dev1` and its
+fourteen-tool MCP contract `veqtor.mcp.v0.6.0`. Public `0.4.0` retains the frozen
 `veqtor.mcp.v0.4` contract. For an
 installed version, use the API file carried by that exact artifact or its
 matching immutable tag. Historical v0.3 artifacts retain their eight tools.
@@ -272,9 +275,10 @@ matching immutable tag. Historical v0.3 artifacts retain their eight tools.
   explicit confirmation state.
 - `mutate_deal_positions`: expected-revision position updates, confirmation and
   withdrawal, independently of document edits.
-- `read_document_comments`: paginated comment text, author metadata and source hash.
-- `preflight_document_edits`: dry-run exact text changes and supported own-comment
-  operations, bound to the configured author and the working document.
+- `read_document_comments`: paginated comment text, authors, replies, thread status,
+  paragraph locations and source hash.
+- `preflight_document_edits`: dry-run text and paragraph changes, comments, replies
+  and thread status, bound to the selected author and the working document.
 - `apply_document_edits`: apply that unchanged proof and save in place with an
   exact backup, or create a separate copy.
 

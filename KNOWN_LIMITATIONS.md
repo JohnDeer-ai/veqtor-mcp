@@ -2,13 +2,13 @@
 
 # Known limitations
 
-Package `0.5.0` adds the distinct
+Package `0.6.0.dev1` extends the distinct
 [author-drafting workflow](docs/AUTHOR_DRAFTING.md). Its same-file saves,
 own-insertion mutation and comments are outside the legacy guarantees below;
 its limits and backup/recovery behavior are documented in that contract.
 
 The legacy guarantees below still apply to the eleven document/position tools.
-All fourteen current tools expose `veqtor.mcp.v0.5.0`; legacy calls remain
+All fourteen current tools expose `veqtor.mcp.v0.6.0`; legacy calls remain
 compatible with public `0.4.0`. Source presence and test results do
 not establish a new publication or exact-candidate client acceptance. The
 archived v0.4.0 release contract, historical golden records and published artifacts

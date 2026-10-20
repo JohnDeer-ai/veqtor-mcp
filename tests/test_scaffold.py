@@ -13,7 +13,7 @@ ROOT = Path(__file__).parents[1]
 
 
 def test_package_versions_match() -> None:
-    assert docx_version == "0.5.0"
+    assert docx_version == "0.6.0.dev1"
     assert mcp_version == docx_version
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
     lock = tomllib.loads((ROOT / "uv.lock").read_text())
@@ -167,8 +167,8 @@ def test_release_copy_is_state_neutral_and_site_uses_public_v050() -> None:
     assert "Both sources expose `0.5.0`" in readme
     assert "Otherwise, both sources expose verified `0.4.2`" in readme
     assert "| Otherwise | `0.4.0` |" in readme
-    assert "defines package version `0.5.0`" in readme
-    assert "fourteen-tool MCP contract `veqtor.mcp.v0.5.0`" in readme
+    assert "defines package version `0.6.0.dev1`" in readme
+    assert "fourteen-tool MCP contract `veqtor.mcp.v0.6.0`" in readme
     assert "Public installations must use an independently verified released version" in readme
     assert "Source presence does not establish publication" in immutable_docs
     for name in ("README.md", "API.md", "KNOWN_LIMITATIONS.md", "ROADMAP.md", "docs/CODEX.md"):

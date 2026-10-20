@@ -352,7 +352,8 @@ def test_closed_text_operation_output_contract(operation):
 @pytest.mark.parametrize("operation", ["add_comment", "update_comment", "delete_comment"])
 def test_closed_comment_operation_output_contract(operation):
     item = {"index": 0, "operation": operation, "id": "0", "author": "Author", "initials": "A",
-            "text": "Comment", "paragraph_indexes": [0]}
+            "text": "Comment", "paragraph_indexes": [0],
+            "parent_comment_id": None, "thread_root_id": "0", "resolved": False}
     validator = jsonschema.Draft202012Validator(_APPLIED)
     assert validator.is_valid([item])
     assert not validator.is_valid([{**item, "PRIVATE_UNKNOWN_KEY": "unvalidated"}])

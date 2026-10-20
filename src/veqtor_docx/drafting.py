@@ -24,8 +24,11 @@ from ._drafting_comments import (
     comment_mutable_parts,
     delete_comment,
     read_comments,
+    reply_comment,
+    set_comment_resolved,
     update_comment,
 )
+from ._drafting_paragraphs import insert_paragraph, replace_paragraph
 from ._drafting_io import publish_document
 from ._drafting_text import annotation_date, parse_drafting_timestamp, replace_text
 from ._ooxml import (
@@ -98,9 +101,13 @@ _TRACKING_PREDECESSORS = frozenset(
 )
 _OP_KEYS = {
     "replace_text": {"kind", "paragraph_ref", "old_text", "new_text"},
+    "replace_paragraph": {"kind", "paragraph_ref", "old_text", "new_text"},
+    "insert_paragraph": {"kind", "paragraph_ref", "position", "text"},
     "add_comment": {"kind", "paragraph_ref", "quote", "text"},
     "update_comment": {"kind", "comment_id", "text"},
     "delete_comment": {"kind", "comment_id"},
+    "reply_comment": {"kind", "comment_id", "text"},
+    "set_comment_resolved": {"kind", "comment_id", "resolved"},
 }
 
 
@@ -165,11 +172,22 @@ def _validate_operations(operations: object) -> list[dict]:
             )
         for key in keys - {"kind", "paragraph_ref"}:
             value = op[key]
+            if key == "resolved":
+                if type(value) is not bool:
+                    raise ApplyError("invalid_edit", "resolved must be a boolean")
+                continue
+            if key == "position":
+                if value not in ("before", "after"):
+                    raise ApplyError("invalid_edit", "position must be before or after")
+                continue
             if (
                 not isinstance(value, str)
                 or len(value) > MAX_TEXT_CHARS
                 or not is_xml_text_compatible(value)
-                or (key != "new_text" and not value)
+                or (
+                    key != "new_text" and not value
+                    and not (op["kind"] == "replace_paragraph" and key == "old_text")
+                )
             ):
                 raise ApplyError(
                     "invalid_edit", "operation text is empty, invalid or too long"
@@ -296,7 +314,7 @@ def _has_revision(root: etree._Element) -> bool:
 
 
 def _require_drafting_context(
-    document: etree._Element, targets: set[etree._Element]
+    document: etree._Element, targets: set[etree._Element], author: str | None = None
 ) -> None:
     """Reject structural/protected contexts without banning ordinary redlines.
 
@@ -325,6 +343,18 @@ def _require_drafting_context(
                 if (node.tag in _REVISION_TAGS or (
                     isinstance(node.tag, str) and etree.QName(node).localname.endswith("Change")
                 )) and node.tag not in {w("rPrChange"), w("pPrChange")}:
+                    if (
+                        node.tag == w("ins")
+                        and node.getparent().tag == w("rPr")
+                        and node.getparent().getparent() is props
+                        and node.get(w("author")) == author
+                        and len(node) == 0
+                        and set(node.attrib) <= {w("id"), w("author"), w("date")}
+                        and node.get(w("id"), "").isascii()
+                        and node.get(w("id"), "").isdecimal()
+                        and len(props.findall(f"{w('rPr')}/{w('ins')}")) == 1
+                    ):
+                        continue
                     refuse("the target paragraph mark has a structural revision")
         for ancestor in paragraph.iterancestors():
             if ancestor is body:
@@ -484,6 +514,15 @@ def _check_revision_preservation(
         raise ApplyError("round_trip_failed", "an unrelated existing revision changed")
     extras = list((observed - immutable).elements())
     operation = applied.get("operation")
+    if operation in {"edit_own_insertion", "counter"}:
+        if (
+            mutable is None or mutable.tag != w("ins")
+            or applied.get("target_revision_id") != mutable.get(w("id"))
+            or applied.get("target_author") != mutable.get(w("author"))
+            or (operation == "edit_own_insertion" and mutable.get(w("author")) != author)
+            or (operation == "counter" and mutable.get(w("author")) == author)
+        ):
+            raise ApplyError("round_trip_failed", "replacement misidentified a revision's author or identity")
     date = annotation_date(timestamp)
     allowed: list[tuple] = []
     if operation in {"replace", "delete", "counter"}:
@@ -509,6 +548,21 @@ def _check_revision_preservation(
                     applied["new_text"],
                 )
             )
+    if operation in {"insert", "insert_paragraph"}:
+        for revision_id in applied["revision_ids"]:
+            expected_text = (
+                "" if operation == "insert_paragraph"
+                and revision_id == applied["paragraph_mark_revision_id"]
+                else applied["text"] if operation == "insert_paragraph"
+                else applied["new_text"]
+            )
+            allowed.append((
+                (w("ins"), tuple(sorted({
+                    w("id"): revision_id, w("author"): author,
+                    **({w("date"): date} if date is not None else {}),
+                }.items()))),
+                expected_text,
+            ))
     if mutable is not None:
         original_header = (mutable.tag, tuple(sorted(mutable.attrib.items())))
         original_text = "".join(
@@ -555,6 +609,45 @@ class _Candidate:
     timestamp: str | None = None
 
 
+def _check_inserted_paragraph(before, anchor, added, applied) -> None:
+    """Allow one new paragraph and its tracked boundary, no anchor rewrite."""
+    normalized_anchor = copy.deepcopy(anchor)
+    normalized_added = copy.deepcopy(added)
+    marked = normalized_anchor if applied["paragraph_mark_location"] == "anchor" else normalized_added
+    marks = [
+        node for node in marked.findall(f"{w('pPr')}/{w('rPr')}/{w('ins')}")
+        if node.get(w("id")) == applied["paragraph_mark_revision_id"]
+    ]
+    if len(marks) != 1:
+        raise ApplyError("round_trip_failed", "new paragraph boundary is not tracked")
+    mark_author = marks[0].get(w("author"))
+    props = marked.find(w("pPr"))
+    run_props = marks[0].getparent()
+    run_props.remove(marks[0])
+    old_props = before.find(w("pPr"))
+    old_run_props = old_props.find(w("rPr")) if old_props is not None else None
+    if old_run_props is None and len(run_props) == 0 and not run_props.attrib and not run_props.text:
+        props.remove(run_props)
+    if old_props is None and len(props) == 0 and not props.attrib and not props.text:
+        marked.remove(props)
+    if etree.tostring(normalized_anchor) != etree.tostring(before):
+        raise ApplyError("round_trip_failed", "paragraph insertion rewrote its anchor")
+    inherited = normalized_added.find(w("pPr"))
+    expected_inherited = copy.deepcopy(old_props)
+    if applied["position"] == "before" and expected_inherited is not None:
+        own_marks = expected_inherited.findall(f"{w('rPr')}/{w('ins')}")
+        if len(own_marks) == 1 and own_marks[0].get(w("author")) == mark_author:
+            own_marks[0].getparent().remove(own_marks[0])
+    def serialize(p):
+        if p is None or (not len(p) and not p.attrib and not p.text):
+            return None
+        return etree.tostring(p, method="c14n", exclusive=True)
+    if serialize(inherited) != serialize(expected_inherited):
+        raise ApplyError("round_trip_failed", "new paragraph did not preserve inherited properties")
+    if added.attrib or added.tail is not None:
+        raise ApplyError("round_trip_failed", "new paragraph acquired unrelated identity or container text")
+
+
 def _prepare(
     source_path: str,
     file_sha256: str,
@@ -592,9 +685,20 @@ def _prepare(
             resolved[index] = _resolve_paragraph(
                 snapshot, op["paragraph_ref"]
             ).paragraph_index
-    before_text = [_reading_text(_paragraph_segments(p.element)) for p in paragraphs]
-    expected_text = list(before_text)
-    touched: set[int] = set()
+    source_elements = [p.element for p in paragraphs]
+    source_all_elements = list(document.iter(w("p")))
+    expected_elements = list(source_elements)
+    expected_text = {
+        p: _reading_text(_paragraph_segments(p)) for p in source_elements
+    }
+    expected_properties = {
+        p: tuple(etree.tostring(n, method="c14n", exclusive=True)
+                 for n in p.findall(w("pPr")))
+        for p in source_all_elements
+    }
+    inserted: set[etree._Element] = set()
+    after_cursors: dict[etree._Element, etree._Element] = {}
+    touched: set[etree._Element] = set()
     result = []
     allowed_parts = {DOCUMENT_PART}
     for index, op in enumerate(operations):
@@ -602,11 +706,11 @@ def _prepare(
             kind = op["kind"]
             revisions_before = _revision_state(document)
             mutable_revision = None
-            if kind in {"replace_text", "add_comment"}:
+            if kind in {"replace_text", "replace_paragraph", "insert_paragraph", "add_comment"}:
                 pindex = resolved[index]
                 paragraph = paragraphs[pindex].element
-                _require_drafting_context(document, {paragraph})
-                touched.add(pindex)
+                _require_drafting_context(document, {paragraph}, author)
+                touched.add(paragraph)
                 if kind == "replace_text":
                     segments = _paragraph_segments(paragraph)
                     start = _reading_text(segments).find(op["old_text"])
@@ -622,14 +726,61 @@ def _prepare(
                         paragraph, op["old_text"], op["new_text"], author, allocator,
                         timestamp=timestamp,
                     )
-                    current = expected_text[pindex]
+                    current = expected_text[paragraph]
                     if current.count(op["old_text"]) != 1:
                         raise ApplyError(
                             "round_trip_failed", "unexpected replacement scope"
                         )
-                    expected_text[pindex] = current.replace(
+                    expected_text[paragraph] = current.replace(
                         op["old_text"], op["new_text"], 1
                     )
+                    applied["paragraph_index"] = pindex
+                    allowed_parts |= {_SETTINGS_PART, _RELS_PART, _CT_PART}
+                elif kind == "replace_paragraph":
+                    verified_paragraph = copy.deepcopy(paragraph)
+
+                    def verify_step(before, after, mutable, step):
+                        nonlocal verified_paragraph
+                        if etree.tostring(before) != etree.tostring(verified_paragraph):
+                            raise ApplyError("round_trip_failed", "replacement steps do not continue the verified paragraph")
+                        _check_revision_preservation(
+                            _revision_state(before), after, mutable, step, author, timestamp
+                        )
+                        verified_paragraph = copy.deepcopy(after)
+
+                    applied = replace_paragraph(
+                        paragraph, op["old_text"], op["new_text"], author, allocator,
+                        timestamp=timestamp, verify_step=verify_step,
+                    )
+                    if etree.tostring(paragraph) != etree.tostring(verified_paragraph):
+                        raise ApplyError("round_trip_failed", "paragraph differs from verified replacement steps")
+                    if expected_text[paragraph] != op["old_text"]:
+                        raise ApplyError("round_trip_failed", "unexpected whole paragraph scope")
+                    expected_text[paragraph] = op["new_text"]
+                    applied["paragraph_index"] = pindex
+                    allowed_parts |= {_SETTINGS_PART, _RELS_PART, _CT_PART}
+                elif kind == "insert_paragraph":
+                    anchor = after_cursors.get(paragraph, paragraph) if op["position"] == "after" else paragraph
+                    before_anchor = copy.deepcopy(anchor)
+                    added, applied = insert_paragraph(
+                        anchor, op["position"], op["text"], author, allocator,
+                        timestamp=timestamp,
+                    )
+                    _check_inserted_paragraph(before_anchor, anchor, added, applied)
+                    if op["position"] == "after":
+                        after_cursors[paragraph] = added
+                    expected_elements.insert(
+                        expected_elements.index(anchor) + (op["position"] == "after"),
+                        added,
+                    )
+                    expected_text[added] = op["text"]
+                    inserted.add(added)
+                    touched.add(anchor)
+                    for node in (anchor, added):
+                        expected_properties[node] = tuple(
+                            etree.tostring(n, method="c14n", exclusive=True)
+                            for n in node.findall(w("pPr"))
+                        )
                     applied["paragraph_index"] = pindex
                     allowed_parts |= {_SETTINGS_PART, _RELS_PART, _CT_PART}
                 else:
@@ -644,24 +795,6 @@ def _prepare(
                         timestamp=timestamp,
                     )
                     allowed_parts |= _COMMENT_PARTS
-            elif kind == "update_comment":
-                existing = next(
-                    (
-                        item
-                        for item in read_comments(parts, document)
-                        if item["id"] == op["comment_id"]
-                    ),
-                    None,
-                )
-                if existing:
-                    _require_drafting_context(
-                        document,
-                        {paragraphs[i].element for i in existing["paragraph_indexes"]},
-                    )
-                applied = update_comment(
-                    parts, document, op["comment_id"], op["text"], author
-                )
-                allowed_parts |= _COMMENT_PARTS
             else:
                 existing = next(
                     (
@@ -672,22 +805,39 @@ def _prepare(
                     None,
                 )
                 if existing:
+                    current_paragraphs = canonical_body_flow_v1(document.find(w("body"))).paragraphs
+                    anchors = {current_paragraphs[i].element for i in existing["paragraph_indexes"]}
                     _require_drafting_context(
-                        document,
-                        {paragraphs[i].element for i in existing["paragraph_indexes"]},
+                        document, anchors, author,
                     )
-                    touched.update(existing["paragraph_indexes"])
-                allowed_parts |= comment_mutable_parts(parts)
-                applied = delete_comment(parts, document, op["comment_id"], author)
-            _check_revision_preservation(
-                revisions_before, document, mutable_revision, applied, author, timestamp
-            )
+                    if kind in {"delete_comment", "reply_comment"}:
+                        touched.update(anchors)
+                allowed_parts |= _COMMENT_PARTS | comment_mutable_parts(parts)
+                if kind == "update_comment":
+                    applied = update_comment(
+                        parts, document, op["comment_id"], op["text"], author
+                    )
+                elif kind == "reply_comment":
+                    applied = reply_comment(
+                        parts, document, op["comment_id"], op["text"], author, initials,
+                        timestamp=timestamp,
+                    )
+                elif kind == "set_comment_resolved":
+                    applied = set_comment_resolved(
+                        parts, document, op["comment_id"], op["resolved"], author,
+                    )
+                else:
+                    applied = delete_comment(parts, document, op["comment_id"], author)
+            if kind != "replace_paragraph":
+                _check_revision_preservation(
+                    revisions_before, document, mutable_revision, applied, author, timestamp
+                )
             result.append({"index": index, **applied})
         except DocxError as exc:
             if hasattr(exc, "metadata"):
                 exc.metadata["operation_index"] = index
             raise
-    if any(op["kind"] == "replace_text" for op in operations):
+    if any(op["kind"] in {"replace_text", "replace_paragraph", "insert_paragraph"} for op in operations):
         _enable_tracking(parts)
     parts[DOCUMENT_PART] = _xml(document)
     infos = list(package.infos)
@@ -696,6 +846,7 @@ def _prepare(
         zipfile.ZipInfo(name, (1980, 1, 1, 0, 0, 0))
         for name in sorted(set(parts) - existing_names)
     ]
+    expected_revisions = Counter(signature for _, signature in _revision_state(document))
     candidate = _output_archive_bytes(infos, parts)
     validate_docx_payload_size(candidate, limit="candidate_docx_bytes")
     checked = _read_source_archive(candidate, source)
@@ -706,38 +857,43 @@ def _prepare(
     ):
         raise ApplyError("round_trip_failed", "unrelated package content changed")
     reread = parse_xml(checked.parts[DOCUMENT_PART])
+    if Counter(signature for _, signature in _revision_state(reread)) != expected_revisions:
+        raise ApplyError("round_trip_failed", "serialized revision history differs from the verified candidate")
     after_paragraphs = canonical_body_flow_v1(reread.find(w("body"))).paragraphs
     if [
         _reading_text(_paragraph_segments(p.element)) for p in after_paragraphs
-    ] != expected_text:
+    ] != [expected_text[p] for p in expected_elements]:
         raise ApplyError(
             "round_trip_failed", "document reading differs from requested edits"
         )
-    touched_elements = {paragraphs[i].element for i in touched}
+    planned_paragraphs = canonical_body_flow_v1(document.find(w("body"))).paragraphs
+    if [p.element for p in planned_paragraphs] != expected_elements:
+        raise ApplyError("round_trip_failed", "paragraph insertion changed document order")
+    final_all = list(document.iter(w("p")))
+    reread_all = list(reread.iter(w("p")))
+    if len(final_all) != len(reread_all):
+        raise ApplyError("round_trip_failed", "serialized paragraph structure changed")
+    projected = copy.deepcopy(reread)
+    projected_all = list(projected.iter(w("p")))
+    for planned, checked_paragraph in zip(final_all, projected_all):
+        properties = tuple(
+            etree.tostring(n, method="c14n", exclusive=True)
+            for n in checked_paragraph.findall(w("pPr"))
+        )
+        if properties != expected_properties[planned]:
+            raise ApplyError("round_trip_failed", "paragraph properties changed during drafting")
+        if planned in inserted:
+            if checked_paragraph.tail is not None:
+                raise ApplyError("round_trip_failed", "inserted paragraph changed container text")
+            if etree.tostring(planned) != etree.tostring(checked_paragraph):
+                raise ApplyError("round_trip_failed", "inserted paragraph changed on serialization")
+            checked_paragraph.getparent().remove(checked_paragraph)
     all_positions = {
-        i for i, p in enumerate(document.iter(w("p"))) if p in touched_elements
+        i for i, p in enumerate(source_all_elements) if p in touched
     }
-    if _collateral_outside(original, reread, all_positions):
+    if _collateral_outside(original, projected, all_positions):
         raise ApplyError(
             "round_trip_failed", "document changed outside the requested paragraphs"
-        )
-    before_properties = [
-        tuple(
-            etree.tostring(node, method="c14n", exclusive=True)
-            for node in paragraph.findall(w("pPr"))
-        )
-        for paragraph in original.iter(w("p"))
-    ]
-    after_properties = [
-        tuple(
-            etree.tostring(node, method="c14n", exclusive=True)
-            for node in paragraph.findall(w("pPr"))
-        )
-        for paragraph in reread.iter(w("p"))
-    ]
-    if before_properties != after_properties:
-        raise ApplyError(
-            "round_trip_failed", "paragraph properties changed during drafting"
         )
     # Reparse comment linkage as well as text revisions before any filesystem write.
     read_comments(checked.parts, reread)

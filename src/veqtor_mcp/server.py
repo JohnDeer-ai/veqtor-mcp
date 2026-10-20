@@ -40,7 +40,7 @@ from veqtor_mcp._positions_contract import DealPositionsResult, OperationsInput,
 from veqtor_docx import drafting
 from veqtor_mcp._drafting_contract import (
     ApplyDocumentEditsResult, ApplyDocumentEditsSuccessResult, DRAFTING_ERROR_RESULT,
-    DraftingOperationsInput, DraftingProofInput,
+    DraftingAuthorProfileInput, DraftingOperationsInput, DraftingProofInput,
     DraftingShaInput, PreflightDocumentEditsResult, ReadDocumentCommentsResult,
 )
 from veqtor_mcp._verification_v2 import verify_quote_v2
@@ -1766,16 +1766,28 @@ def _drafting_result(name: str, result: dict) -> dict:
     return {**normalized, "record_id": None, "record_status": "disabled"}
 
 
+def _drafting_author_profile(profile: dict | None) -> tuple[str, str]:
+    """Resolve a request-local identity without mutating the server default."""
+    if profile is None:
+        return _tracked_change_author(), _comment_initials()
+    if not isinstance(profile, dict) or set(profile) != {"name", "initials"}:
+        raise veqtor_docx.ApplyError(
+            "invalid_author", "author_profile requires name and initials"
+        )
+    drafting._profile(profile["name"], profile["initials"])
+    return profile["name"], profile["initials"]
+
+
 @_mcp_tool(annotations=ToolAnnotations(title="Read Word comments", read_only_hint=True,
            destructive_hint=False, idempotent_hint=True, open_world_hint=False),
            meta=contract_meta(), structured_output=True)
 def read_document_comments(path: str, offset: StrictInt = 0,
                            max_items: StrictInt = 100) -> ReadDocumentCommentsResult:
-    """Read Word comments, author names and paragraph indexes without writing files.
+    """Read Word comments, replies, thread status and anchors without writing files.
 
     Returns the file_sha256 required by the drafting tools. Page with next_offset;
-    compare file hashes between pages. Existing replies can be read, but editing
-    threaded/rich comments may be refused. Use inspect_document for paragraph refs.
+    compare file hashes between pages. parent_comment_id and thread_root_id link
+    replies; resolved=null means unavailable state. Use inspect_document for refs.
     """
     return _drafting_result("read_document_comments",
         drafting.read_document_comments(path, offset=offset, max_items=max_items))
@@ -1786,25 +1798,37 @@ def read_document_comments(path: str, offset: StrictInt = 0,
            meta=contract_meta(), structured_output=True)
 def preflight_document_edits(source_path: str, file_sha256: DraftingShaInput,
                              operations: DraftingOperationsInput,
-                             output_path: str | None = None) -> PreflightDocumentEditsResult:
-    """Dry-run author drafting: precise text edits and own comments in one batch.
+                             output_path: str | None = None,
+                             author_profile: DraftingAuthorProfileInput | None = None
+                             ) -> PreflightDocumentEditsResult:
+    """Dry-run tracked paragraph/text edits and comment threads in one batch.
 
     For iterative drafting, prefer this tool then apply_document_edits. Operations
     run in order. Use paragraph_ref from inspect_document for replace_text
-    (old_text/new_text) and add_comment (quote/text); comment_id from
-    read_document_comments for update_comment (text) or delete_comment.
+    (old_text/new_text), replace_paragraph (complete current old_text/new_text),
+    insert_paragraph (position before/after, text) and add_comment (quote/text).
+    Use comment_id from read_document_comments for update_comment (text),
+    delete_comment, reply_comment (text), or set_comment_resolved (resolved bool).
+    Replies may address any author's comment; thread status changes preserve
+    its author/body. Reopen resolved threads before replying.
     A replacement wholly inside this author's simple pending insertion updates
     it in place, retaining its revision id and author, as in Word. Plain text gets
     tracked deletion/insertion. Other authors' comments cannot be changed/deleted.
     Source hash and paragraph references must describe the same current file.
+    References address the original snapshot throughout the batch. Reinspect
+    after saving before addressing an inserted paragraph.
     Omit output_path (or use the source path) to save back to the working file
     with a mandatory backup at apply; another output_path selects create-only copy.
     This call writes no files. A successful proof binds source, destination,
     operations, configured author/initials, build and the complete candidate.
+    Optional author_profile={name, initials} selects the user-requested identity
+    for this batch only; omit it to use the configured default. Supply the same
+    profile to apply. Names are display attribution, not account authentication.
     """
+    author, initials = _drafting_author_profile(author_profile)
     return _drafting_result("preflight_document_edits", drafting.preflight_document_edits(
         source_path, file_sha256, operations, output_path=output_path,
-        author=_tracked_change_author(), initials=_comment_initials(),
+        author=author, initials=initials,
         producer_build=records.SOURCE_SNAPSHOT_IDENTITY))
 
 
@@ -1813,7 +1837,9 @@ def preflight_document_edits(source_path: str, file_sha256: DraftingShaInput,
            meta=contract_meta(), structured_output=True)
 def apply_document_edits(source_path: str, file_sha256: DraftingShaInput,
                          operations: DraftingOperationsInput, preflight_proof: DraftingProofInput,
-                         output_path: str | None = None) -> ApplyDocumentEditsResult:
+                         output_path: str | None = None,
+                         author_profile: DraftingAuthorProfileInput | None = None
+                         ) -> ApplyDocumentEditsResult:
     """Save the exact successful preflight batch as native Word revisions/comments.
 
     Use only for user-requested document edits, with the unchanged successful
@@ -1825,10 +1851,12 @@ def apply_document_edits(source_path: str, file_sha256: DraftingShaInput,
     Word Track Changes. Existing own insertion identities are retained.
     These mutable drafting operations are separate from the immutable legacy
     counterproposal journal; record_status is disabled for this tool family.
+    Supply the same optional author_profile={name, initials} used at preflight.
     """
+    author, initials = _drafting_author_profile(author_profile)
     return _drafting_result("apply_document_edits", drafting.apply_document_edits(
         source_path, file_sha256, operations, preflight_proof, output_path=output_path,
-        author=_tracked_change_author(), initials=_comment_initials(),
+        author=author, initials=initials,
         producer_build=records.SOURCE_SNAPSHOT_IDENTITY))
 
 
