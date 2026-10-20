@@ -196,6 +196,9 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
     assert len(RUNTIME_SOURCE_FILES) == len(frozen_runtime) == 30
     assert discovered_runtime == frozen_runtime | {
         "/src/veqtor_docx/_drafting_paragraphs.py",
+        "/src/veqtor_docx/round_operations.py",
+        "/src/veqtor_docx/round_snapshots.py",
+        "/src/veqtor_docx/table_map.py",
     }
     assert {"/src/veqtor_docx/_paragraph_edits.py",
         "/src/veqtor_mcp/_positions_contract.py", "/src/veqtor_mcp/positions.py"} <= frozen_runtime
@@ -212,6 +215,11 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
     codex_docs = {"docs/CODEX.md", "docs/prompts/next-round.md", "docs/evidence/codex-v0.4.0-20260911.json"}
     assert {f"/{path}" for path in codex_docs} <= sdist_includes
     assert codex_docs <= SDIST_GIT_FILES
+    assert {
+        "/docs/NEGOTIATION_ROUND_RELEASE_SPEC_RU.md",
+        "/docs/NEGOTIATION_ROUND_ACCEPTANCE_RU.md",
+        "/docs/ROUND_FOUNDATION.md",
+    } <= sdist_includes
 
 
 release_contract_only = pytest.mark.skipif(
