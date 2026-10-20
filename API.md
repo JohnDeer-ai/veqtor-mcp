@@ -282,12 +282,18 @@ The closed operation shapes are:
 | `set_comment_resolved` | `comment_id`, `resolved` | Set the root thread's state; `resolved` must be a boolean. |
 
 Source paragraph references retain their original targets after insertions.
+Repeated insertions on one side preserve operation order within the same batch.
+Across saves, insertion after an already tracked paragraph mark is refused;
+inspect again and insert before its successor instead.
 An insertion result's `paragraph_index` identifies its source anchor, not the
 new paragraph; inspect the saved file to obtain the new paragraph's reference.
 Whole-paragraph `old_text` is an exact guard against the reading at that step.
 Empty `new_text` removes text but retains the paragraph mark. Replies target the
 root thread even when `comment_id` names a reply. A resolved thread must be
-explicitly reopened before a reply is added. Thread-state changes do not stamp
+explicitly reopened before a reply is added. Replies require supported root
+anchors in ordinary content or the selected author's own insertion; anchors
+inside foreign insertions and foreign paragraph-mark revisions refuse mutation.
+Thread-state changes do not stamp
 a new author on existing comments. Unsupported revision, range or metadata
 structures refuse the whole batch. See the
 [drafting contract](docs/AUTHOR_DRAFTING.md#tool-sequence).

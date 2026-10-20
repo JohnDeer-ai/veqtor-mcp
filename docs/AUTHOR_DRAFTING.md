@@ -97,9 +97,12 @@ insertion boundary inside an existing comment/bookmark/permission range are
 refused. Paragraph insertion includes tracked paragraph-boundary markup as
 well as tracked text.
 
-Repeated insertions on the same side of one source paragraph retain operation
-order: inserting A then B before it gives A, B, anchor; inserting A then B after
-it gives anchor, A, B.
+Within one batch, repeated insertions on the same side of one source paragraph
+retain operation order: inserting A then B before it gives A, B, anchor;
+inserting A then B after it gives anchor, A, B. Across separate saves, inserting
+again after an anchor whose paragraph mark already carries a pending insertion
+is refused. Inspect again and insert before its successor to add another
+paragraph at that boundary.
 
 Text operations do not move paragraphs, apply arbitrary formatting or accept
 existing revisions.
@@ -169,6 +172,9 @@ comment's root thread, following Word's flat thread representation. The reply
 gets its own document anchors over the root comment's
 same quote, preserving the root's anchors and text. Replying to a resolved thread returns
 `comment_thread_resolved`; reopen it explicitly before replying.
+The root's anchors must be in supported ordinary paragraph content or a simple
+pending insertion by the selected author. Anchors inside another author's
+pending insertion and foreign paragraph-mark revisions refuse mutation.
 
 `set_comment_resolved` sets `resolved=true` or `false` for the root thread,
 whether its `comment_id` identifies the root or a reply. It can act on any
