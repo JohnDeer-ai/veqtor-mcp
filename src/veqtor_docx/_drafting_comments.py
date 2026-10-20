@@ -870,8 +870,11 @@ def reply_comment(parts: dict[str, bytes], document: etree._Element,
         comment.set(w("date"), date)
     paragraph = _comment_paragraph(text)
     para_id = _next_hex_identity(used)
-    _set_paragraph_identity(paragraph, para_id)
     comment.append(paragraph)
+    # Resolve mc:Ignorable against the final parent namespaces. Attaching a
+    # detached paragraph can remap a generated ns1 attribute prefix to w14;
+    # lxml cannot also rewrite the lexical prefix in mc:Ignorable.
+    _set_paragraph_identity(paragraph, para_id)
     entry = etree.SubElement(metadata.trees["extended"], f"{{{_W15}}}commentEx")
     entry.set(f"{{{_W15}}}paraId", para_id)
     entry.set(f"{{{_W15}}}paraIdParent", parent_para_id)

@@ -156,6 +156,8 @@ jobs:
           /tmp/veqtor-wheel-smoke/bin/python "$GITHUB_WORKSPACE/scripts/installed_wheel_smoke.py"
           /tmp/veqtor-wheel-smoke/bin/python "$GITHUB_WORKSPACE/scripts/drafting_smoke.py" \
             --output-dir /tmp/veqtor-drafting-wheel-smoke
+          /tmp/veqtor-wheel-smoke/bin/python "$GITHUB_WORKSPACE/scripts/drafting_v060_smoke.py" \
+            --output-dir /tmp/veqtor-drafting-v060-wheel-smoke
       - name: Smoke the wheel with exact declared minimums
         run: |
           uv venv /tmp/veqtor-wheel-min-smoke --python 3.12

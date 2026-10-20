@@ -172,6 +172,30 @@ def test_reply_to_reply_appends_to_root_and_own_reply_body_can_be_updated():
     _assert_unchanged_failure(parts, document, lambda: delete_comment(parts, document, first["id"], AUTHOR))
 
 
+@pytest.mark.parametrize("prefix", ["w14", "native14"])
+def test_reply_on_word_saved_thread_keeps_ignorable_prefix_bound_after_serialization(prefix):
+    parts, document = _package()
+    _modern(parts)
+    old = parse_xml(parts[COMMENTS])
+    comments = etree.Element(w("comments"), nsmap={"w": W_NS, prefix: W14, "mc": MC})
+    comments.set(f"{{{MC}}}Ignorable", prefix)
+    for child in old:
+        comments.append(child)
+    parts[COMMENTS] = etree.tostring(comments)
+    first = _reply(parts, document)
+    set_comment_resolved(parts, document, first["id"], True, AUTHOR)
+    set_comment_resolved(parts, document, first["id"], False, AUTHOR)
+    _reply(parts, document, first["id"])
+    # lxml can parse unbound lexical mc:Ignorable prefixes, but Word rejects
+    # the package. Check the serialized tree, including each appended reply.
+    saved = parse_xml(parts[COMMENTS])
+    for node in saved.iter():
+        for token in node.get(f"{{{MC}}}Ignorable", "").split():
+            assert token in node.nsmap
+    assert all(saved[index][0].get(f"{{{MC}}}Ignorable") == prefix for index in (1, 2))
+    assert read_comments(parts, document)[-1]["thread_root_id"] == "0"
+
+
 def test_any_author_can_resolve_or_reopen_root_via_reply_without_reauthoring():
     parts, document = _package()
     _modern(parts)
