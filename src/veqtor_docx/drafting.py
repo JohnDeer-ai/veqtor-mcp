@@ -162,7 +162,8 @@ def _validate_operations(operations: object) -> list[dict]:
         if not isinstance(op, dict) or not isinstance(op.get("kind"), str):
             raise ApplyError("invalid_edit", "operation must have a kind")
         keys = _OP_KEYS.get(op["kind"])
-        if keys is None or set(op) != keys:
+        optional = {"mode"} if op["kind"] == "replace_paragraph" else set()
+        if keys is None or not keys <= set(op) or set(op) - keys - optional:
             raise ApplyError(
                 "invalid_edit", "operation fields do not match the drafting contract"
             )
@@ -170,6 +171,8 @@ def _validate_operations(operations: object) -> list[dict]:
             validate_paragraph_target(
                 {"kind": "paragraph", "paragraph_ref": op["paragraph_ref"]}
             )
+        if "mode" in op and op["mode"] not in ("minimal", "whole"):
+            raise ApplyError("invalid_edit", "mode must be minimal or whole")
         for key in keys - {"kind", "paragraph_ref"}:
             value = op[key]
             if key == "resolved":
@@ -572,9 +575,19 @@ def _check_revision_preservation(
         )
         expected = original_text
         if operation == "edit_own_insertion":
-            expected = original_text.replace(
-                applied["old_text"], applied["new_text"], 1
-            )
+            if "target_start" in applied or "target_end" in applied:
+                start, end = applied.get("target_start"), applied.get("target_end")
+                if (
+                    type(start) is not int or type(end) is not int
+                    or not 0 <= start <= end <= len(original_text)
+                    or original_text[start:end] != applied["old_text"]
+                ):
+                    raise ApplyError("round_trip_failed", "own revision span does not match its exact address")
+                expected = original_text[:start] + applied["new_text"] + original_text[end:]
+            else:
+                expected = original_text.replace(
+                    applied["old_text"], applied["new_text"], 1
+                )
         if expected or operation == "counter":
             allowed.append((original_header, expected))
     if len(extras) != len(allowed):
@@ -743,6 +756,17 @@ def _prepare(
                         nonlocal verified_paragraph
                         if etree.tostring(before) != etree.tostring(verified_paragraph):
                             raise ApplyError("round_trip_failed", "replacement steps do not continue the verified paragraph")
+                        if "start" in step or "end" in step:
+                            start, end = step.get("start"), step.get("end")
+                            prior = _reading_text(_paragraph_segments(before))
+                            if (
+                                type(start) is not int or type(end) is not int
+                                or not 0 <= start <= end <= len(prior)
+                                or prior[start:end] != step["old_text"]
+                                or _reading_text(_paragraph_segments(after))
+                                != prior[:start] + step["new_text"] + prior[end:]
+                            ):
+                                raise ApplyError("round_trip_failed", "paragraph hunk changed text outside its exact address")
                         _check_revision_preservation(
                             _revision_state(before), after, mutable, step, author, timestamp
                         )
@@ -750,7 +774,7 @@ def _prepare(
 
                     applied = replace_paragraph(
                         paragraph, op["old_text"], op["new_text"], author, allocator,
-                        timestamp=timestamp, verify_step=verify_step,
+                        mode=op.get("mode", "minimal"), timestamp=timestamp, verify_step=verify_step,
                     )
                     if etree.tostring(paragraph) != etree.tostring(verified_paragraph):
                         raise ApplyError("round_trip_failed", "paragraph differs from verified replacement steps")

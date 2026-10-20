@@ -14,13 +14,20 @@ public distribution.
 
 - Insert tracked paragraphs before/after a source paragraph and replace a whole
   supported paragraph using its complete current text as an exact guard.
-  Preserve paragraph identity/formatting when removing all of its text.
+  Default to minimal word/token changes while retaining unchanged run formatting;
+  provide explicit whole mode, whose new text inherits the first edited fragment.
+  Preserve paragraph identity/properties when removing all of its text.
 - Reply to existing comments under the selected author, read thread membership
   and resolution state, and explicitly resolve/reopen comment threads.
   Preserve original comment bodies and authors; retain refusal for unsupported
   metadata and threaded deletion.
 - Select an optional author/initials profile per preflight/apply request without
-  changing the server default; bind the resolved identity into the save proof.
+  changing the server default, restricted to explicitly configured own profiles;
+  bind the resolved identity into the save proof.
+- Refuse edits crossing range boundaries nested in existing deleted content.
+- Deliver an agent protocol through MCP initialization instructions: establish
+  authorization for the concrete plan, use minimal edits by default, require
+  explicit whole-mode and thread-status instructions, then reread and report.
 - Extend the same-file workflow with source-stable references across sequential
   insertions, revision/collateral checks, and the existing exact-backup save path.
 

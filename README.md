@@ -66,9 +66,15 @@ and `apply_document_edits`—support editing one's own pending insertions and
 saving the same working DOCX with a mandatory backup. Development version
 `0.6.0.dev1` adds paragraph insertion/replacement and comment threads.
 Configure `VEQTOR_TRACKED_CHANGE_AUTHOR` and `VEQTOR_COMMENT_INITIALS` for the default,
-or pass `author_profile: {name, initials}` to both preview and save for a selected
-batch. Close Word before a save and refresh document references afterwards. The complete
-operation and recovery contract is in `docs/AUTHOR_DRAFTING.md` in this tree.
+and configure any additional own profiles through `VEQTOR_OWN_AUTHOR_PROFILES`.
+A batch's optional `author_profile: {name, initials}` must match a configured
+profile; a request cannot introduce another author's identity. Paragraph edits
+track only changed words by default; whole-text replacement is an explicit mode.
+Close Word before a save and refresh document references afterwards. The complete
+operation and recovery contract is in [AUTHOR_DRAFTING.md](docs/AUTHOR_DRAFTING.md).
+The [agent protocol](docs/AUTHOR_DRAFTING_WORKFLOW.md) requires authorization for
+the concrete plan and explicit instructions for thread status changes; it is
+also delivered through MCP initialization instructions.
 The public installation commands below continue to select the published release.
 
 ## Claude Desktop Extension status

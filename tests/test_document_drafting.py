@@ -226,6 +226,7 @@ async def test_mcp_drafting_round_trip(tmp_path, demo_dir, monkeypatch):
     monkeypatch.setenv("VEQTOR_COMMENT_INITIALS", "IS")
     server._tracked_change_author.cache_clear()
     server._comment_initials.cache_clear()
+    server._configured_author_profiles.cache_clear()
     path = _working(tmp_path, demo_dir)
     try:
         async with Client(server.mcp) as client:
@@ -265,6 +266,7 @@ async def test_mcp_drafting_round_trip(tmp_path, demo_dir, monkeypatch):
     finally:
         server._tracked_change_author.cache_clear()
         server._comment_initials.cache_clear()
+        server._configured_author_profiles.cache_clear()
 
 
 def test_invalid_comment_page_bounds(tmp_path):

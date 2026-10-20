@@ -82,11 +82,13 @@ def test_insert_sequence_does_not_retarget_later_source_references(tmp_path, dem
     ]
 
 
-def test_replace_entire_mixed_paragraph_preserves_original_and_authorship(tmp_path, demo_dir):
+@pytest.mark.parametrize("mode", ["minimal", "whole"])
+def test_replace_entire_mixed_paragraph_preserves_original_and_authorship(tmp_path, demo_dir, mode):
     path = fixture(tmp_path, demo_dir)
     save(path, [{"kind": "replace_text", "paragraph_ref": ref(path),
                  "old_text": "Supply", "new_text": "Services"}])
     save(path, [{"kind": "replace_paragraph", "paragraph_ref": ref(path),
+                 "mode": mode,
                  "old_text": "Master Development and Services Agreement",
                  "new_text": "Replacement agreement title."}])
     para = document(path).find(f"{w('body')}/{w('p')}")
@@ -94,7 +96,12 @@ def test_replace_entire_mixed_paragraph_preserves_original_and_authorship(tmp_pa
     assert all(n.get(w("author")) == PROFILE["author"] for n in para.iter()
                if n.tag in {w("ins"), w("del")})
     # Original rejected reading survives even across prior own replacements.
-    assert "".join(n.text or "" for n in para.iter(w("delText"))) == "Master Development and Supply Agreement"
+    rejected = copy.deepcopy(para)
+    for insertion in list(rejected.iter(w("ins"))):
+        insertion.getparent().remove(insertion)
+    assert "".join(
+        n.text or "" for n in rejected.iter() if n.tag in {w("t"), w("delText")}
+    ) == "Master Development and Supply Agreement"
 
 
 def test_thread_reply_resolve_reopen_and_insert_then_delete_comment(tmp_path, demo_dir):

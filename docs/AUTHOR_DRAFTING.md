@@ -33,15 +33,54 @@ for both author and initials during setup.
 
 To choose another author for one batch without restarting the server, supply
 `author_profile={"name":"Shilov, Ilya","initials":"IS"}` to both preflight and apply.
+The exact name/initials pair must already be configured as one of the user's own
+profiles. By default only the configured default is allowed. An agent cannot
+make another person's revisions or comments editable by submitting their name.
 Both fields are required; extra fields are refused. The explicit profile affects
 only that request. Omitting it, or passing `null`, uses the configured default.
 Every successful preflight reports the resolved name and initials, and its proof
 binds both. Apply must resolve to the same identity.
 
+The user may configure additional own profiles in the server environment and
+restart the server:
+
+```toml
+VEQTOR_OWN_AUTHOR_PROFILES = '[{"name":"Ilya Shilov","initials":"IS"}]'
+```
+
+This is an array of additional profiles, not a request argument. The default is
+always included. At most 15 additional profiles are accepted. Malformed or
+empty configuration, extra fields, duplicate names and conflicting initials
+are refused. The resolved choices are exposed in MCP initialization instructions
+and `doctor`; they are fixed for the server process. Do not add counterparties'
+names to bypass an ownership refusal, and do not change these settings without
+the user's explicit instruction. An unconfigured request profile is refused
+before reading or saving the document.
+
 Names are matched exactly when deciding whether an existing insertion or comment
 belongs to the selected author. Selecting a profile does not rename earlier
 revisions, establish account ownership or make another person's Word session
-use that name.
+use that name. The allowlist constrains the MCP caller; it does not authenticate
+a human or distinguish multiple people who historically used the same author
+string. Direct Python callers are responsible for their own author policy.
+
+## Agent workflow
+
+The MCP initialization instructions and drafting-tool descriptions carry the
+workflow below. The detailed operating protocol is
+[the author-drafting workflow](AUTHOR_DRAFTING_WORKFLOW.md).
+
+Read the current file and comments, show the concrete proposed edits and author,
+obtain approval for that plan, preflight, apply, then reread and report. A user's
+existing explicit approval of the same concrete edits is sufficient; do not
+ask again. A request to review, suggest wording or prepare a proposal does not
+by itself authorize saving it.
+
+Use minimal paragraph edits by default. Use `mode="whole"` only when the user
+explicitly requests replacing the complete paragraph as one tracked replacement.
+Closing or reopening a comment thread requires the user's explicit instruction
+for that identified thread, regardless of its author. Replying or changing
+related text does not imply permission to change the thread's status.
 
 ## Tool sequence
 
@@ -74,15 +113,28 @@ Replace `{}` with the complete reference from inspection. Operations execute
 in the listed order against one in-memory candidate. References identify the
 original snapshot's paragraphs; exact text matches address the current reading
 at that step. Thus a batch can replace text and then comment on the replacement.
-An empty `new_text` deletes the matched text. A whole-paragraph replacement
-requires `old_text` to equal the complete current reading, including earlier
-operations in the batch; it preserves the paragraph itself and its formatting.
-An empty replacement therefore leaves the paragraph mark in place. An empty
-`old_text` can fill a blank paragraph. Supported whole-paragraph edits may span
-plain text and the selected author's simple pending insertions: plain text is
-deleted with tracking, own insertions are edited or removed, and earlier hidden
-deletions remain. Visible foreign insertions and interior range/comment anchors
-are refused for whole-paragraph replacement.
+An empty `new_text` deletes the matched text. `replace_paragraph` requires
+`old_text` to equal the complete current reading, including earlier operations
+in the batch. Its default `mode="minimal"` compares words, punctuation and
+whitespace and tracks only changed spans. Unchanged text retains its existing
+run formatting. Changed text inherits the formatting at the replacement span.
+Repeated words are addressed by their exact positions, not a first-match search.
+If a safe bounded minimal edit cannot be prepared, the operation refuses; it
+does not fall back to replacing everything.
+
+Explicit `mode="whole"` retains the original all-text replacement behavior:
+the old accepted text is tracked as deleted and the replacement text inherits
+the first edited fragment's formatting. Mixed bold/italic styling is not
+transferred to the new wording. Both modes preserve the paragraph's properties
+and mark; an empty `new_text` leaves a blank paragraph. Empty `old_text` can fill
+a blank paragraph. Supported edits may span plain text and the selected author's
+simple pending insertions: own insertions are edited or removed and earlier
+hidden deletions remain. Unsupported foreign insertions and range/comment
+boundaries refuse the operation. Boundary checks include anchors nested inside
+earlier deleted content. Paragraph edits crossing an interior bookmark,
+including Word's `_GoBack` cursor bookmark, refuse; a minimal edit can still
+proceed when its changed spans stay safely on their original sides of the
+boundary.
 
 `insert_paragraph` adds one tracked paragraph before or after the referenced
 paragraph. Source references continue to identify their original paragraphs
@@ -180,6 +232,10 @@ pending insertion and foreign paragraph-mark revisions refuse mutation.
 whether its `comment_id` identifies the root or a reply. It can act on any
 author's thread, preserves all comment bodies/authors, and does not create an
 authored revision: Word's thread-state metadata has no separate actor field.
+Agents must obtain an explicit user instruction identifying the thread and
+the requested status. The MCP server cannot independently authenticate that
+conversation-level approval; this is an agent workflow requirement, not a
+claim that the Word file records who closed the thread.
 
 Classic comments can acquire the metadata needed for a thread. Existing modern
 comment metadata is resolved through package relationships, including

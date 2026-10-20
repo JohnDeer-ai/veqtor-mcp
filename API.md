@@ -265,7 +265,10 @@ provide bounded paging; compare hashes between pages. See the
 Dry-run sequential text, paragraph and comment operations without writing files.
 `author_profile={"name":"Shilov, Ilya","initials":"IS"}` optionally selects the
 identity for this request; omitted/null uses the server default. Both profile
-fields are required and extra fields are refused. The result and proof bind the
+fields are required and extra fields are refused. The pair must exactly match
+the default or an additional own profile configured at server startup through
+`VEQTOR_OWN_AUTHOR_PROFILES`; arbitrary request names are refused. The configured
+choices are exposed in initialization instructions and `doctor`. The result and proof bind the
 resolved author/initials, source, destination, complete operations and candidate.
 
 The closed operation shapes are:
@@ -273,7 +276,7 @@ The closed operation shapes are:
 | `kind` | Other required fields | Behavior |
 |---|---|---|
 | `replace_text` | `paragraph_ref`, `old_text`, `new_text` | Replace one unique exact match in the current reading. |
-| `replace_paragraph` | `paragraph_ref`, `old_text`, `new_text` | Require the complete current reading to equal `old_text`; replace supported text while retaining the paragraph. |
+| `replace_paragraph` | `paragraph_ref`, `old_text`, `new_text` | Require the complete current reading to equal `old_text`; default optional `mode="minimal"` tracks changed word/token spans. Explicit `mode="whole"` replaces all text. |
 | `insert_paragraph` | `paragraph_ref`, `position`, `text` | Insert one tracked paragraph `before` or `after` the source paragraph. |
 | `add_comment` | `paragraph_ref`, `quote`, `text` | Anchor a new authored comment to one supported exact quote. |
 | `update_comment` | `comment_id`, `text` | Replace a supported comment body belonging to the selected author. |
@@ -288,6 +291,11 @@ inspect again and insert before its successor instead.
 An insertion result's `paragraph_index` identifies its source anchor, not the
 new paragraph; inspect the saved file to obtain the new paragraph's reference.
 Whole-paragraph `old_text` is an exact guard against the reading at that step.
+Minimal mode preserves unchanged run formatting; edited text inherits formatting
+at the replaced span. Whole mode preserves paragraph properties, while the new
+text inherits the first edited fragment's formatting rather than mixed styling.
+An unsafe minimal diff refuses without falling back to whole mode. Both modes
+check range boundaries nested inside old deleted content.
 Empty `new_text` removes text but retains the paragraph mark. Replies target the
 root thread even when `comment_id` names a reply. A resolved thread must be
 explicitly reopened before a reply is added. Replies require supported root
@@ -297,6 +305,10 @@ Thread-state changes do not stamp
 a new author on existing comments. Unsupported revision, range or metadata
 structures refuse the whole batch. See the
 [drafting contract](docs/AUTHOR_DRAFTING.md#tool-sequence).
+Agents must follow the [drafting protocol](docs/AUTHOR_DRAFTING_WORKFLOW.md):
+establish approval for the concrete edits before saving, and obtain explicit
+instructions for each thread to resolve/reopen and for whole-mode replacements.
+Existing approval of the same concrete plan remains valid.
 
 ## `apply_document_edits`
 

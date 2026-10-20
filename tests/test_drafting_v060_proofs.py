@@ -75,6 +75,94 @@ def _assert_refused(path, arguments, proof, phase, *, operation_index):
     assert list(path.parent.iterdir()) == [path]
 
 
+@pytest.mark.parametrize("mode", ["minimal", "whole"])
+def test_nested_bookmark_endpoint_refuses_batch_without_source_or_backup_changes(
+    tmp_path, demo_dir, mode
+):
+    path, operation = _fixture(tmp_path, demo_dir)
+    with zipfile.ZipFile(path) as archive:
+        infos = archive.infolist()
+        parts = {info.filename: archive.read(info) for info in infos}
+    root = etree.fromstring(parts[DOCUMENT_PART])
+    paragraph = root.find(f"{w('body')}/{w('p')}")
+    for child in list(paragraph):
+        if child.tag != w("pPr"):
+            paragraph.remove(child)
+    start = etree.SubElement(paragraph, w("bookmarkStart"))
+    start.set(w("id"), "900")
+    start.set(w("name"), "Clause")
+    etree.SubElement(etree.SubElement(paragraph, w("r")), w("t")).text = "bookmarked"
+    deletion = etree.SubElement(paragraph, w("del"))
+    deletion.set(w("id"), "901")
+    deletion.set(w("author"), "Counterparty Reviewer")
+    etree.SubElement(etree.SubElement(deletion, w("r")), w("delText")).text = "former wording"
+    etree.SubElement(deletion, w("bookmarkEnd")).set(w("id"), "900")
+    etree.SubElement(etree.SubElement(paragraph, w("r")), w("t")).text = " tail"
+    parts[DOCUMENT_PART] = etree.tostring(root, xml_declaration=True, encoding="UTF-8")
+    with zipfile.ZipFile(path, "w") as archive:
+        for info in infos:
+            archive.writestr(info, parts[info.filename])
+    original = path.read_bytes()
+    reference = inspect_document(str(path), "browse", max_items=1)["paragraphs"][0]["paragraph_ref"]
+    operations = [
+        {"kind": "insert_paragraph", "paragraph_ref": reference, "position": "before", "text": "Preface"},
+        {**operation, "paragraph_ref": reference, "old_text": "bookmarked tail",
+         "new_text": "replacement", "mode": mode},
+    ]
+    result = drafting.preflight_document_edits(
+        str(path), hashlib.sha256(original).hexdigest(), operations, **PROFILE
+    )
+    assert result["batch_applicable"] is False
+    assert result["refusal_code"] == "paragraph_boundary_unsupported"
+    assert result["blocking_operation_index"] == 1
+    assert result["preflight_proof"] is None
+    assert result["operations"] == []
+    assert path.read_bytes() == original
+    assert list(path.parent.iterdir()) == [path]
+
+
+def test_independent_revision_proof_binds_second_repeated_own_occurrence():
+    import copy
+
+    author = PROFILE["author"]
+    paragraph = etree.Element(w("p"))
+    insertion = etree.SubElement(paragraph, w("ins"))
+    insertion.set(w("id"), "50")
+    insertion.set(w("author"), author)
+    etree.SubElement(etree.SubElement(insertion, w("r")), w("t")).text = "red red red"
+    facts = {
+        "operation": "edit_own_insertion", "old_text": "red", "new_text": "blue",
+        "start": 4, "end": 7, "target_start": 4, "target_end": 7,
+        "revision_ids": ["50"], "target_revision_id": "50", "target_author": author,
+    }
+    wrong = copy.deepcopy(paragraph)
+    next(wrong.iter(w("t"))).text = "blue red red"
+    with pytest.raises(ApplyError, match="round_trip_failed"):
+        drafting._check_revision_preservation(
+            drafting._revision_state(paragraph), wrong, insertion, facts, author,
+        )
+    correct = copy.deepcopy(paragraph)
+    next(correct.iter(w("t"))).text = "red blue red"
+    drafting._check_revision_preservation(
+        drafting._revision_state(paragraph), correct, insertion, facts, author,
+    )
+
+
+def test_minimal_offset_support_does_not_relax_unique_quote_api():
+    from veqtor_docx._drafting_text import replace_text
+    from veqtor_docx.apply import _revision_id_allocator
+
+    paragraph = etree.Element(w("p"))
+    etree.SubElement(etree.SubElement(paragraph, w("r")), w("t")).text = "red red red"
+    original = etree.tostring(paragraph)
+    allocator = _revision_id_allocator(paragraph)
+    next_id = allocator.next_value
+    with pytest.raises(ApplyError, match="delete_text_ambiguous"):
+        replace_text(paragraph, "red", "blue", PROFILE["author"], allocator)
+    assert etree.tostring(paragraph) == original
+    assert allocator.next_value == next_id
+
+
 @pytest.mark.parametrize("phase", ["preflight", "apply"])
 @pytest.mark.parametrize("damage", ["hidden_text", "author"])
 def test_hidden_revision_damage_after_last_replacement_callback_is_refused(

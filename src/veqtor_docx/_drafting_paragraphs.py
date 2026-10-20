@@ -16,16 +16,21 @@ untracked empty paragraph at the end.
 from __future__ import annotations
 
 import copy
+import difflib
+import re
 from collections.abc import Callable
 
 from lxml import etree
 
 from ._drafting_text import (
     _comment_reference_run,
+    _assert_outside_fields,
     _layout_run,
     _new_revision,
     _new_run,
     _simple_run,
+    _split_run_at,
+    _replace_candidate,
     annotation_date,
     replace_text,
 )
@@ -48,6 +53,8 @@ from .apply import (
 
 _XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 MAX_PARAGRAPH_EDIT_STEPS = 256
+MAX_DIFF_TOKEN_PAIRS = 1_000_000
+_TOKENS = re.compile(r"\w+|\s+|[^\w\s]", re.UNICODE)
 _EDGE_MARKERS = frozenset(
     w(name)
     for name in (
@@ -332,15 +339,198 @@ def _validate_replacement_shape(paragraph: etree._Element, author: str) -> list:
             "paragraph_structure_unsupported",
             "whole-paragraph replacement requires simple text, own insertions and retained deletions",
         )
-    if editable:
-        first, last = paragraph.index(editable[0]), paragraph.index(editable[-1])
-        for child in list(paragraph)[first : last + 1]:
-            if child.tag in _EDGE_MARKERS or _comment_reference_run(child):
-                raise ApplyError(
-                    "paragraph_boundary_unsupported",
-                    "whole-paragraph replacement crosses an interior range or comment anchor",
-                )
+    _assert_span_boundaries(paragraph, 0, len(_reading(paragraph)))
     return editable
+
+
+def _assert_span_boundaries(paragraph: etree._Element, start: int, end: int) -> None:
+    """Check endpoints in actual canonical XML order, including hidden revisions.
+
+    A legal bookmark endpoint inside a retained deletion contributes no visible
+    text, but still divides the current reading's range. Excluded stories and
+    properties must not manufacture endpoints in the main paragraph.
+    """
+    canonical = list(iter_canonical_paragraph_nodes(paragraph))
+    containers = {
+        node for node in canonical
+        if node is paragraph or node.tag in _CANONICAL_INLINE_PASS_THROUGH
+    }
+    lengths = {seg.node: len(seg.text) for seg in _paragraph_segments(paragraph)}
+    offset = 0
+    for node in paragraph.iter():
+        is_boundary = (
+            node.getparent() in containers
+            and (node.tag in _EDGE_MARKERS or _comment_reference_run(node))
+        )
+        if is_boundary and (
+            start < offset < end or start == end == offset
+        ):
+            raise ApplyError(
+                "paragraph_boundary_unsupported",
+                "replacement crosses an interior range or comment anchor",
+            )
+        offset += lengths.get(node, 0)
+
+
+def _minimal_hunks(old_text: str, new_text: str) -> list[tuple[int, int, str]]:
+    """Bounded deterministic token diff; never trade a limit for wholesale edits."""
+    old = _TOKENS.findall(old_text)
+    new = _TOKENS.findall(new_text)
+    prefix = 0
+    while prefix < min(len(old), len(new)) and old[prefix] == new[prefix]:
+        prefix += 1
+    suffix = 0
+    while (
+        suffix < min(len(old), len(new)) - prefix
+        and old[len(old) - suffix - 1] == new[len(new) - suffix - 1]
+    ):
+        suffix += 1
+    old_end, new_end = len(old) - suffix, len(new) - suffix
+    old_middle, new_middle = old[prefix:old_end], new[prefix:new_end]
+    if len(old_middle) * len(new_middle) > MAX_DIFF_TOKEN_PAIRS:
+        raise ApplyError(
+            "resource_limit_exceeded",
+            "minimal paragraph diff exceeds its comparison-work limit; use narrower edits",
+        )
+    offsets = [0]
+    for token in old:
+        offsets.append(offsets[-1] + len(token))
+    hunks = [
+        (offsets[prefix + left], offsets[prefix + right], "".join(new_middle[nleft:nright]))
+        for tag, left, right, nleft, nright in difflib.SequenceMatcher(
+            None, old_middle, new_middle, autojunk=False
+        ).get_opcodes()
+        if tag != "equal"
+    ]
+    if len(hunks) > MAX_PARAGRAPH_EDIT_STEPS:
+        raise ApplyError("resource_limit_exceeded", "minimal paragraph diff has too many hunks")
+    return hunks
+
+
+def _mutable_before(before: etree._Element, step: dict) -> etree._Element | None:
+    if step["operation"] != "edit_own_insertion":
+        return None
+    return next(
+        node for node in before.iter(w("ins"))
+        if node.get(w("id")) == step["target_revision_id"]
+    )
+
+
+def _insert_at(
+    paragraph: etree._Element, offset: int, text: str, author: str,
+    allocator: _RevisionIdAllocator, date: str | None,
+) -> dict:
+    segments = [seg for seg in _paragraph_segments(paragraph) if seg.text]
+    # Prefer the right-hand run at a boundary: inserted text belongs to the
+    # hunk's following context. At the paragraph end, use the final run.
+    segment = next((seg for seg in segments if seg.start <= offset < seg.end), None)
+    if segment is None and segments and offset == segments[-1].end:
+        segment = segments[-1]
+    if segment is not None:
+        if not _simple_run(segment.run):
+            raise ApplyError("unsupported_run_shape", "insertion requires a simple text run")
+        _assert_outside_fields(paragraph, {segment.run})
+        container = segment.container
+        if container is not None:
+            if (
+                container.tag != w("ins") or container.getparent() is not paragraph
+                or container.get(w("author")) != author
+            ):
+                raise ApplyError(
+                    "foreign_insertion_unsupported",
+                    "minimal paragraph insertion cannot rewrite another author's proposal",
+                )
+            # Existing own text is already a pending insertion. Revise only its
+            # selected run, preserving the wrapper identity and other runs.
+            local = offset - segment.start
+            return _replace_candidate(
+                paragraph, segment.text, segment.text[:local] + text + segment.text[local:],
+                author, allocator, date, start_offset=segment.start,
+            )
+        if not segment.plain or segment.run.getparent() is not paragraph:
+            raise ApplyError("unsupported_run_shape", "insertion requires direct paragraph text")
+        template = _new_run(segment.run, text, preserve_format_history=False)
+        _split_run_at(segments, offset)
+        current = [seg for seg in _paragraph_segments(paragraph) if seg.text]
+        right = next((seg.run for seg in current if seg.start == offset), None)
+        if right is not None:
+            index = paragraph.index(right)
+        else:
+            index = paragraph.index(current[-1].run) + 1
+    else:
+        # Empty paragraphs still retain all structural XML and edge anchors.
+        _validate_replacement_shape(paragraph, author)
+        template = _fresh_run(paragraph, text)
+        index = next(
+            (i for i, child in enumerate(paragraph)
+             if child.tag in {w("bookmarkEnd"), w("commentRangeEnd")}
+             or _comment_reference_run(child)),
+            len(paragraph),
+        )
+    revision_id = allocator.reserve(1)[0]
+    insertion = _new_revision("ins", revision_id, author, date)
+    insertion.append(template)
+    paragraph.insert(index, insertion)
+    return {
+        "operation": "insert", "old_text": "", "new_text": text,
+        "start": offset, "end": offset, "revision_ids": [revision_id],
+        "target_revision_id": None, "target_author": None,
+    }
+
+
+def _replace_minimal(
+    candidate: etree._Element, old_text: str, new_text: str, author: str,
+    allocator: _RevisionIdAllocator, date: str | None,
+    verify_step: VerifyStep | None, steps: list[dict],
+) -> None:
+    hunks = _minimal_hunks(old_text, new_text)
+    for start, end, replacement in reversed(hunks):
+        _assert_span_boundaries(candidate, start, end)
+        if start == end:
+            before = copy.deepcopy(candidate)
+            step = _insert_at(candidate, start, replacement, author, allocator, date)
+            _verify(before, candidate, _mutable_before(before, step), step, verify_step, steps)
+            continue
+        touched = [
+            seg for seg in _paragraph_segments(candidate)
+            if seg.start < end and seg.end > start
+        ]
+        groups: list[list] = []
+        for seg in touched:
+            if not _simple_run(seg.run):
+                raise ApplyError(
+                    "unsupported_run_shape", "minimal paragraph replacement requires simple text runs"
+                )
+            if seg.container is not None and (
+                seg.container.tag != w("ins")
+                or seg.container.get(w("author")) != author
+            ):
+                raise ApplyError(
+                    "foreign_insertion_unsupported",
+                    "minimal paragraph replacement cannot discard another author's insertion",
+                )
+            if (
+                groups and groups[-1][-1].run.getparent() is seg.run.getparent()
+                and groups[-1][-1].run.getnext() is seg.run
+            ):
+                groups[-1].append(seg)
+            else:
+                groups.append([seg])
+        if len(steps) + len(groups) > MAX_PARAGRAPH_EDIT_STEPS:
+            raise ApplyError("resource_limit_exceeded", "paragraph replacement has too many revision spans")
+        # Remove later ownership/physical spans first. The first span receives
+        # the replacement in its original position, never beyond a hidden
+        # deletion or endpoint that survives the edit.
+        for index in range(len(groups) - 1, -1, -1):
+            group = groups[index]
+            left, right = max(start, group[0].start), min(end, group[-1].end)
+            before = copy.deepcopy(candidate)
+            step = _replace_candidate(
+                candidate, _reading(candidate)[left:right],
+                replacement if index == 0 else "", author, allocator, date,
+                start_offset=left,
+            )
+            _verify(before, candidate, _mutable_before(before, step), step, verify_step, steps)
 
 
 def _verify(
@@ -351,6 +541,8 @@ def _verify(
     verify_step: VerifyStep | None,
     steps: list[dict],
 ) -> None:
+    if len(steps) >= MAX_PARAGRAPH_EDIT_STEPS:
+        raise ApplyError("resource_limit_exceeded", "paragraph replacement has too many revision spans")
     if verify_step is not None:
         verify_step(before, after, mutable, step)
     steps.append(step)
@@ -363,6 +555,7 @@ def replace_paragraph(
     author: str,
     allocator: _RevisionIdAllocator,
     *,
+    mode: str = "minimal",
     timestamp: str | None = None,
     verify_step: VerifyStep | None = None,
 ) -> dict:
@@ -370,9 +563,11 @@ def replace_paragraph(
 
     ``old_text`` must match exactly, including spaces; an empty paragraph can be
     filled and ``new_text=''`` deletes visible text while retaining its mark.
-    Accepted runs become tracked deletions. Own pending insertions may be
-    revised/removed; foreign visible insertions and unsupported interior anchors
-    are refused. Existing hidden deletions and paragraph properties survive.
+    By default only changed word/space/punctuation spans become tracked edits;
+    unchanged runs retain their formatting. Explicit ``mode='whole'`` replaces
+    all visible text. Own pending insertions may be revised/removed; touched
+    foreign insertions and crossed interior anchors are refused. Existing hidden
+    deletions and paragraph properties survive. Complex diffs fail closed.
 
     An optional independent verifier runs after every step on disposable XML.
     Its arguments are a before-paragraph copy, the candidate after the step,
@@ -380,6 +575,8 @@ def replace_paragraph(
     Failure leaves the supplied paragraph and allocator unchanged.
     """
     date = _validate_common(paragraph, new_text, author, timestamp)
+    if mode not in ("minimal", "whole"):
+        raise ApplyError("invalid_edit", "mode must be minimal or whole")
     if not isinstance(old_text, str) or not is_xml_text_compatible(old_text):
         raise ApplyError("invalid_edit", "old_text must be an XML-compatible string")
     if _reading(paragraph) != old_text:
@@ -388,6 +585,8 @@ def replace_paragraph(
         )
     if old_text == new_text:
         raise ApplyError("invalid_edit", "old_text and new_text must differ")
+    if len(old_text) > MAX_NEW_TEXT_CHARS_PER_EDIT:
+        raise ApplyError("resource_limit_exceeded", "old_text exceeds the per-edit character limit")
 
     candidate = copy.deepcopy(paragraph)
     candidate_allocator = _RevisionIdAllocator(allocator.next_value)
@@ -395,7 +594,11 @@ def replace_paragraph(
     segments = [segment for segment in _paragraph_segments(candidate) if segment.text]
     containers = {segment.container for segment in segments}
     own = next(iter(containers)) if len(containers) == 1 else None
-    if (
+    if mode == "minimal":
+        _replace_minimal(
+            candidate, old_text, new_text, author, candidate_allocator, date, verify_step, steps
+        )
+    elif (
         old_text
         and own is not None
         and own.tag == w("ins")
@@ -404,6 +607,7 @@ def replace_paragraph(
     ):
         # Preserve the existing insertion's id/date and native supported
         # bookmarks/formatting when it contains the complete current reading.
+        _assert_span_boundaries(candidate, 0, len(old_text))
         before = copy.deepcopy(candidate)
         mutable = before[candidate.index(own)]
         step = replace_text(
@@ -508,6 +712,7 @@ def replace_paragraph(
     allocator.next_value = candidate_allocator.next_value
     return {
         "operation": "replace_paragraph",
+        "mode": mode,
         "old_text": old_text,
         "new_text": new_text,
         "revision_ids": list(dict.fromkeys(

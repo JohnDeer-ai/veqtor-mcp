@@ -116,16 +116,210 @@ def _check_steps(before, after, mutable, facts):
     )
 
 
-def _replace(paragraph, old, new, allocator=None):
+def _replace(paragraph, old, new, allocator=None, *, mode="whole"):
     return replace_paragraph(
         paragraph,
         old,
         new,
         AUTHOR,
         allocator or _revision_id_allocator(paragraph),
+        mode=mode,
         timestamp="2026-10-20T13:14:15+03:00",
         verify_step=_check_steps,
     )
+
+
+def test_default_minimal_diff_preserves_unchanged_runs_and_rejects_to_original():
+    old = "Supplier shall deliver the Products within 30 days after receiving the Order."
+    new = "Supplier shall promptly deliver the Products within 45 calendar days after receiving the Order."
+    paragraph = _p(
+        _r("Supplier", "<w:b/>") + _r(" shall deliver the ")
+        + _r("Products", "<w:i/>") + _r(" within ") + _r("30", '<w:u w:val="single"/>')
+        + _r(" days after receiving the ") + _r("Order", "<w:b/>") + _r(".")
+    )
+    preserved = {
+        text: etree.tostring(next(run for run in paragraph if run.find(w("t")).text == text))
+        for text in ("Supplier", "Products", "Order")
+    }
+    facts = replace_paragraph(
+        paragraph, old, new, AUTHOR, _revision_id_allocator(paragraph),
+        timestamp="2026-10-20T13:14:15+03:00", verify_step=_check_steps,
+    )
+    assert facts["mode"] == "minimal"
+    assert _reading(paragraph) == new
+    assert "".join(n.text or "" for n in paragraph.iter(w("delText"))) == "30"
+    for text, source in preserved.items():
+        run = next(run for run in paragraph if run.tag == w("r") and run.find(w("t")).text == text)
+        assert etree.tostring(run) == source
+    replacement = next(n for n in paragraph.iter(w("ins")) if "45" in "".join(n.itertext()))
+    assert replacement.find(f"{w('r')}/{w('rPr')}/{w('u')}") is not None
+    assert _projected_texts(paragraph, True) == [new]
+    assert _projected_texts(paragraph, False) == [old]
+
+
+@pytest.mark.parametrize("own", [False, True])
+def test_minimal_diff_addresses_second_repeated_token_with_formatting(own):
+    markup = _r("red ", "<w:b/>") + _r("red", "<w:i/>") + _r(" red", '<w:u w:val="single"/>')
+    if own:
+        markup = f'<w:ins w:id="24" w:author="{AUTHOR}">{markup}</w:ins>'
+    paragraph = _p(markup)
+    facts = _replace(paragraph, "red red red", "red blue red", mode="minimal")
+    assert _reading(paragraph) == "red blue red"
+    assert len(facts["steps"]) == 1
+    step = facts["steps"][0]
+    assert (step["start"], step["end"]) == (4, 7)
+    if own:
+        assert (step["target_start"], step["target_end"]) == (4, 7)
+        assert facts["revision_ids"] == ["24"]
+        assert not list(paragraph.iter(w("del")))
+    else:
+        assert _projected_texts(paragraph, False) == ["red red red"]
+    changed = next(atom.getparent() for atom in paragraph.iter(w("t")) if atom.text == "blue")
+    assert changed.find(f"{w('rPr')}/{w('i')}") is not None
+
+
+@pytest.mark.parametrize("old,new", [
+    ("Alpha  Beta, Gamma.", "Alpha Beta;  Gamma!"),
+    ("same same same", "same same same again"),
+    ("one", ""),
+    ("", "one"),
+    ("x\u00a0y", "x  y"),
+])
+def test_minimal_diff_preserves_exact_whitespace_and_punctuation(old, new):
+    paragraph = _p(_r(old))
+    _replace(paragraph, old, new, mode="minimal")
+    assert _reading(paragraph) == new
+    assert _projected_texts(paragraph, False) == [old]
+
+
+def test_minimal_mixed_own_text_retains_foreign_deletion_and_unchanged_italic_run():
+    paragraph = _p(
+        _r("Payment is due within ") + _del("21 ") + _ins("30 ") + _r("days.", "<w:i/>")
+    )
+    hidden = etree.tostring(paragraph.find(w("del")))
+    unchanged = etree.tostring(paragraph[-1])
+    facts = _replace(
+        paragraph, "Payment is due within 30 days.",
+        "Payment is due within 45 calendar days.", mode="minimal",
+    )
+    assert etree.tostring(paragraph.find(w("del"))) == hidden
+    assert etree.tostring(paragraph[-1]) == unchanged
+    assert facts["revision_ids"] == ["24"]
+    assert _projected_texts(paragraph, False) == ["Payment is due within 21 days."]
+
+
+def test_minimal_changed_span_across_plain_and_own_runs_preserves_reject_reading():
+    paragraph = _p(_r("Keep ") + _r("old") + _ins("Proposal") + _r(" tail"))
+    facts = _replace(paragraph, "Keep oldProposal tail", "Keep new tail", mode="minimal")
+    assert [step["operation"] for step in facts["steps"]] == ["edit_own_insertion", "replace"]
+    assert _projected_texts(paragraph, True) == ["Keep new tail"]
+    assert _projected_texts(paragraph, False) == ["Keep old tail"]
+
+
+def test_minimal_keeps_untouched_foreign_proposal_identical():
+    paragraph = _p(_r("Old ") + _ins("proposal", author=OTHER) + _r(" remains."))
+    foreign = etree.tostring(paragraph.find(w("ins")))
+    _replace(paragraph, "Old proposal remains.", "New proposal remains.", mode="minimal")
+    original_insertion = next(
+        node for node in paragraph.iter(w("ins")) if node.get(w("author")) == OTHER
+    )
+    assert etree.tostring(original_insertion) == foreign
+
+
+def test_minimal_malformed_runless_text_refuses_without_partial_mutation():
+    paragraph = _p(_r("old") + "<w:t> tail</w:t>")
+    original = etree.tostring(paragraph)
+    with pytest.raises(ApplyError, match="unsupported_run_shape"):
+        _replace(paragraph, "old tail", "replacement", mode="minimal")
+    assert etree.tostring(paragraph) == original
+
+
+@pytest.mark.parametrize("mode", ["minimal", "whole"])
+@pytest.mark.parametrize("marker", ["bookmark", "commentRange"])
+def test_nested_boundary_in_retained_deletion_is_refused_atomically(mode, marker):
+    start = f'<w:{marker}Start w:id="9"' + (' w:name="Clause"' if marker == "bookmark" else "") + "/>"
+    end = f'<w:{marker}End w:id="9"/>'
+    hidden = _del("earlier").replace("</w:del>", end + "</w:del>")
+    paragraph = _p(start + _r("bookmarked") + hidden + _r(" tail"))
+    original = etree.tostring(paragraph)
+    allocator = _revision_id_allocator(paragraph)
+    next_id = allocator.next_value
+    with pytest.raises(ApplyError, match="paragraph_boundary_unsupported"):
+        _replace(paragraph, "bookmarked tail", "replacement", allocator, mode=mode)
+    assert etree.tostring(paragraph) == original
+    assert allocator.next_value == next_id
+
+
+@pytest.mark.parametrize("mode", ["minimal", "whole"])
+def test_excluded_hidden_marker_does_not_manufacture_main_story_boundary(mode):
+    hidden = _del("earlier").replace(
+        "</w:del>",
+        '<w:txbxContent><w:p><w:bookmarkEnd w:id="9"/></w:p></w:txbxContent></w:del>',
+    )
+    paragraph = _p(_r("old") + hidden + _r(" text"))
+    _replace(paragraph, "old text", "replacement", mode=mode)
+    assert _reading(paragraph) == "replacement"
+
+
+@pytest.mark.parametrize("old,new", [
+    ("bookmarked tail", "bookmarked added tail"),
+    ("bookmarked tail", "changed tail"),
+    ("bookmarked tail", "bookmarked changed"),
+])
+def test_minimal_hidden_boundary_edge_keeps_scope_or_refuses_ambiguous_insertion(old, new):
+    paragraph = _p(
+        '<w:bookmarkStart w:id="9" w:name="Clause"/>' + _r("bookmarked")
+        + _del("earlier").replace("</w:del>", '<w:bookmarkEnd w:id="9"/></w:del>')
+        + _r(" tail")
+    )
+    # In the insertion case, the existing space puts the hunk inside the tail
+    # run, so its scope outside the bookmark is unambiguous.
+    _replace(paragraph, old, new, mode="minimal")
+    visible = []
+    active = False
+    atoms = {seg.node: seg.text for seg in _paragraph_segments(paragraph)}
+    for node in paragraph.iter():
+        if node.tag == w("bookmarkStart"):
+            active = True
+        if node.tag == w("bookmarkEnd"):
+            active = False
+        if active and node in atoms:
+            visible.append(atoms[node])
+    assert "".join(visible) == ("changed" if new == "changed tail" else "bookmarked")
+
+
+def test_minimal_insertion_exactly_at_hidden_endpoint_is_refused():
+    paragraph = _p(
+        '<w:bookmarkStart w:id="9" w:name="Clause"/>' + _r("first ")
+        + _del("earlier").replace("</w:del>", '<w:bookmarkEnd w:id="9"/></w:del>')
+        + _r("tail")
+    )
+    original = etree.tostring(paragraph)
+    with pytest.raises(ApplyError, match="paragraph_boundary_unsupported"):
+        _replace(paragraph, "first tail", "first added tail", mode="minimal")
+    assert etree.tostring(paragraph) == original
+
+
+def test_minimal_diff_trims_long_common_context_before_work_budget():
+    old = "same " * 1900 + "old" + " same" * 1900
+    new = old.replace("old", "new")
+    paragraph = _p(_r(old))
+    facts = _replace(paragraph, old, new, mode="minimal")
+    assert len(facts["steps"]) == 1
+    assert facts["steps"][0]["old_text"] == "old"
+
+
+def test_minimal_diff_refuses_excessive_comparison_work_without_whole_fallback():
+    old = "first " + "a b " * 900 + " last"
+    new = "changed " + "b a " * 900 + " final"
+    paragraph = _p(_r(old))
+    original = etree.tostring(paragraph)
+    allocator = _revision_id_allocator(paragraph)
+    next_id = allocator.next_value
+    with pytest.raises(ApplyError, match="resource_limit_exceeded"):
+        _replace(paragraph, old, new, allocator, mode="minimal")
+    assert etree.tostring(paragraph) == original
+    assert allocator.next_value == next_id
 
 
 @pytest.mark.parametrize("position", ["before", "after"])

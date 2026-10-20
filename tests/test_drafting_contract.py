@@ -434,6 +434,7 @@ async def test_mcp_goback_roundtrip_preserves_author_revision_and_bookmark_ident
     monkeypatch.setenv("VEQTOR_COMMENT_INITIALS", "IS")
     server._tracked_change_author.cache_clear()
     server._comment_initials.cache_clear()
+    server._configured_author_profiles.cache_clear()
     try:
         async with Client(server.mcp) as client:
             response = await client.call_tool("preflight_document_edits", arguments)
@@ -468,6 +469,7 @@ async def test_mcp_goback_roundtrip_preserves_author_revision_and_bookmark_ident
     finally:
         server._tracked_change_author.cache_clear()
         server._comment_initials.cache_clear()
+        server._configured_author_profiles.cache_clear()
 
 
 @pytest.mark.anyio

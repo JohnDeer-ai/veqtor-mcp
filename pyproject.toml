@@ -95,6 +95,7 @@ include = [
   "/.agents/skills/veqtor-next-round/SKILL.md",
   "/docs/CODEX.md",
   "/docs/AUTHOR_DRAFTING.md",
+  "/docs/AUTHOR_DRAFTING_WORKFLOW.md",
   "/docs/releases/v0.4.0-contract.md",
   "/docs/releases/v0.4.2-contract.md",
   "/docs/NR03_ACCEPTANCE.md",

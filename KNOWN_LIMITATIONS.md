@@ -6,6 +6,12 @@ Package `0.6.0.dev1` extends the distinct
 [author-drafting workflow](docs/AUTHOR_DRAFTING.md). Its same-file saves,
 own-insertion mutation and comments are outside the legacy guarantees below;
 its limits and backup/recovery behavior are documented in that contract.
+Author selection is limited to configured own profiles; it is not human-account
+authentication. Minimal paragraph edits retain unchanged run formatting, while
+explicit whole replacements retain paragraph properties and use the first edited
+fragment's text formatting. Agent approval and thread-resolution rules are in
+the [drafting protocol](docs/AUTHOR_DRAFTING_WORKFLOW.md); Word thread metadata
+does not identify the person who resolved a thread.
 
 The legacy guarantees below still apply to the eleven document/position tools.
 All fourteen current tools expose `veqtor.mcp.v0.6.0`; legacy calls remain

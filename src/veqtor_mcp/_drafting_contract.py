@@ -33,11 +33,17 @@ NEW_TEXT = {"type": "string", "maxLength": 20_000}
 LOCK_REASON = {"const": "owner_not_proven_dead"}
 TIMESTAMP = {"type": "string", "minLength": 20, "maxLength": 25,
              "pattern": "^" + DRAFTING_TIMESTAMP_PATTERN + r"(?![\s\S])"}
+_REPLACE_PARAGRAPH_INPUT = obj(
+    kind={"const": "replace_paragraph"}, paragraph_ref=PARAGRAPH_REF_SCHEMA,
+    old_text=NEW_TEXT, new_text=NEW_TEXT,
+)
+_REPLACE_PARAGRAPH_INPUT["properties"]["mode"] = {
+    "enum": ["minimal", "whole"], "default": "minimal",
+}
 OPERATIONS = {"type": "array", "minItems": 1, "maxItems": 100, "items": {"oneOf": [
     obj(kind={"const": "replace_text"}, paragraph_ref=PARAGRAPH_REF_SCHEMA,
         old_text=NONEMPTY, new_text=NEW_TEXT),
-    obj(kind={"const": "replace_paragraph"}, paragraph_ref=PARAGRAPH_REF_SCHEMA,
-        old_text=NEW_TEXT, new_text=NEW_TEXT),
+    _REPLACE_PARAGRAPH_INPUT,
     obj(kind={"const": "insert_paragraph"}, paragraph_ref=PARAGRAPH_REF_SCHEMA,
         position={"enum": ["before", "after"]}, text=NONEMPTY),
     obj(kind={"const": "add_comment"}, paragraph_ref=PARAGRAPH_REF_SCHEMA,
@@ -132,29 +138,40 @@ _PARAGRAPH_STEP = {
 }
 _PARAGRAPH_STEP["properties"] = {
     **_PARAGRAPH_STEP["properties"],
-    "operation": {"enum": ["delete", "edit_own_insertion", "insert"]},
+    "operation": {"enum": ["replace", "delete", "edit_own_insertion", "insert"]},
     "old_text": NEW_TEXT,
-    "revision_ids": {**_REVISION_IDS, "maxItems": 1},
+    "end": {"type": "integer", "minimum": 0},
+    "target_start": {"type": "integer", "minimum": 0},
+    "target_end": {"type": "integer", "minimum": 0},
 }
-_PARAGRAPH_STEP["dependentRequired"] = {"start": ["end"], "end": ["start"]}
+_PARAGRAPH_STEP["dependentRequired"] = {
+    "start": ["end"], "end": ["start"],
+    "target_start": ["target_end"], "target_end": ["target_start"],
+}
 _PARAGRAPH_STEP["allOf"] = [
     {"if": {"properties": {"operation": {"const": "insert"}}},
      "then": {"properties": {"old_text": {"const": ""}, "new_text": NONEMPTY}},
      "else": {"properties": {"old_text": NONEMPTY}}},
+    {"if": {"properties": {"old_text": {"const": ""}}},
+     "then": {"properties": {"new_text": NONEMPTY}},
+     "else": {"properties": {"end": {"minimum": 1}}}},
     {"if": {"properties": {"operation": {"const": "delete"}}},
      "then": {"properties": {"new_text": {"const": ""}}}},
+    {"if": {"properties": {"operation": {"const": "replace"}}},
+     "then": {"properties": {"new_text": NONEMPTY, "revision_ids": {"minItems": 2}}},
+     "else": {"properties": {"revision_ids": {"maxItems": 1}}}},
     {"if": {"properties": {"operation": {"const": "edit_own_insertion"}}},
      "then": {"properties": {"target_revision_id": NONEMPTY, "target_author": NONEMPTY}},
      "else": {"properties": {"target_revision_id": {"type": "null"},
                              "target_author": {"type": "null"}}}},
-    {"if": {"anyOf": [{"required": ["start"]}, {"required": ["relocated_bookmarks"]}]},
+    {"if": {"anyOf": [{"required": ["target_start"]}, {"required": ["relocated_bookmarks"]}]},
      "then": {"properties": {"operation": {"const": "edit_own_insertion"}}}},
 ]
 _REPLACE_PARAGRAPH = obj(
     index=_INDEX, operation={"const": "replace_paragraph"},
-    old_text=NEW_TEXT, new_text=NEW_TEXT,
+    old_text=NEW_TEXT, new_text=NEW_TEXT, mode={"enum": ["minimal", "whole"]},
     paragraph_index={"type": "integer", "minimum": 0},
-    revision_ids={"type": "array", "minItems": 1, "maxItems": MAX_PARAGRAPH_EDIT_STEPS,
+    revision_ids={"type": "array", "minItems": 1, "maxItems": 2 * MAX_PARAGRAPH_EDIT_STEPS,
                   "uniqueItems": True, "items": NONEMPTY},
     steps={"type": "array", "minItems": 1, "maxItems": MAX_PARAGRAPH_EDIT_STEPS,
            "items": _PARAGRAPH_STEP},
