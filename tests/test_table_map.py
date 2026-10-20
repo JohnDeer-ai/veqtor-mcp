@@ -126,6 +126,55 @@ def test_empty_and_multiple_paragraphs_match_inspection_identity():
     assert [x["reference"] for x in cells[0]["content"]] == cells[0]["paragraph_refs"]
 
 
+@pytest.mark.parametrize("historical", [False, True])
+def test_paragraph_tab_stops_preserve_inspection_refs_and_table_addresses(
+    tmp_path, historical,
+):
+    table = _table(_row(_cell("First", ""), _cell("Last")))
+    before = build_table_map(_payload(_p("Before"), copy.deepcopy(table), _p("After")))
+    for revision_id, paragraph in enumerate(table.iter(w("p")), start=7):
+        properties = etree.Element(w("pPr"))
+        paragraph.insert(0, properties)
+        if historical:
+            change = etree.SubElement(properties, w("pPrChange"))
+            change.set(w("id"), str(revision_id))
+            change.set(w("author"), "Synthetic Reviewer")
+            properties = etree.SubElement(change, w("pPr"))
+        tab = etree.SubElement(etree.SubElement(properties, w("tabs")), w("tab"))
+        tab.set(w("val"), "left")
+        tab.set(w("pos"), "1440")
+    payload = _payload(_p("Before"), table, _p("After"))
+    path = tmp_path / "synthetic-tab-stops.docx"
+    path.write_bytes(payload)
+    result = build_table_map(payload)
+    browsed = inspection.inspect_document(str(path), "browse")
+    cells = result["tables"][0]["rows"][0]["cells"]
+    refs = cells[0]["paragraph_refs"] + cells[1]["paragraph_refs"]
+
+    assert result["coverage"]["complete"] is True
+    assert browsed["coverage"]["container_coverage"]["coverage_complete"] is True
+    assert result["counts"] == before["counts"]
+    assert [p["text"] for p in browsed["paragraphs"]] == ["Before", "First", "Last", "After"]
+    assert [refs[0], refs[2]] == [p["paragraph_ref"] for p in browsed["paragraphs"][1:3]]
+    for ref, text in zip(refs, ["First", "", "Last"], strict=True):
+        read = inspection.inspect_document(str(path), "read", selection={"paragraph_ref": ref})
+        assert read["paragraphs"][0]["paragraph_ref"] == ref
+        assert read["paragraphs"][0]["text"] == text
+    assert [(c["cell_index"], c["grid_start"], c["grid_span"]) for c in cells] == [
+        (0, 0, 1), (1, 1, 1),
+    ]
+    assert [ref["paragraph_index"] for ref in refs] == [1, 2, 3]
+    assert result["tables"][0]["has_tracked_property_revisions"] is historical
+    assert result["tables"][0]["mutation_safety"] == "not_assessed"
+    for ref in _all_refs(result):
+        assert resolve_table_ref(payload, ref)
+    previous = before["tables"][0]["rows"][0]["cells"]
+    previous_refs = previous[0]["paragraph_refs"] + previous[1]["paragraph_refs"]
+    for old, new in zip(previous_refs, refs, strict=True):
+        assert old["file_sha256"] != new["file_sha256"]
+        assert {**old, "file_sha256": new["file_sha256"]} == new
+
+
 def test_no_table_is_complete_empty_inventory():
     result = build_table_map(_payload(_p("Outside")))
     assert result["tables"] == []

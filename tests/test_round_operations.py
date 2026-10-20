@@ -93,6 +93,62 @@ def test_successful_published_replacement_requires_exact_backup():
     assert result["backup_verification"] == "matched"
 
 
+@pytest.mark.parametrize("backup_path", [
+    "/private/synthetic/working.docx",
+    "/private/synthetic/./working.docx",
+    "/private/synthetic/subdir/../working.docx",
+    "/private//synthetic/working.docx",
+    "//private/synthetic/working.docx",
+    "///private/synthetic/working.docx",
+])
+def test_output_path_cannot_be_reported_as_an_exact_backup(backup_path):
+    intent = _intent()
+    arguments = {
+        "publication_status": "published",
+        "observed_output_sha256": CANDIDATE,
+        "backup": {"path": backup_path, "sha256": SOURCE},
+    }
+    with pytest.raises(operations.OperationRecordError):
+        operations.make_operation_result(intent, **arguments)
+    result = operations.make_operation_result(
+        intent, **arguments, error_code="backup_path_conflict",
+    )
+    assert result["publication_status"] == "published"
+    assert result["verification"] == "matched"
+    assert result["backup"] == arguments["backup"]
+    assert result["backup_verification"] == "same_as_output"
+    for field, value in (("backup_verification", "matched"), ("error_code", None)):
+        with pytest.raises(operations.OperationRecordError):
+            operations.validate_operation_result(intent, {**result, field: value})
+
+
+@pytest.mark.parametrize("save_mode", ["replace_source", "create_new"])
+@pytest.mark.parametrize("status", ["not_published", "published", "uncertain"])
+def test_backup_path_conflict_is_explicit_for_every_save_outcome(save_mode, status):
+    intent = _intent(
+        save_mode=save_mode, destination="/private/synthetic/./working.docx",
+    )
+    result = operations.make_operation_result(
+        intent, publication_status=status,
+        observed_output_sha256=CANDIDATE if status == "published" else None,
+        backup={"path": "/private/synthetic/working.docx", "sha256": None},
+        error_code="backup_path_conflict",
+    )
+    assert result["publication_status"] == status
+    assert result["backup_verification"] == "same_as_output"
+    with pytest.raises(operations.OperationRecordError):
+        operations.validate_operation_result(intent, {**result, "error_code": None})
+
+
+def test_unchanged_output_still_is_not_an_independent_backup():
+    intent = _intent(candidate_sha256=SOURCE)
+    with pytest.raises(operations.OperationRecordError):
+        operations.make_operation_result(
+            intent, publication_status="published", observed_output_sha256=SOURCE,
+            backup={"path": intent["destination"], "sha256": SOURCE},
+        )
+
+
 @pytest.mark.parametrize(("backup", "expected", "error"), [
     (None, "not_checked", "backup_missing"),
     ({"path": "/private/synthetic/backup.docx", "sha256": None},

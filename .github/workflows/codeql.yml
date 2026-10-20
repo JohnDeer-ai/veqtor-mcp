@@ -6,7 +6,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, codex/drafting-060]
   schedule:
     - cron: "17 4 * * 1"
 

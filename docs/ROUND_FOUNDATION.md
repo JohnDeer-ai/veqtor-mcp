@@ -92,7 +92,7 @@ A result uses `round_operation_result.v1`, binds the entire intent and records:
 | `observed_output_sha256` | Actual observed bytes, or null if not checked |
 | `verification` | `matched`, `mismatch` or `not_checked` against the candidate |
 | `backup` | Backup path and actually observed hash (or null), when available |
-| `backup_verification` | `matched`, `mismatch`, `not_checked` or `not_required` against the source in the intent |
+| `backup_verification` | `matched`, `mismatch`, `not_checked` or `not_required` against the source in the intent; `same_as_output` for a lexical path conflict |
 | `error_code` | Bounded machine code, including errors after publication |
 
 An error-free published replacement requires a backup matching the original
@@ -103,6 +103,13 @@ be disguised as success or suppressed merely because it violates expectations.
 An uncertain save remains uncertain even if a candidate hash has been observed.
 A known publication followed by an unreadable output is also represented
 explicitly.
+
+If the backup and destination paths are lexically equal after normalizing `.`,
+`..` and repeated `/`, `backup_verification` is `same_as_output`. This conflict
+always requires an error code and preserves any known publication. The check
+does not access the filesystem. Resolving aliases, symlinks, hardlinks and case
+equivalence remains the save engine's responsibility; different path strings
+do not prove that a backup is independent of the output.
 
 These functions do not save records, inspect files, issue timestamps, recover
 an operation or decide whether retrying is safe. They validate consistency of

@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import posixpath
 import re
 import uuid
 from typing import Any
@@ -184,6 +185,12 @@ def _backup_verification(intent: dict[str, Any], backup: object) -> str:
     _require(type(backup) is dict and backup.keys() == {"path", "sha256"})
     _require(_string(backup["path"], 4096) and backup["path"].startswith("/"))
     _require(backup["sha256"] is None or _hash(backup["sha256"]))
+    # Catch lexical aliases without inspecting the filesystem. Distinct strings
+    # cannot prove distinct files; the save engine must check filesystem aliases.
+    destination = posixpath.normpath("/" + intent["destination"].lstrip("/"))
+    backup_path = posixpath.normpath("/" + backup["path"].lstrip("/"))
+    if backup_path == destination:
+        return "same_as_output"
     if backup["sha256"] is None:
         return "not_checked"
     return "matched" if backup["sha256"] == intent["source_sha256"] else "mismatch"
@@ -220,7 +227,7 @@ def validate_operation_result(
     backup = record["backup"]
     backup_verification = _backup_verification(checked, backup)
     _require(record["backup_verification"] == backup_verification)
-    if backup_verification == "mismatch" or (
+    if backup_verification in ("mismatch", "same_as_output") or (
         status == "published" and checked["save_mode"] == "replace_source"
         and backup_verification != "matched"
     ):
