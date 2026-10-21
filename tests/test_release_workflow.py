@@ -726,6 +726,39 @@ def test_release_job_graph_has_one_root_and_orders_all_publication() -> None:
     }
 
 
+@pytest.mark.parametrize("filename", ["ci.yml", "codeql.yml", "website.yml"])
+def test_main_pull_requests_preserve_check_only_workflow_triggers(filename: str) -> None:
+    workflow = (ROOT / ".github/workflows" / filename).read_text()
+    triggers = workflow.split("\non:\n", 1)[1].split("\npermissions:\n", 1)[0]
+    events = {}
+    starts = list(re.finditer(r"^  ([a-z_]+):\n", triggers, re.MULTILINE))
+    for index, match in enumerate(starts):
+        end = starts[index + 1].start() if index + 1 < len(starts) else len(triggers)
+        events[match.group(1)] = triggers[match.end():end].rstrip()
+
+    expected_events = {
+        "ci.yml": {"push", "pull_request", "workflow_call"},
+        "codeql.yml": {"push", "pull_request", "schedule"},
+        "website.yml": {"push", "pull_request"},
+    }
+    assert set(events) == expected_events[filename]
+    paths = (
+        '\n    paths:\n      - "website/**"\n      - ".github/workflows/website.yml"'
+        if filename == "website.yml" else ""
+    )
+    assert events["push"] == "    branches: [main]" + paths
+    assert events["pull_request"] == "    branches: [main]" + paths
+    assert "\npermissions:\n  contents: read\n" in workflow
+    assert "contents: write" not in workflow
+    assert "id-token: write" not in workflow
+    if filename == "website.yml":
+        assert set(_jobs(workflow)) == {"build"}
+    elif filename == "codeql.yml":
+        assert events["schedule"] == '    - cron: "17 4 * * 1"'
+        assert set(_jobs(workflow)) == {"analyze"}
+        assert "security-events: write" in _jobs(workflow)["analyze"]
+
+
 def test_all_release_actions_are_pinned_to_full_shas() -> None:
     for relative in (
         ".github/workflows/ci.yml",

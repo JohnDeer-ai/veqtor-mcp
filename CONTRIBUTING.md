@@ -26,6 +26,11 @@ Before submitting a development change, run:
 
 ### Development checks
 
+CI and CodeQL run for pull requests targeting `main`. Website checks use the
+same base when their existing path filters match. Push checks remain limited
+to `main`. These checks do not publish a release or change the separate
+promotion process.
+
 ```bash
 uv lock --check
 uv sync --frozen --all-extras

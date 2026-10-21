@@ -1336,6 +1336,17 @@ def _property_subtree_has_illegal_payload(element: etree._Element) -> bool:
     for node in element.iter():
         if node is element:
             continue
+        if node.tag == w("tab"):
+            parent = node.getparent()
+            grandparent = parent.getparent() if parent is not None else None
+            if (
+                parent is not None and parent.tag == w("tabs")
+                and grandparent is not None and grandparent.tag == w("pPr")
+            ):
+                # pPr/tabs/tab defines a tab stop, unlike the rendered r/tab
+                # atom. Keep scanning descendants so malformed payload under
+                # a tab stop still becomes a fail-visible exclusion.
+                continue
         if (
             node.tag in {w("p"), w("altChunk")}
             or node.tag in _CANONICAL_TEXT_ATOM_TAGS
