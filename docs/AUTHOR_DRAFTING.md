@@ -111,12 +111,25 @@ Operations are closed objects:
 {"kind":"reply_comment","comment_id":"3","text":"Agreed, subject to receipt of a valid invoice."}
 {"kind":"set_comment_resolved","comment_id":"3","resolved":true}
 {"kind":"delete_comment","comment_id":"3"}
+{"kind":"delete_comment_reply","comment_id":"4"}
+{"kind":"delete_comment_thread","comment_id":"3","member_comment_ids":["3","4"]}
 ```
 
 Replace `{}` with the complete reference from inspection. Operations execute
 in the listed order against one in-memory candidate. References identify the
 original snapshot's paragraphs; exact text matches address the current reading
 at that step. Thus a batch can replace text and then comment on the replacement.
+
+`delete_comment_reply` removes only the selected own leaf reply. It can belong
+to another author's root thread; that root and other replies remain unchanged.
+`delete_comment_thread` requires the root ID and all current member IDs, with
+no duplicates or omissions. Its preview lists every removed message, author
+and date. Every member must belong to the selected configured own profile;
+a foreign reply prevents deleting the entire thread. Read the thread and show
+the complete deletion plan before saving. Neither resolving a thread nor a
+general request to handle comments authorizes deleting it. These operations
+remove supported plain comment bodies, their exact anchors and their linked
+modern metadata; rich bodies and unknown structures refuse the whole batch.
 An empty `new_text` deletes the matched text. `replace_paragraph` requires
 `old_text` to equal the complete current reading, including earlier operations
 in the batch. Its default `mode="minimal"` compares words, punctuation and

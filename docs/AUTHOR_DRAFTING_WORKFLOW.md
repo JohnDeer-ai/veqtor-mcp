@@ -51,6 +51,14 @@ user's own thread. Do not infer closure from a reply, an accepted textual edit
 or an instruction to handle comments generally. If a resolved thread needs a
 new reply, request reopening unless already authorized.
 
+Deleting a reply or a thread is also a separate decision. Read the current
+thread, show every selected message with its author and date in preflight,
+and establish approval for that deletion. Use `delete_comment_reply` only for
+an own reply with no dependent replies. Use `delete_comment_thread` only for
+a root with its explicit complete `member_comment_ids`, all belonging to the
+selected own profile. A foreign reply blocks whole-thread deletion. Resolving
+a thread or replying to it does not authorize removing its history.
+
 ## 3. Preflight the approved plan
 
 Call `preflight_document_edits` with the exact current source hash, selected
