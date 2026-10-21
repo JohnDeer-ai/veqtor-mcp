@@ -49,12 +49,13 @@ DECISION_INPUT = obj(kind={"const": "decide_revision"},
                      decision={"enum": ["accept", "reject"]}, target=DECISION_TARGET)
 DECISION_PREVIEW = obj(
     operation={"const": "decide_revision"}, decision={"enum": ["accept", "reject"]},
-    revision_kind={"enum": ["ins", "del", "replacement", "rPrChange", "pPrChange", "tcPrChange", "trPrChange", "tblPrChange", "tblGridChange"]},
+    revision_kind={"enum": ["ins", "del", "replacement", "rPrChange", "pPrChange", "tcPrChange", "trPrChange", "tblPrChange", "tblGridChange", "tblPrExChange"]},
     members={"type": "array", "minItems": 1, "maxItems": 2,
              "items": obj(kind=TEXT, id=nullable(TEXT), author=nullable(TEXT), date=nullable(TEXT))},
     current_text=NEW_TEXT, accepted_text=nullable(NEW_TEXT), rejected_text=nullable(NEW_TEXT),
     current_properties=nullable(NEW_TEXT), previous_properties=nullable(NEW_TEXT),
     accept_refusal_code=nullable(NONEMPTY), reject_refusal_code=nullable(NONEMPTY),
+    fixed_width_validation_scope={"enum": ["not_applicable", "single_outcome", "explicit_batch_final_state"]},
 )
 _REPLACE_PARAGRAPH_INPUT = obj(
     kind={"const": "replace_paragraph"}, paragraph_ref=PARAGRAPH_REF_SCHEMA,

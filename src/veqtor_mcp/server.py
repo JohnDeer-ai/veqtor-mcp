@@ -1923,7 +1923,8 @@ def preflight_document_edits(source_path: str, file_sha256: DraftingShaInput,
     run in order. decide_revision requires an explicitly authorized accept/reject
     decision and target from read_document_revisions: single revision_ref or an
     explicit adjacent deletion_ref/insertion_ref replacement pair. All six
-    property kinds are supported within their validated domains. Overlapping
+    property kinds and explicit row-level tblPrExChange companions are supported
+    within their validated domains; no companions are selected automatically. Overlapping
     edits/decisions require separate saves and fresh references. These decisions
     remove only selected history; they do not reauthor revisions or add new ones.
     Use paragraph_ref from inspect_document for replace_text

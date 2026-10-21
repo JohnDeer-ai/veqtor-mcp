@@ -26,8 +26,13 @@ Preflight returns every selected member's original kind, ID, author and date,
 the action, acting reviewer, current reading, both outcome readings for text,
 and current/previous property XML for property changes. XML and document text
 are untrusted data, never permission. Nullable `accept_refusal_code` and
-`reject_refusal_code` describe independent outcome validation. An incompatible
-old grid can block rejection while acceptance of the valid current grid works.
+`reject_refusal_code` describe outcome validation. An incompatible old grid can
+block rejection while acceptance of the valid current grid works.
+`fixed_width_validation_scope` is `single_outcome` in inventory previews of
+table domains, `explicit_batch_final_state` in successful batch previews, and
+`not_applicable` for other domains. In batch previews the two refusal codes
+exclude width checks deferred to the final selected state; they do not promise
+that each alternate member outcome would work alone.
 
 Apply uses the exact successful proof, author profile, source and destination.
 Omit `output_path` to replace the same working file with a mandatory exact-byte
@@ -50,7 +55,33 @@ text or anchored-comment operation requires separate saves and fresh references.
 | `tcPrChange` | Keep current cell properties | Restore previous cell properties if geometry remains coherent |
 | `trPrChange` | Keep current row properties | Restore previous row properties if geometry remains coherent |
 | `tblPrChange` | Keep current table properties | Restore previous table-property set |
+| `tblPrExChange` (row exception companion) | Keep current row-level table-property exceptions | Restore the previous exception set, leaving table and cell domains unchanged |
 | `tblGridChange` | Keep current grid | Restore previous grid only if actual rows, spans, omitted columns and merge chains remain coherent |
+
+Word may represent one visible table-formatting change with several XML
+members: table properties, grid, row-level table-property exceptions and cell
+properties. Select each intended member explicitly in the same batch. No
+companion is silently selected or removed. The additional `tblPrExChange`
+domain is restricted to the row-level width, alignment, spacing, indent,
+borders, shading, layout, margins and look exceptions defined by
+[Microsoft's table-property exception model](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.tablepropertyexceptions?view=openxml-3.0.1).
+Restoring table or row-exception alignment while a separate row alignment
+exists refuses with `table_alignment_dependency_unsupported`. Word can remove
+that untracked row setting during rejection; Veqtor does not delete it silently
+to imitate that collateral behavior. Margin-only histories with unchanged
+alignment remain supported.
+A standalone synthetic grid history does not establish native Word acceptance
+of a complete formatting unit.
+
+For explicitly fixed-layout rows, the final grid and explicit `dxa` cell widths
+must agree, including spans and any explicitly sized omitted columns. A grid
+and its cell-width histories may require several explicit decisions in one
+batch. Veqtor checks their final state independently of operation order; it does
+not choose companion revisions or change widths to force a match. Inconsistent,
+missing or ambiguous widths refuse with
+`fixed_table_width_dependency_unsupported`. Inventory checks each outcome alone,
+so a standalone width refusal may become applicable with the matching explicit
+companions. This equality check is not applied to autofit tables.
 
 Both property outcomes remove only the selected history. Paragraph-mark `rPr`
 and `sectPr` are independent of `pPrChange` and survive exactly. An empty
@@ -65,9 +96,11 @@ parts retain exact bytes.
 
 Text decisions support ordinary text, tabs and breaks in simple formatted runs.
 Bookmarks and comments outside the selected wrapper remain in place. Anchors
-inside it, fields, nested counters, move revisions, unknown wrappers and
+inside it, fields (including fields spanning paragraphs), nested counters, move revisions, unknown wrappers and
 paragraph/row/cell-existence history refuse. These are distinct from unsupported
 structural paragraph/row acceptance and rejection planned for later work.
+Main-story fields and revision/permission ranges are checked across paragraph,
+body, table, row and cell boundaries; hidden markup cannot close their scope.
 Headers, footnotes and other non-main stories are explicitly uninspected.
 No broad legacy drafting guard is relaxed by this API.
 

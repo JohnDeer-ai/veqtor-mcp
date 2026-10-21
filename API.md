@@ -266,7 +266,10 @@ Read exact revisions from the main document part without writing. Inputs are
 `path`, optional `file_sha256`, `offset=0`, `max_items=100`. Supply the first
 page's hash on later pages. The closed `document_revisions.v1` result includes
 `revision_ref.v1` references, original nullable ID/author/date, supported/refusal
-status, current/previous properties, and independent accept/reject previews.
+status, current/previous properties, and accept/reject previews. Table previews
+state whether fixed-width dependencies were checked for one outcome or for the
+final explicitly selected batch. The six property domains also support explicit
+row-level `tblPrExChange` companions in Word table-formatting units.
 `coverage="main_document_only"` and `uninspected_parts` disclose the coverage;
 headers, footnotes and other stories are not silently declared revision-free.
 

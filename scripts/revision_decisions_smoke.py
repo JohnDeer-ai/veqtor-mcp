@@ -49,6 +49,11 @@ CASES = {
         '<w:tblW w:w="4800" w:type="dxa"/><w:jc w:val="center"/>',
         '<w:tblW w:w="5000" w:type="dxa"/><w:jc w:val="left"/>',
     ),
+    "tblPrExChange": (
+        "tblPrEx",
+        '<w:tblCellMar><w:top w:w="0" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/></w:tblCellMar>',
+        '<w:tblCellMar><w:top w:w="0" w:type="dxa"/><w:left w:w="0" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="0" w:type="dxa"/></w:tblCellMar>',
+    ),
     "tblGridChange": (
         "tblGrid",
         '<w:gridCol w:w="2000"/><w:gridCol w:w="2800"/>',
@@ -110,6 +115,7 @@ def source_document(kind):
         owner = {
             "tcPrChange": cells[0],
             "trPrChange": row,
+            "tblPrExChange": row,
             "tblPrChange": table,
             "tblGridChange": table,
         }[kind]

@@ -710,6 +710,8 @@ def _prepare(
         for index, op in enumerate(operations) if op["kind"] == "decide_revision"
     }
     decision_regions = {i: decisions.decision_region(nodes) for i, nodes in decision_nodes.items()}
+    decision_tables = {i: table for i, nodes in decision_nodes.items()
+                       if (table := decisions.decision_table(nodes)) is not None}
     # Resolve all addresses before any mutation. A batch cannot retarget a
     # decision because an earlier edit shifted XML positions or changed text.
     comment_rows = read_comments(parts, document) if decision_nodes and any(
@@ -760,9 +762,9 @@ def _prepare(
             if kind == "decide_revision":
                 before_decision = copy.deepcopy(document)
                 expected_patch, _, expected_facts = decisions.plan_decision(
-                    document, decision_nodes[index], op["decision"], parts)
+                    document, decision_nodes[index], op["decision"], parts, True)
                 patch, applied = decisions.apply_decision(
-                    document, decision_nodes[index], op["decision"], parts)
+                    document, decision_nodes[index], op["decision"], parts, True)
                 if (patch.parent is not expected_patch.parent or patch.index != expected_patch.index
                     or [etree.tostring(n) for n in patch.before] != [etree.tostring(n) for n in expected_patch.before]
                     or [etree.tostring(n) for n in patch.after] != [etree.tostring(n) for n in expected_patch.after]
@@ -925,6 +927,16 @@ def _prepare(
                     revisions_before, document, mutable_revision, applied, author, timestamp
                 )
             result.append({"index": index, **applied})
+        except DocxError as exc:
+            if hasattr(exc, "metadata"):
+                exc.metadata["operation_index"] = index
+            raise
+    # Width-only companion decisions can be individually inconsistent while
+    # their explicitly selected final state is coherent. Validate that state
+    # before serialization, without selecting or modifying any other history.
+    for index, table in decision_tables.items():
+        try:
+            decisions.validate_fixed_table_widths(table)
         except DocxError as exc:
             if hasattr(exc, "metadata"):
                 exc.metadata["operation_index"] = index

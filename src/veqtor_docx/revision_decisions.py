@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Snapshot-addressed revision decisions; no filesystem publication or authority.
 
-The six property domains are distinct. In particular, pPrChange does not own
+The six property domains and row-level table-property exceptions are distinct. In particular, pPrChange does not own
 paragraph-mark rPr or sectPr. A decision never creates/relabels a revision.
 Exact before/after patches support a second, independent collateral proof.
 """
@@ -42,6 +42,7 @@ PROPERTY_KINDS = (
     "trPrChange",
     "tblPrChange",
     "tblGridChange",
+    "tblPrExChange",
 )
 REF_KEYS = frozenset(
     {
@@ -62,16 +63,20 @@ _PROPERTY_OWNERS = {
     "trPrChange": {w("tr")},
     "tblPrChange": {w("tbl")},
     "tblGridChange": {w("tbl")},
+    "tblPrExChange": {w("tr")},
 }
 _RPR = "rStyle rFonts b bCs i iCs caps smallCaps strike dstrike outline shadow emboss imprint noProof snapToGrid vanish webHidden color spacing w kern position sz szCs highlight u effect bdr shd fitText vertAlign rtl cs em lang eastAsianLayout specVanish oMath"
 _PPR = "pStyle keepNext keepLines pageBreakBefore framePr widowControl numPr suppressLineNumbers pBdr shd tabs suppressAutoHyphens kinsoku wordWrap overflowPunct topLinePunct autoSpaceDE autoSpaceDN bidi adjustRightInd snapToGrid spacing ind contextualSpacing mirrorIndents suppressOverlap jc textDirection textAlignment textboxTightWrap outlineLvl divId cnfStyle"
 _TCPR = "cnfStyle tcW gridSpan hMerge vMerge tcBorders shd noWrap tcMar textDirection tcFitText vAlign hideMark headers"
 _TRPR = "cnfStyle divId gridBefore gridAfter wBefore wAfter trHeight hidden cantSplit tblHeader tblCellSpacing jc"
 _TBLPR = "tblStyle tblpPr tblOverlap bidiVisual tblStyleRowBandSize tblStyleColBandSize tblW jc tblCellSpacing tblInd tblBorders shd tblLayout tblCellMar tblLook tblCaption tblDescription"
+_TBLPREX = "tblW jc tblCellSpacing tblInd tblBorders shd tblLayout tblCellMar tblLook"
 _DOMAINS = {
     kind: frozenset(w(n) for n in names.split())
     for kind, names in zip(
-        PROPERTY_KINDS, (_RPR, _PPR, _TCPR, _TRPR, _TBLPR, "gridCol"), strict=True
+        PROPERTY_KINDS,
+        (_RPR, _PPR, _TCPR, _TRPR, _TBLPR, "gridCol", _TBLPREX),
+        strict=True,
     )
 }
 
@@ -339,36 +344,84 @@ def _main_context(root, owner):
                     "revision_dependency_unsupported",
                     "target belongs to a structural revision",
                 )
-    # Permission and move ranges may begin outside the selected paragraph.
+    # Fields, permission and move ranges may begin outside the selected
+    # paragraph. Hidden textbox/property markup must never close story state.
     canonical = {
         n
         for item in flow.paragraphs
         for n in iter_canonical_paragraph_nodes(item.element)
     }
+    # Range markers may be direct body/table/row/cell children as well as
+    # inline paragraph children. Include only canonical block ancestry.
+    for paragraph in flow.paragraphs:
+        for ancestor in paragraph.element.iterancestors():
+            canonical.add(ancestor)
+            if ancestor is body:
+                break
     active = set()
+    seen = set()
+    fields = []
     for event, item in etree.iterwalk(body, events=("start", "end")):
-        if event == "start" and item is owner and active:
+        if event == "start" and item is owner and (active or fields):
             _fail(
                 "revision_dependency_unsupported",
-                "a permission or revision range encloses the target",
+                "a field, permission or revision range encloses the target",
             )
         if event != "start" or item.getparent() not in canonical:
             continue
         name = etree.QName(item).localname if isinstance(item.tag, str) else ""
+        if item.tag in {w("fldChar"), w("instrText"), w("fldSimple")}:
+            if overlaps(owner, item):
+                _fail("revision_dependency_unsupported", "a field touches the target")
+            if item.tag == w("fldSimple"):
+                continue
+            if item.tag == w("instrText"):
+                if not fields or fields[-1]:
+                    _fail(
+                        "revision_dependency_unsupported", "unscoped field instructions"
+                    )
+                continue
+            kind = item.get(w("fldCharType"))
+            if kind == "begin":
+                fields.append(False)
+            elif kind == "separate" and fields and not fields[-1]:
+                fields[-1] = True
+            elif kind == "end" and fields:
+                fields.pop()
+            else:
+                _fail(
+                    "revision_dependency_unsupported",
+                    "malformed main-story field boundaries",
+                )
+            continue
         if name in {"permStart", "permEnd"} or (
             item.tag in _REVISION_TAGS and "Range" in name
         ):
+            identity = item.get(w("id"), "")
+            if not identity.isascii() or not identity.isdecimal() or len(identity) > 10:
+                _fail(
+                    "revision_dependency_unsupported",
+                    "invalid main-story range identity",
+                )
             base = name.removesuffix("Start").removesuffix("End")
-            key = (base, item.get(w("id")))
-            if name.endswith("Start"):
+            key = (base, str(int(identity)))
+            if name.endswith("Start") and key not in seen:
                 active.add(key)
+                seen.add(key)
+            elif name.endswith("End") and key in active:
+                active.remove(key)
             else:
-                active.discard(key)
+                _fail(
+                    "revision_dependency_unsupported",
+                    "malformed main-story range boundaries",
+                )
             if overlaps(owner, item):
                 _fail(
                     "revision_dependency_unsupported",
                     "a permission or revision range touches the target",
                 )
+    if fields or active:
+        _fail("revision_dependency_unsupported", "unclosed main-story field or range")
 
 
 def _validate_text(root, nodes):
@@ -487,12 +540,19 @@ def _validate_property(root, node):
                     "property history contains an unknown or dependent change",
                 )
         tags = [n.tag for n in current if n is not node and n.tag not in preserved]
-        if kind in {"rPrChange", "pPrChange", "tcPrChange", "tblPrChange"}:
+        if kind in {
+            "rPrChange",
+            "pPrChange",
+            "tcPrChange",
+            "tblPrChange",
+            "tblPrExChange",
+        }:
             names = {
                 "rPrChange": _RPR,
                 "pPrChange": _PPR,
                 "tcPrChange": _TCPR,
                 "tblPrChange": _TBLPR,
+                "tblPrExChange": _TBLPREX,
             }[kind]
             order = [w(n) for n in names.split()]
             if tags != sorted(tags, key=order.index):
@@ -510,6 +570,17 @@ def _validate_property(root, node):
 
 def _grid(table):
     """Validate row coverage and merge topology against the resulting XML grid."""
+    from .table_map import _integer, _merge, _merge_issues
+
+    def geometry(props, kind):
+        if kind == w("trPrChange"):
+            return (_integer(props, "gridBefore", 0), _integer(props, "gridAfter", 0))
+        return (
+            _integer(props, "gridSpan", 1),
+            _merge(props, "hMerge"),
+            _merge(props, "vMerge"),
+        )
+
     for node in table.iter():
         if node.tag in {w("cellIns"), w("cellDel"), w("cellMerge")} or (
             node.tag in {w("ins"), w("del")} and node.getparent().tag == w("trPr")
@@ -518,22 +589,18 @@ def _grid(table):
                 "revision_dependency_unsupported",
                 "grid depends on a pending row or cell existence change",
             )
-        if node.tag in {w("tcPrChange"), w("trPrChange")}:
-            geometry = {
-                w(n)
-                for n in ("gridSpan", "hMerge", "vMerge", "gridBefore", "gridAfter")
-            }
-            current = [_xml(n) for n in node.getparent() if n.tag in geometry]
-            old = (
-                [_xml(n) for n in node[0] if n.tag in geometry]
-                if len(node) == 1
-                else None
+        # Word may materialize an unchanged default in previous properties:
+        # absent gridAfter and gridAfter=0 are the same geometry. Validate
+        # both forms, then compare effective values; preserve all XML exactly.
+        if node.tag in {w("tcPrChange"), w("trPrChange")} and (
+            len(node) != 1
+            or node[0].tag != node.getparent().tag
+            or geometry(node.getparent(), node.tag) != geometry(node[0], node.tag)
+        ):
+            _fail(
+                "revision_dependency_unsupported",
+                "grid depends on an unselected geometry revision",
             )
-            if current != old:
-                _fail(
-                    "revision_dependency_unsupported",
-                    "grid depends on an unselected geometry revision",
-                )
     grids = table.findall(w("tblGrid"))
     if len(grids) != 1 or not grids[0].findall(w("gridCol")):
         _fail("table_grid_incompatible", "table has no unique nonempty grid")
@@ -544,8 +611,6 @@ def _grid(table):
         width = col.get(w("w"))
         if width is not None and (not width.isascii() or not width.isdecimal()):
             _fail("table_grid_incompatible", "invalid column width")
-    from .table_map import _integer, _merge, _merge_issues
-
     if any(child.tag not in {w("tblPr"), w("tblGrid"), w("tr")} for child in table):
         _fail(
             "table_grid_incompatible",
@@ -587,6 +652,116 @@ def _grid(table):
         _fail(
             "table_grid_incompatible",
             "restored properties do not match the existing merge chains",
+        )
+
+
+def decision_table(nodes):
+    """Return the unchanged table owner for a selected table-property domain."""
+    if etree.QName(nodes[0]).localname not in {
+        "tcPrChange",
+        "trPrChange",
+        "tblPrChange",
+        "tblPrExChange",
+        "tblGridChange",
+    }:
+        return None
+    return next(nodes[0].iterancestors(w("tbl")), None)
+
+
+def validate_fixed_table_widths(table):
+    """Prove explicit fixed-layout widths in the final selected batch state.
+
+    A grid history may require explicitly selected cell histories. Word can
+    otherwise regenerate the grid from inconsistent preferred cell widths.
+    Autofit widths deliberately have no such equality requirement.
+    """
+    from .table_map import _integer
+
+    layout = table.find(f"{w('tblPr')}/{w('tblLayout')}")
+    layout_type = layout.get(w("type")) if layout is not None else None
+    fixed_rows = []
+    for row in table.findall(w("tr")):
+        override = row.find(f"{w('tblPrEx')}/{w('tblLayout')}")
+        effective = override.get(w("type")) if override is not None else layout_type
+        if effective == "fixed":
+            fixed_rows.append(row)
+    if not fixed_rows:
+        return
+    _grid(table)
+
+    def width(node, *, typed=True):
+        value = node.get(w("w")) if node is not None else None
+        if (
+            value is None
+            or len(value) > 10
+            or not value.isascii()
+            or not value.isdecimal()
+            or int(value) <= 0
+            or (typed and node.get(w("type")) != "dxa")
+        ):
+            _fail(
+                "fixed_table_width_dependency_unsupported",
+                "fixed-layout widths require explicit positive twip values",
+            )
+        return int(value)
+
+    columns = [
+        width(n, typed=False) for n in table.find(w("tblGrid")).findall(w("gridCol"))
+    ]
+    for row in fixed_rows:
+        props = row.find(w("trPr"))
+        before = _integer(props, "gridBefore", 0)
+        after = _integer(props, "gridAfter", 0)
+        cursor = before
+        for cell in row.findall(w("tc")):
+            cp = cell.find(w("tcPr"))
+            span = _integer(cp, "gridSpan", 1)
+            widths = cp.findall(w("tcW")) if cp is not None else []
+            if len(widths) != 1 or width(widths[0]) != sum(
+                columns[cursor : cursor + span]
+            ):
+                _fail(
+                    "fixed_table_width_dependency_unsupported",
+                    "fixed-layout grid and explicit cell widths disagree",
+                )
+            cursor += span
+        for omitted, name, expected in (
+            (before, "wBefore", sum(columns[:before])),
+            (after, "wAfter", sum(columns[len(columns) - after :]) if after else 0),
+        ):
+            if omitted and width(props.find(w(name))) != expected:
+                _fail(
+                    "fixed_table_width_dependency_unsupported",
+                    "fixed-layout omitted-column width disagrees with the grid",
+                )
+
+
+def _alignment_dependency(node, action, kind):
+    if action != "reject" or kind not in {"tblPrChange", "tblPrExChange"}:
+        return
+    current = node.getparent().find(w("jc"))
+    previous = node[0].find(w("jc"))
+    current_value = dict(current.attrib) if current is not None else None
+    previous_value = dict(previous.attrib) if previous is not None else None
+    if current_value == previous_value:
+        return
+    owner = node.getparent().getparent()
+    rows = (
+        [owner]
+        if kind == "tblPrExChange"
+        else [
+            row
+            for row in owner.iter(w("tr"))
+            if next(row.iterancestors(w("tbl")), None) is owner
+        ]
+    )
+    if any(row.find(f"{w('trPr')}/{w('jc')}") is not None for row in rows):
+        # Native Word can also remove an untracked row alignment when rejecting
+        # its table-format unit. Such collateral is outside the selected XML
+        # histories; never invent a deletion merely to reproduce Word's result.
+        _fail(
+            "table_alignment_dependency_unsupported",
+            "restoring table alignment conflicts with an independent row alignment",
         )
 
 
@@ -637,9 +812,13 @@ class DecisionPatch:
 
     def reverse(self, parent):
         present = list(parent)[self.index : self.index + len(self.after)]
-        if [etree.tostring(n) for n in present] != [
-            etree.tostring(n) for n in self.after
-        ]:
+        # Detached deepcopy retains required namespace declarations; attached
+        # Word nodes inherit many more. Put the expected nodes in the SAME
+        # namespace context, then keep exact serialization comparison (including
+        # comments, tails and any unexpected local namespace declaration).
+        context = etree.Element("comparison", nsmap=parent.nsmap)
+        context.extend(copy.deepcopy(self.after))
+        if [etree.tostring(n) for n in present] != [etree.tostring(n) for n in context]:
             _fail(
                 "round_trip_failed",
                 "decided revision differs from its verified postimage",
@@ -659,7 +838,7 @@ def _property_view(props, kind):
     return value
 
 
-def plan_decision(root, nodes, decision, parts):
+def plan_decision(root, nodes, decision, parts, defer_fixed_widths=False):
     """Describe both outcomes, validate dependencies independently, select one."""
     if decision not in ("accept", "reject"):
         _fail("invalid_edit", "decision must be accept or reject")
@@ -683,6 +862,7 @@ def plan_decision(root, nodes, decision, parts):
     for action in ("accept", "reject"):
         result = _outcome(nodes, action, kind)
         try:
+            _alignment_dependency(nodes[0], action, kind)
             if kind in PROPERTY_KINDS:
                 # Inspect on a disposable complete document: style and grid
                 # dependencies are rooted outside the property subtree itself.
@@ -701,6 +881,12 @@ def plan_decision(root, nodes, decision, parts):
                     "tblGridChange",
                 }:
                     _grid(table)
+                if (
+                    table is not None
+                    and decision_table(nodes) is not None
+                    and not defer_fixed_widths
+                ):
+                    validate_fixed_table_widths(table)
                 paragraphs = (
                     [owner] if owner.tag == w("p") else list(owner.iter(w("p")))
                 )
@@ -719,6 +905,11 @@ def plan_decision(root, nodes, decision, parts):
             "the selected outcome has an unsupported property dependency",
         )
     facts = {
+        "fixed_width_validation_scope": (
+            "explicit_batch_final_state" if defer_fixed_widths else "single_outcome"
+        )
+        if decision_table(nodes) is not None
+        else "not_applicable",
         "accept_refusal_code": refusals["accept"],
         "reject_refusal_code": refusals["reject"],
         "operation": "decide_revision",
@@ -761,8 +952,10 @@ def plan_decision(root, nodes, decision, parts):
     )
 
 
-def apply_decision(root, nodes, decision, parts):
-    patch, chosen, facts = plan_decision(root, nodes, decision, parts)
+def apply_decision(root, nodes, decision, parts, defer_fixed_widths=False):
+    patch, chosen, facts = plan_decision(
+        root, nodes, decision, parts, defer_fixed_widths
+    )
     present = list(patch.parent)[patch.index : patch.index + len(patch.before)]
     _replace_span(patch.parent, patch.index, present, chosen)
     return patch, facts
