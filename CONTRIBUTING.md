@@ -26,10 +26,10 @@ Before submitting a development change, run:
 
 ### Development checks
 
-CI and CodeQL run for pull requests targeting `main` or the current stacked
-development base `codex/drafting-060`. Website checks use those same bases when
-their existing path filters match. Push checks remain limited to `main`.
-These checks do not publish a release or change the separate promotion process.
+CI and CodeQL run for pull requests targeting `main`. Website checks use the
+same base when their existing path filters match. Push checks remain limited
+to `main`. These checks do not publish a release or change the separate
+promotion process.
 
 ```bash
 uv lock --check

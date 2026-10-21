@@ -309,7 +309,7 @@ def test_ci_runs_once_per_change_and_exposes_one_required_gate() -> None:
 
     assert re.search(
         r"on:\n  push:\n    branches: \[main\]\n"
-        r"  pull_request:\n    branches: \[main, codex/drafting-060\]\n  workflow_call:",
+        r"  pull_request:\n    branches: \[main\]\n  workflow_call:",
         workflow,
     )
     assert set(jobs) == {
@@ -727,7 +727,7 @@ def test_release_job_graph_has_one_root_and_orders_all_publication() -> None:
 
 
 @pytest.mark.parametrize("filename", ["ci.yml", "codeql.yml", "website.yml"])
-def test_stacked_pull_requests_preserve_check_only_workflow_triggers(filename: str) -> None:
+def test_main_pull_requests_preserve_check_only_workflow_triggers(filename: str) -> None:
     workflow = (ROOT / ".github/workflows" / filename).read_text()
     triggers = workflow.split("\non:\n", 1)[1].split("\npermissions:\n", 1)[0]
     events = {}
@@ -747,7 +747,7 @@ def test_stacked_pull_requests_preserve_check_only_workflow_triggers(filename: s
         if filename == "website.yml" else ""
     )
     assert events["push"] == "    branches: [main]" + paths
-    assert events["pull_request"] == "    branches: [main, codex/drafting-060]" + paths
+    assert events["pull_request"] == "    branches: [main]" + paths
     assert "\npermissions:\n  contents: read\n" in workflow
     assert "contents: write" not in workflow
     assert "id-token: write" not in workflow

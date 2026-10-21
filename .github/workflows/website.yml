@@ -9,7 +9,7 @@ on:
       - "website/**"
       - ".github/workflows/website.yml"
   pull_request:
-    branches: [main, codex/drafting-060]
+    branches: [main]
     paths:
       - "website/**"
       - ".github/workflows/website.yml"
