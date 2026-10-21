@@ -33,6 +33,29 @@ NEW_TEXT = {"type": "string", "maxLength": 20_000}
 LOCK_REASON = {"const": "owner_not_proven_dead"}
 TIMESTAMP = {"type": "string", "minLength": 20, "maxLength": 25,
              "pattern": "^" + DRAFTING_TIMESTAMP_PATTERN + r"(?![\s\S])"}
+REVISION_REF = obj(
+    schema_version={"const": "revision_ref.v1"}, file_sha256=SHA,
+    part_name={"const": "word/document.xml"},
+    element_path={"type": "array", "minItems": 1, "maxItems": 64,
+                  "items": {"type": "integer", "minimum": 0, "maximum": 1_000_000}},
+    element_sha256=SHA, owner_sha256=SHA,
+    fingerprint_policy={"const": "element_c14n_without_comments_v1"},
+)
+DECISION_TARGET = {"oneOf": [
+    obj(kind={"const": "single"}, revision_ref=REVISION_REF),
+    obj(kind={"const": "replacement"}, deletion_ref=REVISION_REF, insertion_ref=REVISION_REF),
+]}
+DECISION_INPUT = obj(kind={"const": "decide_revision"},
+                     decision={"enum": ["accept", "reject"]}, target=DECISION_TARGET)
+DECISION_PREVIEW = obj(
+    operation={"const": "decide_revision"}, decision={"enum": ["accept", "reject"]},
+    revision_kind={"enum": ["ins", "del", "replacement", "rPrChange", "pPrChange", "tcPrChange", "trPrChange", "tblPrChange", "tblGridChange"]},
+    members={"type": "array", "minItems": 1, "maxItems": 2,
+             "items": obj(kind=TEXT, id=nullable(TEXT), author=nullable(TEXT), date=nullable(TEXT))},
+    current_text=NEW_TEXT, accepted_text=nullable(NEW_TEXT), rejected_text=nullable(NEW_TEXT),
+    current_properties=nullable(NEW_TEXT), previous_properties=nullable(NEW_TEXT),
+    accept_refusal_code=nullable(NONEMPTY), reject_refusal_code=nullable(NONEMPTY),
+)
 _REPLACE_PARAGRAPH_INPUT = obj(
     kind={"const": "replace_paragraph"}, paragraph_ref=PARAGRAPH_REF_SCHEMA,
     old_text=NEW_TEXT, new_text=NEW_TEXT,
@@ -41,6 +64,7 @@ _REPLACE_PARAGRAPH_INPUT["properties"]["mode"] = {
     "enum": ["minimal", "whole"], "default": "minimal",
 }
 OPERATIONS = {"type": "array", "minItems": 1, "maxItems": 100, "items": {"oneOf": [
+    DECISION_INPUT,
     obj(kind={"const": "replace_text"}, paragraph_ref=PARAGRAPH_REF_SCHEMA,
         old_text=NONEMPTY, new_text=NEW_TEXT),
     _REPLACE_PARAGRAPH_INPUT,
@@ -176,13 +200,25 @@ _REPLACE_PARAGRAPH = obj(
     steps={"type": "array", "minItems": 1, "maxItems": MAX_PARAGRAPH_EDIT_STEPS,
            "items": _PARAGRAPH_STEP},
 )
+_DECISION_APPLIED = obj(**DECISION_PREVIEW["properties"], index=_INDEX,
+                        target=DECISION_TARGET, actor_profile=AUTHOR_PROFILE)
 _APPLIED = {"type": "array", "maxItems": 100,
             "items": {"oneOf": [_TEXT_OPERATION, _COMMENT_OPERATION,
-                              _INSERT_PARAGRAPH, _REPLACE_PARAGRAPH]}}
+                              _INSERT_PARAGRAPH, _REPLACE_PARAGRAPH, _DECISION_APPLIED]}}
 COMMENTS_RESULT = obj(**_COMMON, source_path=TEXT, file_sha256=SHA,
                       comments={"type": "array", "maxItems": 100, "items": _COMMENT},
                       total_count={"type": "integer", "minimum": 0},
                       next_offset=nullable({"type": "integer", "minimum": 0}))
+REVISIONS_RESULT = obj(
+    **{**_COMMON, "schema_version": {"const": "document_revisions.v1"}},
+    source_path=TEXT, file_sha256=SHA,
+    revisions={"type": "array", "maxItems": 100, "items": obj(
+        revision_ref=REVISION_REF, kind=TEXT, id=nullable(TEXT), author=nullable(TEXT), date=nullable(TEXT),
+        supported={"type": "boolean"}, refusal_code=nullable(TEXT), preview=nullable(DECISION_PREVIEW))},
+    total_count={"type": "integer", "minimum": 0, "maximum": 20_000},
+    next_offset=nullable({"type": "integer", "minimum": 0}),
+    coverage={"const": "main_document_only"}, uninspected_parts={"type": "array", "items": TEXT},
+)
 PREFLIGHT_RESULT = obj(**_COMMON, batch_applicable={"type": "boolean"}, source_sha256=SHA,
                        tracked_change_author=TEXT, comment_initials=TEXT, operations=_APPLIED,
                        preflight_proof=nullable(PROOF), refusal_code=nullable(TEXT),
@@ -205,7 +241,7 @@ APPLY_RESULT["allOf"] = [{
     "then": {"properties": {"backup_path": NONEMPTY, "backup_sha256": SHA}},
     "else": {"properties": {"backup_path": {"type": "null"}, "backup_sha256": {"type": "null"}}},
 }]
-for schema in (COMMENTS_RESULT, PREFLIGHT_RESULT, APPLY_RESULT):
+for schema in (COMMENTS_RESULT, REVISIONS_RESULT, PREFLIGHT_RESULT, APPLY_RESULT):
     schema[MCP_CONTRACT_SCHEMA_EXTENSION] = MCP_CONTRACT_SCHEMA_VERSION
 
 # Structured failures are part of the advertised wire contract too. In
@@ -232,6 +268,10 @@ APPLY_OUTPUT = {
     "type": "object", "oneOf": [APPLY_RESULT, DRAFTING_ERROR_RESULT],
     MCP_CONTRACT_SCHEMA_EXTENSION: MCP_CONTRACT_SCHEMA_VERSION,
 }
+
+
+class ReadDocumentRevisionsResult(_ContractResult):
+    contract_schema: ClassVar[dict[str, Any]] = REVISIONS_RESULT
 
 
 class ReadDocumentCommentsResult(_ContractResult):
