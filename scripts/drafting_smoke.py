@@ -38,6 +38,7 @@ EXPECTED_TOOLS = frozenset({
     "export_decision_record", "read_deal_positions", "mutate_deal_positions",
     "compare_incoming_version",
     "read_document_comments", "preflight_document_edits", "apply_document_edits",
+    "read_document_revisions",
 })
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 TITLE_FIRST = "Master Development and Supply Agreement"

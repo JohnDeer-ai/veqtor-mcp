@@ -12,6 +12,17 @@ Unreleased paragraph and comment-thread drafting candidate. This entry describes
 source behavior; it does not establish installation, native Word acceptance or
 public distribution.
 
+- Add `read_document_revisions` and explicit `decide_revision` accept/reject
+  operations, with exact file/part/location/fingerprint references. Support
+  isolated insertions, deletions, explicit adjacent replacements and all six
+  property domains (`rPr`, `pPr`, `tcPr`, `trPr`, `tblPr`, `tblGrid`) and explicit
+  row-level `tblPrEx` companions emitted by Word table formatting. Preserve
+  unrelated history and bind the acting reviewer separately from original authors.
+  Refuse dependent structural changes, ambiguous chains and incompatible restored
+  grids. Check fixed-layout grid/cell widths after the full explicit batch and
+  reject ambiguous untracked row-alignment dependencies. Main-story field and
+  permission/revision range guards cover block and cross-paragraph boundaries.
+  The action journal remains explicitly disabled in this private candidate.
 - Insert tracked paragraphs before/after a source paragraph and replace a whole
   supported paragraph using its complete current text as an exact guard.
   Default to minimal word/token changes while retaining unchanged run formatting;

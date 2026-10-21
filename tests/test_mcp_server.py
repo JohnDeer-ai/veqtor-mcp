@@ -61,6 +61,7 @@ EXPECTED_TOOL_NAMES = (
     "mutate_deal_positions",
     "compare_incoming_version",
     "read_document_comments",
+    "read_document_revisions",
     "preflight_document_edits",
     "apply_document_edits",
 )
@@ -1258,10 +1259,11 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
     async with Client(mcp) as session:
         tools = {tool.name: tool for tool in (await session.list_tools()).tools}
 
-    drafting_names = {"read_document_comments", "preflight_document_edits", "apply_document_edits", "compare_incoming_version"}
+    drafting_names = {"read_document_revisions", "read_document_comments", "preflight_document_edits", "apply_document_edits", "compare_incoming_version"}
     assert set(tools) == records.WRITABLE_TOOL_NAMES | {"read_deal_positions", "mutate_deal_positions"} | drafting_names
     expected_output_core.update({
         "compare_incoming_version": {"sources", "comparison_id", "items", "coverage", "pagination", "observations", "next_cursor"},
+        "read_document_revisions": {"file_sha256", "revisions", "total_count", "next_offset"},
         "read_document_comments": {"file_sha256", "comments", "total_count", "next_offset"},
         "preflight_document_edits": {"batch_applicable", "operations", "preflight_proof"},
         "apply_document_edits": {"output_path", "backup_path", "backup_sha256", "save_mode"},
@@ -2462,7 +2464,7 @@ async def test_tools_are_exposed_and_callable(demo_dir: Path) -> None:
         )
         assert runtime_tools == records.WRITABLE_TOOL_NAMES | {
             "read_deal_positions", "mutate_deal_positions", "read_document_comments",
-            "preflight_document_edits", "apply_document_edits", "compare_incoming_version",
+            "preflight_document_edits", "apply_document_edits", "compare_incoming_version", "read_document_revisions",
         }
         assert documented_tools == runtime_tools
         export_tool = next(

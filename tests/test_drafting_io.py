@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Publication safety for user-owned, repeatedly edited documents."""
 
+import ctypes
 import errno
 import hashlib
 import json
@@ -711,6 +712,30 @@ def test_long_unicode_filename_has_valid_backup_name(tmp_path: Path):
     assert source.read_bytes() == CANDIDATE
 
 
+def _darwin_acl_bytes(path: Path) -> bytes:
+    """Use acl_copy_ext(3)'s binary form, independent of directory name lookup."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    getter, size_of, copy_out, free = (
+        libc.acl_get_file, libc.acl_size, libc.acl_copy_ext, libc.acl_free,
+    )
+    getter.argtypes, getter.restype = (ctypes.c_char_p, ctypes.c_int), ctypes.c_void_p
+    size_of.argtypes, size_of.restype = (ctypes.c_void_p,), ctypes.c_ssize_t
+    copy_out.argtypes = (ctypes.c_void_p, ctypes.c_void_p, ctypes.c_ssize_t)
+    copy_out.restype = ctypes.c_ssize_t
+    free.argtypes, free.restype = (ctypes.c_void_p,), ctypes.c_int
+    acl = getter(os.fsencode(path), 0x100)  # ACL_TYPE_EXTENDED in sys/acl.h.
+    assert acl, ctypes.get_errno()
+    try:
+        size = size_of(acl)
+        assert size > 0, ctypes.get_errno()
+        buffer = ctypes.create_string_buffer(size)
+        count = copy_out(buffer, acl, size)
+        assert count == size, ctypes.get_errno()
+        return buffer.raw[:count]
+    finally:
+        assert free(acl) == 0
+
+
 @pytest.mark.skipif(sys.platform != "darwin", reason="native macOS extended ACL regression")
 @pytest.mark.parametrize("location", ["source", "copy_destination", "in_place_parent", "backup_directory"])
 def test_darwin_acl_is_refused_without_losing_permissions(source: Path, location: str):
@@ -731,19 +756,29 @@ def test_darwin_acl_is_refused_without_losing_permissions(source: Path, location
         protected.mkdir(mode=0o700)
         rule = "user:nobody deny read"
     subprocess.run(["chmod", "+a", rule, str(protected)], check=True, capture_output=True)
-    before_acl = subprocess.check_output(["ls", "-lde", str(protected)])
-    assert b"user:nobody" in before_acl
+    before_acl = _darwin_acl_bytes(protected)
     with pytest.raises(ApplyError) as error:
         _save(source, output)
     assert error.value.code == "unsupported_permissions"
     assert error.value.metadata["publication_completed"] is False
     assert source.read_bytes() == SOURCE
-    after_acl = subprocess.check_output(["ls", "-lde", str(protected)])
-    # ls's first line includes a size/mtime which directory staging can change;
-    # the actual native ACL entry must remain byte-for-byte identical.
-    assert after_acl.splitlines()[1:] == before_acl.splitlines()[1:]
+    # UUIDs, flags and permissions must remain byte-for-byte identical, even if
+    # a name lookup temporarily displays "nobody" as its UUID in ls output.
+    assert _darwin_acl_bytes(protected) == before_acl
     assert output is None or not output.exists()
     _no_temporary_files(source.parent)
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="native macOS extended ACL regression")
+def test_darwin_acl_binary_comparison_detects_changed_permission(source: Path):
+    rule = "user:nobody deny read"
+    subprocess.run(["chmod", "+a", rule, str(source)], check=True, capture_output=True)
+    before_acl = _darwin_acl_bytes(source)
+    assert _darwin_acl_bytes(source) == before_acl
+    subprocess.run(["chmod", "-a", rule, str(source)], check=True, capture_output=True)
+    subprocess.run(["chmod", "+a", "user:nobody deny write", str(source)],
+                   check=True, capture_output=True)
+    assert _darwin_acl_bytes(source) != before_acl
 
 
 @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="native Linux POSIX ACL regression")
