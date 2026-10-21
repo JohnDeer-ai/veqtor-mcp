@@ -6,9 +6,9 @@ This file defines the public tool surface. Output examples are part of the API
 because models use them to decide how to call tools and how to cite results.
 
 The current source defines the unreleased package candidate `0.6.0.dev1` and advertises the
-fourteen-tool MCP contract `veqtor.mcp.v0.6.0`. The three drafting tools
+fifteen-tool MCP contract `veqtor.mcp.v0.6.0`. The drafting tools
 are documented in [AUTHOR_DRAFTING.md](docs/AUTHOR_DRAFTING.md):
-`read_document_comments`, `preflight_document_edits`, `apply_document_edits`.
+`read_document_comments`, `read_document_revisions`, `preflight_document_edits`, `apply_document_edits`.
 They use `document_drafting.v1` and `drafting_preflight.v1`, support paragraph
 insertion/replacement and comment threads, permit intentional mutation of the
 selected author's pending insertions, and save back to the
@@ -47,7 +47,7 @@ transport teardown separately reaps the stdio server process.
 
 Every successful live tool response includes the same bounded `producer`
 object with `name`, package `version`, and the process-start Python source
-snapshot `build`. This applies to all fourteen tools, including read-only results
+snapshot `build`. This applies to all fifteen tools, including read-only results
 and decision-record export. Error envelopes are not successful tool results.
 `producer`, `record_id`, `record_status`, and `record_error` are server-owned;
 core tool results cannot supply them. `record_error` is present only with
@@ -260,9 +260,31 @@ Reply paragraph indexes come from the root anchor. `offset` and `max_items`
 provide bounded paging; compare hashes between pages. See the
 [drafting contract](docs/AUTHOR_DRAFTING.md#comments).
 
+## `read_document_revisions`
+
+Read exact revisions from the main document part without writing. Inputs are
+`path`, optional `file_sha256`, `offset=0`, `max_items=100`. Supply the first
+page's hash on later pages. The closed `document_revisions.v1` result includes
+`revision_ref.v1` references, original nullable ID/author/date, supported/refusal
+status, current/previous properties, and accept/reject previews.
+`supported=true` means at least one outcome is applicable on its own; inspect
+both outcome refusal codes. A readable preview remains present when both
+outcomes refuse. Its `decision` is a display default (accept when available,
+otherwise reject; accept when both refuse), never authorization or a selection.
+Table previews state whether fixed-width dependencies were checked for one
+outcome or for the final explicitly selected batch. The six property domains also support explicit
+row-level `tblPrExChange` companions in Word table-formatting units.
+`coverage="main_document_only"` and `uninspected_parts` disclose the coverage;
+headers, footnotes and other stories are not silently declared revision-free.
+
+A reference binds the full file hash, part, XML child-index path, exact revision
+fingerprint and immediate owner fingerprint. Word IDs and authors are display
+metadata; they do not select a revision. Reread after every save, including a
+Word save that only renumbers IDs. See [revision decisions](docs/REVISION_DECISIONS.md).
+
 ## `preflight_document_edits`
 
-Dry-run sequential text, paragraph and comment operations without writing files.
+Dry-run sequential text, paragraph, comment and selected revision decisions without writing files.
 `author_profile={"name":"Shilov, Ilya","initials":"IS"}` optionally selects the
 identity for this request; omitted/null uses the server default. Both profile
 fields are required and extra fields are refused. The pair must exactly match
@@ -275,6 +297,7 @@ The closed operation shapes are:
 
 | `kind` | Other required fields | Behavior |
 |---|---|---|
+| `decide_revision` | `decision`, `target` | Explicitly accept/reject one exact revision or an explicitly selected adjacent deletion/insertion pair. See the decision contract. |
 | `replace_text` | `paragraph_ref`, `old_text`, `new_text` | Replace one unique exact match in the current reading. |
 | `replace_paragraph` | `paragraph_ref`, `old_text`, `new_text` | Require the complete current reading to equal `old_text`; default optional `mode="minimal"` tracks changed word/token spans. Explicit `mode="whole"` replaces all text. |
 | `insert_paragraph` | `paragraph_ref`, `position`, `text` | Insert one tracked paragraph `before` or `after` the source paragraph. |

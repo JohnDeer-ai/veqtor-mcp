@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 
 from lxml import etree
 
+from . import revision_decisions as decisions
 from ._drafting_comments import (
     add_comment,
     comment_mutable_parts,
@@ -100,6 +101,7 @@ _TRACKING_PREDECESSORS = frozenset(
     )
 )
 _OP_KEYS = {
+    "decide_revision": {"kind", "target", "decision"},
     "replace_text": {"kind", "paragraph_ref", "old_text", "new_text"},
     "replace_paragraph": {"kind", "paragraph_ref", "old_text", "new_text"},
     "insert_paragraph": {"kind", "paragraph_ref", "position", "text"},
@@ -167,6 +169,11 @@ def _validate_operations(operations: object) -> list[dict]:
             raise ApplyError(
                 "invalid_edit", "operation fields do not match the drafting contract"
             )
+        if op["kind"] == "decide_revision":
+            decisions.validate_target(op["target"])
+            if op["decision"] not in ("accept", "reject"):
+                raise ApplyError("invalid_edit", "decision must be accept or reject")
+            continue
         if "paragraph_ref" in op:
             validate_paragraph_target(
                 {"kind": "paragraph", "paragraph_ref": op["paragraph_ref"]}
@@ -698,6 +705,39 @@ def _prepare(
             resolved[index] = _resolve_paragraph(
                 snapshot, op["paragraph_ref"]
             ).paragraph_index
+    decision_nodes = {
+        index: decisions.resolve_target(document, file_sha256, op["target"])
+        for index, op in enumerate(operations) if op["kind"] == "decide_revision"
+    }
+    decision_regions = {i: decisions.decision_region(nodes) for i, nodes in decision_nodes.items()}
+    decision_tables = {i: table for i, nodes in decision_nodes.items()
+                       if (table := decisions.decision_table(nodes)) is not None}
+    # Resolve all addresses before any mutation. A batch cannot retarget a
+    # decision because an earlier edit shifted XML positions or changed text.
+    comment_rows = read_comments(parts, document) if decision_nodes and any(
+        "comment_id" in op for op in operations) else []
+    for i, region in decision_regions.items():
+        for j, op in enumerate(operations):
+            if i == j:
+                continue
+            if j in decision_nodes:
+                left = [n.getparent() if n.tag in {w(k) for k in decisions.PROPERTY_KINDS} else n for n in decision_nodes[i]]
+                right = [n.getparent() if n.tag in {w(k) for k in decisions.PROPERTY_KINDS} else n for n in decision_nodes[j]]
+                if any(decisions.overlaps(a, b) for a in left for b in right):
+                    raise ApplyError("revision_operation_overlap", "selected revision domains overlap", operation_index=max(i, j))
+                continue
+            other = None
+            if j in resolved:
+                other = paragraphs[resolved[j]].element
+            regions = [other] if other is not None else []
+            if "comment_id" in op:
+                regions += [paragraphs[k].element for row in comment_rows
+                    if row["id"] == op["comment_id"] for k in row["paragraph_indexes"]]
+            if any(decisions.overlaps(region, item) for item in regions):
+                raise ApplyError("revision_operation_overlap",
+                    "decisions and overlapping operations require separate saves and fresh references",
+                    operation_index=max(i, j))
+    decision_patches = []
     source_elements = [p.element for p in paragraphs]
     source_all_elements = list(document.iter(w("p")))
     expected_elements = list(source_elements)
@@ -719,7 +759,37 @@ def _prepare(
             kind = op["kind"]
             revisions_before = _revision_state(document)
             mutable_revision = None
-            if kind in {"replace_text", "replace_paragraph", "insert_paragraph", "add_comment"}:
+            if kind == "decide_revision":
+                before_decision = copy.deepcopy(document)
+                expected_patch, _, expected_facts = decisions.plan_decision(
+                    document, decision_nodes[index], op["decision"], parts, True)
+                patch, applied = decisions.apply_decision(
+                    document, decision_nodes[index], op["decision"], parts, True)
+                if (patch.parent is not expected_patch.parent or patch.index != expected_patch.index
+                    or [etree.tostring(n) for n in patch.before] != [etree.tostring(n) for n in expected_patch.before]
+                    or [etree.tostring(n) for n in patch.after] != [etree.tostring(n) for n in expected_patch.after]
+                    or applied != expected_facts):
+                    raise ApplyError("round_trip_failed", "decision helper changed the approved patch or preview")
+                patch = expected_patch
+                # Independently reverse only the declared exact patch. Any
+                # unrequested text, properties, markers or revision mutation
+                # outside it prevents publication, including hidden content.
+                checked_decision = copy.deepcopy(document)
+                parent_index = list(document.iter()).index(patch.parent)
+                patch.reverse(list(checked_decision.iter())[parent_index])
+                if etree.tostring(checked_decision) != etree.tostring(before_decision):
+                    raise ApplyError("round_trip_failed", "revision decision changed content outside its exact patch")
+                decision_patches.append(patch)
+                region = decision_regions[index]
+                affected = [region] if region.tag == w("p") else list(region.iter(w("p")))
+                for paragraph in affected:
+                    touched.add(paragraph)
+                    expected_text[paragraph] = _reading_text(_paragraph_segments(paragraph))
+                    expected_properties[paragraph] = tuple(
+                        etree.tostring(n, method="c14n", exclusive=True) for n in paragraph.findall(w("pPr")))
+                applied["target"] = op["target"]
+                applied["actor_profile"] = {"name": author, "initials": initials}
+            elif kind in {"replace_text", "replace_paragraph", "insert_paragraph", "add_comment"}:
                 pindex = resolved[index]
                 paragraph = paragraphs[pindex].element
                 _require_drafting_context(document, {paragraph}, author)
@@ -852,11 +922,21 @@ def _prepare(
                     )
                 else:
                     applied = delete_comment(parts, document, op["comment_id"], author)
-            if kind != "replace_paragraph":
+            if kind not in {"replace_paragraph", "decide_revision"}:
                 _check_revision_preservation(
                     revisions_before, document, mutable_revision, applied, author, timestamp
                 )
             result.append({"index": index, **applied})
+        except DocxError as exc:
+            if hasattr(exc, "metadata"):
+                exc.metadata["operation_index"] = index
+            raise
+    # Width-only companion decisions can be individually inconsistent while
+    # their explicitly selected final state is coherent. Validate that state
+    # before serialization, without selecting or modifying any other history.
+    for index, table in decision_tables.items():
+        try:
+            decisions.validate_fixed_table_widths(table)
         except DocxError as exc:
             if hasattr(exc, "metadata"):
                 exc.metadata["operation_index"] = index
@@ -881,6 +961,8 @@ def _prepare(
     ):
         raise ApplyError("round_trip_failed", "unrelated package content changed")
     reread = parse_xml(checked.parts[DOCUMENT_PART])
+    if decision_patches and etree.tostring(reread) != etree.tostring(document):
+        raise ApplyError("round_trip_failed", "serialized decision document differs from its exact verified candidate")
     if Counter(signature for _, signature in _revision_state(reread)) != expected_revisions:
         raise ApplyError("round_trip_failed", "serialized revision history differs from the verified candidate")
     after_paragraphs = canonical_body_flow_v1(reread.find(w("body"))).paragraphs
@@ -899,6 +981,7 @@ def _prepare(
         raise ApplyError("round_trip_failed", "serialized paragraph structure changed")
     projected = copy.deepcopy(reread)
     projected_all = list(projected.iter(w("p")))
+    projected_nodes = dict(zip(document.iter(), projected.iter(), strict=True)) if decision_patches else {}
     for planned, checked_paragraph in zip(final_all, projected_all):
         properties = tuple(
             etree.tostring(n, method="c14n", exclusive=True)
@@ -912,6 +995,11 @@ def _prepare(
             if etree.tostring(planned) != etree.tostring(checked_paragraph):
                 raise ApplyError("round_trip_failed", "inserted paragraph changed on serialization")
             checked_paragraph.getparent().remove(checked_paragraph)
+    # Check serialized decision postimages before reversing them for the
+    # original paragraph/skeleton collateral proof. Keep identity maps fixed
+    # while reverse-order patches restore removed/replaced descendants.
+    for patch in reversed(decision_patches):
+        patch.reverse(projected_nodes[patch.parent])
     all_positions = {
         i for i, p in enumerate(source_all_elements) if p in touched
     }

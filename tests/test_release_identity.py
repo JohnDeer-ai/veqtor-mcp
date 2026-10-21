@@ -197,6 +197,7 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
     assert discovered_runtime == frozen_runtime | {
         "/src/veqtor_docx/_drafting_paragraphs.py",
         "/src/veqtor_docx/round_operations.py",
+        "/src/veqtor_docx/revision_decisions.py",
         "/src/veqtor_docx/round_snapshots.py",
         "/src/veqtor_docx/table_map.py",
     }
@@ -219,6 +220,7 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
         "/docs/NEGOTIATION_ROUND_RELEASE_SPEC_RU.md",
         "/docs/NEGOTIATION_ROUND_ACCEPTANCE_RU.md",
         "/docs/ROUND_FOUNDATION.md",
+        "/docs/REVISION_DECISIONS.md",
     } <= sdist_includes
 
 

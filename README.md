@@ -31,7 +31,7 @@ tamper-evident audit system. Review the
 before using it on a real matter.
 
 This source tree defines package version `0.6.0.dev1` and the
-fourteen-tool MCP contract `veqtor.mcp.v0.6.0`. The three drafting tools
+fifteen-tool MCP contract `veqtor.mcp.v0.6.0`. The three drafting tools
 support paragraph insertion and replacement, comment replies and thread status,
 a selected author for each batch, and backup-backed saves to the working file.
 This is a development version; the public release remains 0.5.0. See [author drafting](#author-drafting).
@@ -243,7 +243,7 @@ or environment.
 ## Tool surface
 
 The descriptions below follow development package `0.6.0.dev1` and its
-fourteen-tool MCP contract `veqtor.mcp.v0.6.0`. Public `0.4.0` retains the frozen
+fifteen-tool MCP contract `veqtor.mcp.v0.6.0`. Public `0.4.0` retains the frozen
 `veqtor.mcp.v0.4` contract. For an
 installed version, use the API file carried by that exact artifact or its
 matching immutable tag. Historical v0.3 artifacts retain their eight tools.
@@ -281,6 +281,11 @@ matching immutable tag. Historical v0.3 artifacts retain their eight tools.
   explicit confirmation state.
 - `mutate_deal_positions`: expected-revision position updates, confirmation and
   withdrawal, independently of document edits.
+- `read_document_revisions` (unreleased `0.6.0.dev1`): exact main-document
+  revision inventory and accept/reject previews. Explicit `decide_revision`
+  operations cover supported text and all six property domains through the
+  existing preflight and same-file backup workflow. See the
+  [decision contract](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/docs/REVISION_DECISIONS.md).
 - `read_document_comments`: paginated comment text, authors, replies, thread status,
   paragraph locations and source hash.
 - `preflight_document_edits`: dry-run text and paragraph changes, comments, replies

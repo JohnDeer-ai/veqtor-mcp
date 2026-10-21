@@ -3,7 +3,9 @@
 
 The `0.6.0.dev1` source candidate extends the three author-drafting tools added
 in `0.5.0` with paragraph insertion, complete paragraph replacement, comment
-replies and thread state. Edits use the selected author's name and save back to
+replies, thread state and selective revision decisions. `read_document_revisions`
+adds exact snapshot references and both outcomes; [revision decisions](REVISION_DECISIONS.md)
+describes the six supported property domains. New edits use the selected author's name and save back to
 the same path with an exact backup. The legacy counterproposal tools keep their
 original separate-output and revision-preservation contract.
 
@@ -34,7 +36,9 @@ for both author and initials during setup.
 To choose another author for one batch without restarting the server, supply
 `author_profile={"name":"Shilov, Ilya","initials":"IS"}` to both preflight and apply.
 The exact name/initials pair must already be configured as one of the user's own
-profiles. By default only the configured default is allowed. An agent cannot
+profiles. By default only the configured default is allowed. Accepting/rejecting an explicitly selected revision may address another author;
+it preserves that original identity and binds the acting reviewer separately.
+An agent cannot
 make another person's revisions or comments editable by submitting their name.
 Both fields are required; extra fields are refused. The explicit profile affects
 only that request. Omitting it, or passing `null`, uses the configured default.
