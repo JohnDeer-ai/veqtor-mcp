@@ -434,6 +434,64 @@ def test_full_length_quotes_cross_page_limits_without_truncation():
         compare.build_incoming_comparison(excessive, source)
 
 
+@pytest.mark.anyio
+@pytest.mark.parametrize("side", ["sent", "incoming"])
+@pytest.mark.parametrize("excluded", [False, True])
+@pytest.mark.parametrize("length", [50_000, 50_001])
+async def test_mcp_bounds_later_quotes_before_first_page_with_unavailable_projection(
+    tmp_path, side, excluded, length,
+):
+    from veqtor_mcp.server import mcp
+
+    # The first comparison group does not contain the later oversized quote.
+    # An unrelated excluded wrapper makes all rejected projections unavailable.
+    blocks = [_p("First anchor"), _p("Second anchor"), _p("x" * length)]
+    if excluded:
+        blocks.append('<x:wrapper>' + _p("Excluded content") + '</x:wrapper>')
+    sources = {"sent": _snapshot(_p("First anchor"), _p("Second anchor"), _p("short")),
+               "incoming": _snapshot(_p("First anchor"), _p("Second anchor"), _p("short"))}
+    sources[side] = _snapshot(*blocks)
+    arguments = {"max_items": 1}
+    for role, source in sources.items():
+        path = tmp_path / f"{role}.docx"
+        path.write_bytes(source.payload)
+        arguments[role + "_path"] = str(path)
+        arguments[role + "_sha256"] = source.sha256
+
+    items = []
+    async with Client(mcp) as client:
+        while True:
+            result = await client.call_tool("compare_incoming_version", arguments)
+            if length > 50_000:
+                assert not items, "over-limit quotes must refuse before any page succeeds"
+                assert result.is_error
+                error = " ".join(getattr(content, "text", "") for content in result.content)
+                assert "resource_limit_exceeded" in error
+                assert "output_contract_error" not in error
+                break
+            assert not result.is_error
+            data = result.structured_content
+            if "result" in data:
+                data = data["result"]
+            jsonschema.Draft202012Validator(RESULT).validate(data)
+            assert data["coverage"][side]["unavailable_projections"] == (3 if excluded else 0)
+            assert data["coverage"][side]["excluded_paragraphs"] == int(excluded)
+            assert data["coverage"]["supported_scope_complete"] is (not excluded)
+            items.extend(data["items"])
+            if data["next_cursor"] is None:
+                break
+            arguments["cursor"] = data["next_cursor"]
+
+    if length == 50_000:
+        paragraphs = [item for item in items if item["kind"] == "paragraph" and item["side"] == side]
+        assert len(paragraphs) == 3
+        quote = next(item for item in paragraphs if item["paragraph_ref"]["paragraph_index"] == 2)
+        assert quote["text"] == "x" * length
+        assert quote["rejected_text"] == (None if excluded else "x" * length)
+    for role, source in sources.items():
+        assert (tmp_path / f"{role}.docx").read_bytes() == source.payload
+
+
 def test_structural_revision_unavailable_projection_cannot_prove_equivalence():
     original = _snapshot(_p("Text"))
     structural = _snapshot(_p("Text", '<w:pPr><w:rPr><w:ins w:id="7"/></w:rPr></w:pPr>'))

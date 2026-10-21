@@ -20,7 +20,10 @@ from lxml import etree
 from ._ooxml import (
     ArchiveValidationError, DocxError, ResourceLimitError, load_validated_docx, parse_xml, w,
 )
-from ._projection import build_document_projections_v1
+from ._projection import (
+    MAX_ACCEPTED_CURRENT_CHARS_PER_PARAGRAPH, _enforce_text_limit,
+    build_document_projections_v1,
+)
 from .inspect import _paragraph_ref, _snapshot_from_validated
 from .round_snapshots import DocumentSnapshot, capture_document_snapshot
 from .table_map import TableMapError, _children, build_table_map
@@ -206,6 +209,14 @@ def _document(source: DocumentSnapshot, side: str) -> _Document:
     parts = {name: _sha(data) for name, data in package.parts.items()}
     snapshot = _snapshot_from_validated(package, path="", file_sha256=source.sha256)
     del package
+    # Current quotes remain reportable when rejected projections are unavailable.
+    # Validate every quote before projection checks can take that fallback, and
+    # before returning any page whose later items would violate the contract.
+    for paragraph in snapshot.paragraphs:
+        _enforce_text_limit(
+            paragraph.text, limit="accepted_current_chars_per_paragraph",
+            allowed_count=MAX_ACCEPTED_CURRENT_CHARS_PER_PARAGRAPH,
+        )
     try:
         projections = build_document_projections_v1(snapshot.body_flow)
         projection_error = None
