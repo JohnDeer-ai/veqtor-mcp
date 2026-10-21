@@ -196,9 +196,11 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
     assert len(RUNTIME_SOURCE_FILES) == len(frozen_runtime) == 30
     assert discovered_runtime == frozen_runtime | {
         "/src/veqtor_docx/_drafting_paragraphs.py",
+        "/src/veqtor_docx/incoming_comparison.py",
         "/src/veqtor_docx/round_operations.py",
         "/src/veqtor_docx/round_snapshots.py",
         "/src/veqtor_docx/table_map.py",
+        "/src/veqtor_mcp/_incoming_contract.py",
     }
     assert {"/src/veqtor_docx/_paragraph_edits.py",
         "/src/veqtor_mcp/_positions_contract.py", "/src/veqtor_mcp/positions.py"} <= frozen_runtime
@@ -219,6 +221,7 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
         "/docs/NEGOTIATION_ROUND_RELEASE_SPEC_RU.md",
         "/docs/NEGOTIATION_ROUND_ACCEPTANCE_RU.md",
         "/docs/ROUND_FOUNDATION.md",
+        "/docs/INCOMING_COMPARISON.md",
     } <= sdist_includes
 
 
