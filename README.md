@@ -31,7 +31,7 @@ tamper-evident audit system. Review the
 before using it on a real matter.
 
 This source tree defines package version `0.6.0.dev1` and the
-fifteen-tool MCP contract `veqtor.mcp.v0.6.0`. The three drafting tools
+sixteen-tool development MCP contract `veqtor.mcp.v0.6.0`. The drafting tools
 support paragraph insertion and replacement, comment replies and thread status,
 a selected author for each batch, and backup-backed saves to the working file.
 This is a development version; the public release remains 0.5.0. See [author drafting](#author-drafting).
@@ -243,7 +243,7 @@ or environment.
 ## Tool surface
 
 The descriptions below follow development package `0.6.0.dev1` and its
-fifteen-tool MCP contract `veqtor.mcp.v0.6.0`. Public `0.4.0` retains the frozen
+sixteen-tool development MCP contract `veqtor.mcp.v0.6.0`. Public `0.4.0` retains the frozen
 `veqtor.mcp.v0.4` contract. For an
 installed version, use the API file carried by that exact artifact or its
 matching immutable tag. Historical v0.3 artifacts retain their eight tools.
@@ -253,6 +253,9 @@ matching immutable tag. Historical v0.3 artifacts retain their eight tools.
 - `extract_redlines`: tracked-change units with hashes, references, bounded
   paragraph context, conservative manual labels and a revision-inventory
   partition.
+- `compare_incoming_version`: read-only comparison of two explicitly selected, hash-bound
+  versions, with complete paragraph membership and separate markup, table topology and
+  package-part observations. See [incoming comparison](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/docs/INCOMING_COMPARISON.md).
 - `inspect_document`: bounded outline, literal-search, browse and read views of
   a mechanical accepted/current projection of main-body text, with every
   returned paragraph bound to the exact file bytes. This reading mode does not

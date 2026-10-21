@@ -4,6 +4,7 @@
 import asyncio
 import importlib.util
 from pathlib import Path
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -16,7 +17,7 @@ DEVELOPMENT_TOOLS = (
     "list_rounds", "extract_redlines", "inspect_document", "map_rounds",
     "trace_paragraph_history", "preflight_edits", "apply_edits", "verify_quote",
     "export_decision_record", "read_deal_positions", "mutate_deal_positions",
-    "read_document_comments", "read_document_revisions", "preflight_document_edits", "apply_document_edits",
+    "compare_incoming_version", "read_document_comments", "read_document_revisions", "preflight_document_edits", "apply_document_edits",
 )
 FROZEN_TOOLS = (
     "list_rounds", "extract_redlines", "inspect_document", "map_rounds",
@@ -100,5 +101,23 @@ def test_complete_smoke_validates_inventory_in_both_stdio_eras_and_inmemory(smok
     monkeypatch.setattr(smoke, "_assert_tool_inventory", observe)
     result = asyncio.run(smoke.smoke())
     assert observed == [DEVELOPMENT_TOOLS, DEVELOPMENT_TOOLS, DEVELOPMENT_TOOLS]
-    assert result["tool_count"] == 15
+    assert result["tool_count"] == 16
+    assert result["incoming_comparison"]["pages"] > 1
+    assert result["incoming_comparison"]["partition_complete"] is True
+    assert result["incoming_comparison"]["sources_unchanged"] is True
     assert result["stdio_protocol_versions"] == {"auto": "2026-07-28", "legacy": "2025-11-25"}
+
+
+def test_drafting_smoke_retains_exact_inventory_and_completes_saves(tmp_path, monkeypatch):
+    spec = importlib.util.spec_from_file_location(
+        "drafting_smoke_under_test", ROOT / "scripts" / "drafting_smoke.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.delenv("VEQTOR_OWN_AUTHOR_PROFILES", raising=False)
+    result = asyncio.run(module.smoke(tmp_path, interpreter=sys.executable,
+                                      author="Synthetic Drafting Reviewer", initials="DR"))
+    assert result["tools"] == sorted(DEVELOPMENT_TOOLS)
+    assert result["tool_count"] == 16
+    assert result["save_count"] == result["exact_backup_count"] == 7
+    assert result["existing_revisions_preserved"] is True

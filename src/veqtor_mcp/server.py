@@ -38,6 +38,8 @@ from veqtor_mcp import round_map
 from veqtor_mcp import positions
 from veqtor_mcp._positions_contract import DealPositionsResult, OperationsInput, RevisionInput
 from veqtor_docx import drafting, revision_decisions
+from veqtor_docx import incoming_comparison
+from veqtor_mcp._incoming_contract import IncomingComparisonResult, ComparisonShaInput
 from veqtor_mcp._drafting_contract import (
     ApplyDocumentEditsResult, ApplyDocumentEditsSuccessResult, DRAFTING_ERROR_RESULT,
     DraftingAuthorProfileInput, DraftingOperationsInput, DraftingProofInput,
@@ -328,6 +330,7 @@ _RESULT_MODELS = {
     "list_rounds": ListRoundsResult,
     "extract_redlines": ExtractRedlinesResult,
     "inspect_document": InspectDocumentResult,
+    "compare_incoming_version": IncomingComparisonResult,
     "map_rounds": RoundMapResult,
     "trace_paragraph_history": ParagraphHistoryResult,
     "preflight_edits": PreflightEditsResult,
@@ -459,6 +462,8 @@ def _validated_success_result(
         jsonschema.validate(instance=normalized, schema=model.contract_schema)
         if is_inspection:
             InspectionContractV1.validate_critical(normalized)
+        elif tool_name == "compare_incoming_version":
+            incoming_comparison.validate_comparison_page(normalized)
     except Exception:
         # Validation diagnostics may contain document text, private paths or an
         # implementation sentinel.  Neither the journal nor the MCP client may
@@ -1871,6 +1876,33 @@ def _drafting_author_profile(profile: dict | None) -> tuple[str, str]:
             "author_not_allowed", "select an exact configured own author profile"
         )
     return selected
+
+
+@_mcp_tool(annotations=ToolAnnotations(title="Compare incoming Word version", read_only_hint=True,
+           destructive_hint=False, idempotent_hint=True, open_world_hint=False),
+           meta=contract_meta(), structured_output=True)
+def compare_incoming_version(
+    sent_path: str, sent_sha256: ComparisonShaInput, incoming_path: str,
+    incoming_sha256: ComparisonShaInput, max_items: StrictInt = 50,
+    cursor: str | None = None,
+) -> IncomingComparisonResult:
+    """Compare two explicitly selected exact DOCX snapshots without writing files.
+
+    Both SHA-256 values are required and rechecked on every page. Follow
+    next_cursor with the same sources and max_items. Every canonical paragraph,
+    including empty and unmatched blocks, has exactly one comparison group.
+    paragraph records carry each group's quotes and membership; group records
+    may be on a different page. Read all pages before claiming a complete review.
+    Projection equality is not proof of authorship, transmission, disabled Track
+    Changes, semantic identity or clean-document equivalence. Check coverage,
+    unsupported parts and table structure separately from current-text equality.
+    No negotiation journal is written; record_status is disabled.
+    """
+    result = incoming_comparison.compare_incoming_version(
+        sent_path, sent_sha256, incoming_path, incoming_sha256,
+        max_items=max_items, cursor=cursor,
+    )
+    return _drafting_result("compare_incoming_version", result)
 
 
 @_mcp_tool(annotations=ToolAnnotations(title="Read Word comments", read_only_hint=True,

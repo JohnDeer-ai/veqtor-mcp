@@ -429,6 +429,10 @@ def build_paragraph_projection_v1(
         "declared_scope_incomplete": _has_selected_exclusion(paragraph, body_flow),
     }
     reasons = [reason for reason in _UNAVAILABLE_REASONS if unavailable[reason]]
+    return _projection_result(paragraph, current, rejected, reasons)
+
+
+def _projection_result(paragraph, current, rejected, reasons):
     base: dict[str, object] = {
         "schema_version": PARAGRAPH_PROJECTION_SCHEMA_VERSION,
         "mode": PENDING_REJECTED_MODE,
@@ -470,3 +474,50 @@ def build_paragraph_projection_v1(
         "move_wrapper_visibility_applied": _move_wrapper_present(paragraph),
         "move_pairing": "not_attempted",
     }
+
+
+def build_document_projections_v1(body_flow: CanonicalBodyFlow) -> list[dict[str, object]]:
+    """Build the existing projection contract with document checks performed once.
+
+    No different visibility or matching policy is introduced. The caller must
+    retain the same immutable body flow throughout this bounded computation.
+    """
+    _validate_exclusion_attribution(body_flow)
+    _validate_stray_deleted_text_attribution(body_flow)
+    _validate_revision_placements(body_flow)
+    if not body_flow.paragraphs:
+        return []
+    paragraphs = {item.element for item in body_flow.paragraphs}
+    document = body_flow.paragraphs[0].element.getroottree().getroot()
+    owners = set()
+    stray = set()
+    excluded = {_containing_paragraph(item.element) for item in body_flow.excluded_subtrees}
+    for node in document.iter():
+        if node.tag in TEXT_REVISION_TAGS | _CELL_EXISTENCE_TAGS:
+            owner = _existence_revision_owner(node)
+            if owner is not None and owner is not _existence_revision_owner:
+                owners.add(owner)
+        if node.tag == w("delText"):
+            deletion_like = False
+            for ancestor in node.iterancestors():
+                if ancestor.tag == w("p"):
+                    break
+                if ancestor.tag in {w("del"), w("moveFrom")}:
+                    deletion_like = True
+            if not deletion_like:
+                stray.add(_canonical_containing_paragraph(node, paragraphs))
+    result = []
+    for item in body_flow.paragraphs:
+        paragraph = item.element
+        current = _current_text(paragraph)
+        rejected = pending_text_revisions_rejected_text(paragraph)
+        for text, name, maximum in (
+            (current, "accepted_current_chars_per_paragraph", MAX_ACCEPTED_CURRENT_CHARS_PER_PARAGRAPH),
+            (rejected, "rejected_projection_chars_per_paragraph", MAX_REJECTED_PROJECTION_CHARS_PER_PARAGRAPH),
+        ):
+            _enforce_text_limit(text, limit=name, allowed_count=maximum)
+        affected = paragraph in owners or any(a in owners for a in paragraph.iterancestors())
+        flags = (paragraph in stray, affected, paragraph in excluded)
+        reasons = [reason for reason, active in zip(_UNAVAILABLE_REASONS, flags, strict=True) if active]
+        result.append(_projection_result(paragraph, current, rejected, reasons))
+    return result

@@ -6,7 +6,7 @@ This file defines the public tool surface. Output examples are part of the API
 because models use them to decide how to call tools and how to cite results.
 
 The current source defines the unreleased package candidate `0.6.0.dev1` and advertises the
-fifteen-tool MCP contract `veqtor.mcp.v0.6.0`. The drafting tools
+sixteen-tool development MCP contract `veqtor.mcp.v0.6.0`. The drafting tools
 are documented in [AUTHOR_DRAFTING.md](docs/AUTHOR_DRAFTING.md):
 `read_document_comments`, `read_document_revisions`, `preflight_document_edits`, `apply_document_edits`.
 They use `document_drafting.v1` and `drafting_preflight.v1`, support paragraph
@@ -47,7 +47,7 @@ transport teardown separately reaps the stdio server process.
 
 Every successful live tool response includes the same bounded `producer`
 object with `name`, package `version`, and the process-start Python source
-snapshot `build`. This applies to all fifteen tools, including read-only results
+snapshot `build`. This applies to all sixteen tools, including read-only results
 and decision-record export. Error envelopes are not successful tool results.
 `producer`, `record_id`, `record_status`, and `record_error` are server-owned;
 core tool results cannot supply them. `record_error` is present only with
@@ -2017,3 +2017,31 @@ file fsync, atomic snapshot replace (commit point) and directory fsync. A
 `revision_conflict` requires a fresh read and a considered new proposal. On
 `commit_uncertain`, reread revision before any retry: the write may have committed.
 No DOCX is modified and a saved position itself grants no edit authority.
+
+
+## `compare_incoming_version`
+
+Read-only comparison of two explicitly selected DOCX snapshots. Required inputs
+are `sent_path`, `sent_sha256`, `incoming_path`, `incoming_sha256`; both hashes
+are exact lowercase SHA-256 values. Optional `max_items` defaults to 50 (1–100),
+and `cursor` resumes the same comparison with unchanged source bytes and page size.
+Cursor identity follows the source digests and roles, not filesystem paths;
+renaming or moving an identical-byte source is allowed.
+A role name does not prove that a file was sent or establish chronology.
+
+The closed `incoming_comparison.v1` result partitions all canonical main-body
+paragraphs, including empty and unmatched blocks. Typed group/paragraph records
+carry explicit membership, both available quotes and concrete projection
+comparisons. Table/row/cell records describe topology and property markup;
+package-part records disclose changed unsupported surfaces as bytes. Read all
+pages: group headings and their paragraph members may occur on different pages.
+
+Current-text equality is not clean-document, history, formatting or whole-file
+equivalence. No outcome proves authorship or disabled Track Changes. Coverage,
+projection availability and unresolved correspondence restrict conclusions.
+The tool writes no files or journal; `record_status` is `disabled`.
+
+See [the complete matching, explanation, pagination and limit contract](docs/INCOMING_COMPARISON.md).
+The closed output schema is defined in `_incoming_contract.py`. Inputs come from
+the tool signature in `server.py`; bounded types and values are validated, but
+the MCP SDK may ignore unknown top-level arguments rather than reject them.
