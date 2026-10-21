@@ -20,9 +20,12 @@ Snapshot capture retains the foundation's supported local-filesystem and
 no-symlink path requirements; use the actual canonical source path.
 
 Optional: `max_items` (default 50, range 1–100) and `cursor`. Follow every
-`next_cursor` with the same sources and page size. Cursors bind both snapshots,
-the full result, policies and limits. Switching sources, roles or page size
-refuses the cursor. The implementation does not select the latest file or write
+`next_cursor` with the same source bytes and page size. Cursors bind both source
+digests in their roles, the full result, policies and limits, not filesystem
+paths. A rename, move or copy retaining identical bytes can resume the cursor.
+Changing either digest, swapping unequal source digests or changing page size
+refuses it; swapping identical digests is indistinguishable. The implementation
+does not select the latest file or write
 snapshots automatically. All successful MCP results have `record_status=disabled`.
 
 ## Result and complete membership
@@ -38,7 +41,7 @@ The item types are:
 | Kind | Contents |
 | --- | --- |
 | `comparison_group` | Stable group ID, counts on each side, matching basis, observations, explanation and concrete projection comparisons |
-| `paragraph` | Group membership, side, exact `paragraph_ref.v1`, complete current/rejected quotes, cell reference, projection availability and revision/property/XML observations |
+| `paragraph` | Group membership, side, exact `paragraph_ref.v1`, complete available current/rejected projection text, cell reference, projection availability and revision/property/XML observations |
 | `table`, `row`, `cell` | Exact snapshot-bound references, current topology, property-markup digest and structural issues; cells include paragraph indices |
 | `package_part` | Part name, both available uncompressed-byte hashes and same/changed/one-sided status; content interpretation is not claimed |
 
@@ -95,6 +98,11 @@ include grid widths, cell widths, row heights and historical property markup.
 `table_property_markup_sequence_equal` is null when structural inventory is
 incomplete. Equal topology does not prove equal dimensions or editability.
 No historical table grid is reconstructed.
+
+Body/table membership and cell location are visible in paragraph
+`container_kind`, `cell_ref`, cell paragraph membership and table records.
+Comparison groups do not provide a separate location-change observation summary;
+the caller must inspect those addresses when assessing a move between containers.
 
 All package parts are compared as exact uncompressed bytes. Equal parts with a
 different package hash identify repackaging. Changed headers, footers, notes,
