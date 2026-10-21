@@ -4,6 +4,7 @@
 import asyncio
 import importlib.util
 from pathlib import Path
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -105,3 +106,18 @@ def test_complete_smoke_validates_inventory_in_both_stdio_eras_and_inmemory(smok
     assert result["incoming_comparison"]["partition_complete"] is True
     assert result["incoming_comparison"]["sources_unchanged"] is True
     assert result["stdio_protocol_versions"] == {"auto": "2026-07-28", "legacy": "2025-11-25"}
+
+
+def test_drafting_smoke_retains_exact_inventory_and_completes_saves(tmp_path, monkeypatch):
+    spec = importlib.util.spec_from_file_location(
+        "drafting_smoke_under_test", ROOT / "scripts" / "drafting_smoke.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.delenv("VEQTOR_OWN_AUTHOR_PROFILES", raising=False)
+    result = asyncio.run(module.smoke(tmp_path, interpreter=sys.executable,
+                                      author="Synthetic Drafting Reviewer", initials="DR"))
+    assert result["tools"] == sorted(DEVELOPMENT_TOOLS)
+    assert result["tool_count"] == 15
+    assert result["save_count"] == result["exact_backup_count"] == 7
+    assert result["existing_revisions_preserved"] is True
