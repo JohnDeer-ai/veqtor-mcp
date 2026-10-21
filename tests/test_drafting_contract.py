@@ -352,7 +352,8 @@ def test_closed_text_operation_output_contract(operation):
 @pytest.mark.parametrize("operation", ["add_comment", "update_comment", "delete_comment"])
 def test_closed_comment_operation_output_contract(operation):
     item = {"index": 0, "operation": operation, "id": "0", "author": "Author", "initials": "A",
-            "text": "Comment", "paragraph_indexes": [0]}
+            "text": "Comment", "paragraph_indexes": [0],
+            "parent_comment_id": None, "thread_root_id": "0", "resolved": False}
     validator = jsonschema.Draft202012Validator(_APPLIED)
     assert validator.is_valid([item])
     assert not validator.is_valid([{**item, "PRIVATE_UNKNOWN_KEY": "unvalidated"}])
@@ -433,6 +434,7 @@ async def test_mcp_goback_roundtrip_preserves_author_revision_and_bookmark_ident
     monkeypatch.setenv("VEQTOR_COMMENT_INITIALS", "IS")
     server._tracked_change_author.cache_clear()
     server._comment_initials.cache_clear()
+    server._configured_author_profiles.cache_clear()
     try:
         async with Client(server.mcp) as client:
             response = await client.call_tool("preflight_document_edits", arguments)
@@ -467,6 +469,7 @@ async def test_mcp_goback_roundtrip_preserves_author_revision_and_bookmark_ident
     finally:
         server._tracked_change_author.cache_clear()
         server._comment_initials.cache_clear()
+        server._configured_author_profiles.cache_clear()
 
 
 @pytest.mark.anyio

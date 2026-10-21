@@ -19,6 +19,8 @@ from pathlib import Path
 
 import pytest
 
+from veqtor_mcp import __version__
+
 
 ROOT = Path(__file__).parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -192,10 +194,13 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
     assert wheel["sources"] == ["src"]
     assert "/src" not in sdist["include"]
     assert len(RUNTIME_SOURCE_FILES) == len(frozen_runtime) == 30
-    assert frozen_runtime == discovered_runtime
+    assert discovered_runtime == frozen_runtime | {
+        "/src/veqtor_docx/_drafting_paragraphs.py",
+    }
     assert {"/src/veqtor_docx/_paragraph_edits.py",
         "/src/veqtor_mcp/_positions_contract.py", "/src/veqtor_mcp/positions.py"} <= frozen_runtime
-    assert config["project"]["version"] == VERSION == "0.5.0"
+    assert VERSION == "0.5.0"
+    assert config["project"]["version"] == __version__ == "0.6.0.dev1"
     assert wheel_includes == discovered_runtime
     assert discovered_runtime <= sdist_includes
     assert "/src/veqtor_mcp/_inspection_live.py" in wheel_includes

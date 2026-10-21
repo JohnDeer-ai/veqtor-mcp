@@ -258,17 +258,23 @@ def _replace_candidate(
     author: str,
     allocator: _RevisionIdAllocator,
     timestamp: str | None,
+    *,
+    start_offset: int | None = None,
 ) -> dict:
     segments = _paragraph_segments(paragraph)
     before = _reading_text(segments)
-    start = before.find(old_text)
+    start = before.find(old_text) if start_offset is None else start_offset
     if start < 0:
         raise ApplyError(
             "delete_text_not_found",
             "old_text does not occur in the paragraph's current reading",
             match_count=0,
         )
-    if before.find(old_text, start + 1) >= 0:
+    if start_offset is not None and (
+        type(start) is not int or start < 0 or before[start:start + len(old_text)] != old_text
+    ):
+        raise ApplyError("paragraph_text_mismatch", "the exact addressed span changed")
+    if start_offset is None and before.find(old_text, start + 1) >= 0:
         raise ApplyError(
             "delete_text_ambiguous",
             "old_text occurs more than once in the paragraph's current reading",
@@ -404,6 +410,10 @@ def _replace_candidate(
     )
     target_revision_id = container.get(w("id")) if container is not None else None
     target_author = container.get(w("author")) if container is not None else None
+    target_start = (
+        start - min(seg.start for seg in segments if seg.container is container)
+        if operation == "edit_own_insertion" else None
+    )
     if operation == "edit_own_insertion":
         revision_ids = [target_revision_id]
         layout_markers = [
@@ -466,6 +476,9 @@ def _replace_candidate(
         "target_revision_id": target_revision_id,
         "target_author": target_author,
     }
+    if start_offset is not None and target_start is not None:
+        result["target_start"] = target_start
+        result["target_end"] = target_start + len(old_text)
     if movable_markers:
         result["relocated_bookmarks"] = [
             {

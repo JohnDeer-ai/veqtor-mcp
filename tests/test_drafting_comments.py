@@ -104,7 +104,9 @@ def test_add_read_update_delete_comment_and_package_metadata():
     parts, document, paragraphs = _package()
     before = _text(paragraphs[0])
     first = _add(parts, document, paragraphs[0])
-    assert first == {"id": "0", "author": AUTHOR, "initials": "DA", "text": "Check wording", "paragraph_indexes": [0], "operation": "add_comment"}
+    assert first == {"id": "0", "author": AUTHOR, "initials": "DA", "text": "Check wording",
+                     "paragraph_indexes": [0], "operation": "add_comment",
+                     "parent_comment_id": None, "thread_root_id": "0", "resolved": False}
     assert _text(paragraphs[0]) == before
     assert read_comments(parts, document) == [{key: value for key, value in first.items() if key != "operation"}]
     rels = parse_xml(parts["word/_rels/document.xml.rels"])

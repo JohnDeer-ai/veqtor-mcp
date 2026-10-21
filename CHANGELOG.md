@@ -6,6 +6,31 @@ All notable changes to Veqtor MCP are documented here.
 Publication dates are authoritative in each version's immutable GitHub Release
 through its `published_at` timestamp.
 
+## 0.6.0.dev1
+
+Unreleased paragraph and comment-thread drafting candidate. This entry describes
+source behavior; it does not establish installation, native Word acceptance or
+public distribution.
+
+- Insert tracked paragraphs before/after a source paragraph and replace a whole
+  supported paragraph using its complete current text as an exact guard.
+  Default to minimal word/token changes while retaining unchanged run formatting;
+  provide explicit whole mode, whose new text inherits the first edited fragment.
+  Preserve paragraph identity/properties when removing all of its text.
+- Reply to existing comments under the selected author, read thread membership
+  and resolution state, and explicitly resolve/reopen comment threads.
+  Preserve original comment bodies and authors; retain refusal for unsupported
+  metadata and threaded deletion.
+- Select an optional author/initials profile per preflight/apply request without
+  changing the server default, restricted to explicitly configured own profiles;
+  bind the resolved identity into the save proof.
+- Refuse edits crossing range boundaries nested in existing deleted content.
+- Deliver an agent protocol through MCP initialization instructions: establish
+  authorization for the concrete plan, use minimal edits by default, require
+  explicit whole-mode and thread-status instructions, then reread and report.
+- Extend the same-file workflow with source-stable references across sequential
+  insertions, revision/collateral checks, and the existing exact-backup save path.
+
 ## 0.5.0
 
 - Add the fourteen-tool `veqtor.mcp.v0.5.0` surface with configured-author

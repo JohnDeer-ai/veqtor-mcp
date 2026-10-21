@@ -5,12 +5,13 @@
 This file defines the public tool surface. Output examples are part of the API
 because models use them to decide how to call tools and how to cite results.
 
-The current source defines package `0.5.0` and advertises the
-fourteen-tool MCP contract `veqtor.mcp.v0.5.0`. The three additive drafting tools
+The current source defines the unreleased package candidate `0.6.0.dev1` and advertises the
+fourteen-tool MCP contract `veqtor.mcp.v0.6.0`. The three drafting tools
 are documented in [AUTHOR_DRAFTING.md](docs/AUTHOR_DRAFTING.md):
 `read_document_comments`, `preflight_document_edits`, `apply_document_edits`.
-They use `document_drafting.v1` and `drafting_preflight.v1`, permit intentional
-mutation of the configured author's pending insertions, and save back to the
+They use `document_drafting.v1` and `drafting_preflight.v1`, support paragraph
+insertion/replacement and comment threads, permit intentional mutation of the
+selected author's pending insertions, and save back to the
 working path with a mandatory exact-byte backup. Their `record_status` is
 `disabled`; immutable legacy counterproposal journal records are unchanged.
 
@@ -18,10 +19,10 @@ Package version, contract and
 publication status are separate identities: only matching entries on public
 PyPI and the immutable GitHub Releases list establish distribution. This file
 alone does not. Every current tool exposes
-`veqtor.pro/contractSchemaVersion: veqtor.mcp.v0.5.0` in its MCP metadata and the
+`veqtor.pro/contractSchemaVersion: veqtor.mcp.v0.6.0` in its MCP metadata and the
 same value under `x-veqtor-contract-schema-version` in its output schema. The
 contract version covers the complete tool surface, so all eight tool names
-carried forward from v0.3 also advertise v0.5.0, even where an individual tool's
+carried forward from v0.3 also advertise v0.6.0, even where an individual tool's
 schema and behavior are otherwise unchanged. Nested anchors, edits and
 preflight proofs are closed objects; top-level results remain additive where
 the advertised schema says so. `trace_paragraph_history` and the v2
@@ -29,7 +30,8 @@ the advertised schema says so. `trace_paragraph_history` and the v2
 
 Public `0.4.0` retains the nine-tool `veqtor.mcp.v0.4` contract. Public `0.4.2`
 adds independent deal positions and clean-paragraph edits. Version `0.5.0`
-retains those operations and adds author drafting under `veqtor.mcp.v0.5.0`;
+retains those operations and adds author drafting under `veqtor.mcp.v0.5.0`.
+The `0.6.0.dev1` candidate extends drafting under `veqtor.mcp.v0.6.0`;
 archived contracts and published artifacts remain unchanged. Historical v0.3 artifacts retain the
 eight-tool `veqtor.mcp.v0.3` surface. Historical examples and golden records
 retain their recorded producer identities; historical examples below retain
@@ -252,20 +254,71 @@ remain outside v1.
 ## `read_document_comments`
 
 Read ordinary Word comments with authors, initials, text, paragraph indexes and
-the current file hash. `offset` and `max_items` provide bounded paging. See the
+the current file hash. Each item includes `parent_comment_id` (nullable),
+`thread_root_id` and `resolved` (boolean or null when root state is unavailable).
+Reply paragraph indexes come from the root anchor. `offset` and `max_items`
+provide bounded paging; compare hashes between pages. See the
 [drafting contract](docs/AUTHOR_DRAFTING.md#comments).
 
 ## `preflight_document_edits`
 
-Dry-run sequential exact text replacements and own-comment operations. The
-result binds author, initials, source and destination to the candidate. It
-writes no files. See the [drafting contract](docs/AUTHOR_DRAFTING.md#tool-sequence).
+Dry-run sequential text, paragraph and comment operations without writing files.
+`author_profile={"name":"Shilov, Ilya","initials":"IS"}` optionally selects the
+identity for this request; omitted/null uses the server default. Both profile
+fields are required and extra fields are refused. The pair must exactly match
+the default or an additional own profile configured at server startup through
+`VEQTOR_OWN_AUTHOR_PROFILES`; arbitrary request names are refused. The configured
+choices are exposed in initialization instructions and `doctor`. The result and proof bind the
+resolved author/initials, source, destination, complete operations and candidate.
+
+The closed operation shapes are:
+
+| `kind` | Other required fields | Behavior |
+|---|---|---|
+| `replace_text` | `paragraph_ref`, `old_text`, `new_text` | Replace one unique exact match in the current reading. |
+| `replace_paragraph` | `paragraph_ref`, `old_text`, `new_text` | Require the complete current reading to equal `old_text`; default optional `mode="minimal"` tracks changed word/token spans. Explicit `mode="whole"` replaces all text. |
+| `insert_paragraph` | `paragraph_ref`, `position`, `text` | Insert one tracked paragraph `before` or `after` the source paragraph. |
+| `add_comment` | `paragraph_ref`, `quote`, `text` | Anchor a new authored comment to one supported exact quote. |
+| `update_comment` | `comment_id`, `text` | Replace a supported comment body belonging to the selected author. |
+| `delete_comment` | `comment_id` | Delete a supported unthreaded comment belonging to the selected author. |
+| `reply_comment` | `comment_id`, `text` | Add an authored reply to an open thread, including another author's thread. |
+| `set_comment_resolved` | `comment_id`, `resolved` | Set the root thread's state; `resolved` must be a boolean. |
+
+Source paragraph references retain their original targets after insertions.
+Repeated insertions on one side preserve operation order within the same batch.
+Across saves, insertion after an already tracked paragraph mark is refused;
+inspect again and insert before its successor instead.
+An insertion result's `paragraph_index` identifies its source anchor, not the
+new paragraph; inspect the saved file to obtain the new paragraph's reference.
+Whole-paragraph `old_text` is an exact guard against the reading at that step.
+Minimal mode preserves unchanged run formatting; edited text inherits formatting
+at the replaced span. Whole mode preserves paragraph properties, while the new
+text inherits the first edited fragment's formatting rather than mixed styling.
+An unsafe minimal diff refuses without falling back to whole mode. Both modes
+check range boundaries nested inside old deleted content.
+Empty `new_text` removes text but retains the paragraph mark. Replies target the
+root thread even when `comment_id` names a reply. A resolved thread must be
+explicitly reopened before a reply is added. Replies require supported root
+anchors in ordinary content or the selected author's own insertion; anchors
+inside foreign insertions and foreign paragraph-mark revisions refuse mutation.
+Thread-state changes do not stamp
+a new author on existing comments. Unsupported revision, range or metadata
+structures refuse the whole batch. See the
+[drafting contract](docs/AUTHOR_DRAFTING.md#tool-sequence).
+Agents must follow the [drafting protocol](docs/AUTHOR_DRAFTING_WORKFLOW.md):
+establish approval for the concrete edits before saving, and obtain explicit
+instructions for each thread to resolve/reopen and for whole-mode replacements.
+Existing approval of the same concrete plan remains valid.
 
 ## `apply_document_edits`
 
 Apply that exact preflight candidate; omit `output_path` to save back to the same
 working file with a mandatory exact-byte backup. This tool intentionally permits
-editing existing own insertions. See [saving and recovery](docs/AUTHOR_DRAFTING.md#saving-and-recovery).
+editing existing own insertions. Supply the same optional `author_profile` used
+at preflight. Changing the resolved author or initials invalidates the proof.
+Reread paragraph references and comments after every save, including to target
+newly inserted paragraphs. See
+[saving and recovery](docs/AUTHOR_DRAFTING.md#saving-and-recovery).
 
 ## `list_rounds`
 
