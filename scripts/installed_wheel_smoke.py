@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 from contextlib import nullcontext
+import hashlib
 from importlib.metadata import distribution
 import json
 import os
@@ -62,7 +64,7 @@ EXPECTED_TOOL_NAMES_BY_VERSION = {
                     "preflight_document_edits", "apply_document_edits"),
     "0.5.0.dev3": (*NR02_TOOL_NAMES, "read_document_comments",
                     "preflight_document_edits", "apply_document_edits"),
-    "0.6.0.dev1": (*NR02_TOOL_NAMES, "read_document_comments", "read_document_revisions",
+    "0.6.0.dev1": (*NR02_TOOL_NAMES, "compare_incoming_version", "read_document_comments", "read_document_revisions",
                    "preflight_document_edits", "apply_document_edits"),
     "0.5.0": (*NR02_TOOL_NAMES, "read_document_comments",
                     "preflight_document_edits", "apply_document_edits"),
@@ -187,8 +189,54 @@ async def _dual_era_stdio_smoke() -> dict[str, str]:
                 _assert_producer(listed)
                 assert listed["ordering_source"] == "filename_lexicographic_v1"
                 await _exercise_public_v04(client, matter, listed)
+                if __version__ == "0.6.0.dev1":
+                    await _exercise_incoming_comparison(client, listed)
             assert negotiated[mode] == expected_protocol_version
         return negotiated
+
+
+async def _exercise_incoming_comparison(client: Client, listed: dict) -> dict:
+    """Use explicit synthetic snapshots, drain pages, and balance all members."""
+    selected = {side: {**source, "path": str(Path(source["path"]).resolve())}
+                for side, source in zip(("sent", "incoming"), listed["rounds"][:2], strict=True)}
+    arguments = {key: selected[side][field] for side in selected
+                 for field, key in (("path", side + "_path"), ("sha256", side + "_sha256"))}
+    members, groups, page_count, comparison_id = [], {}, 0, None
+    cursor = None
+    while True:
+        result = await client.call_tool("compare_incoming_version", {
+            **arguments, "max_items": 3, "cursor": cursor,
+        })
+        assert not result.is_error
+        page = _payload(result)
+        assert page["record_status"] == "disabled" and page["record_id"] is None
+        assert page["producer"] == {"name": "veqtor-mcp", "version": __version__,
+                                    "build": SOURCE_SNAPSHOT_IDENTITY}
+        assert page["coverage"]["partition_complete"]
+        if comparison_id is None:
+            comparison_id = page["comparison_id"]
+        assert comparison_id == page["comparison_id"]
+        for item in page["items"]:
+            if item["kind"] == "comparison_group":
+                assert item["group_id"] not in groups
+                groups[item["group_id"]] = item
+            elif item["kind"] == "paragraph":
+                members.append(item)
+        page_count += 1
+        cursor = page["next_cursor"]
+        if cursor is None:
+            break
+    for side, source in selected.items():
+        expected = page["coverage"][side]["indexed_paragraphs"]
+        own = [item for item in members if item["side"] == side]
+        assert sorted(item["paragraph_ref"]["paragraph_index"] for item in own) == list(range(expected))
+        counts = Counter(item["group_id"] for item in own)
+        assert all(counts[key] == group[side + "_count"] for key, group in groups.items())
+        assert all(item["paragraph_ref"]["file_sha256"] == source["sha256"] for item in own)
+        assert hashlib.sha256(Path(source["path"]).read_bytes()).hexdigest() == source["sha256"]
+    assert page_count > 1
+    return {"pages": page_count, "paragraph_memberships": len(members),
+            "partition_complete": True, "sources_unchanged": True}
 
 
 async def smoke() -> dict:
@@ -218,6 +266,8 @@ async def smoke() -> dict:
             )
             _assert_producer(listed)
             await _exercise_public_v04(session, matter, listed)
+            incoming_result = (await _exercise_incoming_comparison(session, listed)
+                               if __version__ == "0.6.0.dev1" else None)
             positions_result = (
                 await exercise_positions(session)
                 if __version__ in {"0.4.2.dev0", "0.4.2", "0.5.0.dev1", "0.5.0.dev2", "0.5.0.dev3", "0.5.0", "0.6.0.dev1"} else None
@@ -383,6 +433,7 @@ async def smoke() -> dict:
                 "tool_count": len(names),
                 "used_bundled_demo": configured_matter is not None,
                 "positions": positions_result,
+                "incoming_comparison": incoming_result,
             }
 
 
