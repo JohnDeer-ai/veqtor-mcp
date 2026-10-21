@@ -765,6 +765,7 @@ def _prepare(
     after_cursors: dict[etree._Element, etree._Element] = {}
     touched: set[etree._Element] = set()
     result = []
+    deleted_preview_chars = 0
     allowed_parts = {DOCUMENT_PART}
     for index, op in enumerate(operations):
         try:
@@ -938,6 +939,13 @@ def _prepare(
                     applied = delete_comment_thread(parts, document, op["comment_id"], op["member_comment_ids"], author)
                 else:
                     applied = delete_comment(parts, document, op["comment_id"], author)
+                if kind in {"delete_comment_reply", "delete_comment_thread"}:
+                    deleted = applied["deleted_comments"] if kind == "delete_comment_thread" else [applied]
+                    deleted_preview_chars += sum(
+                        len(row[field] or "") for row in deleted for field in ("text", "author", "date")
+                    )
+                    if deleted_preview_chars > MAX_BATCH_CHARS:
+                        raise ApplyError("resource_limit_exceeded", "selected comment deletion preview exceeds the batch limit")
             if kind not in {"replace_paragraph", "decide_revision"}:
                 _check_revision_preservation(
                     revisions_before, document, mutable_revision, applied, author, timestamp

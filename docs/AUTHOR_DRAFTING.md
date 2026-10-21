@@ -130,6 +130,8 @@ the complete deletion plan before saving. Neither resolving a thread nor a
 general request to handle comments authorizes deleting it. These operations
 remove supported plain comment bodies, their exact anchors and their linked
 modern metadata; rich bodies and unknown structures refuse the whole batch.
+Deletion previews are limited to 200,000 characters per batch, counting all
+selected bodies, authors and dates. An over-limit selection refuses before save.
 An empty `new_text` deletes the matched text. `replace_paragraph` requires
 `old_text` to equal the complete current reading, including earlier operations
 in the batch. Its default `mode="minimal"` compares words, punctuation and

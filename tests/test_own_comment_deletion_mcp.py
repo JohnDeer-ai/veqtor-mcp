@@ -94,3 +94,28 @@ def test_later_foreign_thread_refusal_discards_earlier_valid_reply_deletion(tmp_
     assert result["blocking_operation_index"] == 1
     assert path.read_bytes() == original and set(tmp_path.rglob("*")) == before_files
     assert reply in {c["id"] for c in drafting.read_document_comments(str(path))["comments"]}
+
+
+@pytest.mark.parametrize("at_limit", [True, False])
+def test_deletion_preview_budget_counts_bodies_and_metadata(tmp_path, demo_dir, monkeypatch, at_limit):
+    from test_drafting_v060_workflow import save, ref, PROFILE
+    from veqtor_docx import drafting
+
+    path = fixture(tmp_path, demo_dir)
+    root = save(path, [{"kind": "add_comment", "paragraph_ref": ref(path),
+                       "quote": "Supply", "text": "Our comment."}])["operations"][0]["id"]
+    reply = save(path, [{"kind": "reply_comment", "comment_id": root,
+                        "text": "Our response."}])["operations"][0]["id"]
+    original = path.read_bytes()
+    args = (str(path), hashlib.sha256(original).hexdigest(), [{
+        "kind": "delete_comment_thread", "comment_id": root, "member_comment_ids": [root, reply]}])
+    baseline = drafting.preflight_document_edits(*args, **PROFILE)
+    assert baseline["batch_applicable"]
+    total = sum(len(row[field] or "") for row in baseline["operations"][0]["deleted_comments"]
+                for field in ("text", "author", "date"))
+    monkeypatch.setattr(drafting, "MAX_BATCH_CHARS", total if at_limit else total - 1)
+    result = drafting.preflight_document_edits(*args, **PROFILE)
+    assert result["batch_applicable"] is at_limit
+    if not at_limit:
+        assert result["refusal_code"] == "resource_limit_exceeded"
+    assert path.read_bytes() == original
