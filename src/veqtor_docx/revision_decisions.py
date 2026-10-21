@@ -838,10 +838,8 @@ def _property_view(props, kind):
     return value
 
 
-def plan_decision(root, nodes, decision, parts, defer_fixed_widths=False):
-    """Describe both outcomes, validate dependencies independently, select one."""
-    if decision not in ("accept", "reject"):
-        _fail("invalid_edit", "decision must be accept or reject")
+def _plan_outcomes(root, nodes, parts, defer_fixed_widths=False):
+    """Describe and validate each outcome without choosing a write operation."""
     kind = etree.QName(nodes[0]).localname
     if len(nodes) == 2 or kind in {"ins", "del"}:
         _validate_text(root, nodes)
@@ -863,14 +861,20 @@ def plan_decision(root, nodes, decision, parts, defer_fixed_widths=False):
         result = _outcome(nodes, action, kind)
         try:
             _alignment_dependency(nodes[0], action, kind)
+            # Inspect the actual surviving outcome in its complete document
+            # context. Text can retain (or remove) unresolved run styles too;
+            # checking the source or only property decisions is insufficient.
+            clone = copy.deepcopy(root)
+            owner = clone
+            for i in _path(root, parent):
+                owner = owner[i]
+            _replace_span(
+                owner,
+                index,
+                list(owner)[index : index + len(old_nodes)],
+                copy.deepcopy(result),
+            )
             if kind in PROPERTY_KINDS:
-                # Inspect on a disposable complete document: style and grid
-                # dependencies are rooted outside the property subtree itself.
-                clone = copy.deepcopy(root)
-                owner = clone
-                for i in _path(root, parent):
-                    owner = owner[i]
-                _replace_span(owner, index, [owner[index]], copy.deepcopy(result))
                 table = next(
                     (n for n in (owner, *owner.iterancestors()) if n.tag == w("tbl")),
                     None,
@@ -887,23 +891,18 @@ def plan_decision(root, nodes, decision, parts, defer_fixed_widths=False):
                     and not defer_fixed_widths
                 ):
                     validate_fixed_table_widths(table)
-                paragraphs = (
-                    [owner] if owner.tag == w("p") else list(owner.iter(w("p")))
-                )
-                if owner.tag in {w("r"), w("pPr")}:
-                    paragraphs = [next(owner.iterancestors(w("p")))]
-                for para in paragraphs:
-                    _require_style_dependencies(parts, para)
+            paragraphs = (
+                [owner] if owner.tag == w("p") else list(owner.iter(w("p")))
+            )
+            if owner.tag in {w("r"), w("pPr")}:
+                paragraphs = [next(owner.iterancestors(w("p")))]
+            for para in paragraphs:
+                _require_style_dependencies(parts, para)
         except DocxError as exc:
             refusals[action] = getattr(exc, "code", "revision_dependency_unsupported")
         else:
             refusals[action] = None
         outcomes[action] = result
-    if refusals[decision] is not None:
-        _fail(
-            refusals[decision],
-            "the selected outcome has an unsupported property dependency",
-        )
     facts = {
         "fixed_width_validation_scope": (
             "explicit_batch_final_state" if defer_fixed_widths else "single_outcome"
@@ -913,7 +912,6 @@ def plan_decision(root, nodes, decision, parts, defer_fixed_widths=False):
         "accept_refusal_code": refusals["accept"],
         "reject_refusal_code": refusals["reject"],
         "operation": "decide_revision",
-        "decision": decision,
         "revision_kind": kind,
         "members": [
             {
@@ -944,6 +942,20 @@ def plan_decision(root, nodes, decision, parts, defer_fixed_widths=False):
         if kind in PROPERTY_KINDS
         else None,
     }
+    return old_nodes, outcomes, facts
+
+
+def plan_decision(root, nodes, decision, parts, defer_fixed_widths=False):
+    """Describe both outcomes and select only a validated write operation."""
+    if decision not in ("accept", "reject"):
+        _fail("invalid_edit", "decision must be accept or reject")
+    old_nodes, outcomes, facts = _plan_outcomes(root, nodes, parts, defer_fixed_widths)
+    refusal = facts[f"{decision}_refusal_code"]
+    if refusal is not None:
+        _fail(refusal, "the selected outcome has an unsupported dependency")
+    facts["decision"] = decision
+    parent = old_nodes[0].getparent()
+    index = parent.index(old_nodes[0])
     chosen = outcomes[decision]
     return (
         DecisionPatch(parent, index, copy.deepcopy(old_nodes), copy.deepcopy(chosen)),
@@ -997,17 +1009,26 @@ def read_document_revisions(path, file_sha256=None, *, offset=0, max_items=100):
         refusal = None
         preview = None
         try:
-            planning_bytes += (
-                2 * document_bytes
-                if etree.QName(node).localname in PROPERTY_KINDS
-                else 0
-            )
+            planning_bytes += 2 * document_bytes
             if planning_bytes > MAX_FINGERPRINT_BYTES:
                 _fail(
                     "resource_limit_exceeded",
                     "reduce revision page size to bound outcome validation",
                 )
-            _, _, preview = plan_decision(root, [node], "accept", package.parts)
+            _, _, preview = _plan_outcomes(root, [node], package.parts)
+            # A readable revision can allow only one of the two decisions.
+            # Preserve both refusal codes even when neither outcome is safe.
+            preview["decision"] = (
+                "reject"
+                if preview["accept_refusal_code"] is not None
+                and preview["reject_refusal_code"] is None
+                else "accept"
+            )
+            if all(
+                preview[f"{action}_refusal_code"] is not None
+                for action in ("accept", "reject")
+            ):
+                refusal = preview["accept_refusal_code"]
         except DocxError as exc:
             refusal = getattr(exc, "code", "revision_dependency_unsupported")
         items.append(

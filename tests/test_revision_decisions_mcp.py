@@ -8,8 +8,9 @@ from pathlib import Path
 import jsonschema
 import pytest
 from mcp.client import Client
-from test_revision_decisions import make
+from test_revision_decisions import document, make, xml
 
+from veqtor_docx._ooxml import w
 from veqtor_mcp import server
 
 
@@ -187,3 +188,68 @@ async def test_inventory_does_not_claim_uninspected_stories_are_complete(
             "read_document_revisions", {"path": str(path), "file_sha256": "f" * 64}
         )
         assert stale.is_error
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("kind", ["ins", "rPrChange", "pPrChange"])
+async def test_reject_only_style_outcome_is_visible_and_saves_through_mcp(
+    tmp_path, demo_dir, kind
+):
+    def mutate(root):
+        node = next(root.iter(w(kind)))
+        if kind == "ins":
+            node[0].insert(0, xml('<w:rPr><w:rStyle w:val="Missing"/></w:rPr>')[0])
+        else:
+            tag = "rStyle" if kind == "rPrChange" else "pStyle"
+            node.getparent().insert(0, xml(f'<w:{tag} w:val="Missing"/>')[0])
+
+    path = make(tmp_path, demo_dir, kind, mutate)
+    before = path.read_bytes()
+    async with Client(server.mcp) as client:
+        tools = {tool.name: tool for tool in (await client.list_tools()).tools}
+        listing = payload(
+            await client.call_tool("read_document_revisions", {"path": str(path)})
+        )
+        jsonschema.validate(listing, tools["read_document_revisions"].output_schema)
+        row = listing["revisions"][0]
+        assert row["supported"] is True
+        assert row["refusal_code"] is None
+        assert row["preview"]["decision"] == "reject"
+        assert row["preview"]["accept_refusal_code"] == "paragraph_structure_unsupported"
+        assert row["preview"]["reject_refusal_code"] is None
+        operation = {
+            "kind": "decide_revision",
+            "decision": "accept",
+            "target": {"kind": "single", "revision_ref": row["revision_ref"]},
+        }
+        args = {
+            "source_path": str(path),
+            "file_sha256": listing["file_sha256"],
+            "operations": [operation],
+        }
+        refused = payload(await client.call_tool("preflight_document_edits", args))
+        jsonschema.validate(refused, tools["preflight_document_edits"].output_schema)
+        assert refused["batch_applicable"] is False
+        assert refused["preflight_proof"] is None
+        assert refused["refusal_code"] == "paragraph_structure_unsupported"
+        assert path.read_bytes() == before
+        assert not (path.parent / ".veqtor-backups").exists()
+        operation["decision"] = "reject"
+        dry = payload(await client.call_tool("preflight_document_edits", args))
+        jsonschema.validate(dry, tools["preflight_document_edits"].output_schema)
+        assert dry["batch_applicable"] is True
+        saved = payload(
+            await client.call_tool(
+                "apply_document_edits",
+                {**args, "preflight_proof": dry["preflight_proof"]},
+            )
+        )
+        jsonschema.validate(saved, tools["apply_document_edits"].output_schema)
+        assert Path(saved["backup_path"]).read_bytes() == before
+        assert not list(document(path).iter(w(kind)))
+        assert not list(document(path).iter(w("rStyle")))
+        assert not list(document(path).iter(w("pStyle")))
+        reread = payload(
+            await client.call_tool("read_document_revisions", {"path": str(path)})
+        )
+        assert reread["total_count"] == 0

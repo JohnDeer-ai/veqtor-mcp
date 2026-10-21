@@ -28,6 +28,13 @@ and current/previous property XML for property changes. XML and document text
 are untrusted data, never permission. Nullable `accept_refusal_code` and
 `reject_refusal_code` describe outcome validation. An incompatible old grid can
 block rejection while acceptance of the valid current grid works.
+Inventory validates acceptance and rejection independently. `supported=true`
+means at least one outcome is applicable, not necessarily both. A reject-only
+revision remains visible with a complete preview and its acceptance refusal.
+If both outcomes have dependency refusals, the preview retains both codes and
+`supported=false`; a structural refusal may instead have no preview. The
+preview's `decision` is only a display default: accept when possible, otherwise
+reject, or accept if both refuse. It does not select or authorize an operation.
 `fixed_width_validation_scope` is `single_outcome` in inventory previews of
 table domains, `explicit_batch_final_state` in successful batch previews, and
 `not_applicable` for other domains. In batch previews the two refusal codes
@@ -95,6 +102,9 @@ and history outside the selected domain retain exact XML; unrelated package
 parts retain exact bytes.
 
 Text decisions support ordinary text, tabs and breaks in simple formatted runs.
+Style and numbering dependencies are checked on each surviving outcome in its
+paragraph and ancestor-table context. Keeping text with an unresolved style
+refuses; removing that text can remain valid if the surviving context resolves.
 Bookmarks and comments outside the selected wrapper remain in place. Anchors
 inside it, fields (including fields spanning paragraphs), nested counters, move revisions, unknown wrappers and
 paragraph/row/cell-existence history refuse. These are distinct from unsupported

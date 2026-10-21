@@ -26,7 +26,11 @@ source_document, write_source, xml = (
 from veqtor_docx import ApplyError, drafting, inspect_document  # noqa: E402
 from veqtor_docx._ooxml import w  # noqa: E402
 from veqtor_docx.revision_decisions import read_document_revisions  # noqa: E402
-from veqtor_mcp._drafting_contract import _APPLIED, OPERATIONS  # noqa: E402
+from veqtor_mcp._drafting_contract import (  # noqa: E402
+    _APPLIED,
+    DECISION_PREVIEW,
+    OPERATIONS,
+)
 
 
 def make(tmp_path, demo_dir, kind, mutate=None):
@@ -481,6 +485,187 @@ def test_refuses_unknown_old_style_without_accepting_other_revision(tmp_path, de
     path = make(tmp_path, demo_dir, "rPrChange", mutate)
     refused(path, [op(path, "reject")], "paragraph_structure_unsupported")
     save(path, [op(path, "accept")])
+
+
+@pytest.mark.parametrize("kind", ["ins", "del", "replacement"])
+@pytest.mark.parametrize("decision", ["accept", "reject"])
+@pytest.mark.parametrize("invalid_style", [False, True])
+def test_text_outcomes_validate_only_surviving_style_dependencies(
+    tmp_path, demo_dir, kind, decision, invalid_style
+):
+    def mutate(root):
+        # In a replacement, make only the proposed insertion invalid. Rejecting
+        # that pair must discard the invalid insertion and restore the deletion.
+        node = next(root.iter(w("del" if kind == "del" else "ins")))
+        node[0].insert(
+            0,
+            xml(
+                '<w:rPr><w:rStyle w:val="'
+                + ("MissingCharacterStyle" if invalid_style else "DefinedCharacterStyle")
+                + '"/></w:rPr>'
+            )[0],
+        )
+
+    path = make(tmp_path, demo_dir, kind, mutate)
+    if not invalid_style:
+        with zipfile.ZipFile(path) as archive:
+            parts = {name: archive.read(name) for name in archive.namelist()}
+        styles = etree.fromstring(parts["word/styles.xml"])
+        styles.append(
+            xml(
+                '<w:style w:type="character" w:styleId="DefinedCharacterStyle">'
+                '<w:name w:val="Defined character style"/><w:rPr><w:b/></w:rPr></w:style>'
+            )[0]
+        )
+        parts["word/styles.xml"] = etree.tostring(styles)
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+            for name, data in parts.items():
+                archive.writestr(name, data)
+    before = path.read_bytes()
+    operation = op(path, decision, kind)
+    retains_style = (kind != "del") == (decision == "accept")
+    if invalid_style and retains_style:
+        refused(path, [operation], "paragraph_structure_unsupported")
+        # There is no proof to publish; the same invalid decision cannot bypass
+        # preflight by borrowing a proof for its valid opposite outcome.
+        safe = preview(
+            path,
+            [{**operation, "decision": "reject" if decision == "accept" else "accept"}],
+        )
+        assert safe["batch_applicable"]
+        with pytest.raises(ApplyError):
+            drafting.apply_document_edits(
+                str(path),
+                hashlib.sha256(before).hexdigest(),
+                [operation],
+                safe["preflight_proof"],
+                **PROFILE,
+            )
+        assert path.read_bytes() == before
+        assert not (path.parent / ".veqtor-backups").exists()
+        return
+    save(path, [operation])
+    actual = document(path)
+    styles = [n.get(w("val")) for n in actual.iter(w("rStyle"))]
+    assert styles == (["DefinedCharacterStyle"] if retains_style else [])
+    assert not list(actual.iter(w("ins")))
+    assert not list(actual.iter(w("del")))
+    expected = (
+        "Proposed wording."
+        if kind != "del" and decision == "accept"
+        else "Previous wording."
+        if kind != "ins" and decision == "reject"
+        else ""
+    )
+    assert "".join(n.text or "" for n in actual.iter(w("t"))) == expected
+
+
+@pytest.mark.parametrize("decision", ["accept", "reject"])
+def test_replacement_accept_can_discard_an_unresolved_deleted_style(
+    tmp_path, demo_dir, decision
+):
+    def mutate(root):
+        next(root.iter(w("del")))[0].insert(
+            0, xml('<w:rPr><w:rStyle w:val="MissingOldStyle"/></w:rPr>')[0]
+        )
+
+    path = make(tmp_path, demo_dir, "replacement", mutate)
+    operation = op(path, decision, "replacement")
+    if decision == "reject":
+        refused(path, [operation], "paragraph_structure_unsupported")
+    else:
+        save(path, [operation])
+        assert not list(document(path).iter(w("rStyle")))
+
+
+@pytest.mark.parametrize(
+    ("kind", "invalid_outcomes"),
+    [("ins", "accept"), ("ins", "both"), ("del", "reject"), ("del", "both")]
+    + [
+        (kind, action)
+        for kind in ("rPrChange", "pPrChange")
+        for action in ("accept", "reject", "both")
+    ],
+)
+def test_inventory_reports_independent_outcome_refusals(
+    tmp_path, demo_dir, kind, invalid_outcomes
+):
+    def mutate(root):
+        if kind in {"ins", "del"}:
+            para = root.find(f"{w('body')}/{w('p')}")
+            # A bad paragraph style survives either text decision. A bad run
+            # style survives only accept-insertion / reject-deletion.
+            if invalid_outcomes == "both":
+                para.insert(0, xml('<w:pPr><w:pStyle w:val="Missing"/></w:pPr>')[0])
+            else:
+                next(root.iter(w(kind)))[0].insert(
+                    0, xml('<w:rPr><w:rStyle w:val="Missing"/></w:rPr>')[0]
+                )
+        else:
+            node = next(root.iter(w(kind)))
+            tag = "rStyle" if kind == "rPrChange" else "pStyle"
+            if invalid_outcomes in {"accept", "both"}:
+                node.getparent().insert(0, xml(f'<w:{tag} w:val="MissingCurrent"/>')[0])
+            if invalid_outcomes in {"reject", "both"}:
+                node[0].insert(0, xml(f'<w:{tag} w:val="MissingPrevious"/>')[0])
+
+    path = make(tmp_path, demo_dir, kind, mutate)
+    before = path.read_bytes()
+    row = read_document_revisions(str(path))["revisions"][0]
+    facts = row["preview"]
+    jsonschema.validate(facts, DECISION_PREVIEW)
+    expected_bad = {"accept", "reject"} if invalid_outcomes == "both" else {invalid_outcomes}
+    assert row["supported"] == (len(expected_bad) < 2)
+    assert row["refusal_code"] == (
+        "paragraph_structure_unsupported" if len(expected_bad) == 2 else None
+    )
+    for action in ("accept", "reject"):
+        assert facts[f"{action}_refusal_code"] == (
+            "paragraph_structure_unsupported" if action in expected_bad else None
+        )
+        operation = {
+            "kind": "decide_revision",
+            "decision": action,
+            "target": {"kind": "single", "revision_ref": row["revision_ref"]},
+        }
+        dry = preview(path, [operation])
+        assert dry["batch_applicable"] == (action not in expected_bad)
+    assert facts["decision"] == ("reject" if expected_bad == {"accept"} else "accept")
+    assert path.read_bytes() == before
+    assert not (path.parent / ".veqtor-backups").exists()
+
+
+def test_text_decision_checks_ancestor_table_style_dependency(tmp_path, demo_dir):
+    def mutate(root):
+        body = root.find(w("body"))
+        para = body[0]
+        body.remove(para)
+        table = xml(
+            '<w:tbl><w:tblPr><w:tblStyle w:val="MissingTableStyle"/></w:tblPr>'
+            '<w:tblGrid><w:gridCol w:w="2000"/></w:tblGrid>'
+            '<w:tr><w:tc/></w:tr></w:tbl>'
+        )[0]
+        table.find(f"{w('tr')}/{w('tc')}").append(para)
+        body.insert(0, table)
+
+    path = make(tmp_path, demo_dir, "ins", mutate)
+    for action in ("accept", "reject"):
+        refused(path, [op(path, action)], "paragraph_structure_unsupported")
+
+
+def test_text_inventory_bounds_complete_outcome_validation(tmp_path, demo_dir, monkeypatch):
+    from veqtor_docx import revision_decisions as decisions
+
+    path = make(tmp_path, demo_dir, "ins")
+    root = document(path)
+    # The element and owner fingerprints fit, but two complete outcome clones
+    # do not. Text and property decisions must share this resource boundary.
+    budget = len(decisions._xml(root)) * 2 - 1
+    monkeypatch.setattr(decisions, "MAX_FINGERPRINT_BYTES", budget)
+    row = read_document_revisions(str(path))["revisions"][0]
+    assert row["supported"] is False
+    assert row["refusal_code"] == "resource_limit_exceeded"
+    assert row["preview"] is None
 
 
 def test_serialized_collateral_inside_touched_paragraph_is_detected(

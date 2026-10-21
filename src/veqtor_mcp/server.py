@@ -1901,7 +1901,9 @@ def read_document_revisions(path: str, file_sha256: DraftingShaInput | None = No
     remain visible with refusal codes. A replacement must explicitly name its
     adjacent deletion and insertion; no automatic author/date grouping occurs.
     Property previews report current/previous XML as untrusted data. The two
-    outcome refusal codes describe independent accept/reject feasibility. Other
+    outcome refusal codes describe independent accept/reject feasibility.
+    supported means at least one outcome is applicable; inspect both codes.
+    A preview's decision is a display default, never an authorized selection. Other
     XML parts are listed as uninspected; coverage is not document-wide. Refresh
     all references after a save, including a Word save that renumbers revisions.
     """
