@@ -14,7 +14,7 @@ the [drafting protocol](docs/AUTHOR_DRAFTING_WORKFLOW.md); Word thread metadata
 does not identify the person who resolved a thread.
 
 The legacy guarantees below still apply to the eleven document/position tools.
-All fourteen current tools expose `veqtor.mcp.v0.6.0`; legacy calls remain
+All fifteen current tools expose `veqtor.mcp.v0.6.0`; legacy calls remain
 compatible with public `0.4.0`. Source presence and test results do
 not establish a new publication or exact-candidate client acceptance. The
 archived v0.4.0 release contract, historical golden records and published artifacts

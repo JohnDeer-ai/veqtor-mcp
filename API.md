@@ -47,7 +47,7 @@ transport teardown separately reaps the stdio server process.
 
 Every successful live tool response includes the same bounded `producer`
 object with `name`, package `version`, and the process-start Python source
-snapshot `build`. This applies to all fourteen tools, including read-only results
+snapshot `build`. This applies to all fifteen tools, including read-only results
 and decision-record export. Error envelopes are not successful tool results.
 `producer`, `record_id`, `record_status`, and `record_error` are server-owned;
 core tool results cannot supply them. `record_error` is present only with

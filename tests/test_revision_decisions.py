@@ -23,10 +23,10 @@ source_document, write_source, xml = (
     _fixture.write_source,
     _fixture.xml,
 )
-from veqtor_docx import ApplyError, drafting, inspect_document
-from veqtor_docx._ooxml import w
-from veqtor_docx.revision_decisions import read_document_revisions
-from veqtor_mcp._drafting_contract import _APPLIED, OPERATIONS
+from veqtor_docx import ApplyError, drafting, inspect_document  # noqa: E402
+from veqtor_docx._ooxml import w  # noqa: E402
+from veqtor_docx.revision_decisions import read_document_revisions  # noqa: E402
+from veqtor_mcp._drafting_contract import _APPLIED, OPERATIONS  # noqa: E402
 
 
 def make(tmp_path, demo_dir, kind, mutate=None):

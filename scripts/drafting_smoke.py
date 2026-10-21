@@ -37,6 +37,7 @@ EXPECTED_TOOLS = frozenset({
     "trace_paragraph_history", "preflight_edits", "apply_edits", "verify_quote",
     "export_decision_record", "read_deal_positions", "mutate_deal_positions",
     "read_document_comments", "preflight_document_edits", "apply_document_edits",
+    "read_document_revisions",
 })
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 TITLE_FIRST = "Master Development and Supply Agreement"
@@ -150,7 +151,7 @@ async def smoke(output_dir: Path, *, interpreter: str, author: str | None,
     async with Client(stdio_client(parameters), mode="auto") as client:
         inventory = await client.list_tools()
         names = {tool.name for tool in inventory.tools}
-        _require(names == EXPECTED_TOOLS, f"expected 14 drafting tools; observed {sorted(names)}")
+        _require(names == EXPECTED_TOOLS, f"expected 15 drafting tools; observed {sorted(names)}")
 
         async def call(name: str, arguments: dict) -> dict:
             nonlocal producer

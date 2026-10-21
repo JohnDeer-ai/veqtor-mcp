@@ -40,7 +40,7 @@ def inventory(names):
     return SimpleNamespace(tools=[SimpleNamespace(name=name) for name in names])
 
 
-def test_explicit_fourteen_tool_development_inventory_passes(smoke):
+def test_explicit_fifteen_tool_development_inventory_passes(smoke):
     assert smoke.__version__ == "0.6.0.dev1"
     assert smoke._assert_tool_inventory(inventory(DEVELOPMENT_TOOLS)) == DEVELOPMENT_TOOLS
 
