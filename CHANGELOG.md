@@ -12,6 +12,9 @@ Unreleased paragraph and comment-thread drafting candidate. This entry describes
 source behavior; it does not establish installation, native Word acceptance or
 public distribution.
 
+- Require `opentelemetry-api>=1.45.1,<2` for the MCP runtime to exclude the
+  vulnerable trace-state parser covered by CVE-2026-114603. Apply the same
+  security floor to the locked environment and exact-minimum artifact smoke.
 - Add `read_document_revisions` and explicit `decide_revision` accept/reject
   operations, with exact file/part/location/fingerprint references. Support
   isolated insertions, deletions, explicit adjacent replacements and all six

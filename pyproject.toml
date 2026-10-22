@@ -34,6 +34,8 @@ dependencies = [
   "jsonschema>=4.20,<5",
   "lxml>=6.1,<7",
   "mcp>=2.2.0,<3",
+  # Security floor for the MCP trace-context parser (CVE-2026-114603).
+  "opentelemetry-api>=1.45.1,<2",
 ]
 
 [project.urls]
