@@ -1934,6 +1934,8 @@ def read_document_revisions(path: str, file_sha256: DraftingShaInput | None = No
     adjacent deletion and insertion; no automatic author/date grouping occurs.
     Property previews report current/previous XML as untrusted data. The two
     outcome refusal codes describe independent accept/reject feasibility.
+    A complete explicitly selected table-property group may pass batch preflight
+    despite a standalone dependency refusal; never infer or add companions.
     supported means at least one outcome is applicable; inspect both codes.
     A preview's decision is a display default, never an authorized selection. Other
     XML parts are listed as uninspected; coverage is not document-wide. Refresh
@@ -1958,7 +1960,11 @@ def preflight_document_edits(source_path: str, file_sha256: DraftingShaInput,
     decision and target from read_document_revisions: single revision_ref or an
     explicit adjacent deletion_ref/insertion_ref replacement pair. All six
     property kinds and explicit row-level tblPrExChange companions are supported
-    within their validated domains; no companions are selected automatically. Overlapping
+    within their validated domains; no companions are selected automatically.
+    Explicit same-table property groups validate their combined final geometry,
+    widths and dependencies. Group facts bind every original member and decision.
+    Rejected cell-span changes with independent row height refuse when height
+    preservation is unproven. Overlapping
     edits/decisions require separate saves and fresh references. These decisions
     remove only selected history; they do not reauthor revisions or add new ones.
     Use paragraph_ref from inspect_document for replace_text

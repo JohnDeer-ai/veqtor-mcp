@@ -668,6 +668,115 @@ def decision_table(nodes):
     return next(nodes[0].iterancestors(w("tbl")), None)
 
 
+@dataclass(frozen=True)
+class _TableSelection:
+    node: etree._Element
+    decision: str
+    revision_ref: dict
+    row: etree._Element | None
+
+
+@dataclass(frozen=True)
+class TableDecisionGroup:
+    root: etree._Element
+    table: etree._Element
+    selections: tuple[_TableSelection, ...]
+
+    def facts(self):
+        return [
+            {"revision_ref": copy.deepcopy(item.revision_ref), "decision": item.decision}
+            for item in self.selections
+        ]
+
+
+def table_decision_groups(root, nodes_by_index, operations):
+    """Bind explicit table selections before any source nodes are replaced.
+
+    A group is a validation context, not permission to mutate its whole table.
+    Each decision still publishes only its independently verified local patch.
+    """
+    by_table = {}
+    for index, nodes in nodes_by_index.items():
+        table = decision_table(nodes)
+        if table is not None:
+            by_table.setdefault(table, []).append(index)
+    groups = {}
+    for table, indexes in by_table.items():
+        if len(indexes) < 2:
+            continue
+        selections = []
+        for index in sorted(indexes, key=lambda i: _path(root, nodes_by_index[i][0])):
+            node = nodes_by_index[index][0]
+            try:
+                _validate_property(root, node)
+                if (next(table.iterancestors(w("tbl")), None) is not None
+                        or any(item is not table for item in table.iter(w("tbl")))):
+                    _fail("revision_dependency_unsupported", "nested table groups are unsupported")
+            except DocxError as exc:
+                if hasattr(exc, "metadata"):
+                    exc.metadata["operation_index"] = index
+                raise
+            selections.append(_TableSelection(
+                node, operations[index]["decision"],
+                copy.deepcopy(operations[index]["target"]["revision_ref"]),
+                next(node.iterancestors(w("tr")), None),
+            ))
+        group = TableDecisionGroup(root, table, tuple(selections))
+        groups.update((index, group) for index in indexes)
+    return groups
+
+
+def _height_dependency(node, action, kind, group=None):
+    if action != "reject" or kind != "tcPrChange":
+        return
+    from .table_map import _integer
+
+    # Native Word has removed an independent row height when rejecting a span
+    # history. Until preservation is proved for more shapes, exclude this
+    # combination rather than silently deleting a property outside the patch.
+    if _integer(node.getparent(), "gridSpan", 1) == _integer(node[0], "gridSpan", 1):
+        return
+    row = next(node.iterancestors(w("tr")), None)
+    if row is None or row.find(f"{w('trPr')}/{w('trHeight')}") is None:
+        return
+    if group is not None and any(
+        item.row is row and item.node.tag == w("trPrChange")
+        for item in group.selections
+    ):
+        return  # The row properties are an actual explicitly selected domain.
+    _fail(
+        "table_height_dependency_unsupported",
+        "restoring this cell span can remove an independent row height in Word",
+    )
+
+
+def _group_outcome(root, nodes, decision, group):
+    """Compose the explicitly selected final state on a detached document."""
+    if group.root is not root or not any(item.node is nodes[0] for item in group.selections):
+        _fail("round_trip_failed", "table group does not own this selected revision")
+    clone = copy.deepcopy(root)
+    mapped = dict(zip(root.iter(), clone.iter(), strict=True))
+    for item in group.selections:
+        if item.node not in mapped:
+            continue  # An earlier verified local patch already decided it.
+        action = decision if item.node is nodes[0] else item.decision
+        kind = etree.QName(item.node).localname
+        _alignment_dependency(item.node, action, kind)
+        _height_dependency(item.node, action, kind, group)
+        props = item.node.getparent()
+        parent = mapped[props.getparent()]
+        index = props.getparent().index(props)
+        _replace_span(parent, index, [mapped[props]], _outcome([item.node], action, kind))
+    return clone, mapped
+
+
+def validate_table_group(group):
+    if any(item.node.tag in {w("tcPrChange"), w("trPrChange"), w("tblGridChange")}
+           for item in group.selections):
+        _grid(group.table)
+    validate_fixed_table_widths(group.table)
+
+
 def validate_fixed_table_widths(table):
     """Prove explicit fixed-layout widths in the final selected batch state.
 
@@ -838,7 +947,7 @@ def _property_view(props, kind):
     return value
 
 
-def _plan_outcomes(root, nodes, parts, defer_fixed_widths=False):
+def _plan_outcomes(root, nodes, parts, defer_fixed_widths=False, table_group=None):
     """Describe and validate each outcome without choosing a write operation."""
     kind = etree.QName(nodes[0]).localname
     if len(nodes) == 2 or kind in {"ins", "del"}:
@@ -861,34 +970,40 @@ def _plan_outcomes(root, nodes, parts, defer_fixed_widths=False):
         result = _outcome(nodes, action, kind)
         try:
             _alignment_dependency(nodes[0], action, kind)
+            _height_dependency(nodes[0], action, kind, table_group)
             # Inspect the actual surviving outcome in its complete document
             # context. Text can retain (or remove) unresolved run styles too;
             # checking the source or only property decisions is insufficient.
-            clone = copy.deepcopy(root)
-            owner = clone
-            for i in _path(root, parent):
-                owner = owner[i]
-            _replace_span(
-                owner,
-                index,
-                list(owner)[index : index + len(old_nodes)],
-                copy.deepcopy(result),
-            )
+            if table_group is None:
+                clone = copy.deepcopy(root)
+                owner = clone
+                for i in _path(root, parent):
+                    owner = owner[i]
+                _replace_span(
+                    owner,
+                    index,
+                    list(owner)[index : index + len(old_nodes)],
+                    copy.deepcopy(result),
+                )
+            else:
+                clone, mapped = _group_outcome(root, nodes, action, table_group)
+                owner = mapped[parent]
             if kind in PROPERTY_KINDS:
                 table = next(
                     (n for n in (owner, *owner.iterancestors()) if n.tag == w("tbl")),
                     None,
                 )
-                if table is not None and kind in {
-                    "tcPrChange",
-                    "trPrChange",
-                    "tblGridChange",
-                }:
+                geometric_kinds = {w("tcPrChange"), w("trPrChange"), w("tblGridChange")}
+                if table is not None and (
+                    w(kind) in geometric_kinds or table_group is not None and any(
+                        item.node.tag in geometric_kinds for item in table_group.selections
+                    )
+                ):
                     _grid(table)
                 if (
                     table is not None
                     and decision_table(nodes) is not None
-                    and not defer_fixed_widths
+                    and (table_group is not None or not defer_fixed_widths)
                 ):
                     validate_fixed_table_widths(table)
             paragraphs = (
@@ -904,6 +1019,10 @@ def _plan_outcomes(root, nodes, parts, defer_fixed_widths=False):
             refusals[action] = None
         outcomes[action] = result
     facts = {
+        "table_validation_scope": (
+            "explicit_batch_final_state" if table_group is not None else "single_outcome"
+        ) if decision_table(nodes) is not None else "not_applicable",
+        "table_group_members": table_group.facts() if table_group is not None else [],
         "fixed_width_validation_scope": (
             "explicit_batch_final_state" if defer_fixed_widths else "single_outcome"
         )
@@ -945,11 +1064,16 @@ def _plan_outcomes(root, nodes, parts, defer_fixed_widths=False):
     return old_nodes, outcomes, facts
 
 
-def plan_decision(root, nodes, decision, parts, defer_fixed_widths=False):
+def plan_decision(root, nodes, decision, parts, defer_fixed_widths=False, table_group=None):
     """Describe both outcomes and select only a validated write operation."""
     if decision not in ("accept", "reject"):
         _fail("invalid_edit", "decision must be accept or reject")
-    old_nodes, outcomes, facts = _plan_outcomes(root, nodes, parts, defer_fixed_widths)
+    if table_group is not None and not any(
+        item.node is nodes[0] and item.decision == decision
+        for item in table_group.selections
+    ):
+        _fail("round_trip_failed", "selected decision differs from its bound table group")
+    old_nodes, outcomes, facts = _plan_outcomes(root, nodes, parts, defer_fixed_widths, table_group)
     refusal = facts[f"{decision}_refusal_code"]
     if refusal is not None:
         _fail(refusal, "the selected outcome has an unsupported dependency")
@@ -964,9 +1088,9 @@ def plan_decision(root, nodes, decision, parts, defer_fixed_widths=False):
     )
 
 
-def apply_decision(root, nodes, decision, parts, defer_fixed_widths=False):
+def apply_decision(root, nodes, decision, parts, defer_fixed_widths=False, table_group=None):
     patch, chosen, facts = plan_decision(
-        root, nodes, decision, parts, defer_fixed_widths
+        root, nodes, decision, parts, defer_fixed_widths, table_group
     )
     present = list(patch.parent)[patch.index : patch.index + len(patch.before)]
     _replace_span(patch.parent, patch.index, present, chosen)
