@@ -244,7 +244,7 @@ def test_development_preserves_the_complete_frozen_v04_surface() -> None:
     assert len(release["MCPB_REQUIRED_TOOLS"]) == 9
     assert "trace_paragraph_history" in release["MCPB_REQUIRED_TOOLS"]
     assert f"current source defines the unreleased package candidate `{source_version}`" in api
-    assert "sixteen-tool development MCP contract `veqtor.mcp.v0.6.0`" in api
+    assert "eighteen-tool development MCP contract `veqtor.mcp.v0.6.0`" in api
     assert "Public `0.4.0`" in api
     assert "Package `0.6.0.dev1`" in limitations
     assert "veqtor.mcp.v0.4" in limitations

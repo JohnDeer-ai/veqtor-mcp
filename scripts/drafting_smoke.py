@@ -37,6 +37,8 @@ EXPECTED_TOOLS = frozenset({
     "trace_paragraph_history", "preflight_edits", "apply_edits", "verify_quote",
     "export_decision_record", "read_deal_positions", "mutate_deal_positions",
     "compare_incoming_version",
+    "read_document_tables",
+    "check_bilingual_conditions",
     "read_document_comments", "preflight_document_edits", "apply_document_edits",
     "read_document_revisions",
 })

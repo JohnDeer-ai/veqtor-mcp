@@ -31,7 +31,7 @@ tamper-evident audit system. Review the
 before using it on a real matter.
 
 This source tree defines package version `0.6.0.dev1` and the
-sixteen-tool development MCP contract `veqtor.mcp.v0.6.0`. The drafting tools
+eighteen-tool development MCP contract `veqtor.mcp.v0.6.0`. The drafting tools
 support paragraph insertion and replacement, comment replies and thread status,
 a selected author for each batch, and backup-backed saves to the working file.
 This is a development version; the public release remains 0.5.0. See [author drafting](#author-drafting).
@@ -243,7 +243,7 @@ or environment.
 ## Tool surface
 
 The descriptions below follow development package `0.6.0.dev1` and its
-sixteen-tool development MCP contract `veqtor.mcp.v0.6.0`. Public `0.4.0` retains the frozen
+eighteen-tool development MCP contract `veqtor.mcp.v0.6.0`. Public `0.4.0` retains the frozen
 `veqtor.mcp.v0.4` contract. For an
 installed version, use the API file carried by that exact artifact or its
 matching immutable tag. Historical v0.3 artifacts retain their eight tools.
@@ -256,6 +256,12 @@ matching immutable tag. Historical v0.3 artifacts retain their eight tools.
 - `compare_incoming_version`: read-only comparison of two explicitly selected, hash-bound
   versions, with complete paragraph membership and separate markup, table topology and
   package-part observations. See [incoming comparison](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/docs/INCOMING_COMPARISON.md).
+- `read_document_tables`: complete bounded, snapshot-bound table/cell/paragraph
+  inventory and a read-only report of textual reference candidates and raw field nodes.
+- `check_bilingual_conditions`: Decimal/date/unit checks for explicitly selected
+  single-value condition pairs in selected language cells, with unsupported and
+  unpaired value coverage. Numeric agreement does not verify translation or
+  obligation equivalence. See [bilingual columns](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/docs/BILINGUAL_COLUMNS.md).
 - `inspect_document`: bounded outline, literal-search, browse and read views of
   a mechanical accepted/current projection of main-body text, with every
   returned paragraph bound to the exact file bytes. This reading mode does not
