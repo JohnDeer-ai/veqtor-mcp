@@ -73,6 +73,16 @@ not detected from a language label. Thus `1,000` can mean 1000 or 1 depending
 on the specified format. Decimal arithmetic preserves the parsed value and
 applies explicit thousand/million/billion scale without binary rounding.
 
+Tokenization retains a maximal digit-looking candidate before format parsing,
+including unsupported apostrophes, thin spaces and malformed grouping. These
+remain unsupported whole candidates; choosing an inner suffix such as
+`000 USD` from `1'000 USD` refuses as a partial value. Ordinary punctuation
+followed by whitespace can separate a clause label (`1. 100 USD`) or separate
+explicit quantities; it is not invented as a grouping convention. ASCII unary
+`+`/`-` immediately before digits are supported. Separated signs, unsupported
+Unicode sign notation and plus/minus notation remain visible unsupported
+context, preserving the original quote and offsets. No raw text is rewritten.
+
 The bounded EN/RU lexical grammar observes digit-written amounts, explicit
 ISO currency codes and selected unambiguous currency names/symbols, percentages,
 numeric dates, durations and common mass/volume/package units. Date comparison
@@ -82,6 +92,17 @@ unsupported when ambiguous under `reject_ambiguous`. Calendar and business/
 working days are distinct. An unspecified day basis does not establish a
 match. Ambiguous currency symbols such as `$` and `¥` do not establish a
 currency. Units and currencies are not converted.
+
+Recognized units use closed sets of exact EN/RU forms. `3 часа` and `3 года`
+are valid hours/years; `3 части`, `100 частей` and `100 годных изделий` are
+unrecognized numeric context, never hours/years. Additional known units or day
+bases before/after an already typed value (`kg 100 USD`, `100 kg mg`,
+`30 calendar days business days`) remain one unsupported context span.
+Compound slash/rate notation, including Unicode division slashes, remains
+unsupported and cannot expose a separately selectable denominator. Ordinary
+prose after a typed amount is retained as prose. A date-shaped component
+attached to an identifier (`INV2026-11-23` or `2026-11-23A`) is an unsupported
+whole candidate; selecting its inner date refuses as a partial value.
 
 Each selected condition has one of four statuses:
 

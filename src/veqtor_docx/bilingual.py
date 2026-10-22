@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import unicodedata
 from datetime import date
 from decimal import Decimal, InvalidOperation, localcontext
 from types import MappingProxyType
@@ -74,15 +75,60 @@ PAIR = obj(pair_id={**TEXT, "minLength": 1, "maxLength": 64}, table_ref=REFS["ta
 SELECTIONS = {**array(PAIR, LIMITS["cell_pairs"]), "minItems": 1}
 
 _REF = re.compile(r"(?:\b(?:clauses?|sections?|articles?|пункт(?:а|е|ы|ов)?|стать(?:я|и|е))\s+|\bп\.\s*|§\s*)\d+(?:\.\d+)*", re.I)
-_NUMBER = r"[+-]?(?:\d+(?:[.,]\d+|[ \u00a0\u202f]\d{3}(?!\d))*|[.,]\d+)"
-_CURRENCY = r"USD|EUR|GBP|RUB|CNY|CHF|JPY|CAD|AUD|доллар(?:ов|а)?|евро|руб(?:лей|ля|ль)?\.?|[$€£₽¥]"
+# Tokenize raw numeric-looking syntax before interpreting a declared format.
+# Unsupported signs/grouping must remain in one candidate, never expose a
+# supported unsigned/trailing substring. Punctuation followed by whitespace is
+# a boundary (e.g. clause label "1. 100 USD"), not an invented decimal/group.
+_SIGN = r"(?:\+\s*[/∕⁄／]\s*[-−]\s*|[+\-−±﹣－＋–—‒‐‑⁻₋➖]\s*)*"
+_NUMBER = rf"{_SIGN}(?:\d+(?:(?:[^\w\s]+|_)\d+|['’ʼ′`]\s*\d+|\s+\d+)*|[.,]\d+)(?:[eE][+\-−]?\d+)?"
+_CURRENCY_INFO = {alias.lower(): ("amount", code, None) for code, aliases in [
+    ("USD", ("USD",)), ("EUR", ("EUR", "евро", "€")), ("GBP", ("GBP", "£")),
+    ("RUB", ("RUB", "руб", "руб.", "рубль", "рубля", "рублей", "рубли", "₽")),
+    ("CNY", ("CNY",)), ("CHF", ("CHF",)), ("JPY", ("JPY",)),
+    ("CAD", ("CAD",)), ("AUD", ("AUD",)),
+    ("ambiguous_currency", ("$", "¥", "доллар", "доллара", "долларов")),
+] for alias in aliases}
+_UNIT_INFO = dict(_CURRENCY_INFO)
+for _unit_name, _forms in {
+    "percent": ("%", "percent", "процент", "процента", "процентов", "проценты"),
+    "week": ("week", "weeks", "неделя", "недели", "недель", "неделю", "неделе", "неделями", "неделях"),
+    "month": ("month", "months", "месяц", "месяца", "месяцев", "месяцы", "месяцу", "месяцем", "месяце", "месяцами", "месяцах"),
+    "year": ("year", "years", "год", "года", "лет", "годы", "году", "годом", "годе", "годами", "годах"),
+    "hour": ("hour", "hours", "час", "часа", "часов", "часы", "часу", "часом", "часе", "часами", "часах"),
+    "kg": ("kg", "кг"), "mg": ("mg", "мг"), "ml": ("ml", "мл"),
+    "g": ("g", "gram", "grams", "г", "грамм", "грамма", "граммов", "граммы"),
+    "l": ("l", "litre", "litres", "liter", "liters", "л", "литр", "литра", "литров", "литры"),
+    "pack": ("pack", "packs", "упаковка", "упаковки", "упаковок", "упаковку", "упаковке", "упаковками", "упаковках"),
+    "piece": ("piece", "pieces", "штука", "штуки", "штук", "штуку", "штуке", "штуками", "штуках", "шт", "шт."),
+}.items():
+    _kind = "percentage" if _unit_name == "percent" else "duration" if _unit_name in {"week", "month", "year", "hour"} else "quantity"
+    _UNIT_INFO.update({form: (_kind, _unit_name, None) for form in _forms})
+_DAY_FORMS = ("day", "days", "день", "дня", "дней", "дни", "дню", "днем", "днём", "днями", "днях")
+_UNIT_INFO.update({form: ("duration", "day", "unspecified") for form in _DAY_FORMS})
+for _basis, _attributes in {
+    "calendar": ("calendar", "календарный", "календарных", "календарные", "календарного", "календарным", "календарными", "календарном", "календарной", "календарную", "календарное", "календарному"),
+    "business": ("business", "working", "рабочий", "рабочих", "рабочие", "рабочего", "рабочим", "рабочими", "рабочем", "рабочей", "рабочую", "рабочее", "рабочему"),
+}.items():
+    _UNIT_INFO.update({f"{attribute} {day}": ("duration", "day", _basis)
+                       for attribute in _attributes for day in _DAY_FORMS})
+
+
+def _alternatives(aliases):
+    return "|".join(re.escape(alias).replace(r"\ ", r"\s+")
+                    for alias in sorted(aliases, key=lambda s: (-len(s), s)))
+
+
+_CURRENCY = _alternatives(_CURRENCY_INFO)
+_UNIT = _alternatives(_UNIT_INFO)
 _SCALE = r"thousand|million|billion|тыс\.?|тысяч(?:а|и)?|млн\.?|миллион(?:а|ов)?|млрд\.?|миллиард(?:а|ов)?"
-_DAYS = r"(?:(?:calendar|business|working|календарн\w*|рабоч\w*)\s+)?(?:days?|дн(?:ей|я)|день)"
-_UNIT = rf"{_CURRENCY}|%|percent|процент(?:а|ов)?|{_DAYS}|weeks?|недел\w*|months?|месяц\w*|years?|лет|год\w*|hours?|час\w*|kg|mg|ml|кг|мг|мл|grams?|грамм\w*|litres?|liters?|литр\w*|packs?|упаков\w*|pieces?|штук\w*|шт\.?"
 _VALUE = re.compile(rf"(?<![\w\d])(?:(?P<prefix>{_CURRENCY})\s*)?(?P<number>{_NUMBER})(?:\s*(?P<scale>{_SCALE})(?!\w))?(?:\s*(?P<unit>{_UNIT})(?!\w))?", re.I)
+_PREFIX_UNIT = re.compile(rf"(?<!\w)(?:{_UNIT})\s*$", re.I)
+_SUFFIX_UNIT = re.compile(rf"\s*(?:{_UNIT})(?!\w)", re.I)
+_UNKNOWN_WORD = re.compile(r"\s*[^\W\d_][\w]*", re.UNICODE)
+_RATE = re.compile(r"\s*(?:[/∕⁄／÷]\s*|(?:per|за|в)\s+|(?:annually|daily|monthly|годовых|ежедневно)\b)", re.I)
 _DATE = re.compile(r"(?<!\d)(\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{4})(?!\d)")
 _WORDS = re.compile(r"\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion|ноль|один|одна|одно|два|две|три|четыре|пять|шесть|семь|восемь|девять|десять|двадцать|тридцать|сорок|пятьдесят|шестьдесят|семьдесят|восемьдесят|девяносто|сто|двести|триста|тысяч\w*|миллион\w*|миллиард\w*)\b", re.I)
-_FORMULA = re.compile(r"[=×÷*^]|\d\s*[-+/]\s*\d")
+_FORMULA = re.compile(r"[=×÷*^]|\d\s*[-−+±/∕⁄／]\s*\d")
 _NAMED_DATE = re.compile(r"\b\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December|января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+\d{4}\b", re.I)
 _LIMITATIONS = [
     "caller_selected_condition_correspondence_not_verified",
@@ -254,31 +300,59 @@ def _date_value(raw, order):
 
 
 def _unit(raw):
-    value = (raw or "").lower().rstrip(".")
-    currencies = {"$": "ambiguous_currency", "€": "EUR", "£": "GBP", "₽": "RUB", "¥": "ambiguous_currency"}
-    if value.upper() in {"USD", "EUR", "GBP", "RUB", "CNY", "CHF", "JPY", "CAD", "AUD"}:
-        return "amount", value.upper(), None
-    if value in currencies:
-        return "amount", currencies[value], None
-    if value.startswith("доллар"):
-        return "amount", "ambiguous_currency", None
-    if value.startswith("руб"):
-        return "amount", "RUB", None
-    if value == "евро":
-        return "amount", "EUR", None
-    if value == "%" or value.startswith(("percent", "процент")):
-        return "percentage", "percent", None
-    if re.search(r"\b(?:days?|дней|дня|день)\b", value):
-        basis = "business" if value.startswith(("business", "working", "рабоч")) else "calendar" if value.startswith(("calendar", "календарн")) else "unspecified"
-        return "duration", "day", basis
-    for starts, unit in [(("week", "недел"), "week"), (("month", "месяц"), "month"),
-                         (("year", "лет", "год"), "year"), (("hour", "час"), "hour"),
-                         (("kg", "кг"), "kg"), (("mg", "мг"), "mg"), (("ml", "мл"), "ml"),
-                         (("gram", "грамм"), "g"), (("lit", "литр"), "l"),
-                         (("pack", "упаков"), "pack"), (("piece", "штук", "шт"), "piece")]:
-        if value.startswith(starts):
-            return "duration" if unit in {"week", "month", "year", "hour"} else "quantity", unit, None
-    return "number", "number", None
+    # Exact closed aliases, never a language stem or arbitrary word prefix.
+    return _UNIT_INFO.get(" ".join((raw or "").lower().split()), ("number", "number", None))
+
+
+def _numeric_operator(character):
+    name = unicodedata.name(character, "")
+    return character in "+-/±" or any(word in name for word in ("MINUS", "PLUS", "SOLIDUS", "SLASH", "DIVISION"))
+
+
+def _skip_spacing(text, position):
+    while position < len(text) and (text[position].isspace() or unicodedata.category(text[position]) == "Cf"):
+        position += 1
+    return position
+
+
+def _lexical_context(text, start, end, covered):
+    """Retain known dangling units and rate notation in the same raw span."""
+    reason = None
+    marker = start
+    while marker and (text[marker - 1].isspace() or unicodedata.category(text[marker - 1]) == "Cf"):
+        marker -= 1
+    if marker and _numeric_operator(text[marker - 1]) and not covered[marker - 1]:
+        start = marker - 1
+        reason = "unsupported_numeric_operator_context"
+    while prefix := _PREFIX_UNIT.search(text, 0, start):
+        if any(covered[prefix.start():prefix.end()]):
+            break  # That unit belongs to a preceding distinct value.
+        start = prefix.start()
+        reason = "dangling_or_conflicting_units"
+    while suffix := _SUFFIX_UNIT.match(text, end):
+        end = suffix.end()
+        reason = "dangling_or_conflicting_units"
+    rate = _RATE.match(text, end)
+    marker = _skip_spacing(text, end)
+    if rate or (marker < len(text) and _numeric_operator(text[marker])):
+        end = _skip_spacing(text, rate.end() if rate else marker + 1)
+        # A denominator can itself contain a digit-written amount or a unit.
+        # Keep it inside this unsupported candidate so its suffix cannot be
+        # selected as a fresh supported scalar.
+        denominator = _VALUE.match(text, end) or _SUFFIX_UNIT.match(text, end) or _UNKNOWN_WORD.match(text, end)
+        if denominator:
+            end = denominator.end()
+        reason = "compound_unit_or_rate_not_supported"
+    return start, end, reason
+
+
+def _identifier_span(text, start, end):
+    original = start, end
+    while start and (text[start - 1].isalnum() or text[start - 1] == "_"):
+        start -= 1
+    while end < len(text) and (text[end].isalnum() or text[end] == "_"):
+        end += 1
+    return start, end, (start, end) != original
 
 
 def _scale(raw):
@@ -308,7 +382,11 @@ def extract_values(text, fmt, *, paragraph_ref, unsafe=False):
         add(match.start(), match.end(), "date", reason="named_date_format_not_supported")
     for match in _DATE.finditer(text):
         normalized, reason = _date_value(match[0], fmt["date_order"])
-        add(match.start(), match.end(), "date", normalized, "date", reason=reason)
+        start, end, embedded = _identifier_span(text, match.start(), match.end())
+        if embedded:
+            normalized, reason = None, "date_embedded_in_identifier"
+        start, end, context_reason = _lexical_context(text, start, end, covered)
+        add(start, end, "date", normalized, "date", reason=context_reason or reason)
     for match in _VALUE.finditer(text):
         if any(covered[match.start():match.end()]):
             continue
@@ -322,16 +400,20 @@ def extract_values(text, fmt, *, paragraph_ref, unsafe=False):
             reason = "ambiguous_currency"
         if basis == "unspecified":
             reason = "day_basis_unspecified"
-        if kind == "number" and (re.match(r"\s*[A-Za-zА-Яа-яЁё]", text[match.end():]) or
-                                 re.search(r"[A-Za-zА-Яа-яЁё]\s*$", text[:match.start()])):
-            reason = "unrecognized_unit_or_numeric_context"
-        if re.match(r"\s*(?:/\s*\w|(?:per|за|в)\s+\w|annually\b|daily\b|monthly\b|годов\w*|ежеднев\w*)", text[match.end():], re.I):
-            reason = "compound_unit_or_rate_not_supported"
+        start, end, context_reason = _lexical_context(text, match.start(), match.end(), covered)
+        if context_reason:
+            reason = context_reason
+        if kind == "number":
+            if following := _UNKNOWN_WORD.match(text, end):
+                end = following.end()
+                reason = "unrecognized_unit_or_numeric_context"
+            if re.search(r"[^\W\d_]\s*$", text[:start]):
+                reason = "unrecognized_unit_or_numeric_context"
         scale = _scale(match["scale"])
         with localcontext() as context:
             context.prec = LIMITS["numeric_chars"] + 20
             normalized = format(number * scale, "f") if number is not None else None
-        add(match.start(), match.end(), kind, normalized, unit, basis, reason, scale)
+        add(start, end, kind, normalized, unit, basis, reason, scale)
     for match in _WORDS.finditer(text):
         if not any(covered[match.start():match.end()]):
             add(match.start(), match.end(), "number_words", reason="number_words_not_supported")

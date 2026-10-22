@@ -315,3 +315,134 @@ def test_package_inventory_includes_bilingual_core_schema_and_guide():
         assert "/src/veqtor_docx/bilingual.py" in targets[target]["include"]
         assert "/src/veqtor_mcp/_bilingual_contract.py" in targets[target]["include"]
     assert "/docs/BILINGUAL_COLUMNS.md" in targets["sdist"]["include"]
+
+
+REVIEW_UNSUPPORTED = [
+    ("−100 USD", "100 USD", "−100 USD"),
+    ("﹣100 USD", "100 USD", "﹣100 USD"),
+    ("－100 USD", "100 USD", "－100 USD"),
+    ("- 100 USD", "100 USD", "- 100 USD"),
+    ("±100 USD", "100 USD", "±100 USD"),
+    ("+/-100 USD", "100 USD", "+/-100 USD"),
+    ("−‎100 USD", "100 USD", "−‎100 USD"),
+    ("− USD 100", "100 USD", "− USD 100"),
+    ("100 kg mg", "100 kg", "100 kg mg"),
+    ("kg 100 USD", "100 USD", "kg 100 USD"),
+    ("100 USD kg", "100 USD", "100 USD kg"),
+    ("30 calendar days business days", "30 календарных дней", "30 calendar days business days"),
+    ("10 kg∕day", "10 kg", "10 kg∕day"),
+    ("10 kg⁄day", "10 kg", "10 kg⁄day"),
+    ("10 kg／day", "10 kg", "10 kg／day"),
+    ("10 kg⧸day", "10 kg", "10 kg⧸day"),
+    ("1'000 USD", "1 000 USD", "1'000 USD"),
+    ("1 000 USD", "1 000 USD", "1 000 USD"),
+    ("1·000 USD", "1 000 USD", "1·000 USD"),
+    ("1 23 USD", "23 USD", "1 23 USD"),
+    ("1e+000 USD", "0 USD", "1e+000 USD"),
+    ("3 hours", "3 части", "3 hours"),
+    ("100 hours", "100 частей", "100 hours"),
+    ("100 years", "100 годных изделий", "100 years"),
+    ("INV2026-11-23", "2026-11-23", "INV2026-11-23"),
+    ("2026-11-23A", "2026-11-23", "2026-11-23A"),
+]
+REVIEW_PARTIAL = [
+    ("1'000 USD", "000 USD", "0 USD"),
+    ("1 000 USD", "000 USD", "0 USD"),
+    ("1 23 USD", "23 USD", "23 USD"),
+    ("1·000 USD", "000 USD", "0 USD"),
+    ("1_000 USD", "000 USD", "0 USD"),
+    ("−100 USD", "100 USD", "100 USD"),
+    ("kg 100 USD", "100 USD", "100 USD"),
+    ("100 kg mg", "100 kg", "100 kg"),
+    ("INV2026-11-23", "2026-11-23", "2026-11-23"),
+    ("2026-11-23A", "2026-11-23", "2026-11-23"),
+    ("100 USD/200 USD", "200 USD", "200 USD"),
+    ("−‎100 USD", "100 USD", "100 USD"),
+]
+
+
+@pytest.mark.parametrize("left,right,raw", REVIEW_UNSUPPORTED)
+def test_review_regressions_keep_unsupported_lexical_context(left, right, raw):
+    result, condition = _check(left, right)
+    assert condition["status"] == "unsupported_format"
+    pair = result["pairs"][0]
+    assert pair["coverage"]["unsupported_values"] >= 1
+    assert pair["coverage"]["paired_values"] == 0
+    assert len(pair["values"]["left"]) == 1
+    assert pair["values"]["left"][0]["quote"] == raw
+    for side, text in (("left", left), ("right", right)):
+        for value in pair["values"][side]:
+            assert text[value["start"]:value["end"]] == value["quote"]
+
+
+@pytest.mark.parametrize("source,quote,right", REVIEW_PARTIAL)
+def test_review_partial_quotes_cannot_escape_a_maximal_candidate(source, quote, right):
+    payload, _, pair, ps = _setup(source, right)
+    _condition(pair, ps, left=quote)
+    with pytest.raises(bi.BilingualError) as caught:
+        bi.check_conditions_payload(payload, [pair])
+    assert caught.value.code == "bilingual_partial_value"
+
+
+@pytest.mark.parametrize("left,right", [
+    ("-100 USD", "-100 USD"), ("+100 USD", "100 USD"),
+    ("3 hours", "3 часа"), ("3 years", "3 года"),
+    ("10 packs", "10 упаковок"), ("5 months", "5 месяцев"),
+    ("30 calendar days", "30 календарных дней"),
+    ("30 working days", "30 рабочих дней"),
+    ("USD 100", "100 USD"), ("Pay 100 USD on acceptance.", "Оплата 100 USD при приемке."),
+])
+def test_review_positive_controls_preserve_supported_sign_units_and_prose(left, right):
+    _, condition = _check(left, right)
+    assert condition["status"] == "numeric_values_and_units_match"
+
+
+def test_distinct_values_clause_labels_and_reference_report_remain_distinct():
+    left = "Clause 5.2: 100 kg; 200 mg and 300 USD."
+    right = "Пункт 5.2: 100 кг; 200 мг и 300 USD."
+    payload, inventory, pair, ps = _setup(left, right)
+    for index, (a, b) in enumerate((("100 kg", "100 кг"), ("200 mg", "200 мг"), ("300 USD", "300 USD"))):
+        _condition(pair, ps, left=a, right=b, condition_id=f"quantity-{index}")
+    result = bi.check_conditions_payload(payload, [pair])["pairs"][0]
+    assert all(c["status"] == "numeric_values_and_units_match" for c in result["conditions"])
+    assert result["coverage"]["paired_values"] == 6
+    assert inventory["counts"]["text_references"] == 2
+    # Punctuation followed by whitespace can separate a manual clause label
+    # from its amount; it is not silently inserted into a grouping convention.
+    payload, _, pair, ps = _setup("1. 100 USD", "1. 100 USD")
+    _condition(pair, ps, left="100 USD", right="100 USD")
+    result = bi.check_conditions_payload(payload, [pair])["pairs"][0]
+    assert result["conditions"][0]["status"] == "numeric_values_and_units_match"
+    assert result["coverage"]["unpaired_values"] == 2
+
+
+@pytest.mark.anyio
+async def test_review_regressions_through_real_mcp_and_advertised_schema(tmp_path):
+    async with Client(server.mcp) as client:
+        tool = next(t for t in (await client.list_tools()).tools if t.name == "check_bilingual_conditions")
+        validator = jsonschema.Draft202012Validator(tool.output_schema)
+        for index, (left, right, _) in enumerate(REVIEW_UNSUPPORTED):
+            payload, _, pair, ps = _setup(left, right)
+            _condition(pair, ps)
+            source = tmp_path / f"unsupported-{index}.docx"
+            source.write_bytes(payload)
+            result = await client.call_tool("check_bilingual_conditions", {
+                "path": str(source), "file_sha256": hashlib.sha256(payload).hexdigest(), "cell_pairs": [pair]})
+            assert not result.is_error, result
+            data = result.structured_content
+            data = data.get("result", data)
+            validator.validate(data)
+            assert data["pairs"][0]["conditions"][0]["status"] == "unsupported_format"
+            assert data["pairs"][0]["coverage"]["unsupported_values"] >= 1
+            assert data["record_status"] == "disabled"
+            assert source.read_bytes() == payload
+        for index, (text, quote, right) in enumerate(REVIEW_PARTIAL):
+            payload, _, pair, ps = _setup(text, right)
+            _condition(pair, ps, left=quote)
+            source = tmp_path / f"partial-{index}.docx"
+            source.write_bytes(payload)
+            result = await client.call_tool("check_bilingual_conditions", {
+                "path": str(source), "file_sha256": hashlib.sha256(payload).hexdigest(), "cell_pairs": [pair]})
+            assert result.is_error
+            assert "bilingual_partial_value" in result.content[0].text
+            assert source.read_bytes() == payload
