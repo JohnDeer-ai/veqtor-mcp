@@ -651,6 +651,16 @@ SYMBOL_CONTEXT_CASES = [
     ("₹2026-11-23", "2026-11-23", "2026-11-23"),
     ("2026-11-23℃", "2026-11-23", "2026-11-23"),
     ("100\u200e°C", "100", "100"),
+    ("100 (kg)", "100 (mg)", "100"),
+    ("100 (calendar days)", "100 (business days)", "100"),
+    ("100 [ml]", "100 [l]", "100"),
+    ("100 (kg)(mg)", "100", "100"),
+    ("100 USD (kg)", "100 USD", "100 USD"),
+    ("kg(100)", "100", "100"),
+    ("(kg)100", "100", "100"),
+    ("kg (100)", "100", "100"),
+    ("(calendar days) 100", "100", "100"),
+    ("100 kg Ⓜ", "100 kg", "100 kg"),
 ]
 
 
@@ -675,6 +685,17 @@ def test_unknown_symbolic_units_retain_complete_context_and_refuse_inner_quote(l
 @pytest.mark.parametrize("text", ["(100 USD)", "“100 USD”", "100 USD,", "100 USD!", "100 USD…"])
 def test_ordinary_wrappers_and_prose_punctuation_are_not_unknown_units(text):
     result, condition = _check(text, "100 USD")
+    assert condition["status"] == "numeric_values_and_units_match"
+    assert result["pairs"][0]["coverage"]["unsupported_values"] == 0
+
+
+@pytest.mark.parametrize("left,right", [
+    ("(100 kg)", "100 kg"), ("[100 ml]", "100 ml"),
+    ("(100 calendar days)", "100 календарных дней"),
+    ("Pay (100 USD) on acceptance.", "100 USD"),
+])
+def test_wrapping_the_entire_supported_value_remains_supported(left, right):
+    result, condition = _check(left, right)
     assert condition["status"] == "numeric_values_and_units_match"
     assert result["pairs"][0]["coverage"]["unsupported_values"] == 0
 

@@ -124,6 +124,10 @@ selecting just their inner number refuses as a partial value. Ordinary quoted
 amounts and prose punctuation remain usable. Unrecognized notation separated by
 prose punctuation remains an unsupported observation if the paragraph contains
 numeric candidates; it cannot silently vanish from a selected whole span.
+Separately wrapped known units, such as `100 (kg)` or `kg(100)`, are also
+conservatively unsupported with their full context rather than interpreted as
+bare scalars. Wrapping an entire supported value, such as `(100 kg)`, does not
+change its support status.
 
 Prefix context uses a closed reverse unit trie and precomputed whitespace
 links. It visits at most the longest known alias per lookup rather than

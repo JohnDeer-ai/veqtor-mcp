@@ -397,17 +397,20 @@ def _skip_spacing(text, position):
 
 
 def _unknown_numeric_symbol(character):
-    return (unicodedata.category(character).startswith("N") and not character.isdecimal() or
+    category = unicodedata.category(character)
+    return (category.startswith("S") or category.startswith("N") and not character.isdecimal() or
             not (character.isalnum() or character.isspace() or character in _PROSE_PUNCTUATION))
 
 
-def _symbol_context(text, start, end, covered):
+def _symbol_context(lexical, start, end, covered):
     """Keep unsupported notation with its value, even across unit wrappers.
 
     Wrappers are traversed only to discover unsafe notation; ordinary quoted
     amounts stay supported. Covered positions and prose punctuation delimit
     neighbouring values. Each successful extension consumes new characters.
     """
+    text = lexical.text
+
     def bridge(position, direction):
         while (0 <= position < len(text) and not covered[position] and
                (text[position].isspace() or text[position] in _CONTEXT_WRAPPERS)):
@@ -417,6 +420,11 @@ def _symbol_context(text, start, end, covered):
     changed = False
     while start:
         marker = bridge(start - 1, -1)
+        if any(character in _CONTEXT_WRAPPERS for character in text[marker + 1:start]):
+            prefix = lexical.preceding_unit(marker + 1)
+            if prefix and not any(covered[prefix[0]:prefix[1]]):
+                start, changed = prefix[0], True
+                continue
         # A symbol can precede a separated unit label: "° C 100".
         if marker >= 0 and text[marker].isalpha():
             while marker >= 0 and not covered[marker] and (text[marker].isalnum() or text[marker] == "_"):
@@ -427,6 +435,11 @@ def _symbol_context(text, start, end, covered):
         start, changed = marker, True
     while end < len(text):
         marker = bridge(end, 1)
+        if any(character in _CONTEXT_WRAPPERS for character in text[end:marker]):
+            suffix = _SUFFIX_UNIT.match(text, marker)
+            if suffix and not any(covered[marker:suffix.end()]):
+                end, changed = suffix.end(), True
+                continue
         if marker >= len(text) or covered[marker] or not _unknown_numeric_symbol(text[marker]):
             break
         end, changed = marker + 1, True
@@ -478,7 +491,7 @@ def _lexical_context(lexical, start, end, covered):
         if denominator:
             end = denominator.end()
         reason = "compound_unit_or_rate_not_supported"
-    start, end, symbol_reason = _symbol_context(text, start, end, covered)
+    start, end, symbol_reason = _symbol_context(lexical, start, end, covered)
     return start, end, symbol_reason or reason
 
 
