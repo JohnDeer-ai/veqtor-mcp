@@ -24,6 +24,8 @@ from ._drafting_comments import (
     add_comment,
     comment_mutable_parts,
     delete_comment,
+    delete_comment_reply,
+    delete_comment_thread,
     read_comments,
     reply_comment,
     set_comment_resolved,
@@ -108,6 +110,8 @@ _OP_KEYS = {
     "add_comment": {"kind", "paragraph_ref", "quote", "text"},
     "update_comment": {"kind", "comment_id", "text"},
     "delete_comment": {"kind", "comment_id"},
+    "delete_comment_reply": {"kind", "comment_id"},
+    "delete_comment_thread": {"kind", "comment_id", "member_comment_ids"},
     "reply_comment": {"kind", "comment_id", "text"},
     "set_comment_resolved": {"kind", "comment_id", "resolved"},
 }
@@ -182,6 +186,14 @@ def _validate_operations(operations: object) -> list[dict]:
             raise ApplyError("invalid_edit", "mode must be minimal or whole")
         for key in keys - {"kind", "paragraph_ref"}:
             value = op[key]
+            if key == "member_comment_ids":
+                if (not isinstance(value, list) or not 1 <= len(value) <= 100
+                        or any(not isinstance(ident, str) or not ident or len(ident) > 10
+                               or not ident.isascii() or not ident.isdigit() for ident in value)
+                        or len(set(value)) != len(value)):
+                    raise ApplyError("invalid_edit", "select 1-100 unique numeric comment IDs")
+                total += sum(map(len, value))
+                continue
             if key == "resolved":
                 if type(value) is not bool:
                     raise ApplyError("invalid_edit", "resolved must be a boolean")
@@ -753,6 +765,7 @@ def _prepare(
     after_cursors: dict[etree._Element, etree._Element] = {}
     touched: set[etree._Element] = set()
     result = []
+    deleted_preview_chars = 0
     allowed_parts = {DOCUMENT_PART}
     for index, op in enumerate(operations):
         try:
@@ -904,7 +917,7 @@ def _prepare(
                     _require_drafting_context(
                         document, anchors, author,
                     )
-                    if kind in {"delete_comment", "reply_comment"}:
+                    if kind in {"delete_comment", "delete_comment_reply", "delete_comment_thread", "reply_comment"}:
                         touched.update(anchors)
                 allowed_parts |= _COMMENT_PARTS | comment_mutable_parts(parts)
                 if kind == "update_comment":
@@ -920,8 +933,19 @@ def _prepare(
                     applied = set_comment_resolved(
                         parts, document, op["comment_id"], op["resolved"], author,
                     )
+                elif kind == "delete_comment_reply":
+                    applied = delete_comment_reply(parts, document, op["comment_id"], author)
+                elif kind == "delete_comment_thread":
+                    applied = delete_comment_thread(parts, document, op["comment_id"], op["member_comment_ids"], author)
                 else:
                     applied = delete_comment(parts, document, op["comment_id"], author)
+                if kind in {"delete_comment_reply", "delete_comment_thread"}:
+                    deleted = applied["deleted_comments"] if kind == "delete_comment_thread" else [applied]
+                    deleted_preview_chars += sum(
+                        len(row[field] or "") for row in deleted for field in ("text", "author", "date")
+                    )
+                    if deleted_preview_chars > MAX_BATCH_CHARS:
+                        raise ApplyError("resource_limit_exceeded", "selected comment deletion preview exceeds the batch limit")
             if kind not in {"replace_paragraph", "decide_revision"}:
                 _check_revision_preservation(
                     revisions_before, document, mutable_revision, applied, author, timestamp

@@ -75,6 +75,10 @@ OPERATIONS = {"type": "array", "minItems": 1, "maxItems": 100, "items": {"oneOf"
         quote=NONEMPTY, text=NONEMPTY),
     obj(kind={"const": "update_comment"}, comment_id=NONEMPTY, text=NONEMPTY),
     obj(kind={"const": "delete_comment"}, comment_id=NONEMPTY),
+    obj(kind={"const": "delete_comment_reply"}, comment_id=NONEMPTY),
+    obj(kind={"const": "delete_comment_thread"}, comment_id=NONEMPTY,
+        member_comment_ids={"type": "array", "minItems": 1, "maxItems": 100,
+                            "uniqueItems": True, "items": {"type": "string", "pattern": "^[0-9]{1,10}$"}}),
     obj(kind={"const": "reply_comment"}, comment_id=NONEMPTY, text=NONEMPTY),
     obj(kind={"const": "set_comment_resolved"}, comment_id=NONEMPTY,
         resolved={"type": "boolean"}),
@@ -145,6 +149,15 @@ _COMMENT_OPERATION = obj(
                                     "reply_comment", "set_comment_resolved"]},
     **_COMMENT["properties"],
 )
+_DELETE_REPLY_OPERATION = obj(
+    index=_INDEX, operation={"const": "delete_comment_reply"},
+    **_COMMENT["properties"], date=nullable(TEXT),
+)
+_DELETE_THREAD_OPERATION = obj(
+    index=_INDEX, operation={"const": "delete_comment_thread"}, thread_root_id=TEXT,
+    deleted_comments={"type": "array", "minItems": 1, "maxItems": 100,
+                      "items": obj(**_COMMENT["properties"], date=nullable(TEXT))},
+)
 _INSERT_PARAGRAPH = obj(
     index=_INDEX, operation={"const": "insert_paragraph"},
     position={"enum": ["before", "after"]}, text=NONEMPTY,
@@ -204,7 +217,7 @@ _REPLACE_PARAGRAPH = obj(
 _DECISION_APPLIED = obj(**DECISION_PREVIEW["properties"], index=_INDEX,
                         target=DECISION_TARGET, actor_profile=AUTHOR_PROFILE)
 _APPLIED = {"type": "array", "maxItems": 100,
-            "items": {"oneOf": [_TEXT_OPERATION, _COMMENT_OPERATION,
+            "items": {"oneOf": [_TEXT_OPERATION, _COMMENT_OPERATION, _DELETE_REPLY_OPERATION, _DELETE_THREAD_OPERATION,
                               _INSERT_PARAGRAPH, _REPLACE_PARAGRAPH, _DECISION_APPLIED]}}
 COMMENTS_RESULT = obj(**_COMMON, source_path=TEXT, file_sha256=SHA,
                       comments={"type": "array", "maxItems": 100, "items": _COMMENT},

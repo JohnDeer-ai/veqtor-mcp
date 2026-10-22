@@ -304,6 +304,8 @@ The closed operation shapes are:
 | `add_comment` | `paragraph_ref`, `quote`, `text` | Anchor a new authored comment to one supported exact quote. |
 | `update_comment` | `comment_id`, `text` | Replace a supported comment body belonging to the selected author. |
 | `delete_comment` | `comment_id` | Delete a supported unthreaded comment belonging to the selected author. |
+| `delete_comment_reply` | `comment_id` | Delete only a supported own reply with no dependent replies, preserving its root and siblings. |
+| `delete_comment_thread` | `comment_id`, `member_comment_ids` | Delete an explicitly selected root and its complete current thread only when every message belongs to the selected own profile. |
 | `reply_comment` | `comment_id`, `text` | Add an authored reply to an open thread, including another author's thread. |
 | `set_comment_resolved` | `comment_id`, `resolved` | Set the root thread's state; `resolved` must be a boolean. |
 

@@ -1967,7 +1967,13 @@ def preflight_document_edits(source_path: str, file_sha256: DraftingShaInput,
     whole-block tracked replacement, not merely complete new wording),
     insert_paragraph (position before/after, text) and add_comment (quote/text).
     Use comment_id from read_document_comments for update_comment (text),
-    delete_comment, reply_comment (text), or set_comment_resolved (resolved bool).
+    delete_comment, delete_comment_reply, delete_comment_thread (explicit complete
+    member_comment_ids), reply_comment (text), or set_comment_resolved (resolved bool).
+    Reply deletion removes only an own leaf reply. Whole-thread deletion requires
+    a root ID, every current member ID, and every member owned by the selected
+    profile. Present all deleted messages/authors/dates and obtain approval for
+    that exact deletion unless it is already authorized. A foreign message blocks
+    whole-thread deletion; never remove it as collateral.
     Replies may address any author's comment; thread status changes preserve
     its author/body. Resolving/reopening needs an explicit instruction for the
     specific thread; a request to reply does not authorize changing its status.

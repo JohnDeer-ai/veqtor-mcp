@@ -13,6 +13,15 @@ fragment's text formatting. Agent approval and thread-resolution rules are in
 the [drafting protocol](docs/AUTHOR_DRAFTING_WORKFLOW.md); Word thread metadata
 does not identify the person who resolved a thread.
 
+An external Word save is a separate edit, not a byte-preserving verification.
+Native Word for Mac tests reproduced proofing-language recalculation, cancellation
+of language-only history, and merging of a new language change into an existing
+formatting revision with a different author. Historical table properties may
+also be normalized. A stable current text or appearance does not prove preserved
+authors or rejected outcomes. Preserve the pre-Word copy, inspect the resulting
+history and refresh all references. Veqtor does not silently disable tracking or
+change the user's proofing/language settings to prevent Word's own behavior.
+
 The legacy guarantees below still apply to the eleven document/position tools.
 All sixteen current tools expose `veqtor.mcp.v0.6.0`; legacy calls remain
 compatible with public `0.4.0`. Source presence and test results do

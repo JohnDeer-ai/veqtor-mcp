@@ -51,6 +51,14 @@ user's own thread. Do not infer closure from a reply, an accepted textual edit
 or an instruction to handle comments generally. If a resolved thread needs a
 new reply, request reopening unless already authorized.
 
+Deleting a reply or a thread is also a separate decision. Read the current
+thread, show every selected message with its author and date in preflight,
+and establish approval for that deletion. Use `delete_comment_reply` only for
+an own reply with no dependent replies. Use `delete_comment_thread` only for
+a root with its explicit complete `member_comment_ids`, all belonging to the
+selected own profile. A foreign reply blocks whole-thread deletion. Resolving
+a thread or replying to it does not authorize removing its history.
+
 ## 3. Preflight the approved plan
 
 Call `preflight_document_edits` with the exact current source hash, selected
@@ -72,6 +80,16 @@ Read the resulting file and affected comments again. Confirm the intended text,
 author attribution, thread links/status and returned save/backup hashes.
 Refresh paragraph references and comment IDs after every save, including an
 external Word save: Word may renumber comments.
+
+Preserve the pre-Word copy when testing an external save. Word can recalculate
+proofing-language properties, cancel an earlier language-only revision or merge
+a new language change into earlier formatting history with a different author.
+It can also normalize historical table properties. Unchanged visible text does
+not establish unchanged revision history. Reread authors and previous/current
+properties after Word saves; disclose unexpected differences instead of silently
+accepting them as harmless normalization. Do not disable formatting tracking,
+proofing or language detection in the user's settings/document without an
+explicit instruction.
 
 If the result reports `publication_completed=true` with an error, reread the
 working file and backup before deciding whether another write is needed. Do
