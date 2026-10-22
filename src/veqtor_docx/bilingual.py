@@ -456,21 +456,27 @@ def _symbol_context(lexical, start, end, covered, *, bare_number=False):
                 end = following.end()
     if bare_number:
         # A dangling quote next to a bare scalar can denote feet, inches or
-        # angular units. Only a matched pair around the value is plain quoting.
-        left, right = start - 1, end
-        while (left >= 0 and not covered[left] and
-               (text[left].isspace() or text[left] in "()[]{}")):
-            left -= 1
-        while (right < len(text) and not covered[right] and
-               (text[right].isspace() or text[right] in "()[]{}")):
-            right += 1
-        opening = text[left] if left >= 0 and not covered[left] and text[left] in _QUOTE_MARKS else None
-        closing = text[right] if right < len(text) and not covered[right] and text[right] in _QUOTE_MARKS else None
-        if (opening or closing) and not (opening in _QUOTE_PAIRS and _QUOTE_PAIRS[opening] == closing):
-            if opening:
-                start = left
-            if closing:
-                end = right + 1
+        # angular units. Every adjacent quote must have a reflected partner;
+        # a valid inner pair cannot hide an extra outer measurement mark.
+        chains = []
+        for position, direction in ((start - 1, -1), (end, 1)):
+            chain = []
+            while 0 <= position < len(text) and not covered[position]:
+                character = text[position]
+                if character in _QUOTE_MARKS:
+                    chain.append((position, character))
+                elif not (character.isspace() or character in "()[]{}"):
+                    break
+                position += direction
+            chains.append(chain)
+        left, right = chains
+        paired = len(left) == len(right) and all(
+            _QUOTE_PAIRS.get(a) == b for (_, a), (_, b) in zip(left, right, strict=True))
+        if not paired:
+            if left:
+                start = left[-1][0]
+            if right:
+                end = right[-1][0] + 1
             changed = True
     if changed:
         # Retain the surrounding wrappers, but not unrelated outer whitespace.

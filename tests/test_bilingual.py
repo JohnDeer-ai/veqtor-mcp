@@ -675,6 +675,12 @@ SYMBOL_CONTEXT_CASES = [
     ("5''", "5", "5"),
     ("'5", "5", "5"),
     ('"5', "5", "5"),
+    ("'5'" + '"', "5", "5"),
+    ('"5"' + "'", "5", "5"),
+    ("‘5’" + '"', "5", "5"),
+    ("“5”" + "'", "5", "5"),
+    ("'5''", "5", "5"),
+    ('"5""', "5", "5"),
 ]
 
 
@@ -715,7 +721,10 @@ def test_wrapping_the_entire_supported_value_remains_supported(left, right):
     assert result["pairs"][0]["coverage"]["unsupported_values"] == 0
 
 
-@pytest.mark.parametrize("text", ["'5'", '"5"', "‘5’", "“5”", "«5»", "'(5)'"])
+@pytest.mark.parametrize("text", [
+    "'5'", '"5"', "‘5’", "“5”", "«5»", "'(5)'",
+    '"' + "'5'" + '"', "'" + '"5"' + "'", "‘“5”’", "' ( \"5\" ) '",
+])
 def test_balanced_quotes_around_bare_number_are_not_unit_marks(text):
     result, condition = _check(text, "5")
     assert condition["status"] == "numeric_values_and_units_match"
