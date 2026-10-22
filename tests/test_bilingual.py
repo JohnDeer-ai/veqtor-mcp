@@ -661,6 +661,20 @@ SYMBOL_CONTEXT_CASES = [
     ("kg (100)", "100", "100"),
     ("(calendar days) 100", "100", "100"),
     ("100 kg Ⓜ", "100 kg", "100 kg"),
+    ("100 (cm)", "100 (mm)", "100"),
+    ("100(cm)", "100(mm)", "100"),
+    ("100 [ppb]", "100 [ppm]", "100"),
+    ("cm(100)", "mm(100)", "100"),
+    ("(cm)100", "(mm)100", "100"),
+    ("cm (100)", "mm (100)", "100"),
+    ("5'", "5", "5"),
+    ('5"', "5", "5"),
+    ("5’", "5", "5"),
+    ("5”", "5", "5"),
+    ("5 '", "5", "5"),
+    ("5''", "5", "5"),
+    ("'5", "5", "5"),
+    ('"5', "5", "5"),
 ]
 
 
@@ -690,12 +704,20 @@ def test_ordinary_wrappers_and_prose_punctuation_are_not_unknown_units(text):
 
 
 @pytest.mark.parametrize("left,right", [
+    ("(100)", "100"), ("[100]", "100"), ("“100”", "100"),
     ("(100 kg)", "100 kg"), ("[100 ml]", "100 ml"),
     ("(100 calendar days)", "100 календарных дней"),
     ("Pay (100 USD) on acceptance.", "100 USD"),
 ])
 def test_wrapping_the_entire_supported_value_remains_supported(left, right):
     result, condition = _check(left, right)
+    assert condition["status"] == "numeric_values_and_units_match"
+    assert result["pairs"][0]["coverage"]["unsupported_values"] == 0
+
+
+@pytest.mark.parametrize("text", ["'5'", '"5"', "‘5’", "“5”", "«5»", "'(5)'"])
+def test_balanced_quotes_around_bare_number_are_not_unit_marks(text):
+    result, condition = _check(text, "5")
     assert condition["status"] == "numeric_values_and_units_match"
     assert result["pairs"][0]["coverage"]["unsupported_values"] == 0
 
@@ -710,6 +732,16 @@ def test_unknown_notation_separated_by_punctuation_never_disappears_or_taints_ot
     assert report["conditions"][0]["status"] == "numeric_values_and_units_match"
     assert report["coverage"]["unsupported_values"] == 1
     assert report["values"]["left"][1]["quote"] == "₹200"
+
+
+def test_parenthesized_bare_neighbor_does_not_claim_an_already_owned_currency():
+    payload, _, pair, ps = _setup("100 USD (200)", "100 USD (200)")
+    _condition(pair, ps, left="100 USD", right="100 USD")
+    _condition(pair, ps, left="200", right="200", condition_id="other")
+    report = bi.check_conditions_payload(payload, [pair])["pairs"][0]
+    assert all(c["status"] == "numeric_values_and_units_match" for c in report["conditions"])
+    assert report["coverage"]["unsupported_values"] == 0
+    assert report["coverage"]["paired_values"] == 4
 
 
 def test_long_symbolic_unit_context_is_retained_without_truncation():

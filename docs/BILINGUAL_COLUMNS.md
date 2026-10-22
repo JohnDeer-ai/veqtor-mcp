@@ -127,7 +127,13 @@ numeric candidates; it cannot silently vanish from a selected whole span.
 Separately wrapped known units, such as `100 (kg)` or `kg(100)`, are also
 conservatively unsupported with their full context rather than interpreted as
 bare scalars. Wrapping an entire supported value, such as `(100 kg)`, does not
-change its support status.
+change its support status. The existing bare-number unknown-word guard also
+applies through wrappers: `100 (cm)` and `cm(100)` remain unsupported, just as
+`100 cm` and `cm 100` do. This does not infer arbitrary words after a known
+currency or unit to be additional units rather than prose.
+An unpaired quote next to a bare scalar, such as `5'` or `5"`, is ambiguous
+measurement notation and is unsupported. Matched quotes around the complete
+value, such as `'5'` or `“5”`, remain supported.
 
 Prefix context uses a closed reverse unit trie and precomputed whitespace
 links. It visits at most the longest known alias per lookup rather than

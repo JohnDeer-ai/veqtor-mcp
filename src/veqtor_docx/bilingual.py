@@ -137,6 +137,8 @@ _UNKNOWN_WORD = re.compile(r"\s*[^\W\d_][\w]*", re.UNICODE)
 # are not a closed unit alias merely because a neighbouring number parses.
 _PROSE_PUNCTUATION = frozenset(".,;:!?()[]{}\"'“”‘’«»…。，、；：！？")
 _CONTEXT_WRAPPERS = frozenset("()[]{}\"'“”‘’«»")
+_QUOTE_PAIRS = {"'": "'", '"': '"', "‘": "’", "“": "”", "«": "»"}
+_QUOTE_MARKS = frozenset(_QUOTE_PAIRS) | frozenset(_QUOTE_PAIRS.values())
 _SYMBOL_CONTEXT_REASON = "unrecognized_symbolic_numeric_context"
 _RATE = re.compile(r"\s*(?:[/∕⁄／÷]\s*|(?:per|за|в)\s+|(?:annually|daily|monthly|годовых|ежедневно)\b)", re.I)
 _DATE = re.compile(r"(?<!\d)(\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{4})(?!\d)")
@@ -402,7 +404,7 @@ def _unknown_numeric_symbol(character):
             not (character.isalnum() or character.isspace() or character in _PROSE_PUNCTUATION))
 
 
-def _symbol_context(lexical, start, end, covered):
+def _symbol_context(lexical, start, end, covered, *, bare_number=False):
     """Keep unsupported notation with its value, even across unit wrappers.
 
     Wrappers are traversed only to discover unsafe notation; ordinary quoted
@@ -420,15 +422,19 @@ def _symbol_context(lexical, start, end, covered):
     changed = False
     while start:
         marker = bridge(start - 1, -1)
-        if any(character in _CONTEXT_WRAPPERS for character in text[marker + 1:start]):
+        wrapped = any(character in _CONTEXT_WRAPPERS for character in text[marker + 1:start])
+        if wrapped:
             prefix = lexical.preceding_unit(marker + 1)
             if prefix and not any(covered[prefix[0]:prefix[1]]):
                 start, changed = prefix[0], True
                 continue
         # A symbol can precede a separated unit label: "° C 100".
-        if marker >= 0 and text[marker].isalpha():
+        if marker >= 0 and not covered[marker] and text[marker].isalpha():
             while marker >= 0 and not covered[marker] and (text[marker].isalnum() or text[marker] == "_"):
                 marker -= 1
+            if wrapped and bare_number:
+                start, changed = marker + 1, True
+                continue
             marker = bridge(marker, -1)
         if marker < 0 or covered[marker] or not _unknown_numeric_symbol(text[marker]):
             break
@@ -437,6 +443,8 @@ def _symbol_context(lexical, start, end, covered):
         marker = bridge(end, 1)
         if any(character in _CONTEXT_WRAPPERS for character in text[end:marker]):
             suffix = _SUFFIX_UNIT.match(text, marker)
+            if suffix is None and bare_number:
+                suffix = _UNKNOWN_WORD.match(text, marker)
             if suffix and not any(covered[marker:suffix.end()]):
                 end, changed = suffix.end(), True
                 continue
@@ -446,6 +454,24 @@ def _symbol_context(lexical, start, end, covered):
         if following := _UNKNOWN_WORD.match(text, end):
             if not any(covered[end:following.end()]):
                 end = following.end()
+    if bare_number:
+        # A dangling quote next to a bare scalar can denote feet, inches or
+        # angular units. Only a matched pair around the value is plain quoting.
+        left, right = start - 1, end
+        while (left >= 0 and not covered[left] and
+               (text[left].isspace() or text[left] in "()[]{}")):
+            left -= 1
+        while (right < len(text) and not covered[right] and
+               (text[right].isspace() or text[right] in "()[]{}")):
+            right += 1
+        opening = text[left] if left >= 0 and not covered[left] and text[left] in _QUOTE_MARKS else None
+        closing = text[right] if right < len(text) and not covered[right] and text[right] in _QUOTE_MARKS else None
+        if (opening or closing) and not (opening in _QUOTE_PAIRS and _QUOTE_PAIRS[opening] == closing):
+            if opening:
+                start = left
+            if closing:
+                end = right + 1
+            changed = True
     if changed:
         # Retain the surrounding wrappers, but not unrelated outer whitespace.
         marker = start - 1
@@ -461,7 +487,7 @@ def _symbol_context(lexical, start, end, covered):
     return start, end, _SYMBOL_CONTEXT_REASON if changed else None
 
 
-def _lexical_context(lexical, start, end, covered):
+def _lexical_context(lexical, start, end, covered, *, bare_number=False):
     """Retain known dangling units and rate notation in the same raw span."""
     text, reason = lexical.text, None
     marker = start
@@ -491,7 +517,7 @@ def _lexical_context(lexical, start, end, covered):
         if denominator:
             end = denominator.end()
         reason = "compound_unit_or_rate_not_supported"
-    start, end, symbol_reason = _symbol_context(lexical, start, end, covered)
+    start, end, symbol_reason = _symbol_context(lexical, start, end, covered, bare_number=bare_number)
     return start, end, symbol_reason or reason
 
 
@@ -604,7 +630,7 @@ def extract_values(text, fmt, *, paragraph_ref, unsafe=False):
         start, end, embedded = _identifier_span(text, match.start(), match.end())
         if embedded:
             reason = "number_embedded_in_identifier"
-        start, end, context_reason = _lexical_context(lexical, start, end, covered)
+        start, end, context_reason = _lexical_context(lexical, start, end, covered, bare_number=kind == "number")
         if context_reason:
             reason = context_reason
         if kind == "number" and context_reason != _SYMBOL_CONTEXT_REASON:
