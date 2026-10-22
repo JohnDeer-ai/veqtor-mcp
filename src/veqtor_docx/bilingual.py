@@ -132,6 +132,12 @@ _SCALE = r"thousand|million|billion|тыс\.?|тысяч(?:а|и)?|млн\.?|м�
 _VALUE = re.compile(rf"(?<!\d)(?:(?P<prefix>{_CURRENCY})\s*)?(?P<number>{_NUMBER})(?:\s*(?P<scale>{_SCALE})(?!\w))?(?:\s*(?P<unit>{_UNIT})(?!\w))?", re.I)
 _SUFFIX_UNIT = re.compile(rf"\s*(?:{_UNIT})(?!\w)", re.I)
 _UNKNOWN_WORD = re.compile(r"\s*[^\W\d_][\w]*", re.UNICODE)
+# Only ordinary prose punctuation may be ignored outside a parsed value.
+# Unicode symbols and other punctuation (including per-mille and prime marks)
+# are not a closed unit alias merely because a neighbouring number parses.
+_PROSE_PUNCTUATION = frozenset(".,;:!?()[]{}\"'“”‘’«»…。，、；：！？")
+_CONTEXT_WRAPPERS = frozenset("()[]{}\"'“”‘’«»")
+_SYMBOL_CONTEXT_REASON = "unrecognized_symbolic_numeric_context"
 _RATE = re.compile(r"\s*(?:[/∕⁄／÷]\s*|(?:per|за|в)\s+|(?:annually|daily|monthly|годовых|ежедневно)\b)", re.I)
 _DATE = re.compile(r"(?<!\d)(\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{4})(?!\d)")
 _WORDS = re.compile(r"\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion|ноль|один|одна|одно|два|две|три|четыре|пять|шесть|семь|восемь|девять|десять|двадцать|тридцать|сорок|пятьдесят|шестьдесят|семьдесят|восемьдесят|девяносто|сто|двести|триста|тысяч\w*|миллион\w*|миллиард\w*)\b", re.I)
@@ -390,6 +396,58 @@ def _skip_spacing(text, position):
     return position
 
 
+def _unknown_numeric_symbol(character):
+    return (unicodedata.category(character).startswith("N") and not character.isdecimal() or
+            not (character.isalnum() or character.isspace() or character in _PROSE_PUNCTUATION))
+
+
+def _symbol_context(text, start, end, covered):
+    """Keep unsupported notation with its value, even across unit wrappers.
+
+    Wrappers are traversed only to discover unsafe notation; ordinary quoted
+    amounts stay supported. Covered positions and prose punctuation delimit
+    neighbouring values. Each successful extension consumes new characters.
+    """
+    def bridge(position, direction):
+        while (0 <= position < len(text) and not covered[position] and
+               (text[position].isspace() or text[position] in _CONTEXT_WRAPPERS)):
+            position += direction
+        return position
+
+    changed = False
+    while start:
+        marker = bridge(start - 1, -1)
+        # A symbol can precede a separated unit label: "° C 100".
+        if marker >= 0 and text[marker].isalpha():
+            while marker >= 0 and not covered[marker] and (text[marker].isalnum() or text[marker] == "_"):
+                marker -= 1
+            marker = bridge(marker, -1)
+        if marker < 0 or covered[marker] or not _unknown_numeric_symbol(text[marker]):
+            break
+        start, changed = marker, True
+    while end < len(text):
+        marker = bridge(end, 1)
+        if marker >= len(text) or covered[marker] or not _unknown_numeric_symbol(text[marker]):
+            break
+        end, changed = marker + 1, True
+        if following := _UNKNOWN_WORD.match(text, end):
+            if not any(covered[end:following.end()]):
+                end = following.end()
+    if changed:
+        # Retain the surrounding wrappers, but not unrelated outer whitespace.
+        marker = start - 1
+        while marker >= 0 and not covered[marker] and (text[marker].isspace() or text[marker] in _CONTEXT_WRAPPERS):
+            if text[marker] in _CONTEXT_WRAPPERS:
+                start = marker
+            marker -= 1
+        marker = end
+        while marker < len(text) and not covered[marker] and (text[marker].isspace() or text[marker] in _CONTEXT_WRAPPERS):
+            if text[marker] in _CONTEXT_WRAPPERS:
+                end = marker + 1
+            marker += 1
+    return start, end, _SYMBOL_CONTEXT_REASON if changed else None
+
+
 def _lexical_context(lexical, start, end, covered):
     """Retain known dangling units and rate notation in the same raw span."""
     text, reason = lexical.text, None
@@ -420,7 +478,8 @@ def _lexical_context(lexical, start, end, covered):
         if denominator:
             end = denominator.end()
         reason = "compound_unit_or_rate_not_supported"
-    return start, end, reason
+    start, end, symbol_reason = _symbol_context(text, start, end, covered)
+    return start, end, symbol_reason or reason
 
 
 def _identifier_span(text, start, end):
@@ -485,6 +544,8 @@ def extract_values(text, fmt, *, paragraph_ref, unsafe=False):
         first, last = lexical.raw_span(start, end)
         if lexical.has_controls(first, last):
             normalized, reason = None, "unsupported_format_or_combining_context"
+        if reason == _SYMBOL_CONTEXT_REASON:
+            normalized = None
         values.append({"paragraph_ref": paragraph_ref, "start": first, "end": last,
                        "quote": lexical.raw[first:last], "kind": kind, "normalized": normalized,
                        "unit": unit, "day_basis": basis, "scale": str(scale),
@@ -533,7 +594,7 @@ def extract_values(text, fmt, *, paragraph_ref, unsafe=False):
         start, end, context_reason = _lexical_context(lexical, start, end, covered)
         if context_reason:
             reason = context_reason
-        if kind == "number":
+        if kind == "number" and context_reason != _SYMBOL_CONTEXT_REASON:
             if following := _UNKNOWN_WORD.match(text, end):
                 end = following.end()
                 reason = "unrecognized_unit_or_numeric_context"
@@ -560,6 +621,13 @@ def extract_values(text, fmt, *, paragraph_ref, unsafe=False):
     for match in re.finditer(r"\d+", text):
         if not any(covered[match.start():match.end()]):
             add(match.start(), match.end(), "number", reason="unrecognized_numeric_syntax")
+    # A selected span must not lose unsupported notation separated from a
+    # value by prose punctuation. Unselected notation stays visible without
+    # contaminating an independently selected neighbouring condition.
+    if values:
+        for index, character in enumerate(text):
+            if not covered[index] and _unknown_numeric_symbol(character):
+                add(index, index + 1, "number", reason=_SYMBOL_CONTEXT_REASON)
     formula = _FORMULA.search(_DATE.sub(lambda m: " " * len(m[0]), _NAMED_DATE.sub(lambda m: " " * len(m[0]), text)))
     if formula:
         for value in values:

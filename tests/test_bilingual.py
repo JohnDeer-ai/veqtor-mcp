@@ -625,6 +625,107 @@ def test_operator_work_limit_preserves_ordinary_values_and_long_unit_spacing(lef
     assert condition["status"] == "numeric_values_and_units_match"
 
 
+SYMBOL_CONTEXT_CASES = [
+    ("100°C", "100°F", "100"),
+    ("₹100", "₩100", "100"),
+    ("5‰", "5", "5"),
+    ("100℃", "100℉", "100"),
+    ("₹ 100", "100", "100"),
+    ("100 ‱", "100", "100"),
+    ("100′", "100", "100"),
+    ("100″", "100", "100"),
+    ("100㎎", "100", "100"),
+    ("100 kg‰", "100 kg", "100 kg"),
+    ("100 USD℃", "100 USD", "100 USD"),
+    ("100%°C", "100%", "100%"),
+    ("≤100 USD", "100 USD", "100 USD"),
+    ("100≤", "100", "100"),
+    ("№100", "100", "100"),
+    ("100(°C)", "100", "100"),
+    ("100 (‰)", "100", "100"),
+    ("100 kg[℃]", "100 kg", "100 kg"),
+    ("₹(100)", "100", "100"),
+    ("(100°C)", "100", "100"),
+    ("° C 100", "100", "100"),
+    ("100 ° C", "100", "100"),
+    ("₹2026-11-23", "2026-11-23", "2026-11-23"),
+    ("2026-11-23℃", "2026-11-23", "2026-11-23"),
+    ("100\u200e°C", "100", "100"),
+]
+
+
+@pytest.mark.parametrize("left,right,inner", SYMBOL_CONTEXT_CASES)
+def test_unknown_symbolic_units_retain_complete_context_and_refuse_inner_quote(left, right, inner):
+    result, condition = _check(left, right)
+    assert condition["status"] == "unsupported_format"
+    pair = result["pairs"][0]
+    assert pair["coverage"]["unsupported_values"] >= 1
+    assert pair["coverage"]["paired_values"] == pair["coverage"]["conditions_with_match"] == 0
+    assert len(pair["values"]["left"]) == 1
+    value = pair["values"]["left"][0]
+    assert (value["start"], value["end"], value["quote"]) == (0, len(left), left)
+    assert value["status"] == "unsupported" and value["normalized"] is None
+    payload, _, selection, ps = _setup(left, right)
+    _condition(selection, ps, left=inner)
+    with pytest.raises(bi.BilingualError) as caught:
+        bi.check_conditions_payload(payload, [selection])
+    assert caught.value.code == "bilingual_partial_value"
+
+
+@pytest.mark.parametrize("text", ["(100 USD)", "“100 USD”", "100 USD,", "100 USD!", "100 USD…"])
+def test_ordinary_wrappers_and_prose_punctuation_are_not_unknown_units(text):
+    result, condition = _check(text, "100 USD")
+    assert condition["status"] == "numeric_values_and_units_match"
+    assert result["pairs"][0]["coverage"]["unsupported_values"] == 0
+
+
+def test_unknown_notation_separated_by_punctuation_never_disappears_or_taints_other_selection():
+    result, condition = _check("100, ‰", "100")
+    assert condition["status"] == "unsupported_format"
+    assert any(v["quote"] == "‰" for v in result["pairs"][0]["values"]["left"])
+    payload, _, pair, ps = _setup("100 USD; ₹200", "100 USD; 200")
+    _condition(pair, ps, left="100 USD", right="100 USD")
+    report = bi.check_conditions_payload(payload, [pair])["pairs"][0]
+    assert report["conditions"][0]["status"] == "numeric_values_and_units_match"
+    assert report["coverage"]["unsupported_values"] == 1
+    assert report["values"]["left"][1]["quote"] == "₹200"
+
+
+def test_long_symbolic_unit_context_is_retained_without_truncation():
+    left = "₹" * 10_000 + "100" + "‰" * 10_000
+    result, condition = _check(left, "100")
+    assert condition["status"] == "unsupported_format"
+    value = result["pairs"][0]["values"]["left"][0]
+    assert value["quote"] == left and value["normalized"] is None
+
+
+@pytest.mark.anyio
+async def test_unknown_symbolic_units_through_mcp_are_unsupported_exact_and_read_only(tmp_path):
+    async with Client(server.mcp) as client:
+        tool = next(t for t in (await client.list_tools()).tools if t.name == "check_bilingual_conditions")
+        validator = jsonschema.Draft202012Validator(tool.output_schema)
+        for index, (left, right, inner) in enumerate(SYMBOL_CONTEXT_CASES):
+            payload, _, pair, ps = _setup(left, right)
+            condition = _condition(pair, ps)
+            source = tmp_path / f"symbol-{index}.docx"
+            source.write_bytes(payload)
+            before = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
+            result = await client.call_tool("check_bilingual_conditions", {
+                "path": str(source), "file_sha256": hashlib.sha256(payload).hexdigest(), "cell_pairs": [pair]})
+            assert not result.is_error, result
+            validator.validate(result.structured_content)
+            data = result.structured_content.get("result", result.structured_content)
+            report = data["pairs"][0]
+            assert report["conditions"][0]["status"] == "unsupported_format"
+            assert report["coverage"]["unsupported_values"] >= 1
+            assert report["values"]["left"][0]["quote"] == left
+            condition["left"].update(start=left.index(inner), end=left.index(inner) + len(inner), quote=inner)
+            partial = await client.call_tool("check_bilingual_conditions", {
+                "path": str(source), "file_sha256": hashlib.sha256(payload).hexdigest(), "cell_pairs": [pair]})
+            assert partial.is_error and "bilingual_partial_value" in partial.content[0].text
+            assert {p.name: p.read_bytes() for p in tmp_path.iterdir()} == before
+
+
 @pytest.mark.anyio
 async def test_operator_run_work_refusal_through_mcp_is_exact_and_read_only(tmp_path):
     async with Client(server.mcp) as client:

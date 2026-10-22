@@ -114,6 +114,17 @@ ordinary date/amount adjacency (`2026-11-23 100 USD` or `100 USD 2026-11-23`)
 preserves both independently selectable values. A currency already owned by an
 amount is not claimed as a dangling unit of the next date.
 
+Unknown symbolic units and modifiers are also unsupported, including currency
+symbols outside the closed alias list, temperature notation, per-mille marks,
+primes and comparison symbols. They retain the complete raw numeric context,
+including adjacent or wrapped unit labels, and have no normalized value. This
+also applies after a recognized unit or around a date. For example, `100°C`,
+`₹100`, `5‰` and `100 kg[℃]` cannot match a bare number or supported quantity;
+selecting just their inner number refuses as a partial value. Ordinary quoted
+amounts and prose punctuation remain usable. Unrecognized notation separated by
+prose punctuation remains an unsupported observation if the paragraph contains
+numeric candidates; it cannot silently vanish from a selected whole span.
+
 Prefix context uses a closed reverse unit trie and precomputed whitespace
 links. It visits at most the longest known alias per lookup rather than
 searching the whole preceding paragraph for every value. Long whitespace gaps
