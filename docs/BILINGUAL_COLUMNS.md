@@ -155,7 +155,16 @@ amounts in words. Unrecognized numeric syntax/units remain unsupported. The
 report makes no claim to detect every implicit quantity, semantic unit or
 cross-reference. Fixed work limits allow at most 100 cell pairs, 100 selected
 conditions per pair, and 20,000 observed values. No partial result is returned
-when a budget fails.
+when a budget fails. Scalar discovery also refuses a run containing more than
+100 sign/solidus characters separated only by whitespace, before attempting
+the numeric regex. This bounds repeated failed prefix searches even if a later
+digit is separated by other text. Whitespace does not consume that work budget;
+format/combining marks keep the existing unsafe-context policy and raw offsets.
+An over-budget run raises `resource_limit_exceeded` (core limit
+`bilingual_operator_run`; MCP keeps its sanitized resource-limit refusal),
+never a zero-value successful report or a supported unsigned suffix. Shorter
+unsupported sign candidates retain their full raw quotes and partial-quote
+refusals.
 
 ## Editing both columns (S04)
 

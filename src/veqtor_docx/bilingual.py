@@ -24,7 +24,7 @@ from .table_map import build_table_map
 LIMITS = MappingProxyType({
     "paragraphs": 2000, "paragraph_chars": 50_000, "text_chars": 500_000, "result_bytes": 8 * 1024 * 1024,
     "cell_pairs": 100, "conditions_per_pair": 100, "values": 20_000,
-    "numeric_chars": 100,
+    "numeric_chars": 100, "operator_run": 100,
 })
 POLICY = "explicit_bilingual_conditions.v1"
 SHA = {"type": "string", "pattern": r"^[0-9a-f]{64}(?![\s\S])"}
@@ -80,6 +80,7 @@ _REF = re.compile(r"(?:\b(?:clauses?|sections?|articles?|пункт(?:а|е|ы|�
 # supported unsigned/trailing substring. Punctuation followed by whitespace is
 # a boundary (e.g. clause label "1. 100 USD"), not an invented decimal/group.
 _SIGN = r"(?:\+\s*[/∕⁄／]\s*[-−]\s*|[+\-−±﹣－＋–—‒‐‑⁻₋➖]\s*)*"
+_SIGN_RUN_CHARACTERS = frozenset("+-−±﹣－＋–—‒‐‑⁻₋➖/∕⁄／")
 _NUMBER = rf"{_SIGN}(?:\d+(?:(?:[^\w\s]+|_)\d+|['’ʼ′`]\s*\d+|\s+\d+)*|[.,]\d+)(?:[eE][+\-−]?\d+)?"
 _CURRENCY_INFO = {alias.lower(): ("amount", code, None) for code, aliases in [
     ("USD", ("USD",)), ("EUR", ("EUR", "евро", "€")), ("GBP", ("GBP", "£")),
@@ -457,10 +458,25 @@ class _ScalarScanner:
         self.position = max(self.position, end)
 
 
+def _bound_scalar_work(text):
+    # An unanchored failed search retries the repeated sign prefix at every
+    # sign. Bound that work before any scalar regex call, including when a
+    # later digit cannot complete the prefix (e.g. a sign run followed by x1).
+    # Count operators, not whitespace: normal unit/currency spacing is free.
+    operators = 0
+    for character in text:
+        if character in _SIGN_RUN_CHARACTERS:
+            operators += 1
+            _bound("operator_run", operators)
+        elif not character.isspace():
+            operators = 0
+
+
 def extract_values(text, fmt, *, paragraph_ref, unsafe=False):
     """Exact Python-code-point spans; every lexical digit candidate is retained."""
     lexical = _LexicalText(text)
     text = lexical.text
+    _bound_scalar_work(text)
     values, covered = [], bytearray(len(text))
 
     def add(start, end, kind, normalized=None, unit=None, basis=None, reason=None, scale=1):

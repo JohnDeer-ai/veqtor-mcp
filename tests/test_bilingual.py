@@ -574,3 +574,71 @@ async def test_invisible_context_and_adjacent_values_through_mcp(tmp_path):
             jsonschema.Draft202012Validator(CHECK_RESULT).validate(data)
             assert data["pairs"][0]["conditions"][0]["status"] == expected
             assert source.read_bytes() == payload
+
+
+@pytest.mark.parametrize("tail", ["", "x1", " 100 USD", "\u200ex1"])
+def test_long_failing_operator_run_refuses_before_any_scalar_regex(monkeypatch, tail):
+    # The old failed search rescanned each suffix even with no numeric values.
+    # A later digit must not bypass the work limit via a no-digits shortcut.
+    monkeypatch.setattr(bi, "_VALUE", None)
+    text = "+" * (50_000 - len(tail)) + tail
+    with pytest.raises(ResourceLimitError) as caught:
+        bi.extract_values(text, EN, paragraph_ref={})
+    assert caught.value.limit == "bilingual_operator_run"
+    assert caught.value.metadata == {
+        "limit": "bilingual_operator_run", "allowed_count": 100, "observed_count": 101}
+
+
+@pytest.mark.parametrize("operator", list("+-−±﹣－＋–—‒‐‑⁻₋➖/∕⁄／"))
+def test_operator_work_limit_covers_all_sign_prefix_characters(operator):
+    with pytest.raises(ResourceLimitError) as caught:
+        bi.extract_values((operator + " ") * 101 + "x1", EN, paragraph_ref={})
+    assert caught.value.limit == "bilingual_operator_run"
+
+
+def test_operator_work_limit_boundary_still_returns_no_values_for_a_short_empty_run():
+    assert bi.extract_values("+" * 100, EN, paragraph_ref={}) == []
+
+
+def test_short_unsupported_sign_run_retains_raw_span_and_partial_quote_refusal():
+    left = "+ " * 50 + "100 USD"
+    result, condition = _check(left, "100 USD")
+    assert condition["status"] == "unsupported_format"
+    value = result["pairs"][0]["values"]["left"][0]
+    assert (value["start"], value["end"], value["quote"]) == (0, len(left), left)
+    assert value["normalized"] is None
+    payload, _, pair, ps = _setup(left, "100 USD")
+    _condition(pair, ps, left="100 USD")
+    with pytest.raises(bi.BilingualError) as caught:
+        bi.check_conditions_payload(payload, [pair])
+    assert caught.value.code == "bilingual_partial_value"
+
+
+@pytest.mark.parametrize("left,right", [
+    ("+100 USD", "100 USD"), ("-100 USD", "-100 USD"),
+    ("USD" + " " * 2000 + "100", "100 USD"),
+    ("100" + " " * 2000 + "USD", "100 USD"),
+    ("10 business days", "10 рабочих дней"),
+])
+def test_operator_work_limit_preserves_ordinary_values_and_long_unit_spacing(left, right):
+    _, condition = _check(left, right)
+    assert condition["status"] == "numeric_values_and_units_match"
+
+
+@pytest.mark.anyio
+async def test_operator_run_work_refusal_through_mcp_is_exact_and_read_only(tmp_path):
+    async with Client(server.mcp) as client:
+        for index, tail in enumerate(("", "x1", " 100 USD", "\u200ex1")):
+            payload, _, pair, ps = _setup("+" * 5000 + tail, "100 USD")
+            _condition(pair, ps)
+            source = tmp_path / f"operator-{index}.docx"
+            source.write_bytes(payload)
+            before = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in tmp_path.iterdir()}
+            result = await client.call_tool("check_bilingual_conditions", {
+                "path": str(source), "file_sha256": hashlib.sha256(payload).hexdigest(), "cell_pairs": [pair]})
+            assert result.is_error
+            error = "\n".join(block.text for block in result.content if block.type == "text")
+            assert error == ("Error executing tool check_bilingual_conditions: "
+                             "resource_limit_exceeded: operation refused")
+            assert "numeric_values_and_units_match" not in error
+            assert {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in tmp_path.iterdir()} == before
