@@ -3,6 +3,9 @@
 import copy
 import hashlib
 import json
+import subprocess
+import sys
+import textwrap
 from collections import Counter
 from types import MappingProxyType
 
@@ -445,4 +448,129 @@ async def test_review_regressions_through_real_mcp_and_advertised_schema(tmp_pat
                 "path": str(source), "file_sha256": hashlib.sha256(payload).hexdigest(), "cell_pairs": [pair]})
             assert result.is_error
             assert "bilingual_partial_value" in result.content[0].text
+            assert source.read_bytes() == payload
+
+
+FORMAT_MARKS = ["\u200e", "\u200f", "\u200b", "\u200d", "\ufeff", "\u0301"]
+
+
+@pytest.mark.parametrize("mark", FORMAT_MARKS)
+@pytest.mark.parametrize("template,right", [
+    ("kg{mark}100 USD", "100 USD"),
+    ("100 kg{mark}mg", "100 kg"),
+    ("INV{mark}2026-11-23", "2026-11-23"),
+    ("2026-11-23{mark}A", "2026-11-23"),
+    ("‑{mark}USD 100", "100 USD"),
+    ("100 USD m{mark}g", "100 USD"),
+])
+def test_invisible_context_is_unsupported_and_preserves_exact_raw_span(mark, template, right):
+    left = template.format(mark=mark)
+    result, condition = _check(left, right)
+    assert condition["status"] == "unsupported_format"
+    values = result["pairs"][0]["values"]["left"]
+    assert len(values) == 1
+    assert values[0]["quote"] == left
+    assert values[0]["start"] == 0 and values[0]["end"] == len(left)
+    assert values[0]["normalized"] is None
+    assert result["pairs"][0]["coverage"]["paired_values"] == 0
+
+
+@pytest.mark.parametrize("mark", FORMAT_MARKS)
+def test_invisible_context_inner_amount_or_date_quote_refuses(mark):
+    for text, quote, right in [
+        (f"kg{mark}100 USD", "100 USD", "100 USD"),
+        (f"INV{mark}2026-11-23", "2026-11-23", "2026-11-23"),
+        (f"2026-11-23{mark}A", "2026-11-23", "2026-11-23"),
+    ]:
+        payload, _, pair, ps = _setup(text, right)
+        _condition(pair, ps, left=quote)
+        with pytest.raises(bi.BilingualError) as caught:
+            bi.check_conditions_payload(payload, [pair])
+        assert caught.value.code == "bilingual_partial_value"
+
+
+@pytest.mark.parametrize("left,right", [
+    ("2026-11-23 100 USD", "2026-11-23 100 USD"),
+    ("100 USD 2026-11-23", "100 USD 2026-11-23"),
+    ("2026-11-23 USD 100", "2026-11-23 USD 100"),
+    ("USD 100 2026-11-23", "USD 100 2026-11-23"),
+])
+def test_adjacent_date_amount_and_currency_ownership_remain_independently_selectable(left, right):
+    payload, _, pair, ps = _setup(left, right)
+    amount = "100 USD" if "100 USD" in left else "USD 100"
+    _condition(pair, ps, left=amount, right=amount)
+    result = bi.check_conditions_payload(payload, [pair])["pairs"][0]
+    assert result["conditions"][0]["status"] == "numeric_values_and_units_match"
+    assert result["coverage"]["unpaired_values"] == 2
+    assert result["coverage"]["unsupported_values"] == 0
+    assert {v["quote"] for v in result["values"]["left"]} == {amount, "2026-11-23"}
+    _condition(pair, ps, left="2026-11-23", right="2026-11-23", condition_id="date")
+    result = bi.check_conditions_payload(payload, [pair])["pairs"][0]
+    assert all(c["status"] == "numeric_values_and_units_match" for c in result["conditions"])
+    assert result["coverage"]["paired_values"] == 4
+
+
+def test_unsupported_named_date_does_not_swallow_a_supported_neighboring_amount():
+    payload, _, pair, ps = _setup("1 January 2026 100 USD", "1 января 2026 100 USD")
+    _condition(pair, ps, left="100 USD", right="100 USD")
+    report = bi.check_conditions_payload(payload, [pair])["pairs"][0]
+    assert report["conditions"][0]["status"] == "numeric_values_and_units_match"
+    assert report["coverage"]["unsupported_values"] == report["coverage"]["unpaired_values"] == 2
+
+
+def test_known_unit_remains_visible_across_very_long_spacing():
+    left = "kg" + " " * 2000 + "100 USD"
+    result, condition = _check(left, "100 USD")
+    assert condition["status"] == "unsupported_format"
+    assert result["pairs"][0]["values"]["left"][0]["quote"] == left
+
+
+def test_large_plain_values_hit_aggregate_limit_within_generous_subprocess_budget():
+    # The old whole-prefix regex took >112 seconds on this in-limit input.
+    # This is a generous end-to-end deadline, not a hardware-sensitive ratio.
+    program = textwrap.dedent("""
+        import sys
+        sys.path.insert(0, 'tests')
+        from test_bilingual import _setup
+        from veqtor_docx import bilingual as bi
+        from veqtor_docx._ooxml import ResourceLimitError
+        text = ' '.join(['1%'] * 10001)
+        payload, _, pair, _ = _setup(text, text)
+        try:
+            bi.check_conditions_payload(payload, [pair])
+        except ResourceLimitError as exc:
+            assert exc.limit == 'bilingual_values'
+            print('aggregate_limit_refused')
+        else:
+            raise AssertionError('aggregate limit must refuse without a report')
+    """)
+    result = subprocess.run([sys.executable, "-c", program], capture_output=True,
+                            text=True, timeout=60, check=True)
+    assert result.stdout.strip() == "aggregate_limit_refused"
+
+
+@pytest.mark.anyio
+async def test_invisible_context_and_adjacent_values_through_mcp(tmp_path):
+    async with Client(server.mcp) as client:
+        for index, (left, right, quote, expected) in enumerate([
+            (f"kg{mark}100 USD", "100 USD", None, "unsupported_format") for mark in FORMAT_MARKS
+        ] + [
+            (f"INV{mark}2026-11-23", "2026-11-23", None, "unsupported_format") for mark in FORMAT_MARKS
+        ] + [
+            ("2026-11-23 100 USD", "100 USD", "100 USD", "numeric_values_and_units_match"),
+            ("100 USD 2026-11-23", "100 USD", "100 USD", "numeric_values_and_units_match"),
+            ("100 kg\u200emg", "100 kg", None, "unsupported_format"),
+            ("‑\u200eUSD 100", "100 USD", None, "unsupported_format"),
+        ]):
+            payload, _, pair, ps = _setup(left, right)
+            _condition(pair, ps, left=quote)
+            source = tmp_path / f"context-{index}.docx"
+            source.write_bytes(payload)
+            result = await client.call_tool("check_bilingual_conditions", {
+                "path": str(source), "file_sha256": hashlib.sha256(payload).hexdigest(), "cell_pairs": [pair]})
+            assert not result.is_error, result
+            data = result.structured_content
+            data = data.get("result", data)
+            jsonschema.Draft202012Validator(CHECK_RESULT).validate(data)
+            assert data["pairs"][0]["conditions"][0]["status"] == expected
             assert source.read_bytes() == payload

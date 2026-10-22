@@ -120,9 +120,15 @@ def _alternatives(aliases):
 
 _CURRENCY = _alternatives(_CURRENCY_INFO)
 _UNIT = _alternatives(_UNIT_INFO)
+_UNIT_REVERSE_TRIE = {}
+for _alias in _UNIT_INFO:
+    _branch = _UNIT_REVERSE_TRIE
+    for _character in reversed(_alias):
+        _branch = _branch.setdefault(_character, {})
+    _branch[""] = True
+_MAX_UNIT_CHARS = max(map(len, _UNIT_INFO))
 _SCALE = r"thousand|million|billion|тыс\.?|тысяч(?:а|и)?|млн\.?|миллион(?:а|ов)?|млрд\.?|миллиард(?:а|ов)?"
-_VALUE = re.compile(rf"(?<![\w\d])(?:(?P<prefix>{_CURRENCY})\s*)?(?P<number>{_NUMBER})(?:\s*(?P<scale>{_SCALE})(?!\w))?(?:\s*(?P<unit>{_UNIT})(?!\w))?", re.I)
-_PREFIX_UNIT = re.compile(rf"(?<!\w)(?:{_UNIT})\s*$", re.I)
+_VALUE = re.compile(rf"(?<!\d)(?:(?P<prefix>{_CURRENCY})\s*)?(?P<number>{_NUMBER})(?:\s*(?P<scale>{_SCALE})(?!\w))?(?:\s*(?P<unit>{_UNIT})(?!\w))?", re.I)
 _SUFFIX_UNIT = re.compile(rf"\s*(?:{_UNIT})(?!\w)", re.I)
 _UNKNOWN_WORD = re.compile(r"\s*[^\W\d_][\w]*", re.UNICODE)
 _RATE = re.compile(r"\s*(?:[/∕⁄／÷]\s*|(?:per|за|в)\s+|(?:annually|daily|monthly|годовых|ежедневно)\b)", re.I)
@@ -306,7 +312,75 @@ def _unit(raw):
 
 def _numeric_operator(character):
     name = unicodedata.name(character, "")
-    return character in "+-/±" or any(word in name for word in ("MINUS", "PLUS", "SOLIDUS", "SLASH", "DIVISION"))
+    return (character in "+-/±" or unicodedata.category(character) == "Pd" or
+            any(word in name for word in ("MINUS", "PLUS", "SOLIDUS", "SLASH", "DIVISION")))
+
+
+class _LexicalText:
+    """A detection view with a reversible raw-coordinate map, never clean text.
+
+    Cf and combining marks are transparent ONLY for finding unsafe context.
+    Every candidate touching them remains unsupported and retains its full raw
+    quote. Neither Decimal parsing nor the public offsets use cleaned text.
+    """
+
+    def __init__(self, raw):
+        self.raw = raw
+        self.positions, self.controls = [], []
+        characters = []
+        self.control_counts = [0]
+        for index, character in enumerate(raw):
+            category = unicodedata.category(character)
+            control = category == "Cf" or category.startswith("M")
+            self.controls.append(control)
+            self.control_counts.append(self.control_counts[-1] + control)
+            if not control:
+                characters.append(character)
+                self.positions.append(index)
+        self.text = "".join(characters)
+        self.previous_nonspace = [-1]
+        previous = -1
+        for index, character in enumerate(self.text):
+            if not character.isspace():
+                previous = index
+            self.previous_nonspace.append(previous)
+
+    def raw_span(self, start, end):
+        first, last = self.positions[start], self.positions[end - 1] + 1
+        while first and self.controls[first - 1]:
+            first -= 1
+        while last < len(self.raw) and self.controls[last]:
+            last += 1
+        return first, last
+
+    def raw_slice(self, start, end):
+        first, last = self.raw_span(start, end)
+        return self.raw[first:last]
+
+    def has_controls(self, first, last):
+        return self.control_counts[last] != self.control_counts[first]
+
+    def preceding_unit(self, start):
+        # Walk at most the longest closed alias. Whitespace runs are skipped
+        # through a single precomputed link, even across thousands of spaces.
+        end = self.previous_nonspace[start] + 1
+        index, branch, found = end - 1, _UNIT_REVERSE_TRIE, None
+        for _ in range(_MAX_UNIT_CHARS):
+            if index < 0:
+                break
+            character = self.text[index]
+            first = index
+            if character.isspace():
+                character = " "
+                index = self.previous_nonspace[index + 1]
+            else:
+                index -= 1
+            branch = branch.get(character.lower())
+            if branch is None:
+                break
+            if "" in branch and (first == 0 or not (self.text[first - 1].isalnum() or self.text[first - 1] == "_")):
+                found = first, end
+        return found
 
 
 def _skip_spacing(text, position):
@@ -315,21 +389,23 @@ def _skip_spacing(text, position):
     return position
 
 
-def _lexical_context(text, start, end, covered):
+def _lexical_context(lexical, start, end, covered):
     """Retain known dangling units and rate notation in the same raw span."""
-    reason = None
+    text, reason = lexical.text, None
     marker = start
     while marker and (text[marker - 1].isspace() or unicodedata.category(text[marker - 1]) == "Cf"):
         marker -= 1
     if marker and _numeric_operator(text[marker - 1]) and not covered[marker - 1]:
         start = marker - 1
         reason = "unsupported_numeric_operator_context"
-    while prefix := _PREFIX_UNIT.search(text, 0, start):
-        if any(covered[prefix.start():prefix.end()]):
+    while prefix := lexical.preceding_unit(start):
+        if any(covered[prefix[0]:prefix[1]]):
             break  # That unit belongs to a preceding distinct value.
-        start = prefix.start()
+        start = prefix[0]
         reason = "dangling_or_conflicting_units"
     while suffix := _SUFFIX_UNIT.match(text, end):
+        if any(covered[end:suffix.end()]):
+            break
         end = suffix.end()
         reason = "dangling_or_conflicting_units"
     rate = _RATE.match(text, end)
@@ -366,31 +442,66 @@ def _scale(raw):
     return 1_000_000_000
 
 
+class _ScalarScanner:
+    def __init__(self, text, segments):
+        self.text, self.segments, self.position = text, segments, 0
+
+    def __iter__(self):
+        for start, end in self.segments:
+            self.position = start
+            while match := _VALUE.search(self.text, self.position, end):
+                self.position = match.end()
+                yield match
+
+    def advance(self, end):
+        self.position = max(self.position, end)
+
+
 def extract_values(text, fmt, *, paragraph_ref, unsafe=False):
     """Exact Python-code-point spans; every lexical digit candidate is retained."""
+    lexical = _LexicalText(text)
+    text = lexical.text
     values, covered = [], bytearray(len(text))
 
     def add(start, end, kind, normalized=None, unit=None, basis=None, reason=None, scale=1):
         _bound("values", len(values) + 1)
         covered[start:end] = b"\1" * (end - start)
-        values.append({"paragraph_ref": paragraph_ref, "start": start, "end": end,
-                       "quote": text[start:end], "kind": kind, "normalized": normalized,
+        first, last = lexical.raw_span(start, end)
+        if lexical.has_controls(first, last):
+            normalized, reason = None, "unsupported_format_or_combining_context"
+        values.append({"paragraph_ref": paragraph_ref, "start": first, "end": last,
+                       "quote": lexical.raw[first:last], "kind": kind, "normalized": normalized,
                        "unit": unit, "day_basis": basis, "scale": str(scale),
                        "status": "unsupported" if reason else "supported", "reason": reason})
 
-    for match in _NAMED_DATE.finditer(text):
-        add(match.start(), match.end(), "date", reason="named_date_format_not_supported")
+    date_candidates = [(match.start(), match.end(), None, "named_date_format_not_supported")
+                       for match in _NAMED_DATE.finditer(text)]
     for match in _DATE.finditer(text):
         normalized, reason = _date_value(match[0], fmt["date_order"])
         start, end, embedded = _identifier_span(text, match.start(), match.end())
         if embedded:
             normalized, reason = None, "date_embedded_in_identifier"
-        start, end, context_reason = _lexical_context(text, start, end, covered)
-        add(start, end, "date", normalized, "date", reason=context_reason or reason)
-    for match in _VALUE.finditer(text):
+        date_candidates.append((start, end, normalized, reason))
+    dates = []
+    for start, end, normalized, reason in sorted(date_candidates):
+        if dates and start < dates[-1][1]:
+            old = dates.pop()
+            dates.append((old[0], max(old[1], end), None, "overlapping_date_identifiers"))
+        else:
+            dates.append((start, end, normalized, reason))
+    # Reserved date spans are hard lexical boundaries for scalar discovery.
+    # Do not skip an entire scalar match merely because its beginning was
+    # already a date, and assign amount currencies before date context lookup.
+    segments, position = [], 0
+    for start, end, _, _ in dates:
+        segments.append((position, start))
+        position = end
+    segments.append((position, len(text)))
+    scanner = _ScalarScanner(text, segments)
+    for match in scanner:
         if any(covered[match.start():match.end()]):
             continue
-        number, reason = _decimal(match["number"], fmt)
+        number, reason = _decimal(lexical.raw_slice(match.start("number"), match.end("number")), fmt)
         kind, unit, basis = _unit(match["unit"] or match["prefix"])
         if match["prefix"] and match["unit"]:
             other = _unit(match["prefix"])
@@ -400,20 +511,28 @@ def extract_values(text, fmt, *, paragraph_ref, unsafe=False):
             reason = "ambiguous_currency"
         if basis == "unspecified":
             reason = "day_basis_unspecified"
-        start, end, context_reason = _lexical_context(text, match.start(), match.end(), covered)
+        start, end, embedded = _identifier_span(text, match.start(), match.end())
+        if embedded:
+            reason = "number_embedded_in_identifier"
+        start, end, context_reason = _lexical_context(lexical, start, end, covered)
         if context_reason:
             reason = context_reason
         if kind == "number":
             if following := _UNKNOWN_WORD.match(text, end):
                 end = following.end()
                 reason = "unrecognized_unit_or_numeric_context"
-            if re.search(r"[^\W\d_]\s*$", text[:start]):
+            preceding = lexical.previous_nonspace[start]
+            if preceding >= 0 and text[preceding].isalpha():
                 reason = "unrecognized_unit_or_numeric_context"
         scale = _scale(match["scale"])
         with localcontext() as context:
             context.prec = LIMITS["numeric_chars"] + 20
             normalized = format(number * scale, "f") if number is not None else None
         add(start, end, kind, normalized, unit, basis, reason, scale)
+        scanner.advance(end)
+    for start, end, normalized, reason in dates:
+        start, end, context_reason = _lexical_context(lexical, start, end, covered)
+        add(start, end, "date", normalized, "date", reason=context_reason or reason)
     for match in _WORDS.finditer(text):
         if not any(covered[match.start():match.end()]):
             add(match.start(), match.end(), "number_words", reason="number_words_not_supported")

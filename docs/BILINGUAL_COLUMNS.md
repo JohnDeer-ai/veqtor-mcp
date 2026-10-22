@@ -104,6 +104,22 @@ prose after a typed amount is retained as prose. A date-shaped component
 attached to an identifier (`INV2026-11-23` or `2026-11-23A`) is an unsupported
 whole candidate; selecting its inner date refuses as a partial value.
 
+Unicode format controls and combining marks cannot hide a unit, sign or
+identifier boundary. A reversible lexical detection view retains their raw
+positions; any candidate touching those marks is unsupported and has no
+normalized value. The report always quotes the original text, including the
+marks, with original code-point offsets. This is detection of unsafe context,
+not a corrected or sanitized reading. Dates reserve their own lexical ranges;
+ordinary date/amount adjacency (`2026-11-23 100 USD` or `100 USD 2026-11-23`)
+preserves both independently selectable values. A currency already owned by an
+amount is not claimed as a dangling unit of the next date.
+
+Prefix context uses a closed reverse unit trie and precomputed whitespace
+links. It visits at most the longest known alias per lookup rather than
+searching the whole preceding paragraph for every value. Long whitespace gaps
+still retain known units. Large repeated supported-value input reaches the
+fixed aggregate value refusal without quadratic prefix rescanning.
+
 Each selected condition has one of four statuses:
 
 | Status | Meaning |
