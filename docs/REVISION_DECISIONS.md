@@ -111,9 +111,11 @@ each selected domain. An incompatible partial or mixed selection refuses.
 The final state is independent of the order of nonoverlapping members.
 Nested tables and row/cell existence histories remain outside this support.
 
-Rejecting a changed cell span while its row has an independent `trHeight`
-refuses with `table_height_dependency_unsupported`. Word has been observed to
-remove that unselected height during rejection. Veqtor does not delete it to
+Rejecting a changed cell span while its row has independent row properties or
+history refuses with `table_height_dependency_unsupported` when height is
+present, or `table_row_property_dependency_unsupported` otherwise. Word has
+been observed to remove the entire unselected row-property set, including
+height and the keep-row-together setting, during rejection. Veqtor does not delete it to
 imitate the collateral change; this conservative boundary does not claim
 that every such topology has identical native behavior. A genuinely selected
 row-property history owns its complete current/previous height properties.

@@ -16,8 +16,8 @@ public distribution.
   applying their exact local patches. Support compatible grid/span and
   grid/omitted-column outcomes without choosing companions automatically.
   Keep standalone inventory feasibility separate from batch feasibility, and
-  refuse cell-span rejection with an unowned row height rather than silently
-  deleting that independent property to imitate Word.
+  refuse cell-span rejection with unowned row properties or history rather than
+  silently deleting those independent properties to imitate Word.
 - Require `opentelemetry-api>=1.45.1,<2` for the MCP runtime to exclude the
   vulnerable trace-state parser covered by CVE-2026-114603. Apply the same
   security floor to the locked environment and exact-minimum artifact smoke.

@@ -1963,8 +1963,8 @@ def preflight_document_edits(source_path: str, file_sha256: DraftingShaInput,
     within their validated domains; no companions are selected automatically.
     Explicit same-table property groups validate their combined final geometry,
     widths and dependencies. Group facts bind every original member and decision.
-    Rejected cell-span changes with independent row height refuse when height
-    preservation is unproven. Overlapping
+    Rejected cell-span changes with independent row properties or history refuse
+    when their preservation is unproven. Overlapping
     edits/decisions require separate saves and fresh references. These decisions
     remove only selected history; they do not reauthor revisions or add new ones.
     Use paragraph_ref from inspect_document for replace_text

@@ -43,7 +43,8 @@ def _history(tag, current, previous, identifier, pending):
     )
 
 
-def _source(shape, state="pending", *, direction="expand", height=False, defaults=False):
+def _source(shape, state="pending", *, direction="expand", height=False, defaults=False,
+            row_properties=""):
     """Build clean expected states from literal input, not from decision output.
 
     ``expand`` restores a cell spanning two columns on rejection; ``contract``
@@ -60,8 +61,11 @@ def _source(shape, state="pending", *, direction="expand", height=False, default
         if direction == "contract":
             old_grid, new_grid = new_grid, old_grid
             old_span, new_span = new_span, old_span
-        row_current = '<w:trHeight w:val="480" w:hRule="atLeast"/>' if height else ""
-        row_current += "<w:cantSplit/>"
+        row_current = (
+            '<w:trHeight w:val="480" w:hRule="atLeast"/><w:cantSplit/>'
+            if height else ""
+        )
+        row_current += row_properties
         row_props = f"<w:trPr>{row_current}</w:trPr>"
     else:
         assert shape == "row_before"
@@ -312,6 +316,74 @@ def test_independent_height_blocks_unproven_span_rejection_but_not_acceptance(
     )
     height = next(_document(path).iter(w("trHeight")))
     assert dict(height.attrib) == {w("val"): "480", w("hRule"): "atLeast"}
+
+
+@pytest.mark.parametrize("direction", ["expand", "contract"])
+@pytest.mark.parametrize("properties", [
+    "<w:cantSplit/>", "<w:hidden/>", "<w:tblHeader/>", '<w:jc w:val="right"/>',
+])
+def test_independent_row_properties_refuse_span_rejection_and_survive_acceptance(
+    tmp_path, demo_dir, direction, properties
+):
+    path = _make(
+        tmp_path, demo_dir, "cell_span", direction=direction, row_properties=properties
+    )
+    _refused(
+        path, _operations(path, "reject"), "table_row_property_dependency_unsupported"
+    )
+    _save(path, _operations(path, "accept"))
+    assert _normalized(_document(path)) == _normalized(_source(
+        "cell_span", "current", direction=direction, row_properties=properties
+    ))
+
+
+def test_unselected_row_history_with_empty_current_properties_stays_independent(
+    tmp_path, demo_dir
+):
+    root = _source("cell_span")
+    props = next(root.iter(w("trPr")))
+    props.append(_xml(
+        '<w:trPrChange w:id="30" w:author="Unselected Row Reviewer" '
+        'w:date="2026-02-04T12:00:00Z"><w:trPr><w:cantSplit/>'
+        '</w:trPr></w:trPrChange>'
+    )[0])
+    original_props = _normalized(props)
+    path = tmp_path / "working.docx"
+    _fixture.write_source(demo_dir / "round-1-outgoing-draft.docx", path, root)
+    listing = read_document_revisions(str(path))
+    row_ref = next(
+        item["revision_ref"] for item in listing["revisions"]
+        if item["kind"] == "trPrChange"
+    )
+    operations = [
+        operation for operation in _operations(path, "reject", count=3)
+        if operation["target"]["revision_ref"] != row_ref
+    ]
+    _refused(path, operations, "table_row_property_dependency_unsupported")
+    _save(path, [{**operation, "decision": "accept"} for operation in operations])
+    assert _normalized(next(_document(path).iter(w("trPr")))) == original_props
+
+
+@pytest.mark.parametrize("decision", ["accept", "reject"])
+@pytest.mark.parametrize("previous", ["", "<w:cantSplit/>", "<w:hidden/>"])
+def test_explicit_row_history_owns_independent_flags_in_span_group(
+    tmp_path, demo_dir, decision, previous
+):
+    current = "<w:cantSplit/>"
+    root = _source("cell_span", row_properties=current)
+    props = next(root.iter(w("trPr")))
+    props.append(_xml(
+        '<w:trPrChange w:id="30" w:author="Fictional Row Reviewer" '
+        'w:date="2026-02-04T12:00:00Z"><w:trPr>'
+        + previous + '</w:trPr></w:trPrChange>'
+    )[0])
+    path = tmp_path / "working.docx"
+    _fixture.write_source(demo_dir / "round-1-outgoing-draft.docx", path, root)
+    _save(path, _operations(path, decision, count=3))
+    assert _normalized(_document(path)) == _normalized(_source(
+        "cell_span", "current" if decision == "accept" else "previous",
+        row_properties=current if decision == "accept" else previous,
+    ))
 
 
 def test_explicit_row_history_retains_height_on_positive_row_before_rejection(

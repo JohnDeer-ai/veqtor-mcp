@@ -726,27 +726,30 @@ def table_decision_groups(root, nodes_by_index, operations):
     return groups
 
 
-def _height_dependency(node, action, kind, group=None):
+def _row_property_dependency(node, action, kind, group=None):
     if action != "reject" or kind != "tcPrChange":
         return
     from .table_map import _integer
 
-    # Native Word has removed an independent row height when rejecting a span
-    # history. Until preservation is proved for more shapes, exclude this
-    # combination rather than silently deleting a property outside the patch.
+    # Native Word has removed the entire independent row-property set when
+    # rejecting a span history, including height and cantSplit. Until those
+    # properties are explicitly owned by a selected row-history domain,
+    # exclude this combination instead of deleting content outside the patch.
     if _integer(node.getparent(), "gridSpan", 1) == _integer(node[0], "gridSpan", 1):
         return
     row = next(node.iterancestors(w("tr")), None)
-    if row is None or row.find(f"{w('trPr')}/{w('trHeight')}") is None:
+    props = row.find(w("trPr")) if row is not None else None
+    if props is None or not (len(props) or props.attrib or (props.text or "").strip()):
         return
     if group is not None and any(
         item.row is row and item.node.tag == w("trPrChange")
         for item in group.selections
     ):
         return  # The row properties are an actual explicitly selected domain.
+    height = props.find(w("trHeight")) is not None
     _fail(
-        "table_height_dependency_unsupported",
-        "restoring this cell span can remove an independent row height in Word",
+        "table_height_dependency_unsupported" if height else "table_row_property_dependency_unsupported",
+        "preservation of independent row properties is unproved for this span rejection",
     )
 
 
@@ -762,7 +765,7 @@ def _group_outcome(root, nodes, decision, group):
         action = decision if item.node is nodes[0] else item.decision
         kind = etree.QName(item.node).localname
         _alignment_dependency(item.node, action, kind)
-        _height_dependency(item.node, action, kind, group)
+        _row_property_dependency(item.node, action, kind, group)
         props = item.node.getparent()
         parent = mapped[props.getparent()]
         index = props.getparent().index(props)
@@ -970,7 +973,7 @@ def _plan_outcomes(root, nodes, parts, defer_fixed_widths=False, table_group=Non
         result = _outcome(nodes, action, kind)
         try:
             _alignment_dependency(nodes[0], action, kind)
-            _height_dependency(nodes[0], action, kind, table_group)
+            _row_property_dependency(nodes[0], action, kind, table_group)
             # Inspect the actual surviving outcome in its complete document
             # context. Text can retain (or remove) unresolved run styles too;
             # checking the source or only property decisions is insufficient.
