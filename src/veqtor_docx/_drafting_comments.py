@@ -20,6 +20,8 @@ from lxml import etree
 
 from ._drafting_text import annotation_date, parse_drafting_timestamp
 from ._ooxml import (
+    DocxError,
+    ResourceLimitError,
     W_NS,
     canonical_body_flow_v1,
     current_text_atom,
@@ -1025,6 +1027,44 @@ def delete_comment(parts: dict[str, bytes], document: etree._Element,
     return result
 
 
+def _deletion_xml_parts(parts: dict[str, bytes]):
+    """Inspect XML independently of ZIP member suffixes; opaque binaries stay opaque."""
+    types = parse_xml(parts[_TYPES])
+    declared = set()
+    extensions = set()
+    for entry in types:
+        content_type = entry.get("ContentType", "").split(";", 1)[0].lower()
+        if content_type not in {"application/xml", "text/xml"} and not content_type.endswith("+xml"):
+            continue
+        if entry.tag == f"{{{_TYPE_NS}}}Override":
+            target = entry.get("PartName", "")
+            try:
+                resolved = _internal_relationship_part(target) if target.startswith("/") else None
+            except ValueError as exc:
+                raise _unsupported("invalid XML content-type target") from exc
+            if resolved is None:
+                raise _unsupported("invalid XML content-type target")
+            declared.add(resolved)
+        elif entry.tag == f"{{{_TYPE_NS}}}Default":
+            extensions.add(entry.get("Extension", "").lower())
+    for name, data in parts.items():
+        if name == "word/document.xml":
+            continue  # Its current in-memory DOM is checked by the caller.
+        expected_xml = (name in declared or name.rsplit(".", 1)[-1].lower() in extensions
+                        or name.lower().endswith((".xml", ".rels")))
+        try:
+            # Also inspect well-formed XML under an unknown media type, so a
+            # renamed part cannot hide an anchor behind a misleading declaration.
+            root = parse_xml(data)
+        except ResourceLimitError:
+            raise
+        except DocxError as exc:
+            if expected_xml or data.lstrip().startswith((b"<", b"\xef\xbb\xbf", b"\xff\xfe", b"\xfe\xff")):
+                raise _unsupported("an XML package part cannot be safely inspected") from exc
+            continue
+        yield name, root
+
+
 def _delete_selected_messages(parts: dict[str, bytes], document: etree._Element,
                               comments: etree._Element, metadata: _ThreadMetadata,
                               selected: set[str], author: str) -> list[dict]:
@@ -1061,27 +1101,55 @@ def _delete_selected_messages(parts: dict[str, bytes], document: etree._Element,
                 except InspectError as exc:
                     raise _unsupported("unsupported selected comment properties") from exc
     protected_ids = selected | {metadata.summaries[ident]["thread_root_id"] for ident in selected}
+    protected_numbers = {int(ident) for ident in protected_ids}
+
+    def protected_anchor(node):
+        if node.tag not in _ANCHOR_TAGS:
+            return False
+        raw = node.get(w("id"), "")
+        if (not raw.isascii() or not raw.isdigit() or len(raw) > 10 or int(raw) > _MAX_ID):
+            raise _unsupported("comment anchor identifier is invalid")
+        if int(raw) in protected_numbers and raw not in protected_ids:
+            raise _unsupported("aliased protected comment identifiers require a separate workflow")
+        return raw in protected_ids
+
     mutable = comment_mutable_parts(parts)
-    for name, data in parts.items():
-        if not name.endswith(".xml") or name == "word/document.xml" or name in mutable:
+    modern_roots = {root for _, root in _MODERN_COMMENT_PARTS.values()}
+    for name, root in _deletion_xml_parts(parts):
+        if name in mutable:
             continue
-        if name.rsplit("/", 1)[-1].startswith("comments"):
+        if name.rsplit("/", 1)[-1].lower().startswith("comments") or root.tag in modern_roots:
             raise _unsupported("unknown comment metadata prevents safe deletion")
-        if any(n.tag in _ANCHOR_TAGS and n.get(w("id")) in protected_ids
-               for n in parse_xml(data).iter()):
+        if any(protected_anchor(n) for n in root.iter()):
             raise _unsupported("selected comment anchors exist outside the main document")
-    if any(n.tag in _ANCHOR_TAGS and n.get(w("id")) in protected_ids for n in comments.iter()):
+    if any(protected_anchor(n) for n in comments.iter()):
         raise _unsupported("selected comment has anchors inside comment bodies")
     ordered = list(document.iter())
+    # Validate every physical marker before selecting exact lexical references.
+    for node in ordered:
+        protected_anchor(node)
     positions = {node: index for index, node in enumerate(ordered)}
-    quote_tags = {w(tag) for tag in ("t", "delText", "tab", "br", "cr", "instrText", "delInstrText")}
     body_paragraphs = {item.element for item in _body_paragraphs(document)}
+    ignored_boundaries = set()
+    for node in ordered:
+        if node.tag in _ANCHOR_TAGS | {w("pPr"), w("rPr")} or (
+            node.tag == w("r") and node.find(w("commentReference")) is not None
+            and all(c.tag in {w("rPr"), w("commentReference")} for c in node)
+        ):
+            ignored_boundaries.update(node.iter())
 
     def supported_container(container):
         return container in body_paragraphs or (
             container is not None and container.tag == w("ins")
             and container.getparent() in body_paragraphs and container.get(w("author")) == author
         )
+
+    def boundary_position(marker):
+        paragraph = next(marker.iterancestors(w("p")), None)
+        if paragraph is None:
+            raise _unsupported("comment boundary has no paragraph")
+        return (paragraph, tuple(n for n in ordered[positions[paragraph]:positions[marker]]
+                                 if n not in ignored_boundaries))
 
     def checked_anchors(ident, *, allow_absent=False):
         current = [n for n in ordered if n.tag in _ANCHOR_TAGS and n.get(w("id")) == ident]
@@ -1111,16 +1179,14 @@ def _delete_selected_messages(parts: dict[str, bytes], document: etree._Element,
             indexes = {n.tag: positions[n] for n in current}
             if not indexes[w("commentRangeStart")] < indexes[w("commentRangeEnd")] < indexes[w("commentReference")]:
                 raise _unsupported("selected comment anchors are out of order")
-            quote = tuple(n for n in ordered[indexes[w("commentRangeStart")]:indexes[w("commentRangeEnd")]] if n.tag in quote_tags)
+            start = next(n for n in current if n.tag == w("commentRangeStart"))
+            end = next(n for n in current if n.tag == w("commentRangeEnd"))
+            quote = ("range", boundary_position(start), boundary_position(end))
         else:
             reference = next(n for n in current if n.tag == w("commentReference"))
-            paragraph = next((p for p in reference.iterancestors(w("p"))), None)
-            if paragraph is None:
-                raise _unsupported("point comment reference has no paragraph")
             # Two point comments need the same physical text position, even
             # when both have no quoted range. Equal text elsewhere is not enough.
-            quote = (paragraph, tuple(n for n in ordered[positions[paragraph]:positions[reference]]
-                                      if n.tag in quote_tags))
+            quote = ("point", boundary_position(reference))
         return current, quote
 
     anchors = []

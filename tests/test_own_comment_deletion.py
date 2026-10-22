@@ -309,3 +309,109 @@ def test_unsupported_anchor_placement_refuses(case):
         wrapper.append(run)
     _assert_unchanged_failure(parts, document,
                               lambda: delete_comment_reply(parts, document, reply, AUTHOR))
+
+
+@pytest.mark.parametrize("whole_thread", [False, True])
+@pytest.mark.parametrize("location", ["reference", "range_start", "range_end", "root", "header", "comment_body"])
+def test_protected_numeric_aliases_refuse_before_mutation(whole_thread, location):
+    parts, document, reply = setup_thread()
+    tag = {"range_start": "commentRangeStart", "range_end": "commentRangeEnd"}.get(location, "commentReference")
+    ident = "0" if location == "root" else reply
+    original = next(n for n in document.iter(w(tag)) if n.get(w("id")) == ident)
+    alias = deepcopy(original)
+    alias.set(w("id"), "0" + ident)
+    if location == "header":
+        header = etree.Element(w("hdr"))
+        etree.SubElement(etree.SubElement(header, w("p")), w("r")).append(alias)
+        parts["word/header1.xml"] = etree.tostring(header)
+    elif location == "comment_body":
+        other = add_comment(parts, document, document.find(f"{w('body')}/{w('p')}"),
+                            "words", "Other thread.", OTHER, "OR")
+        comments = parse_xml(parts[COMMENTS])
+        foreign = next(n for n in comments if n.get(w("id")) == other["id"])
+        etree.SubElement(foreign[0], w("r")).append(alias)
+        parts[COMMENTS] = etree.tostring(comments)
+    else:
+        original.getparent().insert(original.getparent().index(original) + 1, alias)
+    operation = (lambda: delete_comment_thread(parts, document, "0", ["0", reply], AUTHOR)) if whole_thread else (
+        lambda: delete_comment_reply(parts, document, reply, AUTHOR))
+    _assert_unchanged_failure(parts, document, operation)
+
+
+@pytest.mark.parametrize("name", ["word/header1.XML", "word/header.data", "word/header"])
+@pytest.mark.parametrize("alias", [False, True])
+def test_xml_parts_are_checked_independently_of_filename_suffix(name, alias):
+    parts, document, reply = setup_thread()
+    header = etree.Element(w("hdr"))
+    reference = etree.SubElement(etree.SubElement(etree.SubElement(header, w("p")), w("r")), w("commentReference"))
+    reference.set(w("id"), ("0" if alias else "") + reply)
+    parts[name] = etree.tostring(header)
+    types = parse_xml(parts["[Content_Types].xml"])
+    etree.SubElement(types, "{http://schemas.openxmlformats.org/package/2006/content-types}Override",
+                     PartName="/" + name, ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml")
+    parts["[Content_Types].xml"] = etree.tostring(types)
+    _assert_unchanged_failure(parts, document,
+                              lambda: delete_comment_reply(parts, document, reply, AUTHOR))
+
+
+@pytest.mark.parametrize("same_position", [False, True])
+def test_empty_ranges_require_same_physical_boundary(same_position):
+    parts, document, reply = setup_thread()
+    paragraph = document.find(f"{w('body')}/{w('p')}")
+    for ident in ["0", reply]:
+        start = next(n for n in document.iter(w("commentRangeStart")) if n.get(w("id")) == ident)
+        end = next(n for n in document.iter(w("commentRangeEnd")) if n.get(w("id")) == ident)
+        start.getparent().remove(start)
+        end.getparent().remove(end)
+        index = 0 if ident == "0" or same_position else len(paragraph) - 2
+        paragraph.insert(index, start)
+        paragraph.insert(index + 1, end)
+    if same_position:
+        delete_comment_reply(parts, document, reply, AUTHOR)
+        assert [r["id"] for r in read_comments(parts, document)] == ["0"]
+    else:
+        _assert_unchanged_failure(parts, document,
+                                  lambda: delete_comment_reply(parts, document, reply, AUTHOR))
+
+
+@pytest.mark.parametrize("ranged", [False, True])
+def test_boundaries_on_opposite_sides_of_nontext_content_do_not_match(ranged):
+    parts, document, reply = setup_thread()
+    paragraph = document.find(f"{w('body')}/{w('p')}")
+    boundaries = {}
+    for ident in ["0", reply]:
+        pair = [n for n in document.iter() if n.tag in {w("commentRangeStart"), w("commentRangeEnd")}
+                and n.get(w("id")) == ident]
+        boundaries[ident] = pair
+        for marker in pair:
+            marker.getparent().remove(marker)
+    atom = etree.Element(w("r"))
+    etree.SubElement(atom, w("noBreakHyphen"))
+    paragraph.insert(0, atom)
+    if ranged:
+        for marker in reversed(boundaries["0"]):
+            paragraph.insert(0, marker)
+        for index, marker in enumerate(boundaries[reply]):
+            paragraph.insert(paragraph.index(atom) + 1 + index, marker)
+    else:
+        for ident in ["0", reply]:
+            reference = next(n for n in document.iter(w("commentReference")) if n.get(w("id")) == ident)
+            run = reference.getparent()
+            run.getparent().remove(run)
+            paragraph.insert(paragraph.index(atom) + (0 if ident == "0" else 1), run)
+    _assert_unchanged_failure(parts, document,
+                              lambda: delete_comment_reply(parts, document, reply, AUTHOR))
+
+
+def test_consistent_noncanonical_identity_is_not_silently_renamed():
+    parts, document, reply = setup_thread()
+    alias = "0" + reply
+    comments = parse_xml(parts[COMMENTS])
+    comments[-1].set(w("id"), alias)
+    parts[COMMENTS] = etree.tostring(comments)
+    for marker in document.iter():
+        if marker.tag in {w("commentReference"), w("commentRangeStart"), w("commentRangeEnd")} and marker.get(w("id")) == reply:
+            marker.set(w("id"), alias)
+    result = delete_comment_reply(parts, document, alias, AUTHOR)
+    assert result["id"] == alias
+    assert [r["id"] for r in read_comments(parts, document)] == ["0"]

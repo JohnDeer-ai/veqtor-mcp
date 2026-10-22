@@ -81,6 +81,16 @@ author attribution, thread links/status and returned save/backup hashes.
 Refresh paragraph references and comment IDs after every save, including an
 external Word save: Word may renumber comments.
 
+Preserve the pre-Word copy when testing an external save. Word can recalculate
+proofing-language properties, cancel an earlier language-only revision or merge
+a new language change into earlier formatting history with a different author.
+It can also normalize historical table properties. Unchanged visible text does
+not establish unchanged revision history. Reread authors and previous/current
+properties after Word saves; disclose unexpected differences instead of silently
+accepting them as harmless normalization. Do not disable formatting tracking,
+proofing or language detection in the user's settings/document without an
+explicit instruction.
+
 If the result reports `publication_completed=true` with an error, reread the
 working file and backup before deciding whether another write is needed. Do
 not repeat an uncertain save blindly.
