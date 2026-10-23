@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -18,12 +19,13 @@ from lxml import etree
 from . import revision_decisions as decisions
 from ._drafting_paragraphs import (
     paragraph_structure_candidates,
-    paragraph_structure_unit,
     paragraph_structure_outcome,
+    paragraph_structure_unit,
 )
 from ._ooxml import (
     DOCUMENT_PART,
     canonical_body_flow_v1,
+    iter_canonical_paragraph_nodes,
     load_validated_docx,
     parse_xml,
     require_single_direct_document_body,
@@ -33,13 +35,18 @@ from ._paragraph_edits import _REVISION_TAGS
 from .apply import ApplyError, _output_archive_bytes
 from .drafting import _require_unprotected
 from .revision_inventory import inventory_package_revisions
-from .table_rows import row_structure_candidates, row_structure_unit, row_structure_outcome
+from .table_rows import (
+    row_structure_candidates,
+    row_structure_outcome,
+    row_structure_unit,
+)
 
-# Outcome validation clones the document. Charge its full serialized size for
-# every attempted decision, including both plans and the independent reversal.
-# A limit refuses the entire candidate; it never produces a partial clean copy.
+# Small and structural selections retain the selective decision proof. Large
+# ordinary selections compose bounded local proofs and one exact whole-document
+# replay/reversal instead of cloning the whole document for every revision.
 MAX_CLEAN_VALIDATION_BYTES = 256 * 1024 * 1024
 MAX_CLEAN_DECISIONS = 20_000
+_BATCH_MIN_REVISIONS = 128
 _RANGES = frozenset(w(name) for name in (
     "bookmarkStart", "bookmarkEnd", "commentRangeStart", "commentRangeEnd",
     "commentReference",
@@ -66,10 +73,13 @@ class _ValidationParts(Mapping):
 
     def __getitem__(self, name):
         value = self.parts[name]
-        self.consumed += len(value)
+        self.consume(len(value))
+        return value
+
+    def consume(self, amount):
+        self.consumed += amount
         if self.consumed > MAX_CLEAN_VALIDATION_BYTES:
             _fail("resource_limit_exceeded", "the clean-copy dependency validation budget was exceeded")
-        return value
 
     def __iter__(self):
         return iter(self.parts)
@@ -220,6 +230,344 @@ def _structural_plan(root, nodes, parts):
     return decisions.DecisionPatch(parent, index, copy.deepcopy(old), planned.after), facts
 
 
+def _ordinary_source_guard(root, nodes):
+    """Prove source-global context before any ordinary revision is detached.
+
+    The selective helper remains the authority for global boundary grammar.
+    Its detached empty probe cannot overlap a real target; the second traversal
+    binds that same canonical boundary state to every actual selected owner.
+    No cached context survives a structural change or a different source.
+    """
+    body = root.find(w("body"))
+    flow = canonical_body_flow_v1(body)
+    owners = {decisions._owner(node) for node in nodes}
+    checked_ancestors = set()
+    for owner in owners:
+        if flow.exclusion_kind_for(owner) is not None:
+            _fail("revision_context_unsupported", "revision is outside canonical main-story content")
+        current = owner
+        while current is not body:
+            if current is None or current.tag not in {
+                w("p"), w("r"), w("pPr"), w("tc"), w("tr"), w("tbl"),
+            }:
+                _fail("revision_context_unsupported", "revision has an unsupported owner or ancestor")
+            current = current.getparent()
+        for ancestor in (owner, *owner.iterancestors()):
+            if ancestor in checked_ancestors:
+                continue
+            checked_ancestors.add(ancestor)
+            for props in ancestor:
+                if props.tag in {w("pPr"), w("trPr"), w("tcPr"), w("tblPr")} and any(
+                    n.tag in {w("ins"), w("del"), w("cellIns"), w("cellDel"), w("cellMerge")}
+                    for n in props.iter()
+                ):
+                    _fail("revision_dependency_unsupported", "target belongs to a structural revision")
+
+    probe_root = copy.deepcopy(root)
+    probe = etree.Element(w("p"))
+    probe_root.find(w("body")).insert(0, probe)
+    decisions._main_context(probe_root, probe)
+    canonical = {n for p in flow.paragraphs for n in iter_canonical_paragraph_nodes(p.element)}
+    for paragraph in flow.paragraphs:
+        for ancestor in paragraph.element.iterancestors():
+            canonical.add(ancestor)
+            if ancestor is body:
+                break
+    fields = 0
+    active = set()
+    protected = set()
+    ranges = set()
+    for event, item in etree.iterwalk(body, events=("start", "end")):
+        if event != "start":
+            continue
+        if item in owners and (fields or active):
+            _fail("revision_dependency_unsupported", "a field, permission or revision range encloses the target")
+        # Bookmark/comment protection has the same exclusion and document-order
+        # semantics as _range_guard, including endpoints outside paragraphs.
+        if flow.exclusion_kind_for(item) is None:
+            if ranges or item.tag in _RANGES:
+                protected.add(item)
+            if item.tag in {w("bookmarkStart"), w("commentRangeStart")}:
+                ranges.add((item.tag, item.get(w("id"))))
+            elif item.tag in {w("bookmarkEnd"), w("commentRangeEnd")}:
+                start = w("bookmarkStart") if item.tag == w("bookmarkEnd") else w("commentRangeStart")
+                ranges.discard((start, item.get(w("id"))))
+        if item.getparent() not in canonical:
+            continue
+        name = etree.QName(item).localname if isinstance(item.tag, str) else ""
+        field = item.tag in {w("fldChar"), w("instrText"), w("fldSimple")}
+        boundary = name in {"permStart", "permEnd"} or item.tag in _REVISION_TAGS and "Range" in name
+        if (field or boundary) and any(ancestor in owners for ancestor in (item, *item.iterancestors())):
+            _fail("revision_dependency_unsupported", "a field, permission or revision range touches the target")
+        if item.tag == w("fldChar"):
+            kind = item.get(w("fldCharType"))
+            fields += 1 if kind == "begin" else -1 if kind == "end" else 0
+        elif boundary:
+            base = name.removesuffix("Start").removesuffix("End")
+            key = (base, str(int(item.get(w("id")))))
+            if name.endswith("Start"):
+                active.add(key)
+            else:
+                active.remove(key)  # The unmodified helper proved this grammar.
+    for node in nodes:
+        domain = node.getparent() if etree.QName(node).localname in decisions.PROPERTY_KINDS else node
+        if any(item in protected for item in domain.iter()):
+            _fail("clean_copy_range_dependency", "a selected decision touches a bookmark or comment range")
+
+
+_CONTEXT_PROPS = frozenset(w(name) for name in ("pPr", "rPr", "tcPr", "trPr", "tblPr", "tblPrEx", "tblGrid"))
+_STYLE_REFS = frozenset(w(name) for name in ("pStyle", "rStyle", "tblStyle", "basedOn", "link", "styleLink", "numStyleLink", "numId"))
+_DEPENDENCIES = frozenset(("word/styles.xml", "word/numbering.xml", "word/stylesWithEffects.xml", "word/_rels/document.xml.rels"))
+
+
+def _needs_full_context(root):
+    """Retain selective proofs for contexts the local batch cannot isolate.
+
+    Run formatting can survive beside a field spanning other paragraphs; a
+    complete paragraph cannot prove that field's grammar in isolation. Nested
+    table histories may also affect an outer table's style dependency outcome.
+    Keep the existing bounded whole-context path for these selections.
+    Text and paragraph-property owners touching a field already refuse under
+    the source-global guard; no fallback grants a previously unsafe operation.
+    """
+    nodes = _nodes(root)
+    tables = {table for node in nodes if (table := decisions.decision_table([node])) is not None}
+    if any(next(table.iterancestors(w("tbl")), None) is not None
+           or any(item is not table for item in table.iter(w("tbl"))) for table in tables):
+        return True
+    paragraphs = {next(node.iterancestors(w("p")), None) for node in nodes
+                  if node.tag == w("rPrChange")}
+    return any(node.tag in {w("fldChar"), w("instrText"), w("fldSimple"), w("permStart"), w("permEnd")}
+               or node.tag in _REVISION_TAGS and "Range" in etree.QName(node).localname
+               for paragraph in paragraphs if paragraph is not None for node in paragraph.iter())
+
+
+def _local_context(root, node, budget):
+    """Keep a complete paragraph or property set and every ancestor property.
+
+    This is only a local grammar input. Source-global fields/ranges, excluded
+    owners and structural ancestry have already been proved on the immutable
+    full source. Table geometry and formatting dependencies use the full tree,
+    never this reduced context; no numbering sequence is inferred from it.
+    """
+    paragraph = next(node.iterancestors(w("p")), None)
+    domain = paragraph if paragraph is not None else node.getparent()
+    chain = list(reversed(list(domain.iterancestors())))
+    local_root = None
+    parent = None
+    for position, source in enumerate(chain):
+        shell = etree.Element(source.tag, dict(source.attrib), nsmap=source.nsmap)
+        shell.text, shell.tail = source.text, source.tail
+        if parent is not None:
+            parent.append(shell)
+        else:
+            local_root = shell
+        branch = chain[position + 1] if position + 1 < len(chain) else domain
+        for child in source:
+            if child is not branch and child.tag in _CONTEXT_PROPS:
+                shell.append(copy.deepcopy(child))
+        parent = shell
+    copied = copy.deepcopy(domain)
+    parent.append(copied)
+    mapped = dict(zip(domain.iter(), copied.iter(), strict=True))
+    # A block-property owner needs a canonical descendant for the local helper's
+    # story index; its real descendants are checked in the full source/outcome.
+    if paragraph is None:
+        owner = copied.getparent()
+        if owner.tag == w("tbl"):
+            owner = etree.SubElement(owner, w("tr"))
+        if owner.tag == w("tr"):
+            owner = etree.SubElement(owner, w("tc"))
+        if owner.tag == w("tc"):
+            etree.SubElement(owner, w("p"))
+    budget.consume(4 * len(etree.tostring(local_root)))
+    return local_root, mapped[node]
+
+
+class _StyleProofs:
+    """Cache only successful existing dependency proofs for exact semantics.
+
+    The existing dependency walker reads these reference tags/val attributes,
+    table-property ancestry, and immutable dependency bytes. Text/direct format
+    values cannot affect that walk. Distinct/missing references get a fresh
+    proof; errors never enter the cache. Byte hashing and every cache-miss read
+    share the same deterministic work budget as local and whole-tree proofs.
+    """
+    def __init__(self, parts):
+        self.parts = parts
+        self.dependencies = {name: data for name, data in parts.parts.items() if name in _DEPENDENCIES}
+        parts.consume(sum(map(len, self.dependencies.values())))
+        self.identity = tuple(sorted((name, _sha(data)) for name, data in self.dependencies.items()))
+        self.checked = set()
+
+    def require(self, paragraph):
+        inputs = [paragraph]
+        for table in paragraph.iterancestors(w("tbl")):
+            props = table.find(w("tblPr"))
+            if props is not None:
+                inputs.append(props)
+        self.parts.consume(sum(len(etree.tostring(item)) for item in inputs))
+        refs = frozenset((node.tag, node.get(w("val"))) for item in inputs for node in item.iter() if node.tag in _STYLE_REFS)
+        key = self.identity, refs
+        if key not in self.checked:
+            try:
+                decisions._require_style_dependencies(self.parts, paragraph)
+            except decisions.DocxError as exc:
+                _fail(getattr(exc, "code", "revision_dependency_unsupported"), "the selected outcome has an unsupported dependency")
+            self.checked.add(key)
+
+    def verify_immutable(self):
+        current = {name: data for name, data in self.parts.parts.items() if name in _DEPENDENCIES}
+        if current != self.dependencies:
+            _fail("round_trip_failed", "formatting dependencies changed during clean-copy proof")
+
+
+def _path_node(root, path):
+    current = root
+    for index in path:
+        current = current[index]
+    return current
+
+
+def _remember_parent_paths(domain, base, revisions, paths, budget):
+    """Index only needed parents in one traversal, avoiding sibling rescans.
+
+    Ordinary property outcomes replace one property set with one property set.
+    Text outcomes run last and change only children of their stable paragraph.
+    Thus stored parent paths remain valid; newly copied nested property parents
+    are indexed again from their actual insertion position.
+    """
+    wanted = {node.getparent().getparent() if etree.QName(node).localname in decisions.PROPERTY_KINDS
+              else node.getparent() for node in revisions}
+    pending = [(domain, base)]
+    while pending:
+        node, path = pending.pop()
+        if node in wanted:
+            paths[node] = path
+            budget.consume(8 * len(path))
+        pending.extend((child, (*path, index)) for index, child in reversed(list(enumerate(node))))
+
+
+def _apply_batch_patch(root, path, patch):
+    """Replay only the proved local preimage; kept separate for fault tests."""
+    parent = _path_node(root, path)
+    present = list(parent)[patch.index:patch.index + len(patch.before)]
+    context = etree.Element("comparison", nsmap=parent.nsmap)
+    context.extend(copy.deepcopy(patch.before))
+    if [etree.tostring(n) for n in present] != [etree.tostring(n) for n in context]:
+        _fail("round_trip_failed", "a clean batch patch no longer matches its exact preimage")
+    decisions._replace_span(parent, patch.index, present, copy.deepcopy(patch.after))
+
+
+def _ordinary_batch(root, parts):
+    """Compose accept-only ordinary patches with one independent global proof."""
+    original = etree.tostring(root)
+    parts.consume(8 * len(original))
+    original_nodes = _nodes(root)
+    if any(decisions.is_row_unit([n]) or decisions.is_paragraph_unit([n]) for n in original_nodes):
+        _fail("round_trip_failed", "a structural unit cannot enter ordinary batch validation")
+    _ordinary_source_guard(root, original_nodes)
+    planned = copy.deepcopy(root)
+    nodes = _nodes(planned)
+    by_table = {}
+    for node in nodes:
+        table = decisions.decision_table([node])
+        if table is not None:
+            by_table.setdefault(table, []).append(node)
+    table_nodes = [node for selection in by_table.values() for node in selection]
+    for table, selection in by_table.items():
+        if len(selection) > 1 and (
+            next(table.iterancestors(w("tbl")), None) is not None
+            or any(n is not table for n in table.iter(w("tbl")))
+        ):
+            _fail("revision_dependency_unsupported", "nested table groups are unsupported")
+    table_properties = set(table_nodes)
+    property_order, scheduled_tables = [], set()
+    for node in nodes:
+        if etree.QName(node).localname not in decisions.PROPERTY_KINDS:
+            continue
+        table = decisions.decision_table([node])
+        if table is None:
+            property_order.append(node)
+        elif table not in scheduled_tables:
+            scheduled_tables.add(table)
+            property_order.extend(by_table[table])
+    queue = deque(property_order + [n for n in nodes if etree.QName(n).localname not in decisions.PROPERTY_KINDS])
+    style_proofs = _StyleProofs(parts)
+    parent_paths = {}
+    _remember_parent_paths(planned, (), nodes, parent_paths, parts)
+    ledger, facts = [], []
+    geometric_tables = {decisions.decision_table([n]) for n in table_nodes if n.tag in {w("tcPrChange"), w("trPrChange"), w("tblGridChange")}}
+    group_ends = {selection[-1]: table for table, selection in by_table.items()}
+    while queue:
+        node = queue.popleft()
+        if not any(ancestor is planned for ancestor in node.iterancestors()):
+            continue  # A preceding property replacement copied a nested history.
+        local_root, local_node = _local_context(planned, node, parts)
+        kind = etree.QName(node).localname
+        if kind in {"ins", "del"}:
+            decisions._validate_text(local_root, [local_node])
+            old = [node]
+        else:
+            decisions._validate_property(local_root, local_node)
+            region = decisions.decision_region([node])
+            parts.consume(len(etree.tostring(region)))
+            decisions._context_text(region)
+            decisions._property_view(node.getparent(), kind)
+            decisions._property_view(decisions._outcome([node], "reject", kind)[0], kind)
+            old = [node.getparent()]
+        decisions._alignment_dependency(node, "accept", kind)
+        decisions._row_property_dependency(node, "accept", kind)
+        parent, index = old[0].getparent(), old[0].getparent().index(old[0])
+        chosen = decisions._outcome([node], "accept", kind)
+        patch = decisions.DecisionPatch(parent, index, copy.deepcopy(old), copy.deepcopy(chosen))
+        if parent not in parent_paths:
+            _fail("round_trip_failed", "a clean batch parent has no source-bound path")
+        path = parent_paths[parent]
+        detail = {"revision_kind": kind, "members": [{"kind": kind, "id": node.get(w("id")), "author": node.get(w("author")), "date": node.get(w("date"))}]}
+        decisions._replace_span(parent, index, old, chosen)
+        ledger.append((path, patch))
+        facts.append(detail)
+        copied_revisions = []
+        for offset, output in enumerate(chosen):
+            nested = _nodes(output)
+            if nested:
+                _remember_parent_paths(output, (*path, index + offset), nested, parent_paths, parts)
+                copied_revisions.extend(nested)
+        for item in reversed(copied_revisions):
+            queue.appendleft(item)
+        if node in group_ends:
+            # Preserve the selective stage order: a preceding paragraph/run
+            # history may resolve its own style before this table group, but a
+            # later text decision cannot erase an unproved group dependency.
+            table = group_ends[node]
+            if table in geometric_tables:
+                decisions._grid(table)
+            decisions.validate_fixed_table_widths(table)
+            for paragraph in table.iter(w("p")):
+                style_proofs.require(paragraph)
+        elif node not in table_properties:
+            paragraphs = [parent] if parent.tag == w("p") else list(parent.iter(w("p")))
+            if parent.tag in {w("r"), w("pPr")}:
+                paragraphs = [next(parent.iterancestors(w("p")))]
+            for paragraph in paragraphs:
+                style_proofs.require(paragraph)
+    if _nodes(planned):
+        _fail("round_trip_failed", "ordinary batch did not decide every selected revision")
+    style_proofs.verify_immutable()
+    reverse = copy.deepcopy(planned)
+    for path, patch in reversed(ledger):
+        patch.reverse(_path_node(reverse, path))
+    if etree.tostring(reverse) != original:
+        _fail("round_trip_failed", "clean batch changed content outside its exact composed patches")
+    expected = etree.tostring(planned)
+    for path, patch in ledger:
+        _apply_batch_patch(root, path, patch)
+    if etree.tostring(root) != expected:
+        _fail("round_trip_failed", "clean batch replay differs from its independently reversed plan")
+    return facts
+
+
 def prepare_clean_copy(payload: bytes, *, expected_source_sha256: str) -> CleanCopyCandidate:
     """Accept every supported revision in a detached package or refuse all.
 
@@ -243,14 +591,20 @@ def prepare_clean_copy(payload: bytes, *, expected_source_sha256: str) -> CleanC
     if count > MAX_CLEAN_DECISIONS:
         _fail("resource_limit_exceeded", "the clean-copy revision limit was exceeded")
     source_size = len(etree.tostring(root))
-    # Reject before quadratic validation, not after constructing a partial file.
-    if source_size * count * 8 > MAX_CLEAN_VALIDATION_BYTES:
-        _fail("resource_limit_exceeded", "the clean-copy outcome validation budget was exceeded")
-    validation_parts = _ValidationParts(parts, source_size * count * 8)
+    batch = count >= _BATCH_MIN_REVISIONS and not _needs_full_context(root)
+    initial = 0 if batch else source_size * count * 8
+    # Ordinary batches pay for bounded local proofs and one whole-tree proof;
+    # small/structural decisions still pay for their original whole-root work.
+    validation_parts = _ValidationParts(parts, 0)
+    validation_parts.consume(initial)
     _structural_units(root)  # Validate the complete original structural selection.
     facts = []
     remaining = count
     while remaining:
+        if batch and not _structural_units(root):
+            facts.extend(_ordinary_batch(root, validation_parts))
+            remaining = 0
+            break
         chosen = _stage(root)
         selections = {}
         operations = []
@@ -262,6 +616,8 @@ def prepare_clean_copy(payload: bytes, *, expected_source_sha256: str) -> CleanC
         touched_tables = {table for nodes in selections.values()
                           if (table := decisions.decision_table(nodes)) is not None}
         for index, nodes in selections.items():
+            if batch:
+                validation_parts.consume(8 * len(etree.tostring(root)))
             original = etree.tostring(root)
             if decisions.is_row_unit(nodes) or decisions.is_paragraph_unit(nodes):
                 expected, detail = _structural_plan(root, nodes, validation_parts)
