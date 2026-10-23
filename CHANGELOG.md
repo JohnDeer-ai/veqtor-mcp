@@ -8,6 +8,12 @@ through its `published_at` timestamp.
 
 ## 0.6.0.dev1
 
+- Add an internal clean-copy candidate engine with a revision inventory across
+  every package part. Accept supported main-body text, property and complete
+  paragraph/row revisions in detached bytes, preserve other parts exactly, and
+  refuse unsupported or uninspectable markup before producing a candidate.
+  Outgoing publication, comment/property policies and MCP delivery remain separate.
+
 Unreleased paragraph and comment-thread drafting candidate. This entry describes
 source behavior; it does not establish installation, native Word acceptance or
 public distribution.
