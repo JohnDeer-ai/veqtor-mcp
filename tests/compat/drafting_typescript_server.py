@@ -10,6 +10,7 @@ fixture directory or a fault mode, never an existing document.
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 from pathlib import Path
 import sys
@@ -23,7 +24,7 @@ def generate(directory: Path) -> None:
     generate_demo_rounds(directory / "generated")
     payload = (directory / "generated" / "round-1-outgoing-draft.docx").read_bytes()
     paths = {}
-    for name in ("success", "word_lock", "before_publish", "after_publish", "invalid"):
+    for name in ("success", "word_lock", "before_publish", "after_publish", "invalid", "journal_finalize", "eio_after_publish"):
         path = directory / f"{name}.docx"
         with path.open("xb") as target:
             target.write(payload)
@@ -34,9 +35,11 @@ def generate(directory: Path) -> None:
 def serve(fault: str) -> None:
     from veqtor_docx import _drafting_io as io
     from veqtor_mcp import server
+    from veqtor_docx import operation_journal
 
     real_replace = io.os.replace
     real_fsync = io.os.fsync
+    real_journal_write = operation_journal._write
     published = False
     failed = False
 
@@ -50,6 +53,8 @@ def serve(fault: str) -> None:
             raise OSError("PRIVATE_TYPESCRIPT_PUBLICATION_FAILURE")
         result = real_replace(*args, **kwargs)
         published = True
+        if fault == "eio_after_publish":
+            raise OSError(errno.EIO, "PRIVATE_TYPESCRIPT_AMBIGUOUS_PUBLICATION")
         return result
 
     def injected_fsync(*args, **kwargs):
@@ -59,6 +64,14 @@ def serve(fault: str) -> None:
             raise OSError("PRIVATE_TYPESCRIPT_DURABILITY_FAILURE")
         return real_fsync(*args, **kwargs)
 
+    def injected_journal_write(fd, name, payload):
+        nonlocal failed
+        if fault == "journal_finalize" and name == "result.json" and not failed:
+            failed = True
+            raise OSError("PRIVATE_TYPESCRIPT_JOURNAL_FAILURE")
+        return real_journal_write(fd, name, payload)
+
+    operation_journal._write = injected_journal_write
     io.os.replace = injected_replace
     io.os.fsync = injected_fsync
     sys.argv = [sys.argv[0]]
@@ -71,7 +84,7 @@ def main() -> None:
     fixtures = commands.add_parser("generate")
     fixtures.add_argument("directory", type=Path)
     faults = commands.add_parser("serve")
-    faults.add_argument("fault", choices=("before_publish", "after_publish"))
+    faults.add_argument("fault", choices=("before_publish", "after_publish", "journal_finalize", "eio_after_publish"))
     args = parser.parse_args()
     if args.command == "generate":
         generate(args.directory)

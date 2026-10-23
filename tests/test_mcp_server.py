@@ -66,6 +66,7 @@ EXPECTED_TOOL_NAMES = (
     "read_document_revisions",
     "preflight_document_edits",
     "apply_document_edits",
+    "recover_document_operation",
 )
 
 
@@ -1261,7 +1262,7 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
     async with Client(mcp) as session:
         tools = {tool.name: tool for tool in (await session.list_tools()).tools}
 
-    drafting_names = {"read_document_revisions", "read_document_comments", "preflight_document_edits", "apply_document_edits", "compare_incoming_version", "read_document_tables", "check_bilingual_conditions"}
+    drafting_names = {"read_document_revisions", "read_document_comments", "preflight_document_edits", "apply_document_edits", "compare_incoming_version", "read_document_tables", "check_bilingual_conditions", "recover_document_operation"}
     assert set(tools) == records.WRITABLE_TOOL_NAMES | {"read_deal_positions", "mutate_deal_positions"} | drafting_names
     expected_output_core.update({
         "read_document_tables": {"file_sha256", "items", "coverage", "reference_report", "counts"},
@@ -1271,6 +1272,7 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
         "read_document_comments": {"file_sha256", "comments", "total_count", "next_offset"},
         "preflight_document_edits": {"batch_applicable", "operations", "preflight_proof"},
         "apply_document_edits": {"output_path", "backup_path", "backup_sha256", "save_mode"},
+        "recover_document_operation": {"source_path", "operation_journal", "recovered", "current_output_sha256", "recovery_status"},
     })
     for name in ("read_deal_positions", "mutate_deal_positions"):
         expected_output_core[name] = {"state", "revision", "positions", "history", "source_observations", "server_session_id"}
@@ -1303,10 +1305,11 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
             }
             recovery_schema = error_schema["properties"]["recovery"]
             assert recovery_schema["additionalProperties"] is False
-            assert set(recovery_schema["required"]) == set(recovery_schema["properties"]) == {
+            assert set(recovery_schema["required"]) == {
                 "output_path", "backup_path", "backup_sha256", "backup_path_verified",
                 "publication_completed", "lock_path", "lock_reason",
             }
+            assert set(recovery_schema["properties"]) == set(recovery_schema["required"]) | {"operation_journal", "publication_status"}
             failure = {
                 "schema_version": "drafting_error.v1", "status": "error",
                 "error_code": "file_locked", "message": "Close the synthetic document.",
@@ -1325,9 +1328,13 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
         assert expected_output_core[name] <= set(success_schema["properties"])
         if name in drafting_names:
             assert success_schema["additionalProperties"] is False
-            assert success_schema["properties"]["record_id"] == {"type": "null"}
-            assert success_schema["properties"]["record_status"] == {"const": "disabled"}
-            assert tool.annotations.read_only_hint is (name != "apply_document_edits")
+            if name in {"apply_document_edits", "recover_document_operation"}:
+                assert success_schema["properties"]["record_id"]["anyOf"][0]["pattern"] == r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![\s\S])"
+                assert success_schema["properties"]["record_status"] == {"enum": ["written", "disabled", "write_failed"]}
+            else:
+                assert success_schema["properties"]["record_id"] == {"type": "null"}
+                assert success_schema["properties"]["record_status"] == {"const": "disabled"}
+            assert tool.annotations.read_only_hint is (name not in {"apply_document_edits", "recover_document_operation"})
             assert tool.annotations.idempotent_hint is (name != "apply_document_edits")
             assert tool.annotations.destructive_hint is (name == "apply_document_edits")
             assert tool.annotations.open_world_hint is False
@@ -2468,7 +2475,7 @@ async def test_tools_are_exposed_and_callable(demo_dir: Path) -> None:
         )
         assert runtime_tools == records.WRITABLE_TOOL_NAMES | {
             "read_deal_positions", "mutate_deal_positions", "read_document_comments",
-            "preflight_document_edits", "apply_document_edits", "compare_incoming_version", "read_document_revisions", "read_document_tables", "check_bilingual_conditions",
+            "preflight_document_edits", "apply_document_edits", "compare_incoming_version", "read_document_revisions", "read_document_tables", "check_bilingual_conditions", "recover_document_operation",
         }
         assert documented_tools == runtime_tools
         export_tool = next(

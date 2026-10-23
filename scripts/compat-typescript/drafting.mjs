@@ -39,6 +39,7 @@ const environment = {
   VEQTOR_TRACKED_CHANGE_AUTHOR: "Shilov, Ilya",
   VEQTOR_COMMENT_INITIALS: "IS",
   VEQTOR_DISABLE_DECISION_RECORD: "1",
+  VEQTOR_OPERATION_JOURNAL: "required",
 };
 delete environment.PYTHONPATH;
 const fixtures = JSON.parse(execFileSync(python, ["-I", helper, "generate", outputDirectory], {
@@ -72,7 +73,7 @@ async function scenario(name, fault, action) {
     const inventory = await client.listTools();
     const schemas = new Map(inventory.tools.map((tool) => [tool.name, tool.outputSchema]));
     for (const tool of ["inspect_document", "read_document_comments",
-      "preflight_document_edits", "apply_document_edits"]) {
+      "preflight_document_edits", "apply_document_edits", "recover_document_operation"]) {
       assert(schemas.get(tool), `${tool} must advertise an output schema`);
     }
     const provider = new AjvJsonSchemaValidator();
@@ -145,6 +146,15 @@ await scenario("successful save and own insertion re-edit", null, async ({ call,
     const before = readFileSync(source);
     const args = await prepare(source, oldText, newText);
     const applied = payload(await call("apply_document_edits", args));
+    assert.equal(applied.record_status, "written");
+    assert.equal(applied.record_id, args.preflight_proof.operation_id);
+    assert.equal(applied.operation_journal.verification, "matched");
+    const savedBytes = readFileSync(source);
+    const recovered = payload(await call("recover_document_operation", {
+      source_path: source, operation_id: applied.record_id,
+    }));
+    assert.equal(recovered.recovery_status, "existing_result");
+    assert.deepEqual(readFileSync(source), savedBytes);
     assert.equal(applied.output_path, source);
     assert.equal(applied.save_mode, "in_place");
     assert.equal(applied.backup_sha256, sha(before));
@@ -199,6 +209,55 @@ for (const [fault, published, code] of [
     entry.recovery = error.recovery;
   });
 }
+
+await scenario("published save with lost journal result recovers without reapply", "journal_finalize", async ({ call, prepare }) => {
+  const source = fixtures.journal_finalize;
+  const args = await prepare(source);
+  assert.equal(args.preflight_proof.schema_version, "drafting_preflight.v2");
+  const applied = payload(await call("apply_document_edits", args));
+  assert.equal(applied.record_status, "write_failed");
+  assert.equal(applied.operation_journal.publication_status, "published");
+  assert.equal(applied.operation_journal.journal_status, "incomplete");
+  assert(!JSON.stringify(applied).includes("PRIVATE_TYPESCRIPT_JOURNAL"));
+  const saved = readFileSync(source);
+  assert.equal(sha(saved), args.preflight_proof.candidate_sha256);
+  const argsRecovery = { source_path: source, operation_id: args.preflight_proof.operation_id };
+  const recovered = payload(await call("recover_document_operation", argsRecovery));
+  assert.equal(recovered.record_status, "written");
+  assert.equal(recovered.recovered, true);
+  assert.equal(recovered.recovery_status, "recovered");
+  const repeated = payload(await call("recover_document_operation", argsRecovery));
+  assert.equal(repeated.recovery_status, "existing_result");
+  assert.deepEqual(readFileSync(source), saved);
+});
+
+await scenario("unsuccessful EIO return preserves unknown publication then recovers", "eio_after_publish", async ({ call, prepare }) => {
+  const source = fixtures.eio_after_publish;
+  const before = readFileSync(source);
+  const args = await prepare(source);
+  const result = await call("apply_document_edits", args, true);
+  const error = draftingError(result);
+  assert.equal(error.error_code, "publication_uncertain");
+  assert.equal(error.recovery.publication_completed, false);
+  assert.equal(error.recovery.publication_status, "uncertain");
+  assert.equal(error.recovery.operation_journal.publication_status, "uncertain");
+  assert.equal(error.recovery.operation_journal.journal_status, "incomplete");
+  assert.equal(sha(readFileSync(error.recovery.backup_path)), sha(before));
+  const saved = readFileSync(source);
+  assert.equal(sha(saved), args.preflight_proof.candidate_sha256);
+  assert.equal(error.recovery.operation_journal.observed_output_sha256, sha(saved));
+  const resultPath = path.join(path.dirname(source), ".veqtor", "operations", args.preflight_proof.operation_id, "result.json");
+  assert(!existsSync(resultPath));
+  const recoveryArgs = { source_path: source, operation_id: args.preflight_proof.operation_id };
+  const recovered = payload(await call("recover_document_operation", recoveryArgs));
+  assert.equal(recovered.recovered, true);
+  assert.equal(recovered.recovery_status, "recovered");
+  assert.equal(recovered.operation_journal.publication_status, "published");
+  assert(existsSync(resultPath));
+  const repeated = payload(await call("recover_document_operation", recoveryArgs));
+  assert.equal(repeated.recovery_status, "existing_result");
+  assert.deepEqual(readFileSync(source), saved);
+});
 
 await scenario("invalid arguments and proof binding", null, async ({ call, prepare }) => {
   const source = fixtures.invalid;

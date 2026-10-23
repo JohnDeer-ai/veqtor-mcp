@@ -107,7 +107,10 @@ async def test_mcp_select_foreign_property_with_own_actor_exact_backup(
                 )
             )
             assert reread["total_count"] == 0
-            assert result["record_status"] == "disabled"
+            assert result["record_status"] == "written"
+            assert result["record_id"] == preview["preflight_proof"]["operation_id"]
+            assert result["operation_journal"]["journal_status"] == "written"
+            assert result["operation_journal"]["publication_status"] == "published"
     finally:
         for fn in (
             server._tracked_change_author,

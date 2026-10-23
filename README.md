@@ -31,7 +31,7 @@ tamper-evident audit system. Review the
 before using it on a real matter.
 
 This source tree defines package version `0.6.0.dev1` and the
-eighteen-tool development MCP contract `veqtor.mcp.v0.6.0`. The drafting tools
+nineteen-tool development MCP contract `veqtor.mcp.v0.6.0`. The drafting tools
 support paragraph insertion and replacement, comment replies and thread status,
 a selected author for each batch, and backup-backed saves to the working file.
 This is a development version; the public release remains 0.5.0. See [author drafting](#author-drafting).
@@ -243,7 +243,7 @@ or environment.
 ## Tool surface
 
 The descriptions below follow development package `0.6.0.dev1` and its
-eighteen-tool development MCP contract `veqtor.mcp.v0.6.0`. Public `0.4.0` retains the frozen
+nineteen-tool development MCP contract `veqtor.mcp.v0.6.0`. Public `0.4.0` retains the frozen
 `veqtor.mcp.v0.4` contract. For an
 installed version, use the API file carried by that exact artifact or its
 matching immutable tag. Historical v0.3 artifacts retain their eight tools.
@@ -300,7 +300,11 @@ matching immutable tag. Historical v0.3 artifacts retain their eight tools.
 - `preflight_document_edits`: dry-run text and paragraph changes, comments, replies
   and thread status, bound to the selected author and the working document.
 - `apply_document_edits`: apply that unchanged proof and save in place with an
-  exact backup, or create a separate copy.
+  exact backup, or create a separate copy. A durable prepared operation precedes
+  publication; file verification and journal completion are separate outcomes.
+- `recover_document_operation`: observe an existing operation and complete a lost
+  journal result without applying edits again. See the
+  [operation journal](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/docs/OPERATION_JOURNAL.md).
 
 The complete request, response and error contract is in the versioned
 [MCP Tool API](https://github.com/JohnDeer-ai/veqtor-mcp/blob/main/API.md). The
