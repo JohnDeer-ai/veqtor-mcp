@@ -56,6 +56,9 @@ DECISION_PREVIEW = obj(
     current_properties=nullable(NEW_TEXT), previous_properties=nullable(NEW_TEXT),
     accept_refusal_code=nullable(NONEMPTY), reject_refusal_code=nullable(NONEMPTY),
     fixed_width_validation_scope={"enum": ["not_applicable", "single_outcome", "explicit_batch_final_state"]},
+    table_validation_scope={"enum": ["not_applicable", "single_outcome", "explicit_batch_final_state"]},
+    table_group_members={"type": "array", "maxItems": 100,
+                         "items": obj(revision_ref=REVISION_REF, decision={"enum": ["accept", "reject"]})},
 )
 _REPLACE_PARAGRAPH_INPUT = obj(
     kind={"const": "replace_paragraph"}, paragraph_ref=PARAGRAPH_REF_SCHEMA,

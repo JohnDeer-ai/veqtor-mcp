@@ -41,6 +41,13 @@ table domains, `explicit_batch_final_state` in successful batch previews, and
 exclude width checks deferred to the final selected state; they do not promise
 that each alternate member outcome would work alone.
 
+`table_validation_scope` distinguishes `single_outcome` inventory previews,
+`explicit_batch_final_state` for a selected table-property group, and
+`not_applicable` for other domains. `table_group_members` lists the original
+snapshot references and decisions of that explicit group, or is empty for a
+single outcome. Group counterfactual refusal codes hold the other selected
+member decisions fixed; they are not promises about isolated operations.
+
 Apply uses the exact successful proof, author profile, source and destination.
 Omit `output_path` to replace the same working file with a mandatory exact-byte
 backup. Copy mode remains create-only. Hash drift, protection, signatures,
@@ -89,6 +96,37 @@ missing or ambiguous widths refuse with
 `fixed_table_width_dependency_unsupported`. Inventory checks each outcome alone,
 so a standalone width refusal may become applicable with the matching explicit
 companions. This equality check is not applied to autofit tables.
+
+### Explicit geometry groups
+
+Several selected table-property histories in the same nearest table are
+validated together on a detached document copy before publication. A grid
+change and its selected cell-span or omitted-column history can therefore
+have a valid combined outcome even if the standalone inventory reports a
+dependency refusal. The user must select each member and decision explicitly;
+an agent may preflight that exact group but must not infer or add companions.
+Veqtor checks the final grid, merge topology, fixed widths and style
+dependencies, while retaining the exact local patch and inverse proof for
+each selected domain. An incompatible partial or mixed selection refuses.
+The final state is independent of the order of nonoverlapping members.
+Alignment dependencies compare the original selected table or row-exception
+history with the final row properties after all explicit choices, including
+earlier members when describing alternative outcomes. Removing a conflicting
+row alignment explicitly can permit a table-alignment rejection; retaining or
+restoring it still refuses.
+Nested tables and row/cell existence histories remain outside this support.
+
+Rejecting a changed cell span while its row has independent row properties or
+history refuses with `table_height_dependency_unsupported` when height is
+present, or `table_row_property_dependency_unsupported` otherwise. Word has
+been observed to remove the entire unselected row-property set, including
+height and the keep-row-together setting, during rejection. Veqtor does not delete it to
+imitate the collateral change; this conservative boundary does not claim
+that every such topology has identical native behavior. A genuinely selected
+row-property history owns its complete current/previous height properties.
+Omitted-column row histories with height are not prohibited merely because
+height is present. Each newly supported positive form still needs the native
+Word checks described below.
 
 Both property outcomes remove only the selected history. Paragraph-mark `rPr`
 and `sectPr` are independent of `pPrChange` and survive exactly. An empty
