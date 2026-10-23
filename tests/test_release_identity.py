@@ -202,6 +202,7 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
         "/src/veqtor_docx/table_row_numbering.py",
         "/src/veqtor_docx/table_rows.py",
         "/src/veqtor_docx/round_operations.py",
+        "/src/veqtor_docx/operation_journal.py",
         "/src/veqtor_docx/revision_decisions.py",
         "/src/veqtor_docx/round_snapshots.py",
         "/src/veqtor_docx/table_map.py",

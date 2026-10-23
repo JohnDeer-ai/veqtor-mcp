@@ -359,7 +359,13 @@ not a claim of successful SMB/NFS or removable-drive acceptance. Cloud-sync
 folders on a supported local filesystem remain subject to the external-writer
 limitation above.
 
-The three drafting tools return `record_status=disabled`: immutable legacy
-counterproposal records do not describe mutation of an earlier revision.
-Backups and per-call results support recovery, not a complete negotiation
-history. No existing author names are bulk-renamed by this workflow.
+Drafting saves now use the separate [operation journal](OPERATION_JOURNAL.md).
+A required-mode preflight returns `drafting_preflight.v2` with an operation ID;
+apply reports the UUID in `record_id` when its result is durably recorded.
+A published document with incomplete journaling reports `record_status=write_failed`
+and separate `operation_journal` publication/verification facts. Recover by the
+original operation ID; never repeat the edit to repair its journal. Read tools
+and dry runs still report `record_status=disabled` because they write no operation
+record. Explicit transitional `VEQTOR_OPERATION_JOURNAL=disabled` retains v1
+proofs and disabled save records; it does not establish final journal acceptance.
+Legacy provenance and its setting remain separate. No existing authors are renamed.

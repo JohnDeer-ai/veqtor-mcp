@@ -262,7 +262,9 @@ async def test_mcp_drafting_round_trip(tmp_path, demo_dir, monkeypatch):
                     {**args, "preflight_proof": dry["preflight_proof"]},
                 )
             )
-            assert saved["record_status"] == "disabled"
+            assert saved["record_status"] == "written"
+            assert saved["record_id"] == dry["preflight_proof"]["operation_id"]
+            assert saved["operation_journal"]["verification"] == "matched"
     finally:
         server._tracked_change_author.cache_clear()
         server._comment_initials.cache_clear()

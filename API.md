@@ -6,14 +6,18 @@ This file defines the public tool surface. Output examples are part of the API
 because models use them to decide how to call tools and how to cite results.
 
 The current source defines the unreleased package candidate `0.6.0.dev1` and advertises the
-eighteen-tool development MCP contract `veqtor.mcp.v0.6.0`. The drafting tools
+nineteen-tool development MCP contract `veqtor.mcp.v0.6.0`. The drafting tools
 are documented in [AUTHOR_DRAFTING.md](docs/AUTHOR_DRAFTING.md):
-`read_document_comments`, `read_document_revisions`, `preflight_document_edits`, `apply_document_edits`.
-They use `document_drafting.v1` and `drafting_preflight.v1`, support paragraph
+`read_document_comments`, `read_document_revisions`, `preflight_document_edits`, `apply_document_edits`, `recover_document_operation`.
+Drafting uses `document_drafting.v1` and, by default, `drafting_preflight.v2`;
+recovery uses `document_operation_recovery.v1`. These tools support paragraph
 insertion/replacement and comment threads, permit intentional mutation of the
 selected author's pending insertions, and save back to the
-working path with a mandatory exact-byte backup. Their `record_status` is
-`disabled`; immutable legacy counterproposal journal records are unchanged.
+working path with a mandatory exact-byte backup. Saves prepare a durable local
+operation record before publication and separately report file verification and
+journal completion. Reads and dry runs retain disabled record metadata. See
+[operation journaling](docs/OPERATION_JOURNAL.md); the legacy counterproposal
+provenance log is unchanged.
 
 Package version, contract and
 publication status are separate identities: only matching entries on public
@@ -47,13 +51,13 @@ transport teardown separately reaps the stdio server process.
 
 Every successful live tool response includes the same bounded `producer`
 object with `name`, package `version`, and the process-start Python source
-snapshot `build`. This applies to all eighteen tools, including read-only results
+snapshot `build`. This applies to all nineteen tools, including read-only results
 and decision-record export. Error envelopes are not successful tool results.
 `producer`, `record_id`, `record_status`, and `record_error` are server-owned;
 core tool results cannot supply them. `record_error` is present only with
 `record_status: "write_failed"`; written responses have an id and no error,
-while disabled responses have neither an id nor an error. Record ids use ASCII
-decimal digits in `dr_[0-9]+`. A `record_error` is a path-free stable ASCII
+while disabled responses have neither an id nor an error. Legacy provenance record ids use ASCII decimal digits in `dr_[0-9]+`;
+drafting operation record ids are canonical UUIDs. A `record_error` is a path-free stable ASCII
 code matching `[a-z][a-z0-9_]{0,63}`; raw diagnostics, document text and local
 paths are never valid record metadata.
 For `inspect_document`, successful producer output also cannot supply
@@ -393,6 +397,25 @@ at preflight. Changing the resolved author or initials invalidates the proof.
 Reread paragraph references and comments after every save, including to target
 newly inserted paragraphs. See
 [saving and recovery](docs/AUTHOR_DRAFTING.md#saving-and-recovery).
+
+## `recover_document_operation`
+
+Input: `source_path` and the `operation_id` from the original successful v2
+preflight. This tool writes only a missing journal result; it never modifies
+DOCX or reapplies edits. A completed result is returned idempotently with a
+separate `current_output_sha256`; a later changed file does not rewrite history.
+Missing or mismatching evidence returns `recovery_status="unresolved"` and
+`journal_status="incomplete"`, without inventing a successful result.
+
+Required journaling is the default for drafting saves. Preflight remains a pure
+dry run and returns a v2 proof binding its UUID. Apply returns separate
+`operation_journal.publication_status`, output/backup verification and journal
+status. A result-record failure after publication is a successful document save
+with `record_status="write_failed"`; do not apply again. Explicit transitional
+`VEQTOR_OPERATION_JOURNAL=disabled` retains legacy v1 proofs and disabled save
+records. Changing mode requires a fresh preflight; a v2 proof cannot be downgraded.
+This setting is independent of legacy `VEQTOR_DISABLE_DECISION_RECORD`.
+See [operation journal](docs/OPERATION_JOURNAL.md) for limits and recovery.
 
 ## `list_rounds`
 

@@ -12,6 +12,11 @@ Unreleased paragraph and comment-thread drafting candidate. This entry describes
 source behavior; it does not establish installation, native Word acceptance or
 public distribution.
 
+- Add a durable two-record drafting operation journal, stable operation IDs in
+  v2 preflight proofs, and recovery without repeating edits. Prepared-record
+  failure blocks publication; result-record failure reports publication and
+  incomplete journaling separately. Preserve legacy provenance unchanged and
+  retain v1 proofs only in explicitly disabled transitional journal mode.
 - Add tracked insertion/deletion of a simple bilingual table row using explicit
   source-bound row references, both complete cell texts and a selected formatting
   template. Support an explicitly selected empty unnumbered separator in the
@@ -47,7 +52,7 @@ public distribution.
   grids. Check fixed-layout grid/cell widths after the full explicit batch and
   reject ambiguous untracked row-alignment dependencies. Main-story field and
   permission/revision range guards cover block and cross-paragraph boundaries.
-  The action journal remains explicitly disabled in this private candidate.
+  The separate operation journal now records mutable drafting saves.
 - Insert tracked paragraphs before/after a source paragraph and replace a whole
   supported paragraph using its complete current text as an exact guard.
   Default to minimal word/token changes while retaining unchanged run formatting;
