@@ -199,6 +199,8 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
         "/src/veqtor_docx/bilingual.py",
         "/src/veqtor_docx/incoming_comparison.py",
         "/src/veqtor_docx/paragraph_numbering.py",
+        "/src/veqtor_docx/table_row_numbering.py",
+        "/src/veqtor_docx/table_rows.py",
         "/src/veqtor_docx/round_operations.py",
         "/src/veqtor_docx/revision_decisions.py",
         "/src/veqtor_docx/round_snapshots.py",

@@ -7,6 +7,7 @@ from pydantic import StringConstraints, WithJsonSchema
 from veqtor_docx._drafting_paragraphs import MAX_PARAGRAPH_EDIT_STEPS
 from veqtor_docx._drafting_text import DRAFTING_TIMESTAMP_PATTERN
 
+from ._incoming_contract import REFS as TABLE_REFS
 from .contracts import (
     MCP_CONTRACT_SCHEMA_EXTENSION,
     MCP_CONTRACT_SCHEMA_VERSION,
@@ -46,13 +47,15 @@ DECISION_TARGET = {"oneOf": [
     obj(kind={"const": "replacement"}, deletion_ref=REVISION_REF, insertion_ref=REVISION_REF),
     obj(kind={"const": "paragraph_structure"}, paragraph_mark_ref=REVISION_REF,
         text_revision_refs={"type": "array", "minItems": 1, "maxItems": 64, "items": REVISION_REF}),
+    obj(kind={"const": "row_structure"}, row_mark_ref=REVISION_REF,
+        content_revision_refs={"type": "array", "maxItems": 128, "items": REVISION_REF}),
 ]}
 DECISION_INPUT = obj(kind={"const": "decide_revision"},
                      decision={"enum": ["accept", "reject"]}, target=DECISION_TARGET)
 DECISION_PREVIEW = obj(
     operation={"const": "decide_revision"}, decision={"enum": ["accept", "reject"]},
-    revision_kind={"enum": ["ins", "del", "replacement", "rPrChange", "pPrChange", "tcPrChange", "trPrChange", "tblPrChange", "tblGridChange", "tblPrExChange", "paragraph_insertion", "paragraph_deletion"]},
-    members={"type": "array", "minItems": 1, "maxItems": 65,
+    revision_kind={"enum": ["ins", "del", "replacement", "rPrChange", "pPrChange", "tcPrChange", "trPrChange", "tblPrChange", "tblGridChange", "tblPrExChange", "paragraph_insertion", "paragraph_deletion", "row_insertion", "row_deletion"]},
+    members={"type": "array", "minItems": 1, "maxItems": 129,
              "items": obj(kind=TEXT, id=nullable(TEXT), author=nullable(TEXT), date=nullable(TEXT))},
     current_text=NEW_TEXT, accepted_text=nullable(NEW_TEXT), rejected_text=nullable(NEW_TEXT),
     current_properties=nullable(NEW_TEXT), previous_properties=nullable(NEW_TEXT),
@@ -62,6 +65,16 @@ DECISION_PREVIEW = obj(
     table_group_members={"type": "array", "maxItems": 100,
                          "items": obj(revision_ref=REVISION_REF, decision={"enum": ["accept", "reject"]})},
 )
+_ROW_TEXT = {"type": "string", "maxLength": 40_001}
+for field in ("current_text", "accepted_text", "rejected_text"):
+    DECISION_PREVIEW["properties"][field] = (
+        _ROW_TEXT if field == "current_text" else nullable(_ROW_TEXT)
+    )
+DECISION_PREVIEW["allOf"] = [{
+    "if": {"properties": {"revision_kind": {"enum": ["row_insertion", "row_deletion"]}}},
+    "else": {"properties": {"current_text": NEW_TEXT,
+                             "accepted_text": nullable(NEW_TEXT), "rejected_text": nullable(NEW_TEXT)}},
+}]
 NUMBERING_FACT = obj(
     paragraph_index={"type": "integer", "minimum": 0}, p_style=nullable(TEXT),
     style_chain={"type": "array", "maxItems": 64, "items": TEXT},
@@ -72,8 +85,9 @@ NUMBERING_FACT = obj(
 )
 PARAGRAPH_NUMBERING = obj(**{action: {"type": "array", "maxItems": 1000, "items": NUMBERING_FACT}
                             for action in ("accepted", "rejected")})
-# This is an optional additive field, present only for structural paragraph units.
+# Optional additive fields, present only for the respective structural units.
 DECISION_PREVIEW["properties"]["paragraph_numbering"] = PARAGRAPH_NUMBERING
+DECISION_PREVIEW["properties"]["row_numbering"] = PARAGRAPH_NUMBERING
 _REPLACE_PARAGRAPH_INPUT = obj(
     kind={"const": "replace_paragraph"}, paragraph_ref=PARAGRAPH_REF_SCHEMA,
     old_text=NEW_TEXT, new_text=NEW_TEXT,
@@ -81,6 +95,19 @@ _REPLACE_PARAGRAPH_INPUT = obj(
 _REPLACE_PARAGRAPH_INPUT["properties"]["mode"] = {
     "enum": ["minimal", "whole"], "default": "minimal",
 }
+CELL_TEXTS = {"type": "array", "minItems": 2, "maxItems": 2, "items": NEW_TEXT}
+_INSERT_TABLE_ROW_INPUT = obj(
+    kind={"const": "insert_table_row"}, row_ref=TABLE_REFS["row"],
+    position={"enum": ["before", "after"]}, template_row_ref=TABLE_REFS["row"],
+    cell_texts=CELL_TEXTS,
+)
+_INSERT_TABLE_ROW_INPUT["properties"]["separator"] = obj(
+    template_row_ref=TABLE_REFS["row"], position={"enum": ["before", "after"]},
+)
+_DELETE_TABLE_ROW_INPUT = obj(
+    kind={"const": "delete_table_row"}, row_ref=TABLE_REFS["row"], cell_texts=CELL_TEXTS,
+)
+_DELETE_TABLE_ROW_INPUT["properties"]["separator_row_ref"] = TABLE_REFS["row"]
 OPERATIONS = {"type": "array", "minItems": 1, "maxItems": 100, "items": {"oneOf": [
     DECISION_INPUT,
     obj(kind={"const": "replace_text"}, paragraph_ref=PARAGRAPH_REF_SCHEMA,
@@ -89,6 +116,8 @@ OPERATIONS = {"type": "array", "minItems": 1, "maxItems": 100, "items": {"oneOf"
     obj(kind={"const": "insert_paragraph"}, paragraph_ref=PARAGRAPH_REF_SCHEMA,
         position={"enum": ["before", "after"]}, text=NONEMPTY),
     obj(kind={"const": "delete_paragraph"}, paragraph_ref=PARAGRAPH_REF_SCHEMA, old_text=NONEMPTY),
+    _INSERT_TABLE_ROW_INPUT,
+    _DELETE_TABLE_ROW_INPUT,
     obj(kind={"const": "add_comment"}, paragraph_ref=PARAGRAPH_REF_SCHEMA,
         quote=NONEMPTY, text=NONEMPTY),
     obj(kind={"const": "update_comment"}, comment_id=NONEMPTY, text=NONEMPTY),
@@ -190,6 +219,40 @@ _DELETE_PARAGRAPH = obj(
     text_revision_id=NONEMPTY, paragraph_index={"type": "integer", "minimum": 0},
     paragraph_numbering=PARAGRAPH_NUMBERING,
 )
+_TABLE_ROW_FIELDS = dict(
+    cell_texts=CELL_TEXTS,
+    row_count={"type": "integer", "minimum": 1, "maximum": 2},
+    revision_ids={"type": "array", "minItems": 1, "maxItems": 258,
+                  "uniqueItems": True, "items": NONEMPTY},
+    row_numbering=PARAGRAPH_NUMBERING,
+    separator_included={"type": "boolean"},
+    row_revision_groups={"type": "array", "minItems": 1, "maxItems": 2,
+                         "items": obj(
+                             row_mark_revision_id=NONEMPTY,
+                             content_revision_ids={"type": "array", "maxItems": 128,
+                                                   "uniqueItems": True, "items": NONEMPTY},
+                             cell_texts=CELL_TEXTS, role={"enum": ["clause", "separator"]},
+                         )},
+)
+_INSERT_TABLE_ROW = obj(index=_INDEX, operation={"const": "insert_table_row"},
+                        position={"enum": ["before", "after"]}, **_TABLE_ROW_FIELDS)
+_DELETE_TABLE_ROW = obj(index=_INDEX, operation={"const": "delete_table_row"}, **_TABLE_ROW_FIELDS)
+for schema in (_INSERT_TABLE_ROW, _DELETE_TABLE_ROW):
+    schema["allOf"] = [{
+        "if": {"properties": {"separator_included": {"const": True}}},
+        "then": {"properties": {
+            "row_count": {"const": 2},
+            "row_revision_groups": {"minItems": 2, "allOf": [
+                {"contains": {"properties": {"role": {"const": role}}},
+                 "minContains": 1, "maxContains": 1} for role in ("clause", "separator")
+            ]},
+        }},
+        "else": {"properties": {
+            "row_count": {"const": 1},
+            "row_revision_groups": {"maxItems": 1,
+                                    "items": {"properties": {"role": {"const": "clause"}}}},
+        }},
+    }]
 _PARAGRAPH_STEP = {
     "type": "object",
     "properties": {k: v for k, v in _TEXT_OPERATION["properties"].items()
@@ -238,12 +301,16 @@ _REPLACE_PARAGRAPH = obj(
     steps={"type": "array", "minItems": 1, "maxItems": MAX_PARAGRAPH_EDIT_STEPS,
            "items": _PARAGRAPH_STEP},
 )
-_DECISION_APPLIED = obj(**{k: v for k, v in DECISION_PREVIEW["properties"].items() if k != "paragraph_numbering"}, index=_INDEX,
+_DECISION_APPLIED = obj(**{k: v for k, v in DECISION_PREVIEW["properties"].items()
+                         if k not in {"paragraph_numbering", "row_numbering"}}, index=_INDEX,
                         target=DECISION_TARGET, actor_profile=AUTHOR_PROFILE)
 _DECISION_APPLIED["properties"]["paragraph_numbering"] = PARAGRAPH_NUMBERING
+_DECISION_APPLIED["properties"]["row_numbering"] = PARAGRAPH_NUMBERING
+_DECISION_APPLIED["allOf"] = DECISION_PREVIEW["allOf"]
 _APPLIED = {"type": "array", "maxItems": 100,
             "items": {"oneOf": [_TEXT_OPERATION, _COMMENT_OPERATION, _DELETE_REPLY_OPERATION, _DELETE_THREAD_OPERATION,
-                              _INSERT_PARAGRAPH, _DELETE_PARAGRAPH, _REPLACE_PARAGRAPH, _DECISION_APPLIED]}}
+                              _INSERT_PARAGRAPH, _DELETE_PARAGRAPH, _INSERT_TABLE_ROW,
+                              _DELETE_TABLE_ROW, _REPLACE_PARAGRAPH, _DECISION_APPLIED]}}
 COMMENTS_RESULT = obj(**_COMMON, source_path=TEXT, file_sha256=SHA,
                       comments={"type": "array", "maxItems": 100, "items": _COMMENT},
                       total_count={"type": "integer", "minimum": 0},
@@ -258,7 +325,9 @@ REVISIONS_RESULT = obj(
     next_offset=nullable({"type": "integer", "minimum": 0}),
     coverage={"const": "main_document_only"}, uninspected_parts={"type": "array", "items": TEXT},
 )
-REVISIONS_RESULT["properties"]["revisions"]["items"]["properties"]["structural_target"] = DECISION_TARGET["oneOf"][2]
+REVISIONS_RESULT["properties"]["revisions"]["items"]["properties"]["structural_target"] = {
+    "oneOf": DECISION_TARGET["oneOf"][2:],
+}
 PREFLIGHT_RESULT = obj(**_COMMON, batch_applicable={"type": "boolean"}, source_sha256=SHA,
                        tracked_change_author=TEXT, comment_initials=TEXT, operations=_APPLIED,
                        preflight_proof=nullable(PROOF), refusal_code=nullable(TEXT),

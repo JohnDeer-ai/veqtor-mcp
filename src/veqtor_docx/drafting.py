@@ -108,6 +108,8 @@ _OP_KEYS = {
     "replace_paragraph": {"kind", "paragraph_ref", "old_text", "new_text"},
     "insert_paragraph": {"kind", "paragraph_ref", "position", "text"},
     "delete_paragraph": {"kind", "paragraph_ref", "old_text"},
+    "insert_table_row": {"kind", "row_ref", "position", "template_row_ref", "cell_texts"},
+    "delete_table_row": {"kind", "row_ref", "cell_texts"},
     "add_comment": {"kind", "paragraph_ref", "quote", "text"},
     "update_comment": {"kind", "comment_id", "text"},
     "delete_comment": {"kind", "comment_id"},
@@ -169,11 +171,18 @@ def _validate_operations(operations: object) -> list[dict]:
         if not isinstance(op, dict) or not isinstance(op.get("kind"), str):
             raise ApplyError("invalid_edit", "operation must have a kind")
         keys = _OP_KEYS.get(op["kind"])
-        optional = {"mode"} if op["kind"] == "replace_paragraph" else set()
+        optional = ({"mode"} if op["kind"] == "replace_paragraph"
+                    else {"separator"} if op["kind"] == "insert_table_row"
+                    else {"separator_row_ref"} if op["kind"] == "delete_table_row" else set())
         if keys is None or not keys <= set(op) or set(op) - keys - optional:
             raise ApplyError(
                 "invalid_edit", "operation fields do not match the drafting contract"
             )
+        if op["kind"] in {"insert_table_row", "delete_table_row"}:
+            from .table_rows import validate_row_operation
+            validate_row_operation(op)
+            total += sum(map(len, op["cell_texts"]))
+            continue
         if op["kind"] == "decide_revision":
             decisions.validate_target(op["target"])
             if op["decision"] not in ("accept", "reject"):
@@ -587,6 +596,16 @@ def _check_revision_preservation(
                 }.items()))),
                 expected_text,
             ))
+    if operation in {"insert_table_row", "delete_table_row"}:
+        for group in applied["row_revision_groups"]:
+            tag = w("ins") if operation == "insert_table_row" else w("del")
+            content_texts = [text for text in group["cell_texts"] if text]
+            if len(content_texts) != len(group["content_revision_ids"]):
+                raise ApplyError("round_trip_failed", "row revisions do not match every nonempty cell")
+            for revision_id, text in [(group["row_mark_revision_id"], ""),
+                                      *zip(group["content_revision_ids"], content_texts, strict=True)]:
+                allowed.append(((tag, tuple(sorted({w("id"): revision_id, w("author"): author,
+                    **({w("date"): date} if date is not None else {})}.items()))), text))
     if mutable is not None:
         original_header = (mutable.tag, tuple(sorted(mutable.attrib.items())))
         original_text = "".join(
@@ -719,6 +738,10 @@ def _prepare(
             resolved[index] = _resolve_paragraph(
                 snapshot, op["paragraph_ref"]
             ).paragraph_index
+    from .table_rows import resolve_operation, draft_row_operation, verify_row_proposal
+    row_contexts = {i: resolve_operation(payload, document, op)
+                    for i, op in enumerate(operations)
+                    if op["kind"] in {"insert_table_row", "delete_table_row"}}
     decision_nodes = {
         index: decisions.resolve_target(document, file_sha256, op["target"])
         for index, op in enumerate(operations) if op["kind"] == "decide_revision"
@@ -773,8 +796,26 @@ def _prepare(
                    for a in region for b in others):
                 raise ApplyError("paragraph_operation_overlap", "structural deletion overlaps another operation",
                                  operation_index=max(i, j))
+    # Drafting a complete row owns its exact table postimage. Any other edit
+    # within that table requires a separate save and fresh snapshot references.
+    for i, context in row_contexts.items():
+        table = context["table"]
+        for j, other_op in enumerate(operations):
+            if i == j:
+                continue
+            regions = ([row_contexts[j]["table"]] if j in row_contexts else
+                       decisions.decision_domains(decision_nodes[j]) if j in decision_nodes else
+                       [paragraphs[resolved[j]].element] if j in resolved else [])
+            if "comment_id" in other_op:
+                selected_ids = {other_op["comment_id"], *other_op.get("member_comment_ids", [])}
+                regions += [paragraphs[k].element for c in read_comments(parts, document)
+                            if c["id"] in selected_ids for k in c["paragraph_indexes"]]
+            if any(decisions.overlaps(table, region) for region in regions):
+                raise ApplyError("table_row_operation_overlap", "row drafting and other edits in one table require separate saves",
+                                 operation_index=max(i, j))
     table_groups = decisions.table_decision_groups(document, decision_nodes, operations)
     decision_patches = []
+    row_drafting_patches = []
     source_elements = [p.element for p in paragraphs]
     source_all_elements = list(document.iter(w("p")))
     expected_elements = list(source_elements)
@@ -797,7 +838,24 @@ def _prepare(
             kind = op["kind"]
             revisions_before = _revision_state(document)
             mutable_revision = None
-            if kind == "decide_revision":
+            if kind in {"insert_table_row", "delete_table_row"}:
+                table = row_contexts[index]["table"]
+                before_table = copy.deepcopy(table)
+                parent, table_index = table.getparent(), table.getparent().index(table)
+                changed_table, applied = draft_row_operation(
+                    document, row_contexts[index], op, author, allocator, parts, timestamp=timestamp)
+                if changed_table.getparent() is not parent or parent.index(changed_table) != table_index:
+                    raise ApplyError("round_trip_failed", "row helper changed its containing table position")
+                verify_row_proposal(before_table, changed_table, op, applied, author, timestamp, parts)
+                row_drafting_patches.append((decisions.DecisionPatch(
+                    parent, table_index, [before_table], [copy.deepcopy(changed_table)]), changed_table))
+                expected_elements = [p.element for p in canonical_body_flow_v1(document.find(w("body"))).paragraphs]
+                for paragraph in changed_table.iter(w("p")):
+                    expected_text[paragraph] = _reading_text(_paragraph_segments(paragraph))
+                    expected_properties[paragraph] = tuple(etree.tostring(n, method="c14n", exclusive=True)
+                                                           for n in paragraph.findall(w("pPr")))
+                allowed_parts |= {_SETTINGS_PART, _RELS_PART, _CT_PART}
+            elif kind == "decide_revision":
                 before_decision = copy.deepcopy(document)
                 expected_patch, _, expected_facts = decisions.plan_decision(
                     document, decision_nodes[index], op["decision"], parts, True,
@@ -821,7 +879,11 @@ def _prepare(
                     raise ApplyError("round_trip_failed", "revision decision changed content outside its exact patch")
                 decision_patches.append(patch)
                 region = decision_regions[index]
-                if decisions.is_paragraph_unit(decision_nodes[index]):
+                if decisions.is_row_unit(decision_nodes[index]):
+                    expected_elements = [p.element for p in canonical_body_flow_v1(document.find(w("body"))).paragraphs]
+                    actual = list(patch.parent)[patch.index:patch.index + len(patch.after)]
+                    affected = [p for row in actual for p in row.iter(w("p"))]
+                elif decisions.is_paragraph_unit(decision_nodes[index]):
                     original_paragraphs = list(patch.before)
                     # Exact patch replacement changes the identities and count of
                     # the two participating paragraphs, never unrelated nodes.
@@ -1028,7 +1090,12 @@ def _prepare(
             if hasattr(exc, "metadata"):
                 exc.metadata["operation_index"] = index
             raise
-    if any(op["kind"] in {"replace_text", "replace_paragraph", "insert_paragraph", "delete_paragraph"} for op in operations):
+    # A row decision can remove its whole structural unit. Prove the actual
+    # selected batch still leaves a nonempty, supported table before saving.
+    from .table_rows import _table_shape
+    for group in {id(g): g for g in table_groups.values() if isinstance(g, decisions.RowDecisionGroup)}.values():
+        _table_shape(group.table)
+    if any(op["kind"] in {"replace_text", "replace_paragraph", "insert_paragraph", "delete_paragraph", "insert_table_row", "delete_table_row"} for op in operations):
         _enable_tracking(parts)
     parts[DOCUMENT_PART] = _xml(document)
     infos = list(package.infos)
@@ -1048,7 +1115,7 @@ def _prepare(
     ):
         raise ApplyError("round_trip_failed", "unrelated package content changed")
     reread = parse_xml(checked.parts[DOCUMENT_PART])
-    if decision_patches and etree.tostring(reread) != etree.tostring(document):
+    if (decision_patches or row_drafting_patches) and etree.tostring(reread) != etree.tostring(document):
         raise ApplyError("round_trip_failed", "serialized decision document differs from its exact verified candidate")
     if Counter(signature for _, signature in _revision_state(reread)) != expected_revisions:
         raise ApplyError("round_trip_failed", "serialized revision history differs from the verified candidate")
@@ -1068,7 +1135,7 @@ def _prepare(
         raise ApplyError("round_trip_failed", "serialized paragraph structure changed")
     projected = copy.deepcopy(reread)
     projected_all = list(projected.iter(w("p")))
-    projected_nodes = dict(zip(document.iter(), projected.iter(), strict=True)) if decision_patches else {}
+    projected_nodes = dict(zip(document.iter(), projected.iter(), strict=True)) if decision_patches or row_drafting_patches else {}
     for planned, checked_paragraph in zip(final_all, projected_all):
         properties = tuple(
             etree.tostring(n, method="c14n", exclusive=True)
@@ -1087,6 +1154,14 @@ def _prepare(
     # while reverse-order patches restore removed/replaced descendants.
     for patch in reversed(decision_patches):
         patch.reverse(projected_nodes[patch.parent])
+    for patch, table in reversed(row_drafting_patches):
+        parent = projected_nodes[patch.parent]
+        current = projected_nodes[table]
+        # An independently verified paragraph insertion before this table is
+        # removed above. Anchor this inverse by the fixed identity map instead
+        # of the pre-removal child index, then check its exact postimage.
+        reverse = decisions.DecisionPatch(parent, parent.index(current), patch.before, patch.after)
+        reverse.reverse(parent)
     all_positions = {
         i for i, p in enumerate(source_all_elements) if p in touched
     }

@@ -1988,6 +1988,9 @@ def read_document_revisions(path: str, file_sha256: DraftingShaInput | None = No
     A structural paragraph mark may expose structural_target: select that complete
     mark/text-ref unit explicitly, never its mark alone. It describes a supported
     paragraph insertion/deletion and both outcomes, including numbering effects.
+    A row mark can expose a row_structure target with the complete ordered
+    content_revision_refs. Select every member explicitly; a row mark or its
+    cell text alone cannot decide the complete row. Refresh row refs after saves.
     Property previews report current/previous XML as untrusted data. The two
     outcome refusal codes describe independent accept/reject feasibility.
     A complete explicitly selected table-property group may pass batch preflight
@@ -2016,6 +2019,8 @@ def preflight_document_edits(source_path: str, file_sha256: DraftingShaInput,
     decision and target from read_document_revisions: single revision_ref or an
     explicit adjacent deletion_ref/insertion_ref replacement pair, or a complete
     paragraph_structure target (paragraph_mark_ref plus all text_revision_refs).
+    A complete row_structure target uses row_mark_ref and every ordered
+    content_revision_ref from that row; no author/date grouping is inferred.
     Paragraph structural decisions preserve the surviving neighboring paragraph's
     properties; references must be refreshed after any save, including Word.
     All six
@@ -2037,6 +2042,18 @@ def preflight_document_edits(source_path: str, file_sha256: DraftingShaInput,
     table/section boundaries, fields/ranges/comments/bookmarks, conflicting
     revisions and unresolved numbering refuse before save. The preview lists
     accepted/rejected numbering effects; no literal numbers are pasted into text.
+    Use row_ref from read_document_tables for insert_table_row (before/after,
+    explicit template_row_ref and both cell_texts) or delete_table_row (complete
+    current cell_texts). The first row domain is a rectangular two-column table,
+    one supported paragraph per cell, without merges or conflicting structure.
+    The insertion anchor, formatting template and every row selected for deletion
+    must be non-header rows. An optional insertion separator names its own empty
+    unnumbered template and before/after position; deletion can name one adjacent
+    empty unnumbered separator_row_ref. The explicitly selected
+    rows publish atomically. Only one structural drafting operation per table is
+    allowed in a batch; save and reread before another. Preview row_numbering
+    for both outcomes. Decide each selected clause/separator row explicitly in
+    the same batch when the user requested both; never infer a separator.
     Use comment_id from read_document_comments for update_comment (text),
     delete_comment, delete_comment_reply, delete_comment_thread (explicit complete
     member_comment_ids), reply_comment (text), or set_comment_resolved (resolved bool).
@@ -2086,7 +2103,7 @@ def apply_document_edits(source_path: str, file_sha256: DraftingShaInput,
     file only after retaining an exact durable backup; the result reports its
     path/hash. A different path creates a new file and refuses overwrite.
     Source changes, Word owner locks and concurrent Veqtor saves refuse the write.
-    Reread paragraph refs and comment IDs after every save. Text revisions enable
+    Reread paragraph/row refs and comment IDs after every save. Text revisions enable
     Word Track Changes. Existing own insertion identities are retained.
     These mutable drafting operations are separate from the immutable legacy
     counterproposal journal; record_status is disabled for this tool family.

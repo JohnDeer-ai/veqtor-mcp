@@ -291,6 +291,12 @@ Word. Ambiguous reuse of a shared abstract definition refuses; genuinely
 independent lists require separately proved definitions. Numbering effects
 include dependent uses of the same abstract family, not only the selected ID.
 
+Supported row-mark entries instead expose `{kind: "row_structure", row_mark_ref,
+content_revision_refs}`. The ordered content references are exhaustive, including
+any supported paragraph marks retained by Word. Empty content references are
+valid for a structurally marked row containing only empty paragraphs. A single
+row mark or an individual cell-text revision cannot decide a whole row.
+
 ## `preflight_document_edits`
 
 Dry-run sequential text, paragraph, comment and selected revision decisions without writing files.
@@ -306,11 +312,13 @@ The closed operation shapes are:
 
 | `kind` | Other required fields | Behavior |
 |---|---|---|
-| `decide_revision` | `decision`, `target` | Explicitly accept/reject one exact revision, a complete paragraph structural unit, or an explicitly selected adjacent deletion/insertion pair. See the decision contract. |
+| `decide_revision` | `decision`, `target` | Explicitly accept/reject one exact revision, a complete paragraph/row structural unit, or an explicitly selected adjacent deletion/insertion pair. See the decision contract. |
 | `replace_text` | `paragraph_ref`, `old_text`, `new_text` | Replace one unique exact match in the current reading. |
 | `replace_paragraph` | `paragraph_ref`, `old_text`, `new_text` | Require the complete current reading to equal `old_text`; default optional `mode="minimal"` tracks changed word/token spans. Explicit `mode="whole"` replaces all text. |
 | `insert_paragraph` | `paragraph_ref`, `position`, `text` | Insert one tracked paragraph `before` or `after` the source paragraph. |
 | `delete_paragraph` | `paragraph_ref`, `old_text` | Track the complete accepted internal main-body paragraph and its separator; show numbering effects for both outcomes. |
+| `insert_table_row` | `row_ref`, `position`, `template_row_ref`, `cell_texts` | Insert a tracked bilingual row before/after the selected row using an explicit formatting template and exactly two cell texts. |
+| `delete_table_row` | `row_ref`, `cell_texts` | Track deletion of the entire row after checking both complete current cell texts. |
 | `add_comment` | `paragraph_ref`, `quote`, `text` | Anchor a new authored comment to one supported exact quote. |
 | `update_comment` | `comment_id`, `text` | Replace a supported comment body belonging to the selected author. |
 | `delete_comment` | `comment_id` | Delete a supported unthreaded comment belonging to the selected author. |
@@ -318,6 +326,37 @@ The closed operation shapes are:
 | `delete_comment_thread` | `comment_id`, `member_comment_ids` | Delete an explicitly selected root and its complete current thread only when every message belongs to the selected own profile. |
 | `reply_comment` | `comment_id`, `text` | Add an authored reply to an open thread, including another author's thread. |
 | `set_comment_resolved` | `comment_id`, `resolved` | Set the root thread's state; `resolved` must be a boolean. |
+
+Table-row operations use the complete `table_row_ref.v1` returned by
+`read_document_tables`. All anchor/template/separator references describe the
+same current snapshot and table. The initial domain is a rectangular two-column
+main-body table with one supported ordinary or single-level decimal-numbered
+paragraph per selected cell. The insertion anchor, formatting template and every
+row selected for deletion must be non-header rows. Empty cell text is allowed
+and retains a mandatory paragraph. Merges, omitted columns, nested tables,
+fields, ranges and conflicting selected histories refuse before publication.
+
+Insertion optionally takes `separator: {template_row_ref, position}`; its
+position is `before` or `after` the new clause. This separate explicit template
+must be empty and unnumbered. Deletion optionally takes `separator_row_ref`,
+which must select an adjacent empty unnumbered row. No separator is guessed from
+blankness. A deletion checks `cell_texts` against both complete current texts;
+it marks the whole row rather than clearing two cells. Deleting a header or the
+table's only row refuses. Each drafting batch permits only one row-structure
+drafting operation per table; other operations touching that table require a
+separate save and fresh references.
+
+The result lists `row_revision_groups` for the clause and any explicitly chosen
+separator, all revision IDs, and `row_numbering.accepted` / `.rejected`.
+Numbering resolves each column separately, including an unnumbered column and
+supported explicit start overrides. Unresolved styles, levels or restart
+dependencies refuse, including unproved reuse of a shared abstract-numbering
+family; no literal number is inserted into the text. To decide
+both a clause and its separator, explicitly select both advertised complete
+row units in one decision batch. A preview does not authorize either selection.
+Each chosen outcome is checked against the entire explicitly selected batch.
+An outcome that removes every row refuses; a safe alternative can remain
+available. Removing the table itself is outside this workflow.
 
 Source paragraph references retain their original targets after insertions.
 Repeated insertions on one side preserve operation order within the same batch.
