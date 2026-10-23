@@ -109,6 +109,11 @@ Veqtor checks the final grid, merge topology, fixed widths and style
 dependencies, while retaining the exact local patch and inverse proof for
 each selected domain. An incompatible partial or mixed selection refuses.
 The final state is independent of the order of nonoverlapping members.
+Alignment dependencies compare the original selected table or row-exception
+history with the final row properties after all explicit choices, including
+earlier members when describing alternative outcomes. Removing a conflicting
+row alignment explicitly can permit a table-alignment rejection; retaining or
+restoring it still refuses.
 Nested tables and row/cell existence histories remain outside this support.
 
 Rejecting a changed cell span while its row has independent row properties or

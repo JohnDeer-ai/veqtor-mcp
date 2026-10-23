@@ -764,12 +764,20 @@ def _group_outcome(root, nodes, decision, group):
             continue  # An earlier verified local patch already decided it.
         action = decision if item.node is nodes[0] else item.decision
         kind = etree.QName(item.node).localname
-        _alignment_dependency(item.node, action, kind)
         _row_property_dependency(item.node, action, kind, group)
         props = item.node.getparent()
         parent = mapped[props.getparent()]
         index = props.getparent().index(props)
         _replace_span(parent, index, [mapped[props]], _outcome([item.node], action, kind))
+    # Compare the source-bound alignment histories against the complete chosen
+    # row state. Include already-applied members so counterfactual previews do
+    # not forget a preceding table decision when this row is planned later.
+    for item in group.selections:
+        kind = etree.QName(item.node).localname
+        if kind in {"tblPrChange", "tblPrExChange"}:
+            owner = group.table if kind == "tblPrChange" else item.row
+            action = decision if item.node is nodes[0] else item.decision
+            _alignment_dependency(item.node, action, kind, mapped[owner])
     return clone, mapped
 
 
@@ -848,7 +856,7 @@ def validate_fixed_table_widths(table):
                 )
 
 
-def _alignment_dependency(node, action, kind):
+def _alignment_dependency(node, action, kind, outcome_owner=None):
     if action != "reject" or kind not in {"tblPrChange", "tblPrExChange"}:
         return
     current = node.getparent().find(w("jc"))
@@ -857,7 +865,7 @@ def _alignment_dependency(node, action, kind):
     previous_value = dict(previous.attrib) if previous is not None else None
     if current_value == previous_value:
         return
-    owner = node.getparent().getparent()
+    owner = outcome_owner if outcome_owner is not None else node.getparent().getparent()
     rows = (
         [owner]
         if kind == "tblPrExChange"
@@ -972,7 +980,8 @@ def _plan_outcomes(root, nodes, parts, defer_fixed_widths=False, table_group=Non
     for action in ("accept", "reject"):
         result = _outcome(nodes, action, kind)
         try:
-            _alignment_dependency(nodes[0], action, kind)
+            if table_group is None:
+                _alignment_dependency(nodes[0], action, kind)
             _row_property_dependency(nodes[0], action, kind, table_group)
             # Inspect the actual surviving outcome in its complete document
             # context. Text can retain (or remove) unresolved run styles too;

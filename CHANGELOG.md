@@ -18,6 +18,9 @@ public distribution.
   Keep standalone inventory feasibility separate from batch feasibility, and
   refuse cell-span rejection with unowned row properties or history rather than
   silently deleting those independent properties to imitate Word.
+  Check alignment conflicts against the complete selected row outcome so an
+  explicitly removed row alignment permits the matching table rejection in
+  either order, while retained or restored conflicts still refuse.
 - Require `opentelemetry-api>=1.45.1,<2` for the MCP runtime to exclude the
   vulnerable trace-state parser covered by CVE-2026-114603. Apply the same
   security floor to the locked environment and exact-minimum artifact smoke.

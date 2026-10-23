@@ -614,3 +614,181 @@ def test_unselected_row_height_history_does_not_authorize_span_rejection(
     ]
     assert len(selected) == 2
     _refused(path, selected, "table_height_dependency_unsupported")
+
+
+def _alignment_source(kind, *, table_state="pending", row_state="pending",
+                      row_current="center", row_previous="", table_previous="left"):
+    """Author source and clean expectations independently of the decision code."""
+    root = _source("cell_span", "current")
+    name = kind.removesuffix("Change")
+    props = next(root.iter(w(name)))
+    alignment = _xml('<w:jc w:val="center"/>')[0]
+    props.insert(1 if name == "tblPr" else 0, alignment)
+    previous = copy.deepcopy(props)
+    previous.find(w("jc")).set(w("val"), table_previous)
+    if table_state == "previous":
+        props.getparent().replace(props, previous)
+    elif table_state == "pending":
+        change = _xml(f'<w:{kind} w:id="70" w:author="Fictional Alignment Reviewer"/>')[0]
+        change.append(previous)
+        props.append(change)
+
+    def jc(value):
+        return f'<w:jc w:val="{value}"/>' if value else ""
+
+    row_props = next(root.iter(w("trPr")))
+    replacement = _xml(_history(
+        "trPr", jc(row_previous if row_state == "previous" else row_current),
+        jc(row_previous), 71, row_state == "pending",
+    ))[0]
+    row_props.getparent().replace(row_props, replacement)
+    return root
+
+
+def _alignment_file(tmp_path, demo_dir, root):
+    path = tmp_path / "working.docx"
+    _fixture.write_source(demo_dir / "round-1-outgoing-draft.docx", path, root)
+    return path
+
+
+def _alignment_operations(path, kind, row_decision, reverse):
+    selected = [
+        row for row in read_document_revisions(str(path))["revisions"]
+        if row["kind"] in {kind, "trPrChange"}
+    ]
+    assert len(selected) == 2
+    operations = [{
+        "kind": "decide_revision",
+        "decision": row_decision if row["kind"] == "trPrChange" else "reject",
+        "target": {"kind": "single", "revision_ref": row["revision_ref"]},
+    } for row in selected]
+    return operations[::-1] if reverse else operations
+
+
+@pytest.mark.parametrize("kind", ["tblPrChange", "tblPrExChange"])
+@pytest.mark.parametrize("row_decision", ["accept", "reject"])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_alignment_group_uses_final_rows_and_source_bound_counterfactuals(
+    tmp_path, demo_dir, kind, row_decision, reverse
+):
+    row_current = "center" if row_decision == "reject" else ""
+    row_previous = "" if row_decision == "reject" else "center"
+    kwargs = {"row_current": row_current, "row_previous": row_previous}
+    path = _alignment_file(tmp_path, demo_dir, _alignment_source(kind, **kwargs))
+    before_parts = _parts(path)
+    dry, result = _save(path, _alignment_operations(path, kind, row_decision, reverse))
+    expected = _alignment_source(
+        kind, table_state="previous",
+        row_state="previous" if row_decision == "reject" else "current", **kwargs,
+    )
+    assert _normalized(_document(path)) == _normalized(expected)
+    assert {k: v for k, v in _parts(path).items() if k != DOCUMENT_PART} == {
+        k: v for k, v in before_parts.items() if k != DOCUMENT_PART
+    }
+    for facts in (*dry["operations"], *result["operations"]):
+        assert facts["table_validation_scope"] == "explicit_batch_final_state"
+        if facts["revision_kind"] == "trPrChange":
+            alternative = "accept" if row_decision == "reject" else "reject"
+            assert facts[f"{row_decision}_refusal_code"] is None
+            assert facts[f"{alternative}_refusal_code"] == "table_alignment_dependency_unsupported"
+
+
+@pytest.mark.parametrize("kind", ["tblPrChange", "tblPrExChange"])
+@pytest.mark.parametrize("row_decision", ["accept", "reject"])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_alignment_group_refuses_retained_or_restored_row_alignment(
+    tmp_path, demo_dir, kind, row_decision, reverse
+):
+    root = _alignment_source(
+        kind, row_current="center" if row_decision == "accept" else "",
+        row_previous="" if row_decision == "accept" else "center",
+    )
+    path = _alignment_file(tmp_path, demo_dir, root)
+    _refused(
+        path, _alignment_operations(path, kind, row_decision, reverse),
+        "table_alignment_dependency_unsupported",
+    )
+
+
+def _extra_alignment_row(root):
+    table = next(root.iter(w("tbl")))
+    other = copy.deepcopy(table.find(w("tr")))
+    for change in other.iter(w("rPrChange")):
+        change.set(w("id"), "91")
+    for change in list(other.iter(w("tblPrExChange"))):
+        change.getparent().remove(change)
+    alignment = other.find(f"{w('tblPrEx')}/{w('jc')}")
+    if alignment is not None:
+        alignment.set(w("val"), "center")  # This unselected row keeps its own current set.
+    row_props = other.find(w("trPr"))
+    other.replace(row_props, _xml('<w:trPr><w:jc w:val="right"/></w:trPr>')[0])
+    table.append(other)
+
+
+@pytest.mark.parametrize("kind", ["tblPrChange", "tblPrExChange"])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_alignment_scope_preserves_unselected_alignment_in_other_row(
+    tmp_path, demo_dir, kind, reverse
+):
+    root = _alignment_source(kind)
+    _extra_alignment_row(root)
+    path = _alignment_file(tmp_path, demo_dir, root)
+    operations = _alignment_operations(path, kind, "reject", reverse)
+    if kind == "tblPrChange":
+        _refused(path, operations, "table_alignment_dependency_unsupported")
+    else:
+        _save(path, operations)
+        expected = _alignment_source(kind, table_state="previous", row_state="previous")
+        _extra_alignment_row(expected)
+        assert _normalized(_document(path)) == _normalized(expected)
+
+
+@pytest.mark.parametrize("kind", ["tblPrChange", "tblPrExChange"])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_selected_other_row_history_cannot_authorize_alignment_rejection(
+    tmp_path, demo_dir, kind, reverse
+):
+    root = _alignment_source(kind, row_state="current")
+    _extra_alignment_row(root)
+    table = next(root.iter(w("tbl")))
+    props = table.findall(w("tr"))[1].find(w("trPr"))
+    props.append(_xml(
+        '<w:trPrChange w:id="72" w:author="Fictional Other Row Reviewer">'
+        '<w:trPr/></w:trPrChange>'
+    )[0])
+    path = _alignment_file(tmp_path, demo_dir, root)
+    _refused(
+        path, _alignment_operations(path, kind, "reject", reverse),
+        "table_alignment_dependency_unsupported",
+    )
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_selected_other_table_history_cannot_authorize_alignment_rejection(
+    tmp_path, demo_dir, reverse
+):
+    root = _alignment_source("tblPrChange", row_state="current")
+    other = _alignment_source("tblPrChange", table_state="current")
+    other_table = next(other.iter(w("tbl")))
+    for change in other_table.iter(w("rPrChange")):
+        change.set(w("id"), "91")
+    root.find(w("body")).insert(1, other_table)
+    path = _alignment_file(tmp_path, demo_dir, root)
+    _refused(
+        path, _alignment_operations(path, "tblPrChange", "reject", reverse),
+        "table_alignment_dependency_unsupported",
+    )
+
+
+@pytest.mark.parametrize("kind", ["tblPrChange", "tblPrExChange"])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_unchanged_table_alignment_allows_retained_row_alignment(
+    tmp_path, demo_dir, kind, reverse
+):
+    root = _alignment_source(kind, table_previous="center")
+    path = _alignment_file(tmp_path, demo_dir, root)
+    _save(path, _alignment_operations(path, kind, "accept", reverse))
+    expected = _alignment_source(
+        kind, table_state="previous", row_state="current", table_previous="center",
+    )
+    assert _normalized(_document(path)) == _normalized(expected)
