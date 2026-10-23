@@ -41,8 +41,17 @@ selected group and final geometry checks. Existing style, numbering, field,
 protection and shape refusals remain in force. Acceptance never reassigns the
 original author's name or creates another tracked revision.
 
-Every mutation must equal its planned local patch. Reversing that patch in an
-independent document copy must restore the exact previous XML. The final package
+Every mutation must equal its planned local patch. Small and structural selections
+use the selective path: reversing each patch in an independent document copy must
+restore the exact previous XML. Larger nonstructural selections use a bounded
+batch path. It checks the full source boundary grammar, proves each original
+owner and formatting dependency, and runs the existing local text/property guards
+in a context that retains its paragraph and ancestor property sets. Contexts with
+unproved cross-paragraph field/range or nested-table dependencies fall back to the
+full-context selective path. One whole-ledger reversal must restore the exact
+source, and an independently replayed candidate must equal the planned outcome.
+Complete selected table groups and their final geometry are still checked.
+The final package
 is inventoried again and must contain zero revision markers. Its member set and
 every part other than `word/document.xml` remain byte-identical. An already clean
 supported package is returned byte-for-byte, including its original ZIP bytes.
@@ -63,9 +72,13 @@ that every legal DOCX or all hidden data is supported.
 
 All existing ZIP/XML resource limits apply. The inventory additionally bounds
 aggregate XML work, depth and findings. Invalid numbering-definition order blocks
-export rather than relying on Word repair. The engine bounds revisions, charges
-the full main document for repeated outcome validation and charges each actual
-read of its formatting dependencies against the same work budget. Exceeding a bound refuses
+export rather than relying on Word repair. The engine keeps the same revision
+and validation-byte limits. The selective path charges the full main document for
+repeated outcome validation. The batch path charges its full-source copies and
+actual local validation work. Successfully proved formatting dependencies may be
+reused only for the same immutable dependency bytes and reference semantics;
+failed proofs are never cached. Actual dependency reads consume the same budget.
+Exceeding a bound refuses
 the entire candidate; it never truncates an inventory, accepts only the first
 page or labels a partial result clean. It performs no filesystem operation and
 returns no authorization or journal receipt.

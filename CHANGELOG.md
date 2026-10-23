@@ -8,6 +8,11 @@ through its `published_at` timestamp.
 
 ## 0.6.0.dev1
 
+- Validate larger nonstructural clean-copy selections with bounded local proofs,
+  one whole-ledger reversal and an independent outcome replay. Reuse formatting
+  dependency proofs only for the same immutable bytes and reference semantics;
+  retain full-context fallbacks and existing resource limits and refusals.
+
 - Add an internal clean-copy candidate engine with a revision inventory across
   every package part. Accept supported main-body text, property and complete
   paragraph/row revisions in detached bytes, preserve other parts exactly, and
