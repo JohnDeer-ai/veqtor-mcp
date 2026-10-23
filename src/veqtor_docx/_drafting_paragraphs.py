@@ -288,6 +288,228 @@ def insert_paragraph(
     }
 
 
+
+def _without_mark(paragraph: etree._Element, tag: str) -> None:
+    props = paragraph.find(w("pPr"))
+    run_props = props.find(w("rPr")) if props is not None else None
+    if run_props is not None:
+        for mark in list(run_props.findall(w(tag))):
+            run_props.remove(mark)
+        if not len(run_props) and not run_props.attrib:
+            props.remove(run_props)
+    if props is not None and not len(props) and not props.attrib:
+        paragraph.remove(props)
+
+
+def _structure_paragraph(paragraph: etree._Element, selected=()) -> None:
+    """Closed local grammar; range endpoints in old deletions are still unsafe."""
+    chosen = set(selected)
+    from .revision_decisions import _PPR, _RPR, _property_tree
+    props = paragraph.find(w("pPr"))
+    if props is not None:
+        ordinary = {w(name) for name in _PPR.split()} | {w("rPr")}
+        tags = [child.tag for child in props]
+        if len(set(tags)) != len(tags) or any(tag not in ordinary for tag in tags):
+            raise ApplyError("paragraph_structure_unsupported", "unsupported or duplicate paragraph property")
+        for child in props:
+            if child.tag != w("rPr"):
+                _property_tree(child)
+    for run_props in paragraph.iter(w("rPr")):
+        tags = [child.tag for child in run_props if child not in chosen]
+        if len(tags) != len(set(tags)) or any(tag not in {w(name) for name in _RPR.split()} for tag in tags):
+            raise ApplyError("paragraph_structure_unsupported", "unsupported or duplicate character property")
+        for child in run_props:
+            if child not in chosen:
+                _property_tree(child)
+    if len(paragraph.findall(w("pPr"))) > 1:
+        raise ApplyError("paragraph_structure_unsupported", "duplicate paragraph properties")
+    for node in paragraph.iter():
+        if node in chosen:
+            continue
+        if node.tag in _REVISION_TAGS or (
+            isinstance(node.tag, str) and etree.QName(node).localname.endswith("Change")
+        ):
+            raise ApplyError("paragraph_structure_unsupported", "unselected revision touches the structural unit")
+        if node.tag in {w("sectPr"), w("framePr")} or (
+            node.tag not in _PROPERTY_TAGS | {w("p"), w("r"), w("t"), w("delText"),
+                                             w("tab"), w("br"), w("cr"), w("lastRenderedPageBreak")}
+        ):
+            raise ApplyError("paragraph_structure_unsupported", "paragraph contains a field, range or unknown structure")
+    for child in paragraph:
+        if child.tag != w("pPr") and child.tag != w("r") and child not in chosen:
+            raise ApplyError("paragraph_structure_unsupported", "unsupported paragraph child")
+    for node in paragraph.iter():
+        if node is not paragraph and node.tag == w("p"):
+            raise ApplyError("paragraph_structure_unsupported", "nested paragraphs are unsupported")
+        if node.tag == w("pPr") and node.getparent() is not paragraph:
+            raise ApplyError("paragraph_structure_unsupported", "misplaced paragraph properties")
+        if node.tag == w("r"):
+            if node.getparent() is not paragraph and node.getparent() not in chosen:
+                raise ApplyError("paragraph_structure_unsupported", "misplaced run")
+            if len(node.findall(w("rPr"))) > 1 or any(atom.tag not in {
+                w("rPr"), w("t"), w("delText"), w("tab"), w("br"), w("cr"), w("lastRenderedPageBreak")
+            } for atom in node):
+                raise ApplyError("paragraph_structure_unsupported", "unsupported run grammar")
+        if node.tag in {w("t"), w("delText"), w("tab"), w("br"), w("cr"), w("lastRenderedPageBreak")} and (
+            node.getparent().tag != w("r") or len(node)
+        ):
+            raise ApplyError("paragraph_structure_unsupported", "misplaced or nested text atom")
+        if node.tag in {w("t"), w("delText")}:
+            run_parent = node.getparent().getparent()
+            expected = w("delText") if run_parent in chosen and run_parent.tag == w("del") else w("t")
+            if node.tag != expected:
+                raise ApplyError("paragraph_structure_unsupported", "text atom does not match its revision context")
+    for revision in selected:
+        if revision.tag not in {w("ins"), w("del")}:
+            raise ApplyError("paragraph_structure_unsupported", "unsupported selected structural revision")
+        if revision.getparent() is paragraph and (
+            not len(revision) or any(child.tag != w("r") for child in revision)
+        ):
+            raise ApplyError("paragraph_structure_unsupported", "selected text must contain direct runs")
+
+
+def paragraph_structure_unit(root: etree._Element, nodes: list) -> dict:
+    """Resolve an explicitly complete mark/text unit by shape, never by author."""
+    if not 2 <= len(nodes) <= 65 or len(set(nodes)) != len(nodes):
+        raise ApplyError("paragraph_unit_unsupported", "select one mark and every related text revision")
+    mark, *texts = nodes
+    mark_props = mark.getparent()
+    props = mark_props.getparent() if mark_props is not None else None
+    paragraph = props.getparent() if props is not None else None
+    if (
+        mark.tag not in {w("ins"), w("del")} or len(mark)
+        or mark_props is None or mark_props.tag != w("rPr")
+        or props is None or props.tag != w("pPr")
+        or paragraph is None or paragraph.tag != w("p")
+    ):
+        raise ApplyError("paragraph_unit_unsupported", "selected mark is not a simple paragraph separator")
+    parent, following = paragraph.getparent(), paragraph.getnext()
+    if parent is None or parent.tag not in {w("body"), w("tc")} or (
+        following is None or following.tag != w("p")
+    ):
+        raise ApplyError("paragraph_boundary_unsupported", "a structural mark requires its next paragraph")
+    _assert_insertion_boundary(paragraph, "before")
+    _assert_insertion_boundary(following, "after")
+    candidates = [paragraph] if mark.tag == w("del") else [paragraph, following]
+    matched = []
+    for content in candidates:
+        children = [child for child in content if child.tag != w("pPr")]
+        if children == texts and children and all(child.tag == mark.tag for child in children):
+            matched.append(content)
+    if len(matched) != 1:
+        raise ApplyError("paragraph_unit_unsupported", "text references do not name the entire unique paragraph proposal")
+    content = matched[0]
+    _structure_paragraph(paragraph, [mark, *texts] if content is paragraph else [mark])
+    _structure_paragraph(following, texts if content is following else [])
+    expected_atom = w("t") if mark.tag == w("ins") else w("delText")
+    for text in texts:
+        for run in text:
+            for atom in run:
+                if atom.tag != w("rPr") and atom.tag not in {
+                    expected_atom, w("tab"), w("br"), w("cr"), w("lastRenderedPageBreak")
+                }:
+                    raise ApplyError("paragraph_unit_unsupported", "text revision has incompatible atoms")
+    return {"mark": mark, "texts": texts, "paragraph": paragraph,
+            "following": following, "content": content,
+            "kind": "paragraph_insertion" if mark.tag == w("ins") else "paragraph_deletion"}
+
+
+def paragraph_structure_outcome(unit: dict, decision: str) -> list:
+    """Produce an exact two-paragraph patch, retaining the surviving mark's pPr."""
+    original = [unit["paragraph"], unit["following"]]
+    copies = [copy.deepcopy(p) for p in original]
+    selected = dict(zip((n for p in original for n in p.iter()),
+                        (n for p in copies for n in p.iter()), strict=True))
+    content = selected[unit["content"]]
+    remove_content = (unit["kind"] == "paragraph_insertion") != (decision == "accept")
+    if remove_content:
+        copies.remove(content)
+    else:
+        for source in unit["texts"]:
+            revision = selected[source]
+            index = content.index(revision)
+            for offset, run in enumerate(list(revision)):
+                for atom in run.iter(w("delText")):
+                    atom.tag = w("t")
+                content.insert(index + offset, run)
+            content.remove(revision)
+    # A mark on the retained anchor must be removed as well (insert-after).
+    marked = selected[unit["paragraph"]]
+    if marked in copies:
+        _without_mark(marked, "ins" if unit["kind"] == "paragraph_insertion" else "del")
+    return copies
+
+
+def paragraph_structure_candidates(mark: etree._Element) -> list:
+    """Candidate discovery is read-only; the caller must explicitly select all refs."""
+    try:
+        paragraph = mark.getparent().getparent().getparent()
+        if paragraph.tag != w("p"):
+            return []
+        candidates = [paragraph]
+        if mark.tag == w("ins") and paragraph.getnext() is not None:
+            candidates.append(paragraph.getnext())
+        valid = []
+        for content in candidates:
+            texts = [n for n in content if n.tag != w("pPr")]
+            try:
+                paragraph_structure_unit(paragraph.getroottree().getroot(), [mark, *texts])
+            except ApplyError:
+                continue
+            valid.append([mark, *texts])
+        return valid[0] if len(valid) == 1 else []
+    except (AttributeError, TypeError):
+        return []
+
+
+def delete_paragraph(paragraph: etree._Element, old_text: str, author: str,
+                     allocator: _RevisionIdAllocator, *, timestamp=None) -> dict:
+    """Track all accepted text and the separator; never silently clear a clause."""
+    date = _validate_common(paragraph, old_text, author, timestamp)
+    if not old_text or _reading(paragraph) != old_text:
+        raise ApplyError("paragraph_text_mismatch", "supply the complete current paragraph text")
+    parent, following = paragraph.getparent(), paragraph.getnext()
+    if parent is None or parent.tag != w("body") or following is None or following.tag != w("p"):
+        raise ApplyError("paragraph_boundary_unsupported", "deletion requires an internal main-body paragraph")
+    _assert_insertion_boundary(paragraph, "before")
+    _assert_insertion_boundary(following, "after")
+    _structure_paragraph(paragraph)
+    _structure_paragraph(following)
+    if any(child.tag not in {w("pPr"), w("r")} for child in paragraph):
+        raise ApplyError("paragraph_structure_unsupported", "deletion requires accepted direct runs")
+    candidate = copy.deepcopy(paragraph)
+    props = candidate.find(w("pPr"))
+    if props is None:
+        props = etree.Element(w("pPr"))
+        candidate.insert(0, props)
+    run_props = props.find(w("rPr"))
+    if run_props is None:
+        run_props = etree.SubElement(props, w("rPr"))
+    candidate_allocator = _RevisionIdAllocator(allocator.next_value)
+    mark_id, text_id = candidate_allocator.reserve(2)
+    run_props.append(_new_revision("del", mark_id, author, date))
+    deletion = _new_revision("del", text_id, author, date)
+    for run in list(candidate):
+        if run.tag == w("pPr"):
+            continue
+        for atom in run.iter(w("t")):
+            atom.tag = w("delText")
+        deletion.append(run)
+    candidate.append(deletion)
+    # Full validation precedes mutation and revision-id consumption.
+    shadow = copy.deepcopy(parent)
+    shadow.replace(shadow[parent.index(paragraph)], copy.deepcopy(candidate))
+    shadow_p = shadow[parent.index(paragraph)]
+    paragraph_structure_unit(shadow, [shadow_p.find(f"{w('pPr')}/{w('rPr')}/{w('del')}"), shadow_p.find(w("del"))])
+    paragraph.clear()
+    paragraph.attrib.update(candidate.attrib)
+    paragraph.text, paragraph.tail = candidate.text, candidate.tail
+    paragraph.extend(list(candidate))
+    allocator.next_value = candidate_allocator.next_value
+    return {"operation": "delete_paragraph", "old_text": old_text,
+            "revision_ids": [mark_id, text_id], "paragraph_mark_revision_id": mark_id,
+            "text_revision_id": text_id}
+
 def _empty_run(run: etree._Element) -> bool:
     return (
         run.tag == w("r")
