@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import posixpath
 import re
+from datetime import datetime
 from urllib.parse import unquote, urlsplit
 
 from lxml import etree
@@ -46,6 +47,7 @@ _W16CEX = "http://schemas.microsoft.com/office/word/2018/wordml/cex"
 _CUSTOM_XML = "http://schemas.openxmlformats.org/officeDocument/2006/customXml"
 _BIBLIOGRAPHY = "http://schemas.openxmlformats.org/officeDocument/2006/bibliography"
 _VTYPES = "http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"
+_SP_FORMS = "http://schemas.microsoft.com/sharepoint/v3/contenttype/forms"
 
 # Closed vocabulary is deliberately wider than the editable body grammar:
 # headers, settings, styles, comments and numbering must also be inventoried.
@@ -114,7 +116,9 @@ _WORD_CONTENT_TYPES = frozenset(_WORD_CT_BASE + suffix + "+xml" for suffix in (
     "header", "footer", "footnotes", "endnotes", "comments", "commentsExtended",
 )) | {"application/vnd.ms-word.stylesWithEffects+xml",
       "application/vnd.ms-word.commentsIds+xml",
-      "application/vnd.ms-word.commentsExtensible+xml"}
+      "application/vnd.ms-word.commentsExtensible+xml",
+      _WORD_CT_BASE + "commentsIds+xml", _WORD_CT_BASE + "commentsExtensible+xml",
+      _WORD_CT_BASE + "people+xml"}
 _SAFE_XML_CONTENT_TYPES = _WORD_CONTENT_TYPES | frozenset({
     "application/xml", "text/xml",
     "application/vnd.openxmlformats-package.relationships+xml",
@@ -136,6 +140,9 @@ _TYPED_XML_ROOTS = {
     "application/vnd.ms-word.stylesWithEffects+xml": w("styles"),
     "application/vnd.ms-word.commentsIds+xml": "{" + _W16CID + "}commentsIds",
     "application/vnd.ms-word.commentsExtensible+xml": "{" + _W16CEX + "}commentsExtensible",
+    _WORD_CT_BASE + "commentsIds+xml": "{" + _W16CID + "}commentsIds",
+    _WORD_CT_BASE + "commentsExtensible+xml": "{" + _W16CEX + "}commentsExtensible",
+    _WORD_CT_BASE + "people+xml": "{" + _W15 + "}people",
     "application/vnd.openxmlformats-officedocument.customXmlProperties+xml": "{" + _CUSTOM_XML + "}datastoreItem",
     "application/vnd.openxmlformats-package.relationships+xml": "{" + _REL + "}Relationships",
 }
@@ -239,6 +246,264 @@ _SAFE_RELATIONSHIP_TYPES = frozenset(_ODREL + name for name in (
     "http://schemas.microsoft.com/office/2016/09/relationships/commentsIds",
     "http://schemas.microsoft.com/office/2018/08/relationships/commentsExtensible"}
 
+# These are inspection grammars, not permission to mutate or remove metadata.
+# See MS-DOCX 5.1/5.2/5.4/5.6 and the SDK fixed-part declarations. In particular,
+# recognizing a prefix or an mc:Ignorable token never recognizes its namespace.
+_LIGATURES = frozenset("""
+none standard contextual historical discretional standardContextual
+standardHistorical contextualHistorical standardDiscretional contextualDiscretional
+historicalDiscretional standardContextualHistorical standardContextualDiscretional
+standardHistoricalDiscretional contextualHistoricalDiscretional all
+""".split())
+_METADATA_RELATIONSHIPS = {
+    "http://schemas.microsoft.com/office/2011/relationships/people": (
+        frozenset({_WORD_CT_BASE + "people+xml"}), "{" + _W15 + "}people"),
+    "http://schemas.microsoft.com/office/2011/relationships/commentsExtended": (
+        frozenset({_WORD_CT_BASE + "commentsExtended+xml"}), "{" + _W15 + "}commentsEx"),
+    "http://schemas.microsoft.com/office/2016/09/relationships/commentsIds": (
+        frozenset({_WORD_CT_BASE + "commentsIds+xml", "application/vnd.ms-word.commentsIds+xml"}),
+        "{" + _W16CID + "}commentsIds"),
+    "http://schemas.microsoft.com/office/2018/08/relationships/commentsExtensible": (
+        frozenset({_WORD_CT_BASE + "commentsExtensible+xml", "application/vnd.ms-word.commentsExtensible+xml"}),
+        "{" + _W16CEX + "}commentsExtensible"),
+}
+_METADATA_ROOT_RELATIONSHIPS = {
+    root: (kind, content_types) for kind, (content_types, root) in _METADATA_RELATIONSHIPS.items()
+}
+_SAFE_RELATIONSHIP_TYPES |= frozenset(_METADATA_RELATIONSHIPS)
+
+
+def _white_content(node):
+    return not (node.text or "").strip() and all(not (child.tail or "").strip() for child in node)
+
+
+def _sequence(node, groups):
+    """Check a closed sequence without accepting arbitrary schema extensions."""
+    if not _white_content(node):
+        return False
+    children, index = list(node), 0
+    for tag, minimum, maximum in groups:
+        start = index
+        while index < len(children) and children[index].tag == tag:
+            index += 1
+        if not minimum <= index - start <= maximum:
+            return False
+    return index == len(children)
+
+
+def _root_attributes(node):
+    if set(node.attrib) - {"{" + _MC + "}Ignorable"}:
+        return False
+    ignored = node.get("{" + _MC + "}Ignorable")
+    return ignored is None or (bool(ignored.split()) and all(
+        re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*", prefix) and prefix in node.nsmap
+        for prefix in ignored.split()))
+
+
+def _leaf(node, required, optional=()):
+    return (not len(node) and _white_content(node)
+            and set(required) <= set(node.attrib) <= set(required) | set(optional))
+
+
+def _hex8(value):
+    return re.fullmatch(r"[0-9A-Fa-f]{8}", value or "") is not None
+
+
+def _metadata_part(root, content_type):
+    """Recognize a whole closed metadata tree, never a namespace in isolation.
+
+    SharePoint FormTemplates has three text leaves (Microsoft's FormTemplates
+    Schema Overview). Dynamic content-type XSDs, document-management properties,
+    InfoPath partner controls and arbitrary custom fields remain unsupported.
+    """
+    if root.tag == "{" + _SP_FORMS + "}FormTemplates":
+        return (content_type in {"application/xml", "text/xml"} and not root.attrib
+                and _sequence(root, [("{" + _SP_FORMS + "}" + n, 1, 1) for n in ("Display", "Edit", "New")])
+                and all(not n.attrib and not len(n) and 0 < len(n.text or "") <= 255
+                        and (n.text or "").strip() == n.text for n in root))
+    if root.tag == "{" + _W15 + "}people":
+        person, presence = ("{" + _W15 + "}" + n for n in ("person", "presenceInfo"))
+        if (content_type != _WORD_CT_BASE + "people+xml" or not _root_attributes(root)
+                or not _sequence(root, [(person, 0, MAX_INVENTORY_XML_NODES)])):
+            return False
+        authors = []
+        for node in root:
+            author = node.get("{" + _W15 + "}author", "")
+            if (set(node.attrib) != {"{" + _W15 + "}author"} or not 0 < len(author) <= 255
+                    or not _sequence(node, [(presence, 0, 1)])):
+                return False
+            authors.append(author)
+            for identity in node:
+                required = {"{" + _W15 + "}" + n for n in ("providerId", "userId")}
+                if (not _leaf(identity, required)
+                        or any(not 0 < len(value) <= 20_000 for value in identity.attrib.values())):
+                    return False
+        return len(authors) == len(set(authors))
+    comment_roots = {
+        "{" + _W15 + "}commentsEx": (_W15, "commentEx", ("paraId",), ("paraIdParent", "done")),
+        "{" + _W16CID + "}commentsIds": (_W16CID, "commentId", ("paraId", "durableId"), ()),
+        "{" + _W16CEX + "}commentsExtensible": (_W16CEX, "commentExtensible", ("durableId",), ("dateUtc", "intelligentPlaceholder")),
+    }
+    rule = comment_roots.get(root.tag)
+    if rule is None:
+        return False
+    if content_type not in _WORD_CONTENT_TYPES or _TYPED_XML_ROOTS.get(content_type) != root.tag:
+        return False
+    namespace, child, required, optional = rule
+    def q(name):
+        return "{" + namespace + "}" + name
+    if not _root_attributes(root) or not _sequence(root, [(q(child), 0, MAX_INVENTORY_XML_NODES)]):
+        return False
+    identities = {key: set() for key in required}
+    for node in root:
+        if not _leaf(node, {q(n) for n in required}, {q(n) for n in optional}):
+            return False
+        for key, value in node.attrib.items():
+            local = etree.QName(key).localname
+            if local in {"paraId", "paraIdParent", "durableId"} and not _hex8(value):
+                return False
+            # CT_CommentId defines a positive signed-31-bit durable identity;
+            # CT_CommentExtensible references that same identity.
+            if local == "durableId" and not 0 < int(value, 16) < 0x7FFFFFFF:
+                return False
+            if local in {"done", "intelligentPlaceholder"} and value not in {"0", "1", "true", "false"}:
+                return False
+            if local == "dateUtc":
+                try:
+                    if (len(value) > 64 or re.fullmatch(
+                            r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?(?:Z|[+-]00:00)", value) is None):
+                        return False
+                    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+                    if datetime.fromisoformat(normalized).utcoffset().total_seconds() != 0:
+                        return False
+                except (ValueError, AttributeError):
+                    return False
+        for key in required:
+            value = node.get(q(key)).upper()
+            if value in identities[key]:
+                return False
+            identities[key].add(value)
+    return True
+
+
+def _web_divs(root):
+    """Closed CT_Divs/CT_Div/CT_DivBdr subset; numeric twips, no future values."""
+    border_values = {"nil", "none", "single", "double", "dotted", "dashed", "dotDash", "dotDotDash"}
+    border_attributes = {w(n) for n in ("val", "color", "themeColor", "themeTint", "themeShade", "sz", "space", "shadow", "frame")}
+    themes = {"dark1", "light1", "dark2", "light2", "hyperlink", "followedHyperlink", "none",
+              *("accent" + str(i) for i in range(1, 7))}
+    seen = set()
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        if node.tag in {w("divs"), w("divsChild")}:
+            if node.attrib or not _sequence(node, [(w("div"), 1, MAX_INVENTORY_XML_NODES)]):
+                return False
+        elif node.tag == w("div"):
+            ident = node.get(w("id"), "")
+            if (set(node.attrib) != {w("id")} or re.fullmatch(r"-?[1-9][0-9]{0,9}", ident) is None
+                    or not -(2**31) <= int(ident) <= 2**31 - 1 or ident in seen
+                    or not _sequence(node, [(w(n), low, high) for n, low, high in (
+                        ("blockQuote", 0, 1), ("bodyDiv", 0, 1), ("marLeft", 1, 1), ("marRight", 1, 1),
+                        ("marTop", 1, 1), ("marBottom", 1, 1), ("divBdr", 0, 1), ("divsChild", 0, MAX_INVENTORY_XML_NODES))])):
+                return False
+            seen.add(ident)
+        elif node.tag == w("divBdr"):
+            if node.attrib or not _sequence(node, [(w(n), 0, 1) for n in ("top", "left", "bottom", "right")]):
+                return False
+        elif node.tag in {w(n) for n in ("blockQuote", "bodyDiv")}:
+            if not _leaf(node, (), {w("val")}) or node.get(w("val"), "true") not in {"true", "false", "on", "off", "1", "0"}:
+                return False
+        elif node.tag in {w(n) for n in ("marLeft", "marRight", "marTop", "marBottom")}:
+            value = node.get(w("val"), "")
+            if (not _leaf(node, {w("val")}) or re.fullmatch(r"-?(?:0|[1-9][0-9]{0,9})", value) is None
+                    or not -(2**31) <= int(value) <= 2**31 - 1):
+                return False
+        elif node.tag in {w(n) for n in ("top", "left", "bottom", "right")}:
+            if not _leaf(node, {w("val")}, border_attributes) or node.get(w("val")) not in border_values:
+                return False
+            for key, value in node.attrib.items():
+                local = etree.QName(key).localname
+                if local == "color" and value != "auto" and re.fullmatch(r"[0-9A-Fa-f]{6}", value) is None:
+                    return False
+                if local == "themeColor" and value not in themes:
+                    return False
+                if local in {"themeTint", "themeShade"} and re.fullmatch(r"[0-9A-Fa-f]{2}", value) is None:
+                    return False
+                if local in {"sz", "space"} and (len(value) > 3 or not value.isascii() or not value.isdigit()
+                        or int(value) > (255 if local == "sz" else 31)):
+                    return False
+                if local in {"shadow", "frame"} and value not in {"true", "false", "on", "off", "1", "0"}:
+                    return False
+        else:
+            return False
+        stack.extend(node)
+    return True
+
+
+def _ligature_context(properties, root):
+    """Close only the new property's ancestry, not the old WML vocabulary.
+
+    MS-DOCX CT_Ligatures extends run properties. A familiar immediate owner
+    does not make a misplaced style, numbering level or text run a valid
+    context. The SDK schema includes ligatures only in current/original run
+    properties and paragraph-mark run properties. Style/default/list property
+    types, content controls and text boxes remain outside this leaf profile.
+    """
+    inline = {w(n) for n in ("ins", "del", "moveFrom", "moveTo", "hyperlink", "fldSimple", "smartTag")}
+    stories = {w(n) for n in ("body", "tc", "hdr", "ftr", "comment", "footnote", "endnote")}
+    parents = {
+        w("rPr"): {w("r"), w("pPr"), w("rPrChange")},
+        w("r"): {w("p")} | inline,
+        **{tag: {w("p")} | inline for tag in inline},
+        # Only CT_PPr (under p) owns paragraph-mark run properties. The
+        # similarly named style/default/level/history pPr types do not.
+        w("pPr"): {w("p")}, w("rPrChange"): {w("rPr")},
+        w("p"): stories, w("tbl"): stories,
+        w("tc"): {w("tr")}, w("tr"): {w("tbl")},
+        w("body"): {w("document")},
+        w("comment"): {w("comments")}, w("footnote"): {w("footnotes")}, w("endnote"): {w("endnotes")},
+    }
+    current, paragraphs, histories = properties, 0, 0
+    while current is not root:
+        paragraphs += current.tag == w("p")
+        histories += current.tag == w("rPrChange")
+        if paragraphs > 1 or histories > 1:
+            return False
+        parent = current.getparent()
+        if parent is None or parent.tag not in parents.get(current.tag, ()):
+            return False
+        current = parent
+    return paragraphs == 1
+
+
+def _word_metadata(node, root, content_type, web_cache):
+    """Return None for old vocabulary; new vocabulary needs exact context."""
+    parent = node.getparent()
+    if node.tag == w("locked"):
+        return (root.tag == w("styles") and content_type in {_WORD_CT_BASE + "styles+xml", "application/vnd.ms-word.stylesWithEffects+xml"}
+                and parent is not None and parent.tag == w("style") and parent.getparent() is root
+                and sum(child.tag == w("locked") for child in parent) == 1
+                and _leaf(node, (), {w("val")}) and node.get(w("val"), "on") in {"on", "off"})
+    if node.tag in {w("divBdr"), w("divsChild"), w("divs")}:
+        current = node
+        while current.getparent() is not None and current.getparent().tag != w("webSettings"):
+            current = current.getparent()
+        if current not in web_cache:
+            web_cache[current] = (root.tag == w("webSettings") and content_type == _WORD_CT_BASE + "webSettings+xml"
+                and current.tag == w("divs") and current.getparent() is root and _web_divs(current))
+        return web_cache[current]
+    if node.tag == "{" + _W14 + "}ligatures":
+        following = list(parent)[parent.index(node) + 1:] if parent is not None else []
+        original = parent is not None and parent.getparent() is not None and parent.getparent().tag == w("rPrChange")
+        return (root.tag in {w(n) for n in ("document", "hdr", "ftr", "comments", "footnotes", "endnotes")}
+                and content_type in _WORD_CONTENT_TYPES and parent is not None and parent.tag == w("rPr")
+                and _ligature_context(parent, root)
+                and _leaf(node, {"{" + _W14 + "}val"}) and node.get("{" + _W14 + "}val") in _LIGATURES
+                and (not original or not following)
+                and len(following) <= 1 and all(sibling.tag == w("rPrChange") for sibling in following))
+    return None
+
 
 def _limit(name, allowed, observed):
     if observed > allowed:
@@ -274,6 +539,7 @@ def inventory_package_revisions(payload: bytes) -> dict:
     if "[Content_Types].xml" not in package.parts:
         raise DocxError("DOCX package is missing [Content_Types].xml")
     blockers, revisions, parts = [], [], []
+    parsed_roots, declared_types, metadata_links, bound_metadata = {}, {}, [], set()
     xml_bytes = 0
     xml_nodes = 0
 
@@ -289,6 +555,7 @@ def inventory_package_revisions(payload: bytes) -> dict:
         xml_bytes += len(data)
         _limit("inventory_xml_bytes", MAX_INVENTORY_XML_BYTES, xml_bytes)
         root = parse_xml(data)
+        parsed_roots[name] = root
         # Existing per-part preflight already bounds attributes/namespaces.
         for node in root.iter():
             if not isinstance(node.tag, str):
@@ -334,6 +601,7 @@ def inventory_package_revisions(payload: bytes) -> dict:
                         if name == "[Content_Types].xml" else
                         overrides.get(name, defaults.get(name.rsplit(".", 1)[-1].lower())))
         row = {"part_name": name, "content_type": content_type, "inspection": "uninspected"}
+        declared_types[name] = content_type
         parts.append(row)
         if content_type is None:
             block("missing_part_content_type", name)
@@ -348,13 +616,33 @@ def inventory_package_revisions(payload: bytes) -> dict:
             continue
         root = types_root if name == "[Content_Types].xml" else parse(name, data)
         row["inspection"] = "xml"
+        # Root-only mutation proofs cannot account for document siblings, and
+        # processing instructions may declare semantics outside our vocabulary.
+        # Keep the shared XML reader compatible; refuse only this clean gate.
+        if (root.getprevious() is not None or root.getnext() is not None
+                or any(isinstance(node, etree._ProcessingInstruction) for node in root.iter())):
+            block("unsupported_auxiliary_xml", name, [])
+        metadata_ok = _metadata_part(root, content_type)
+        metadata_nodes = frozenset(root.iter()) if metadata_ok else frozenset()
+        metadata_roots = {"{" + ns + "}" + local for ns, local in (
+            (_W15, "people"), (_W15, "commentsEx"), (_W16CID, "commentsIds"),
+            (_W16CEX, "commentsExtensible"), (_SP_FORMS, "FormTemplates"))}
+        if root.tag in metadata_roots and not metadata_ok:
+            block("unsupported_auxiliary_xml", name, [])
+        if metadata_ok and (root.tag in {"{" + _W15 + "}people", "{" + _SP_FORMS + "}FormTemplates"}
+                or content_type in {_WORD_CT_BASE + "commentsIds+xml", _WORD_CT_BASE + "commentsExtensible+xml"}):
+            # Existing legacy comment MIME parts may remain orphaned inventory
+            # metadata. New canonical aliases and people need a proven binding;
+            # every explicit incoming edge is checked below in both directions.
+            bound_metadata.add(name)
         if (content_type in {"application/xml", "text/xml"}
                 and root.tag not in set(_TYPED_XML_ROOTS.values()) | {
                     "{" + _BIBLIOGRAPHY + "}Sources", "{" + _CT + "}Types",
-                }):
+                } and not metadata_ok):
             block("unsupported_auxiliary_xml", name, [])
         if (name.startswith("customXml/") and not name.endswith(".rels")
-                and root.tag not in {"{" + _BIBLIOGRAPHY + "}Sources", "{" + _CUSTOM_XML + "}datastoreItem"}):
+                and root.tag not in {"{" + _BIBLIOGRAPHY + "}Sources", "{" + _CUSTOM_XML + "}datastoreItem"}
+                and not (metadata_ok and root.tag == "{" + _SP_FORMS + "}FormTemplates")):
             block("unsupported_auxiliary_xml", name, [])
         if root.tag == w("numbering"):
             # Word can repair interleaved abstract/instance definitions by
@@ -409,6 +697,7 @@ def inventory_package_revisions(payload: bytes) -> dict:
             else:
                 body = bodies[0]
         stack = [(root, [], False)]
+        web_cache = {}
         while stack:
             node, path, in_body = stack.pop()
             _limit("inventory_xml_depth", MAX_INVENTORY_DEPTH, len(path))
@@ -417,6 +706,13 @@ def inventory_package_revisions(payload: bytes) -> dict:
             in_body = in_body or node is body
             qname = etree.QName(node)
             local, namespace = qname.localname, qname.namespace
+            word_metadata = _word_metadata(node, root, content_type, web_cache)
+            if word_metadata is False:
+                block("unsupported_auxiliary_xml", name, path)
+            if ((namespace in {_W16CID, _W16CEX}
+                 or (namespace == _W15 and local in {"people", "person", "presenceInfo", "commentsEx", "commentEx"})
+                 or namespace == _SP_FORMS) and node not in metadata_nodes):
+                block("unsupported_auxiliary_xml", name, path)
             if local in _REVISION_NAMES:
                 supported = (namespace == W_NS and local in _ACCEPTABLE_KINDS
                              and name == DOCUMENT_PART and in_body)
@@ -425,7 +721,7 @@ def inventory_package_revisions(payload: bytes) -> dict:
                 _limit("inventory_revisions", MAX_INVENTORY_REVISIONS, len(revisions))
                 if not supported:
                     block("unsupported_revision", name, path)
-            elif namespace == W_NS and local not in _W_NAMES:
+            elif namespace == W_NS and local not in _W_NAMES and word_metadata is not True:
                 block("unknown_wordprocessing_markup", name, path)
             if namespace in _STANDARD_ELEMENT_NAMES and local not in _STANDARD_ELEMENT_NAMES[namespace]:
                 block("unknown_standard_xml_markup", name, path)
@@ -461,7 +757,8 @@ def inventory_package_revisions(payload: bytes) -> dict:
             ):
                 block("stray_revision_atom", name, path)
             if (namespace not in _STANDARD_NAMESPACES
-                    and local not in _KNOWN_EXTENSION_NAMES.get(namespace, ())):
+                    and local not in _KNOWN_EXTENSION_NAMES.get(namespace, ())
+                    and node not in metadata_nodes and word_metadata is not True):
                 block("unknown_xml_namespace", name, path)
             # Embedded content and alternate representations are not proven by
             # merely finding zero recognized revision tags in their outer XML.
@@ -476,12 +773,38 @@ def inventory_package_revisions(payload: bytes) -> dict:
                 if (attr.namespace and attr.namespace not in _STANDARD_NAMESPACES
                         and attr.namespace != _ODREL.rstrip("/")
                         and attr.localname not in _KNOWN_EXTENSION_ATTRIBUTES.get(attr.namespace, ())
-                        and (attr.namespace, attr.localname) not in _BENIGN_EXTENSION_ATTRIBUTES):
+                        and (attr.namespace, attr.localname) not in _BENIGN_EXTENSION_ATTRIBUTES
+                        and node not in metadata_nodes):
                     block("unknown_attribute_namespace", name, path)
             if root.tag == f"{{{_REL}}}Relationships" and node is not root:
-                _relationship(node, name, path, package.parts, block)
+                target = _relationship(node, name, path, package.parts, block)
+                if target is not None:
+                    metadata_links.append((name, path, node.get("Type"), target))
             for index in range(len(node) - 1, -1, -1):
                 stack.append((node[index], [*path, index], in_body))
+    validated_bindings, metadata_kinds = set(), set()
+    for relationship_part, path, kind, target in metadata_links:
+        rule = _METADATA_RELATIONSHIPS.get(kind)
+        root = parsed_roots.get(target)
+        target_rule = _METADATA_ROOT_RELATIONSHIPS.get(root.tag) if root is not None else None
+        if rule is not None or target_rule is not None:
+            expected_kind, allowed_types = target_rule if target_rule is not None else (None, ())
+            if (relationship_part != "word/_rels/document.xml.rels"
+                    or kind != expected_kind
+                    or declared_types.get(target) not in allowed_types
+                    or kind in metadata_kinds or target in validated_bindings):
+                block("unsupported_relationship", relationship_part, path)
+            else:
+                validated_bindings.add(target)
+                metadata_kinds.add(kind)
+        elif root is not None and root.tag == "{" + _SP_FORMS + "}FormTemplates":
+            if (relationship_part == "word/_rels/document.xml.rels" and kind == _ODREL + "customXml"
+                    and target not in validated_bindings):
+                validated_bindings.add(target)
+            else:
+                block("unsupported_relationship", relationship_part, path)
+    for name in bound_metadata - validated_bindings:
+        block("unsupported_auxiliary_xml", name, [])
     if DOCUMENT_PART not in package.parts:
         block("missing_main_document", DOCUMENT_PART)
     if "_rels/.rels" not in package.parts:
@@ -534,3 +857,5 @@ def _relationship(node, part_name, path, parts, block):
                                   else posixpath.join(source, decoded))
     if normalized_internal_package_part_name(resolved) != resolved or resolved not in parts:
         block("missing_relationship_target", part_name, path)
+        return None
+    return resolved

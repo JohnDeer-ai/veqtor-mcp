@@ -79,6 +79,20 @@ _DOMAINS = {
         strict=True,
     )
 }
+_W14 = "http://schemas.microsoft.com/office/word/2010/wordml"
+_LIGATURES = "{" + _W14 + "}ligatures"
+_LIGATURE_VALUE = "{" + _W14 + "}val"
+# MS-DOCX ST_Ligatures / CT_Ligatures. Only this closed leaf extension is
+# supported; other w14 formatting and shared paragraph-edit grammars stay closed.
+# https://learn.microsoft.com/en-us/openspecs/office_standards/ms-docx/9704b59f-bc49-4618-ac66-41beb82a0d7f
+_LIGATURE_VALUES = frozenset({
+    "none", "standard", "contextual", "historical", "discretional",
+    "standardContextual", "standardHistorical", "contextualHistorical",
+    "standardDiscretional", "contextualDiscretional", "historicalDiscretional",
+    "standardContextualHistorical", "standardContextualDiscretional",
+    "standardHistoricalDiscretional", "contextualHistoricalDiscretional", "all",
+})
+_DOMAINS["rPrChange"] |= {_LIGATURES}
 
 _CONTAINERS = {
     w("numPr"): ("ilvl", "numId"),
@@ -112,12 +126,31 @@ _CONTAINERS = {
 }
 
 
+def _known_decision_property(node):
+    if node.tag != _LIGATURES:
+        return node.tag in _PROPERTY_TAGS
+    props = node.getparent()
+    if props is None or props.tag != w("rPr"):
+        return False
+    children = [n for n in props if n.tag != w("rPrChange")]
+    return (
+        bool(children) and children[-1] is node
+        and len(props.findall(_LIGATURES)) == 1
+        and not len(node)
+        and set(node.attrib) == {_LIGATURE_VALUE}
+        and node.get(_LIGATURE_VALUE) in _LIGATURE_VALUES
+        and not (node.text or "").strip() and not (node.tail or "").strip()
+    )
+
+
 def _property_tree(node):
     """Closed child grammar: known scalar names cannot hide arbitrary XML."""
     if (node.text or "").strip() or (node.tail or "").strip():
         _fail(
             "property_revision_unsupported", "property markup contains unexpected text"
         )
+    if node.tag == _LIGATURES and not _known_decision_property(node):
+        _fail("property_revision_unsupported", "ligature formatting has unsupported shape or value")
     allowed = tuple(w(n) for n in _CONTAINERS.get(node.tag, ()))
     if any(child.tag not in allowed for child in node):
         _fail(
@@ -535,7 +568,7 @@ def _validate_text(root, nodes):
                 expected = w("t") if node.tag == w("ins") else w("delText")
                 if atom.tag == w("rPr"):
                     if any(
-                        n.tag not in _PROPERTY_TAGS or n.tag in _REVISION_TAGS
+                        not _known_decision_property(n) or n.tag in _REVISION_TAGS
                         for n in atom.iter()
                     ):
                         _fail(
@@ -603,7 +636,7 @@ def _validate_property(root, node):
                 )
             _property_tree(child)
             if any(
-                n.tag not in _PROPERTY_TAGS
+                not _known_decision_property(n)
                 or n.tag in _REVISION_TAGS
                 or (n.text or "").strip()
                 for n in child.iter()
@@ -628,6 +661,8 @@ def _validate_property(root, node):
                 "tblPrExChange": _TBLPREX,
             }[kind]
             order = [w(n) for n in names.split()]
+            if kind == "rPrChange":
+                order.append(_LIGATURES)
             if tags != sorted(tags, key=order.index):
                 _fail(
                     "property_revision_unsupported",

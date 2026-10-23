@@ -67,6 +67,7 @@ def test_wrong_expected_hash_refuses(source):
 
 @pytest.mark.parametrize("kind", ["leaf_symlink", "parent_symlink", "directory", "fifo"])
 def test_capture_refuses_symlinks_and_non_regular(source, tmp_path, kind):
+    original = source.read_bytes()
     candidate = tmp_path / "candidate.docx"
     if kind == "leaf_symlink":
         candidate.symlink_to(source)
@@ -79,7 +80,7 @@ def test_capture_refuses_symlinks_and_non_regular(source, tmp_path, kind):
         os.mkfifo(candidate)
     with pytest.raises(snapshots.SnapshotError):
         snapshots.capture_document_snapshot(candidate)
-    assert source.read_bytes() == _package()
+    assert source.read_bytes() == original
 
 
 def test_existing_hardlinked_source_is_readable(source, tmp_path):

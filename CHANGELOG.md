@@ -13,6 +13,13 @@ through its `published_at` timestamp.
   dependency proofs only for the same immutable bytes and reference semantics;
   retain full-context fallbacks and existing resource limits and refusals.
 
+- Inspect narrowly validated Office style, web-division, people, comment-identity
+  and FormTemplates metadata without modifying those parts. Preserve or restore
+  the documented ligature leaf in selective text/run-property decisions; unknown
+  extensions and dynamic custom schemas continue to block clean-copy export.
+  Refuse XML processing instructions and document nodes outside a part's root
+  before root-only mutation proofs could silently discard or overlook them.
+
 - Add an internal clean-copy candidate engine with a revision inventory across
   every package part. Accept supported main-body text, property and complete
   paragraph/row revisions in detached bytes, preserve other parts exactly, and
