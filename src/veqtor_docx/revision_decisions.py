@@ -203,11 +203,17 @@ def validate_target(target):
     }:
         validate_ref(target["deletion_ref"])
         validate_ref(target["insertion_ref"])
+    elif target.get("kind") == "paragraph_structure" and set(target) == {
+        "kind", "paragraph_mark_ref", "text_revision_refs"
+    }:
+        validate_ref(target["paragraph_mark_ref"])
+        refs = target["text_revision_refs"]
+        if not isinstance(refs, list) or not 1 <= len(refs) <= 64:
+            _fail("invalid_revision_target", "select every text revision with the paragraph mark")
+        for ref in refs:
+            validate_ref(ref)
     else:
-        _fail(
-            "invalid_revision_target",
-            "select one revision or an explicit deletion/insertion pair",
-        )
+        _fail("invalid_revision_target", "select a complete explicit revision unit")
 
 
 def reference(root, node, sha):
@@ -247,6 +253,12 @@ def resolve_target(root, sha, target):
     validate_target(target)
     if target["kind"] == "single":
         return [resolve(root, sha, target["revision_ref"])]
+    if target["kind"] == "paragraph_structure":
+        from ._drafting_paragraphs import paragraph_structure_unit
+        nodes = [resolve(root, sha, target["paragraph_mark_ref"]),
+                 *[resolve(root, sha, ref) for ref in target["text_revision_refs"]]]
+        paragraph_structure_unit(root, nodes)
+        return nodes
     nodes = [
         resolve(root, sha, target[key]) for key in ("deletion_ref", "insertion_ref")
     ]
@@ -272,6 +284,22 @@ def overlaps(left, right):
     return (
         left is right or left in right.iterancestors() or right in left.iterancestors()
     )
+
+
+
+def is_paragraph_unit(nodes):
+    parent = nodes[0].getparent()
+    return parent is not None and parent.tag == w("rPr") and (
+        parent.getparent() is not None and parent.getparent().tag == w("pPr")
+    ) and nodes[0].tag in {w("ins"), w("del")}
+
+
+def decision_domains(nodes):
+    if is_paragraph_unit(nodes):
+        from ._drafting_paragraphs import paragraph_structure_unit
+        unit = paragraph_structure_unit(nodes[0].getroottree().getroot(), nodes)
+        return [unit["paragraph"], unit["following"]]
+    return [n.getparent() if n.tag in {w(k) for k in PROPERTY_KINDS} else n for n in nodes]
 
 
 def decision_region(nodes):
@@ -431,6 +459,15 @@ def _validate_text(root, nodes):
             "revision_dependency_unsupported",
             "only isolated direct paragraph text revisions are supported",
         )
+    for candidate in (parent, parent.getprevious()):
+        if candidate is None or candidate.tag != w("p"):
+            continue
+        for tag in ("ins", "del"):
+            if candidate.find(f"{w('pPr')}/{w('rPr')}/{w(tag)}") is not None:
+                # An unsupported separator unit is still a dependency. Candidate
+                # discovery can fail on ranges or foreign history; that must not
+                # turn its text into an independently decidable revision.
+                _fail("paragraph_unit_unsupported", "paragraph-mark dependencies require a complete supported structural target")
     _main_context(root, parent)
     for node in nodes:
         if (
@@ -958,8 +995,52 @@ def _property_view(props, kind):
     return value
 
 
+
+def _paragraph_outcomes(root, nodes, parts):
+    from ._drafting_paragraphs import paragraph_structure_unit, paragraph_structure_outcome
+    from .paragraph_numbering import numbering_effects_for_deletion
+    unit = paragraph_structure_unit(root, nodes)
+    old = [unit["paragraph"], unit["following"]]
+    parent, index = old[0].getparent(), old[0].getparent().index(old[0])
+    outcomes = {action: paragraph_structure_outcome(unit, action) for action in ("accept", "reject")}
+    projections = {}
+    for action, chosen in outcomes.items():
+        clone = copy.deepcopy(root)
+        owner = clone
+        for i in _path(root, parent):
+            owner = owner[i]
+        _replace_span(owner, index, list(owner)[index:index + 2], copy.deepcopy(chosen))
+        for para in list(owner)[index:index + len(chosen)]:
+            _main_context(clone, para)
+            _require_style_dependencies(parts, para)
+        projections[action] = clone
+    longer = "accept" if unit["kind"] == "paragraph_insertion" else "reject"
+    shorter = "reject" if longer == "accept" else "accept"
+    paragraph_index = list(root.find(w("body")).iter(w("p"))).index(unit["content"])
+    numbering = numbering_effects_for_deletion(parts, projections[longer], projections[shorter], paragraph_index)
+    facts = {
+        "operation": "decide_revision", "revision_kind": unit["kind"],
+        "members": [{"kind": etree.QName(n).localname, "id": n.get(w("id")),
+                     "author": n.get(w("author")), "date": n.get(w("date"))} for n in nodes],
+        "current_text": "\n".join(_reading_text(_paragraph_segments(p)) for p in old),
+        "accepted_text": "\n".join(_reading_text(_paragraph_segments(p)) for p in outcomes["accept"]),
+        "rejected_text": "\n".join(_reading_text(_paragraph_segments(p)) for p in outcomes["reject"]),
+        "current_properties": None, "previous_properties": None,
+        "accept_refusal_code": None, "reject_refusal_code": None,
+        "fixed_width_validation_scope": "not_applicable", "table_validation_scope": "not_applicable",
+        "table_group_members": [],
+        "paragraph_numbering": {"accepted": numbering["before" if longer == "accept" else "after"],
+                                "rejected": numbering["before" if longer == "reject" else "after"]},
+    }
+    if any(len(facts[key]) > MAX_PREVIEW_CHARS for key in ("current_text", "accepted_text", "rejected_text")):
+        _fail("resource_limit_exceeded", "structural paragraph preview exceeds its text limit")
+    return old, outcomes, facts
+
+
 def _plan_outcomes(root, nodes, parts, defer_fixed_widths=False, table_group=None):
     """Describe and validate each outcome without choosing a write operation."""
+    if is_paragraph_unit(nodes):
+        return _paragraph_outcomes(root, nodes, parts)
     kind = etree.QName(nodes[0]).localname
     if len(nodes) == 2 or kind in {"ins", "del"}:
         _validate_text(root, nodes)
@@ -1144,6 +1225,7 @@ def read_document_revisions(path, file_sha256=None, *, offset=0, max_items=100):
         ref = reference(root, node, snapshot.sha256)
         refusal = None
         preview = None
+        structural_target = None
         try:
             planning_bytes += 2 * document_bytes
             if planning_bytes > MAX_FINGERPRINT_BYTES:
@@ -1151,7 +1233,15 @@ def read_document_revisions(path, file_sha256=None, *, offset=0, max_items=100):
                     "resource_limit_exceeded",
                     "reduce revision page size to bound outcome validation",
                 )
-            _, _, preview = _plan_outcomes(root, [node], package.parts)
+            selected = [node]
+            structural_target = None
+            if is_paragraph_unit(selected):
+                from ._drafting_paragraphs import paragraph_structure_candidates
+                selected = paragraph_structure_candidates(node) or selected
+                if len(selected) > 1:
+                    structural_target = {"kind": "paragraph_structure", "paragraph_mark_ref": ref,
+                                         "text_revision_refs": [reference(root, n, snapshot.sha256) for n in selected[1:]]}
+            _, _, preview = _plan_outcomes(root, selected, package.parts)
             # A readable revision can allow only one of the two decisions.
             # Preserve both refusal codes even when neither outcome is safe.
             preview["decision"] = (
@@ -1177,6 +1267,7 @@ def read_document_revisions(path, file_sha256=None, *, offset=0, max_items=100):
                 "supported": refusal is None,
                 "refusal_code": refusal,
                 "preview": preview,
+                **({"structural_target": structural_target} if structural_target is not None else {}),
             }
         )
     result = {

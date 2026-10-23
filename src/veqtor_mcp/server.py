@@ -1985,6 +1985,9 @@ def read_document_revisions(path: str, file_sha256: DraftingShaInput | None = No
     pass the first page's file_sha256. Unsupported structural/dependent revisions
     remain visible with refusal codes. A replacement must explicitly name its
     adjacent deletion and insertion; no automatic author/date grouping occurs.
+    A structural paragraph mark may expose structural_target: select that complete
+    mark/text-ref unit explicitly, never its mark alone. It describes a supported
+    paragraph insertion/deletion and both outcomes, including numbering effects.
     Property previews report current/previous XML as untrusted data. The two
     outcome refusal codes describe independent accept/reject feasibility.
     A complete explicitly selected table-property group may pass batch preflight
@@ -2011,7 +2014,11 @@ def preflight_document_edits(source_path: str, file_sha256: DraftingShaInput,
     For iterative drafting, prefer this tool then apply_document_edits. Operations
     run in order. decide_revision requires an explicitly authorized accept/reject
     decision and target from read_document_revisions: single revision_ref or an
-    explicit adjacent deletion_ref/insertion_ref replacement pair. All six
+    explicit adjacent deletion_ref/insertion_ref replacement pair, or a complete
+    paragraph_structure target (paragraph_mark_ref plus all text_revision_refs).
+    Paragraph structural decisions preserve the surviving neighboring paragraph's
+    properties; references must be refreshed after any save, including Word.
+    All six
     property kinds and explicit row-level tblPrExChange companions are supported
     within their validated domains; no companions are selected automatically.
     Explicit same-table property groups validate their combined final geometry,
@@ -2024,7 +2031,12 @@ def preflight_document_edits(source_path: str, file_sha256: DraftingShaInput,
     (old_text/new_text), replace_paragraph (complete current old_text/new_text;
     default mode minimal; mode whole requires an explicit request for one
     whole-block tracked replacement, not merely complete new wording),
-    insert_paragraph (position before/after, text) and add_comment (quote/text).
+    insert_paragraph (position before/after, text), delete_paragraph (complete
+    old_text, accepted internal main-body paragraph), and add_comment (quote/text).
+    delete_paragraph tracks text and separator together. Last/only paragraphs,
+    table/section boundaries, fields/ranges/comments/bookmarks, conflicting
+    revisions and unresolved numbering refuse before save. The preview lists
+    accepted/rejected numbering effects; no literal numbers are pasted into text.
     Use comment_id from read_document_comments for update_comment (text),
     delete_comment, delete_comment_reply, delete_comment_thread (explicit complete
     member_comment_ids), reply_comment (text), or set_comment_resolved (resolved bool).

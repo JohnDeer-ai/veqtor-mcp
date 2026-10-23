@@ -280,7 +280,12 @@ headers, footnotes and other stories are not silently declared revision-free.
 A reference binds the full file hash, part, XML child-index path, exact revision
 fingerprint and immediate owner fingerprint. Word IDs and authors are display
 metadata; they do not select a revision. Reread after every save, including a
-Word save that only renumbers IDs. See [revision decisions](docs/REVISION_DECISIONS.md).
+Word save that only renumbers IDs. Supported paragraph-mark entries can advertise
+`structural_target`: `{kind: "paragraph_structure", paragraph_mark_ref,
+text_revision_refs}`. Selecting that entire explicit unit is required for
+paragraph insertion/deletion decisions; deciding only its text or mark refuses.
+Both clean projections preserve the surviving neighbor's properties and show
+resolved numbering effects. See [revision decisions](docs/REVISION_DECISIONS.md).
 
 ## `preflight_document_edits`
 
@@ -297,10 +302,11 @@ The closed operation shapes are:
 
 | `kind` | Other required fields | Behavior |
 |---|---|---|
-| `decide_revision` | `decision`, `target` | Explicitly accept/reject one exact revision or an explicitly selected adjacent deletion/insertion pair. See the decision contract. |
+| `decide_revision` | `decision`, `target` | Explicitly accept/reject one exact revision, a complete paragraph structural unit, or an explicitly selected adjacent deletion/insertion pair. See the decision contract. |
 | `replace_text` | `paragraph_ref`, `old_text`, `new_text` | Replace one unique exact match in the current reading. |
 | `replace_paragraph` | `paragraph_ref`, `old_text`, `new_text` | Require the complete current reading to equal `old_text`; default optional `mode="minimal"` tracks changed word/token spans. Explicit `mode="whole"` replaces all text. |
 | `insert_paragraph` | `paragraph_ref`, `position`, `text` | Insert one tracked paragraph `before` or `after` the source paragraph. |
+| `delete_paragraph` | `paragraph_ref`, `old_text` | Track the complete accepted internal main-body paragraph and its separator; show numbering effects for both outcomes. |
 | `add_comment` | `paragraph_ref`, `quote`, `text` | Anchor a new authored comment to one supported exact quote. |
 | `update_comment` | `comment_id`, `text` | Replace a supported comment body belonging to the selected author. |
 | `delete_comment` | `comment_id` | Delete a supported unthreaded comment belonging to the selected author. |

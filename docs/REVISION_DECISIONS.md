@@ -145,8 +145,9 @@ paragraph and ancestor-table context. Keeping text with an unresolved style
 refuses; removing that text can remain valid if the surviving context resolves.
 Bookmarks and comments outside the selected wrapper remain in place. Anchors
 inside it, fields (including fields spanning paragraphs), nested counters, move revisions, unknown wrappers and
-paragraph/row/cell-existence history refuse. These are distinct from unsupported
-structural paragraph/row acceptance and rejection planned for later work.
+paragraph/row/cell-existence history refuse through isolated text targets.
+Supported complete paragraph units use the explicit structural contract below;
+arbitrary row/cell-existence history still requires separate later support.
 Main-story fields and revision/permission ranges are checked across paragraph,
 body, table, row and cell boundaries; hidden markup cannot close their scope.
 Headers, footnotes and other non-main stories are explicitly uninspected.
@@ -176,3 +177,37 @@ form still requires separate native Word accept/reject oracle copies plus
 save/close/reopen and a fresh-reference decision after a Word save. Synthetic
 XML tests and this document do not claim that native gate, real-corpus acceptance,
 publication or complete action journaling has passed.
+
+
+## Explicit paragraph structural units
+
+`delete_paragraph` selects a current `paragraph_ref` and the complete `old_text`.
+It tracks every accepted direct run and the paragraph separator. The first
+supported deletion is an internal main-body paragraph with a compatible next
+paragraph. Acceptance removes the clause and separator; rejection restores the
+clause. The successor's paragraph properties remain its own.
+
+The inventory can advertise `structural_target` on a supported paragraph-mark
+entry. A `paragraph_structure` decision must explicitly supply that mark's
+`paragraph_mark_ref` and the complete ordered `text_revision_refs`. Single-mark,
+incomplete, duplicate, stale, nested and overlapping selections refuse. Shape,
+full snapshot references and both outcomes establish the unit; author, date and
+numeric revision IDs do not establish ownership or grouping.
+
+Supported inserted paragraph forms include existing Veqtor insertions before
+and after an anchor, including the inserted mark on the anchor in the latter
+case. A decision replaces an exact two-paragraph span. Its independent inverse
+must restore that full span, including all properties and unselected content.
+
+`paragraph_numbering.accepted` and `.rejected` show bounded, resolved numbering
+effects for the two clean projections. The initial numbering grammar is direct
+or style-inherited single-level decimal numbering, including a proved simple
+start override; unknown formats, unresolved styles/definitions and unsupported
+restart dependencies refuse. Numbers remain Word numbering, never literal text.
+
+Final/only paragraphs, table/section boundaries, fields, bookmarks, comments,
+permission/revision ranges and conflicting local revisions are outside this
+initial deletion domain. A whole bilingual table row is a separate operation.
+These structural shapes require independent accept/reject native Word evidence;
+a successful library projection alone does not establish native acceptance.
+The operation journal remains explicitly disabled until its separate integration.

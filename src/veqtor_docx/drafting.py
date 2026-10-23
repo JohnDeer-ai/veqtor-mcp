@@ -31,7 +31,7 @@ from ._drafting_comments import (
     set_comment_resolved,
     update_comment,
 )
-from ._drafting_paragraphs import insert_paragraph, replace_paragraph
+from ._drafting_paragraphs import delete_paragraph, insert_paragraph, replace_paragraph
 from ._drafting_io import publish_document
 from ._drafting_text import annotation_date, parse_drafting_timestamp, replace_text
 from ._ooxml import (
@@ -107,6 +107,7 @@ _OP_KEYS = {
     "replace_text": {"kind", "paragraph_ref", "old_text", "new_text"},
     "replace_paragraph": {"kind", "paragraph_ref", "old_text", "new_text"},
     "insert_paragraph": {"kind", "paragraph_ref", "position", "text"},
+    "delete_paragraph": {"kind", "paragraph_ref", "old_text"},
     "add_comment": {"kind", "paragraph_ref", "quote", "text"},
     "update_comment": {"kind", "comment_id", "text"},
     "delete_comment": {"kind", "comment_id"},
@@ -570,16 +571,17 @@ def _check_revision_preservation(
                     applied["new_text"],
                 )
             )
-    if operation in {"insert", "insert_paragraph"}:
+    if operation in {"insert", "insert_paragraph", "delete_paragraph"}:
         for revision_id in applied["revision_ids"]:
             expected_text = (
-                "" if operation == "insert_paragraph"
+                "" if operation in {"insert_paragraph", "delete_paragraph"}
                 and revision_id == applied["paragraph_mark_revision_id"]
                 else applied["text"] if operation == "insert_paragraph"
+                else applied["old_text"] if operation == "delete_paragraph"
                 else applied["new_text"]
             )
             allowed.append((
-                (w("ins"), tuple(sorted({
+                (w("del") if operation == "delete_paragraph" else w("ins"), tuple(sorted({
                     w("id"): revision_id, w("author"): author,
                     **({w("date"): date} if date is not None else {}),
                 }.items()))),
@@ -726,15 +728,15 @@ def _prepare(
                        if (table := decisions.decision_table(nodes)) is not None}
     # Resolve all addresses before any mutation. A batch cannot retarget a
     # decision because an earlier edit shifted XML positions or changed text.
-    comment_rows = read_comments(parts, document) if decision_nodes and any(
+    comment_rows = read_comments(parts, document) if (decision_nodes or any(op["kind"] == "delete_paragraph" for op in operations)) and any(
         "comment_id" in op for op in operations) else []
     for i, region in decision_regions.items():
         for j, op in enumerate(operations):
             if i == j:
                 continue
             if j in decision_nodes:
-                left = [n.getparent() if n.tag in {w(k) for k in decisions.PROPERTY_KINDS} else n for n in decision_nodes[i]]
-                right = [n.getparent() if n.tag in {w(k) for k in decisions.PROPERTY_KINDS} else n for n in decision_nodes[j]]
+                left = decisions.decision_domains(decision_nodes[i])
+                right = decisions.decision_domains(decision_nodes[j])
                 if any(decisions.overlaps(a, b) for a in left for b in right):
                     raise ApplyError("revision_operation_overlap", "selected revision domains overlap", operation_index=max(i, j))
                 continue
@@ -745,10 +747,32 @@ def _prepare(
             if "comment_id" in op:
                 regions += [paragraphs[k].element for row in comment_rows
                     if row["id"] == op["comment_id"] for k in row["paragraph_indexes"]]
-            if any(decisions.overlaps(region, item) for item in regions):
+            if any(decisions.overlaps(domain, item) for domain in decisions.decision_domains(decision_nodes[i]) for item in regions):
                 raise ApplyError("revision_operation_overlap",
                     "decisions and overlapping operations require separate saves and fresh references",
                     operation_index=max(i, j))
+    for i, op in enumerate(operations):
+        if op["kind"] != "delete_paragraph":
+            continue
+        paragraph = paragraphs[resolved[i]].element
+        region = [paragraph, paragraph.getnext()]
+        for j, other_op in enumerate(operations):
+            if i == j:
+                continue
+            others = decisions.decision_domains(decision_nodes[j]) if j in decision_nodes else []
+            if j in resolved:
+                other = paragraphs[resolved[j]].element
+                others += [other]
+                if other_op["kind"] == "delete_paragraph":
+                    others += [other.getnext()]
+            if "comment_id" in other_op:
+                selected_ids = {other_op["comment_id"], *other_op.get("member_comment_ids", [])}
+                others += [paragraphs[k].element for row in comment_rows if row["id"] in selected_ids
+                           for k in row["paragraph_indexes"]]
+            if any(a is not None and b is not None and decisions.overlaps(a, b)
+                   for a in region for b in others):
+                raise ApplyError("paragraph_operation_overlap", "structural deletion overlaps another operation",
+                                 operation_index=max(i, j))
     table_groups = decisions.table_decision_groups(document, decision_nodes, operations)
     decision_patches = []
     source_elements = [p.element for p in paragraphs]
@@ -797,7 +821,17 @@ def _prepare(
                     raise ApplyError("round_trip_failed", "revision decision changed content outside its exact patch")
                 decision_patches.append(patch)
                 region = decision_regions[index]
-                affected = [region] if region.tag == w("p") else list(region.iter(w("p")))
+                if decisions.is_paragraph_unit(decision_nodes[index]):
+                    original_paragraphs = list(patch.before)
+                    # Exact patch replacement changes the identities and count of
+                    # the two participating paragraphs, never unrelated nodes.
+                    before_position = next(k for k, p in enumerate(expected_elements)
+                                           if p is region)
+                    actual = list(patch.parent)[patch.index:patch.index + len(patch.after)]
+                    expected_elements[before_position:before_position + len(original_paragraphs)] = actual
+                    affected = actual
+                else:
+                    affected = [region] if region.tag == w("p") else list(region.iter(w("p")))
                 for paragraph in affected:
                     touched.add(paragraph)
                     expected_text[paragraph] = _reading_text(_paragraph_segments(paragraph))
@@ -805,7 +839,7 @@ def _prepare(
                         etree.tostring(n, method="c14n", exclusive=True) for n in paragraph.findall(w("pPr")))
                 applied["target"] = op["target"]
                 applied["actor_profile"] = {"name": author, "initials": initials}
-            elif kind in {"replace_text", "replace_paragraph", "insert_paragraph", "add_comment"}:
+            elif kind in {"replace_text", "replace_paragraph", "insert_paragraph", "delete_paragraph", "add_comment"}:
                 pindex = resolved[index]
                 paragraph = paragraphs[pindex].element
                 _require_drafting_context(document, {paragraph}, author)
@@ -867,6 +901,29 @@ def _prepare(
                     if expected_text[paragraph] != op["old_text"]:
                         raise ApplyError("round_trip_failed", "unexpected whole paragraph scope")
                     expected_text[paragraph] = op["new_text"]
+                    applied["paragraph_index"] = pindex
+                    allowed_parts |= {_SETTINGS_PART, _RELS_PART, _CT_PART}
+                elif kind == "delete_paragraph":
+                    before_deletion = copy.deepcopy(document)
+                    applied = delete_paragraph(paragraph, op["old_text"], author, allocator, timestamp=timestamp)
+                    mark = paragraph.find(f"{w('pPr')}/{w('rPr')}/{w('del')}")
+                    selected = [mark, paragraph.find(w("del"))]
+                    _, _, deletion_facts = decisions._paragraph_outcomes(document, selected, parts)
+                    applied["paragraph_numbering"] = deletion_facts["paragraph_numbering"]
+                    # An independent inverse removes only the new identities and
+                    # restores direct accepted runs in the exact source paragraph.
+                    from ._drafting_paragraphs import paragraph_structure_unit, paragraph_structure_outcome
+                    unit = paragraph_structure_unit(document, selected)
+                    rejected = paragraph_structure_outcome(unit, "reject")
+                    previous = list(before_deletion.iter(w("p")))[list(document.iter(w("p"))).index(paragraph)]
+                    normalized_previous = copy.deepcopy(previous)
+                    from ._drafting_paragraphs import _without_mark
+                    _without_mark(normalized_previous, "del")
+                    if etree.tostring(rejected[0]) != etree.tostring(normalized_previous):
+                        raise ApplyError("round_trip_failed", "paragraph deletion changed existing content or formatting")
+                    expected_text[paragraph] = ""
+                    expected_properties[paragraph] = tuple(
+                        etree.tostring(n, method="c14n", exclusive=True) for n in paragraph.findall(w("pPr")))
                     applied["paragraph_index"] = pindex
                     allowed_parts |= {_SETTINGS_PART, _RELS_PART, _CT_PART}
                 elif kind == "insert_paragraph":
@@ -971,7 +1028,7 @@ def _prepare(
             if hasattr(exc, "metadata"):
                 exc.metadata["operation_index"] = index
             raise
-    if any(op["kind"] in {"replace_text", "replace_paragraph", "insert_paragraph"} for op in operations):
+    if any(op["kind"] in {"replace_text", "replace_paragraph", "insert_paragraph", "delete_paragraph"} for op in operations):
         _enable_tracking(parts)
     parts[DOCUMENT_PART] = _xml(document)
     infos = list(package.infos)

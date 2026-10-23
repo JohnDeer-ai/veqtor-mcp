@@ -44,13 +44,15 @@ REVISION_REF = obj(
 DECISION_TARGET = {"oneOf": [
     obj(kind={"const": "single"}, revision_ref=REVISION_REF),
     obj(kind={"const": "replacement"}, deletion_ref=REVISION_REF, insertion_ref=REVISION_REF),
+    obj(kind={"const": "paragraph_structure"}, paragraph_mark_ref=REVISION_REF,
+        text_revision_refs={"type": "array", "minItems": 1, "maxItems": 64, "items": REVISION_REF}),
 ]}
 DECISION_INPUT = obj(kind={"const": "decide_revision"},
                      decision={"enum": ["accept", "reject"]}, target=DECISION_TARGET)
 DECISION_PREVIEW = obj(
     operation={"const": "decide_revision"}, decision={"enum": ["accept", "reject"]},
-    revision_kind={"enum": ["ins", "del", "replacement", "rPrChange", "pPrChange", "tcPrChange", "trPrChange", "tblPrChange", "tblGridChange", "tblPrExChange"]},
-    members={"type": "array", "minItems": 1, "maxItems": 2,
+    revision_kind={"enum": ["ins", "del", "replacement", "rPrChange", "pPrChange", "tcPrChange", "trPrChange", "tblPrChange", "tblGridChange", "tblPrExChange", "paragraph_insertion", "paragraph_deletion"]},
+    members={"type": "array", "minItems": 1, "maxItems": 65,
              "items": obj(kind=TEXT, id=nullable(TEXT), author=nullable(TEXT), date=nullable(TEXT))},
     current_text=NEW_TEXT, accepted_text=nullable(NEW_TEXT), rejected_text=nullable(NEW_TEXT),
     current_properties=nullable(NEW_TEXT), previous_properties=nullable(NEW_TEXT),
@@ -60,6 +62,18 @@ DECISION_PREVIEW = obj(
     table_group_members={"type": "array", "maxItems": 100,
                          "items": obj(revision_ref=REVISION_REF, decision={"enum": ["accept", "reject"]})},
 )
+NUMBERING_FACT = obj(
+    paragraph_index={"type": "integer", "minimum": 0}, p_style=nullable(TEXT),
+    style_chain={"type": "array", "maxItems": 64, "items": TEXT},
+    num_id=nullable(TEXT), abstract_num_id=nullable(TEXT), ilvl=nullable({"type": "integer", "minimum": 0, "maximum": 8}),
+    label=nullable(TEXT), value=nullable({"type": "integer"}), start=nullable({"type": "integer"}),
+    start_source=nullable({"enum": ["abstract_start", "level_override", "start_override"]}),
+    restart=nullable({"const": "continuous_level_zero"}),
+)
+PARAGRAPH_NUMBERING = obj(**{action: {"type": "array", "maxItems": 1000, "items": NUMBERING_FACT}
+                            for action in ("accepted", "rejected")})
+# This is an optional additive field, present only for structural paragraph units.
+DECISION_PREVIEW["properties"]["paragraph_numbering"] = PARAGRAPH_NUMBERING
 _REPLACE_PARAGRAPH_INPUT = obj(
     kind={"const": "replace_paragraph"}, paragraph_ref=PARAGRAPH_REF_SCHEMA,
     old_text=NEW_TEXT, new_text=NEW_TEXT,
@@ -74,6 +88,7 @@ OPERATIONS = {"type": "array", "minItems": 1, "maxItems": 100, "items": {"oneOf"
     _REPLACE_PARAGRAPH_INPUT,
     obj(kind={"const": "insert_paragraph"}, paragraph_ref=PARAGRAPH_REF_SCHEMA,
         position={"enum": ["before", "after"]}, text=NONEMPTY),
+    obj(kind={"const": "delete_paragraph"}, paragraph_ref=PARAGRAPH_REF_SCHEMA, old_text=NONEMPTY),
     obj(kind={"const": "add_comment"}, paragraph_ref=PARAGRAPH_REF_SCHEMA,
         quote=NONEMPTY, text=NONEMPTY),
     obj(kind={"const": "update_comment"}, comment_id=NONEMPTY, text=NONEMPTY),
@@ -169,6 +184,12 @@ _INSERT_PARAGRAPH = obj(
     paragraph_mark_revision_id=NONEMPTY, text_revision_id=NONEMPTY,
     paragraph_index={"type": "integer", "minimum": 0},
 )
+_DELETE_PARAGRAPH = obj(
+    index=_INDEX, operation={"const": "delete_paragraph"}, old_text=NONEMPTY,
+    revision_ids={**_REVISION_IDS, "minItems": 2}, paragraph_mark_revision_id=NONEMPTY,
+    text_revision_id=NONEMPTY, paragraph_index={"type": "integer", "minimum": 0},
+    paragraph_numbering=PARAGRAPH_NUMBERING,
+)
 _PARAGRAPH_STEP = {
     "type": "object",
     "properties": {k: v for k, v in _TEXT_OPERATION["properties"].items()
@@ -217,11 +238,12 @@ _REPLACE_PARAGRAPH = obj(
     steps={"type": "array", "minItems": 1, "maxItems": MAX_PARAGRAPH_EDIT_STEPS,
            "items": _PARAGRAPH_STEP},
 )
-_DECISION_APPLIED = obj(**DECISION_PREVIEW["properties"], index=_INDEX,
+_DECISION_APPLIED = obj(**{k: v for k, v in DECISION_PREVIEW["properties"].items() if k != "paragraph_numbering"}, index=_INDEX,
                         target=DECISION_TARGET, actor_profile=AUTHOR_PROFILE)
+_DECISION_APPLIED["properties"]["paragraph_numbering"] = PARAGRAPH_NUMBERING
 _APPLIED = {"type": "array", "maxItems": 100,
             "items": {"oneOf": [_TEXT_OPERATION, _COMMENT_OPERATION, _DELETE_REPLY_OPERATION, _DELETE_THREAD_OPERATION,
-                              _INSERT_PARAGRAPH, _REPLACE_PARAGRAPH, _DECISION_APPLIED]}}
+                              _INSERT_PARAGRAPH, _DELETE_PARAGRAPH, _REPLACE_PARAGRAPH, _DECISION_APPLIED]}}
 COMMENTS_RESULT = obj(**_COMMON, source_path=TEXT, file_sha256=SHA,
                       comments={"type": "array", "maxItems": 100, "items": _COMMENT},
                       total_count={"type": "integer", "minimum": 0},
@@ -236,6 +258,7 @@ REVISIONS_RESULT = obj(
     next_offset=nullable({"type": "integer", "minimum": 0}),
     coverage={"const": "main_document_only"}, uninspected_parts={"type": "array", "items": TEXT},
 )
+REVISIONS_RESULT["properties"]["revisions"]["items"]["properties"]["structural_target"] = DECISION_TARGET["oneOf"][2]
 PREFLIGHT_RESULT = obj(**_COMMON, batch_applicable={"type": "boolean"}, source_sha256=SHA,
                        tracked_change_author=TEXT, comment_initials=TEXT, operations=_APPLIED,
                        preflight_proof=nullable(PROOF), refusal_code=nullable(TEXT),

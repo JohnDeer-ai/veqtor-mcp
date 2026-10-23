@@ -12,6 +12,9 @@ Unreleased paragraph and comment-thread drafting candidate. This entry describes
 source behavior; it does not establish installation, native Word acceptance or
 public distribution.
 
+- Add explicit tracked internal paragraph deletion and complete paragraph
+  structural decision targets, with resolved numbering effects and exact
+  neighbor-property preservation.
 - Validate explicitly selected same-table property decisions as a group before
   applying their exact local patches. Support compatible grid/span and
   grid/omitted-column outcomes without choosing companions automatically.
