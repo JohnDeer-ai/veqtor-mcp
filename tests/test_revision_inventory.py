@@ -117,6 +117,43 @@ def test_arbitrary_auxiliary_xml_cannot_borrow_standard_namespace(namespace):
     assert not result["clean_eligible"]
 
 
+@pytest.mark.parametrize("malformed", [None, "unknown_child", "unknown_attribute", "wrong_uri", "bad_id"])
+def test_word_theme_family_is_narrow_leaf_metadata(malformed):
+    drawing = "http://schemas.openxmlformats.org/drawingml/2006/main"
+    theme = xml(f'<a:theme xmlns:a="{drawing}" xmlns:t="{inventory._THEME_2012}">'
+                '<a:extLst><a:ext uri="{05A4C25C-085E-4340-85A3-A5531E510DB2}">'
+                '<t:themeFamily name="Fictional Theme" id="{2E142A2C-CD16-42D6-873A-C26D2A0506FA}" '
+                'vid="{1BDDFF52-6CD6-40A5-AB3C-68EB2F1E4D0A}"/></a:ext></a:extLst></a:theme>')
+    family = next(theme.iter("{" + inventory._THEME_2012 + "}themeFamily"))
+    if malformed == "unknown_child":
+        etree.SubElement(family, "{" + inventory._THEME_2012 + "}futureRevision")
+    elif malformed == "unknown_attribute":
+        family.set("future", "UEsDBA==")
+    elif malformed == "wrong_uri":
+        family.getparent().set("uri", "unknown")
+    elif malformed == "bad_id":
+        family.set("id", "arbitrary data")
+    result = inventory.inventory_package_revisions(package(extras=[
+        ("word/theme/theme1.xml", "application/vnd.openxmlformats-officedocument.theme+xml", theme)]))
+    assert result["clean_eligible"] is (malformed is None)
+
+
+@pytest.mark.parametrize("wrapper", [
+    '<a:ext uri="{00000000-0000-0000-0000-000000000001}">{}</a:ext>',
+    '{}',
+])
+def test_theme_extension_container_cannot_carry_unknown_schema(wrapper):
+    drawing = "http://schemas.openxmlformats.org/drawingml/2006/main"
+    types = "http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"
+    opaque = '<v:lpwstr>UEsDBA==</v:lpwstr>'
+    contents = wrapper.replace('{}', opaque)
+    root = xml(f'<a:theme xmlns:a="{drawing}" xmlns:v="{types}"><a:extLst>{contents}</a:extLst></a:theme>')
+    result = inventory.inventory_package_revisions(package(extras=[
+        ("word/theme/theme1.xml", "application/vnd.openxmlformats-officedocument.theme+xml", root)]))
+    assert "unsupported_auxiliary_xml" in codes(result)
+    assert not result["clean_eligible"]
+
+
 @pytest.mark.parametrize("kind", sorted(inventory._ACCEPTABLE_KINDS))
 def test_supported_location_is_type_fact_not_shape_promise(kind):
     # Deliberately malformed decision shape: inventory promises no applicability.

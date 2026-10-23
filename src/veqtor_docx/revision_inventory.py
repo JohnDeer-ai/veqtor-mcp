@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import posixpath
+import re
 from urllib.parse import unquote, urlsplit
 
 from lxml import etree
@@ -37,6 +38,9 @@ _MC = "http://schemas.openxmlformats.org/markup-compatibility/2006"
 _W14 = "http://schemas.microsoft.com/office/word/2010/wordml"
 _W15 = "http://schemas.microsoft.com/office/word/2012/wordml"
 _W16DU = "http://schemas.microsoft.com/office/word/2023/wordml/word16du"
+_THEME_2012 = "http://schemas.microsoft.com/office/thememl/2012/main"
+_DRAWING = "http://schemas.openxmlformats.org/drawingml/2006/main"
+_THEME_URI = "{05A4C25C-085E-4340-85A3-A5531E510DB2}"
 _W16CID = "http://schemas.microsoft.com/office/word/2016/wordml/cid"
 _W16CEX = "http://schemas.microsoft.com/office/word/2018/wordml/cex"
 _CUSTOM_XML = "http://schemas.openxmlformats.org/officeDocument/2006/customXml"
@@ -121,6 +125,7 @@ _SAFE_XML_CONTENT_TYPES = _WORD_CONTENT_TYPES | frozenset({
     "application/vnd.openxmlformats-officedocument.customXmlProperties+xml",
 })
 _TYPED_XML_ROOTS = {
+    "application/vnd.openxmlformats-officedocument.theme+xml": "{" + _DRAWING + "}theme",
     **{_WORD_CT_BASE + suffix + "+xml": w(root) for suffix, root in (
         ("document.main", "document"), ("styles", "styles"), ("settings", "settings"),
         ("fontTable", "fonts"), ("webSettings", "webSettings"), ("numbering", "numbering"),
@@ -174,7 +179,7 @@ _STANDARD_ELEMENT_NAMES = {
         gs gsLst hlink latin lightRig lin ln lnDef lnRef lnStyleLst lstStyle lt1 lt2
         majorFont minorFont objectDefaults outerShdw path prstDash rot satMod
         scene3d schemeClr shade solidFill sp3d spDef spPr srgbClr style sysClr
-        theme themeElements themeOverride tint noFill blip blipFill srcRect
+        theme themeElements themeOverride tint lumMod miter extLst noFill blip blipFill srcRect
         stretch tile xfrm off ext chOff chExt prstGeom avLst custGeom gdLst gd
         ahLst cxnLst rect pathLst moveTo lnTo close arcTo cubicBezTo quadBezTo pt
         graphic graphicData graphicFrameLocks picLocks hlinkClick hlinkHover
@@ -207,6 +212,7 @@ _BENIGN_EXTENSION_ATTRIBUTES = frozenset({
     (_W15, "collapsed"), (_W16DU, "dateUtc"),
 })
 _KNOWN_EXTENSION_NAMES = {
+    _THEME_2012: frozenset({"themeFamily"}),
     _W14: frozenset({"docId", "defaultImageDpi"}),
     _W15: frozenset({"commentsEx", "commentEx", "docId"}),
     _W16CID: frozenset({"commentsIds", "commentId"}),
@@ -423,6 +429,32 @@ def inventory_package_revisions(payload: bytes) -> dict:
                 block("unknown_wordprocessing_markup", name, path)
             if namespace in _STANDARD_ELEMENT_NAMES and local not in _STANDARD_ELEMENT_NAMES[namespace]:
                 block("unknown_standard_xml_markup", name, path)
+            if content_type == "application/vnd.openxmlformats-officedocument.theme+xml" and namespace not in {_DRAWING, _THEME_2012}:
+                block("unsupported_auxiliary_xml", name, path)
+            if node.tag == "{" + _DRAWING + "}extLst":
+                if (node.attrib or (node.text or "").strip()
+                        or any(child.tag != "{" + _DRAWING + "}ext" or (child.tail or "").strip() for child in node)):
+                    block("unsupported_auxiliary_xml", name, path)
+            if node.tag == "{" + _DRAWING + "}ext" and (
+                node.get("uri") is not None
+                or node.getparent() is not None and node.getparent().tag == "{" + _DRAWING + "}extLst"
+            ):
+                if (node.getparent() is None or node.getparent().tag != "{" + _DRAWING + "}extLst"
+                        or node.attrib != {"uri": _THEME_URI} or len(node) != 1
+                        or node[0].tag != "{" + _THEME_2012 + "}themeFamily"
+                        or (node.text or "").strip() or (node[0].tail or "").strip()):
+                    block("unsupported_auxiliary_xml", name, path)
+            if namespace == _THEME_2012:
+                parent = node.getparent()
+                if (local != "themeFamily" or len(node) or (node.text or "").strip()
+                        or set(node.attrib) != {"name", "id", "vid"}
+                        or not 0 < len(node.get("name", "")) <= 255
+                        or any(re.fullmatch(r"\{[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}\}", node.get(key, "")) is None
+                               for key in ("id", "vid"))
+                        or parent is None
+                        or parent.tag != "{http://schemas.openxmlformats.org/drawingml/2006/main}ext"
+                        or parent.attrib != {"uri": _THEME_URI}):
+                    block("unsupported_auxiliary_xml", name, path)
             if node.tag in {w("delText"), w("delInstrText")} and not any(
                 ancestor.tag in {w("del"), w("moveFrom"), w("conflictDel")}
                 for ancestor in node.iterancestors()
