@@ -123,12 +123,100 @@ def test_explicit_start_is_not_assumed_to_be_one(start):
     assert _labels(_parts(level=_level(start)), _document(_paragraph(num=1), _paragraph(num=1)), [0, 1]) == [f"{start}.", f"{start + 1}."]
 
 
-def test_new_numbering_instance_starts_its_own_counter():
+def test_shared_abstract_without_explicit_restart_is_not_assumed_independent():
     parts = _parts(instances='''
       <w:num w:numId="1"><w:abstractNumId w:val="9"/></w:num>
       <w:num w:numId="2"><w:abstractNumId w:val="9"/></w:num>''')
     root = _document(*[_paragraph(num=num) for num in (1, 1, 2, 2, 1)])
+    _refusal(parts, root, list(range(5)), "implicit_instance_restart")
+
+
+def test_distinct_abstracts_have_independent_counters_when_their_instances_interleave():
+    parts = _parts(instances='''
+      <w:num w:numId="1"><w:abstractNumId w:val="9"/></w:num>
+      <w:num w:numId="2"><w:abstractNumId w:val="8"/></w:num>''',
+      extra='<w:abstractNum w:abstractNumId="8">' + _level() + '</w:abstractNum>')
+    root = _document(*[_paragraph(num=num) for num in (1, 1, 2, 2, 1)])
     assert _labels(parts, root, list(range(5))) == ["1.", "2.", "1.", "2.", "3."]
+
+
+def _shared_restart_parts():
+    return _parts(instances='''
+      <w:num w:numId="1"><w:abstractNumId w:val="9"/></w:num>
+      <w:num w:numId="2"><w:abstractNumId w:val="9"/>
+        <w:lvlOverride w:ilvl="0"><w:startOverride w:val="7"/></w:lvlOverride></w:num>''')
+
+
+@pytest.mark.parametrize("requested", [[0, 1, 2], [2], [0, 2], [3]])
+def test_return_to_shared_abstract_instance_refuses_even_when_other_instance_is_not_requested(requested):
+    root = _document(*[_paragraph(num=num) for num in (1, 2, 1, 2)])
+    _refusal(_shared_restart_parts(), root, requested, "interleaved_numbering_instances")
+
+
+def test_consecutive_shared_abstract_blocks_with_explicit_restart_stay_supported():
+    root = _document(*[_paragraph(num=num) for num in (1, 1, 2, 2)])
+    assert _labels(_shared_restart_parts(), root, [0, 1, 2, 3]) == ["1.", "2.", "7.", "8."]
+
+
+def test_replacement_level_start_is_not_unproved_restart_for_a_second_shared_instance():
+    parts = _parts(instances='''
+      <w:num w:numId="1"><w:abstractNumId w:val="9"/></w:num>
+      <w:num w:numId="2"><w:abstractNumId w:val="9"/>
+        <w:lvlOverride w:ilvl="0">''' + _level(start=7) + '''</w:lvlOverride></w:num>''')
+    root = _document(_paragraph(num=1), _paragraph(num=2))
+    _refusal(parts, root, [0, 1], "implicit_instance_restart")
+
+
+def test_same_instance_resumes_after_ordinary_text_without_false_return_refusal():
+    root = _document(_paragraph(num=1), _paragraph(), _paragraph(num=1))
+    assert _labels(_shared_restart_parts(), root, [0, 1, 2]) == ["1.", None, "2."]
+
+
+def test_interleaving_after_last_requested_label_does_not_change_an_earlier_label():
+    root = _document(*[_paragraph(num=num) for num in (1, 2, 1)])
+    assert _labels(_shared_restart_parts(), root, [0, 1]) == ["1.", "7."]
+
+
+def test_unused_instance_sharing_selected_abstract_does_not_block():
+    root = _document(_paragraph(num=1), _paragraph(num=1))
+    assert _labels(_shared_restart_parts(), root, [0, 1]) == ["1.", "2."]
+
+
+def test_other_instance_in_text_box_story_does_not_create_main_story_return():
+    root = _document(
+        _paragraph(num=1),
+        '<w:p><w:r><w:pict><w:txbxContent>' + _paragraph(num=2)
+        + '</w:txbxContent></w:pict></w:r></w:p>',
+        _paragraph(num=1),
+    )
+    assert _labels(_shared_restart_parts(), root, [0, 3]) == ["1.", "2."]
+
+
+def test_unsupported_container_of_other_shared_instance_is_not_skipped():
+    root = _document(_paragraph(num=1), '<w:unprovedBlock>' + _paragraph(num=2)
+                     + '</w:unprovedBlock>', _paragraph(num=1))
+    _refusal(_shared_restart_parts(), root, [2], "unknown_numbering_container")
+
+
+def test_prior_unknown_style_cannot_hide_another_shared_instance():
+    root = _document(_paragraph(num=1), _paragraph(style="Missing"), _paragraph(num=1))
+    _refusal(_shared_restart_parts(), root, [2], "missing_or_duplicate_style")
+
+
+def test_structural_effects_include_later_other_instance_in_shared_family():
+    before = _document(*[_paragraph(num=num) for num in (1, 1, 2, 2)])
+    after = _document(*[_paragraph(num=num) for num in (1, 2, 2)])
+    effects = numbering.numbering_effects_for_deletion(_shared_restart_parts(), before, after, 0)
+    assert [(item["paragraph_index"], item["label"]) for item in effects["before"]] == [(0, "1."), (1, "2."), (2, "7."), (3, "8.")]
+    assert [(item["paragraph_index"], item["label"]) for item in effects["after"]] == [(0, "1."), (1, "7."), (2, "8.")]
+
+
+def test_removing_only_restart_item_cannot_hide_later_return_to_original_instance():
+    before = _document(*[_paragraph(num=num) for num in (1, 2, 1)])
+    after = _document(*[_paragraph(num=num) for num in (1, 1)])
+    with pytest.raises(ApplyError) as raised:
+        numbering.numbering_effects_for_deletion(_shared_restart_parts(), before, after, 1)
+    assert raised.value.metadata["reason"] == "interleaved_numbering_instances"
 
 
 @pytest.mark.parametrize("with_replacement", [False, True])

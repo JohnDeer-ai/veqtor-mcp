@@ -4,8 +4,9 @@
 This intentionally does not reuse the citation reader's best-effort counters.
 Only explicit, single-level decimal lists are proved. Unsupported formats,
 style links, ambiguous definitions and restarts produce a controlled refusal.
-Numbering instances are independent; a start override applies at the first
-use of its instance, not every time that instance resumes after ordinary text.
+Distinct abstract definitions have independent counters. Shared abstracts are
+proved only for consecutive instance blocks with explicit restarts; returning
+to an earlier instance is refused because Word may continue a shared counter.
 
 Normative references: ISO/IEC 29500-1 17.9.7, 17.9.9, 17.9.11, 17.9.12,
 17.9.24, 17.9.26, 17.9.27, as reproduced in Microsoft Learn's LevelOverride,
@@ -181,6 +182,7 @@ class _Resolver:
         self._default_styles: list[str] = []
         self._effective: dict[int, _Effective] = {}
         self._levels: dict[str, _Level] = {}
+        self._instance_abstracts: dict[str, str] = {}
         self._formatting_work = 0
         self._invalid_default_style = False
         if self.styles is not None:
@@ -297,6 +299,78 @@ class _Resolver:
         if len(matches) != 1:
             _refuse(f"{name} is missing or duplicated", reason="missing_or_duplicate_definition")
         return matches[0]
+
+    def _instance_abstract_id(self, num_id: str) -> str:
+        """Identify a used dependency without parsing an unrelated list format."""
+        if num_id not in self._instance_abstracts:
+            instance = self._definition(self._nums, num_id, "numbering instance")
+            reference = _one(instance, "abstractNumId")
+            if reference is None:
+                _refuse("abstract numbering reference is missing", reason="missing_definition")
+            self._instance_abstracts[num_id] = _id(_value(reference), name="abstractNumId")
+        return self._instance_abstracts[num_id]
+
+    def related_numbering(self, indices: Sequence[int]) -> set[str]:
+        """Find actually used main-story instances sharing selected abstracts.
+
+        Structural callers need every later potentially affected label, even
+        when it uses another numId. Merely defined but unused instances and
+        separate text-box stories do not create counter dependencies.
+        """
+        needed = {self.effective(index).num_id for index in indices} - {None}
+        if not needed:
+            return set()
+        abstracts = {self.level(num_id).abstract_id for num_id in needed}
+        related = set(needed)
+        for index in range(len(self.paragraphs)):
+            context = self._story_context(index)
+            if context == "separate":
+                continue
+            fact = self.effective(index)
+            if fact.num_id is None:
+                continue
+            if self._instance_abstract_id(fact.num_id) in abstracts:
+                if context != "main":
+                    _refuse("an affected instance has an unsupported container", reason="unknown_numbering_container")
+                related.add(fact.num_id)
+        return related
+
+    def _guard_instance_usage(self, selected: Mapping[int, _Effective]) -> None:
+        needed = {fact.num_id for fact in selected.values()} - {None}
+        if not needed:
+            return
+        abstracts = {self.level(num_id).abstract_id for num_id in needed}
+        last = max(index for index, fact in selected.items() if fact.num_id in needed)
+        active: dict[str, str] = {}
+        used: dict[str, set[str]] = {}
+        for index in range(last + 1):
+            context = self._story_context(index)
+            if context == "separate":
+                continue
+            fact = self.effective(index)
+            if fact.num_id is None:
+                continue
+            abstract = self._instance_abstract_id(fact.num_id)
+            if abstract not in abstracts:
+                continue
+            if context != "main":
+                _refuse("an affected instance has an unsupported container", reason="unknown_numbering_container")
+            if fact.level != 0:
+                _refuse("affected sequence uses another numbering level", reason="level_mismatch")
+            if active.get(abstract) == fact.num_id:
+                continue
+            if fact.num_id in used.get(abstract, set()):
+                _refuse(
+                    "returning to an earlier instance of the same abstract numbering is unsupported",
+                    reason="interleaved_numbering_instances",
+                )
+            if abstract in active and self.level(fact.num_id).start_source != "start_override":
+                _refuse(
+                    "a subsequent instance of the same abstract requires an explicit restart",
+                    reason="implicit_instance_restart",
+                )
+            active[abstract] = fact.num_id
+            used.setdefault(abstract, set()).add(fact.num_id)
 
     def _formatting(self, node: etree._Element) -> None:
         for child in node.iter():
@@ -425,6 +499,7 @@ class _Resolver:
         selected = {index: self.effective(index) for index in requested}
         needed = {fact.num_id for fact in selected.values()} - {None}
         definitions = {num_id: self.level(num_id) for num_id in sorted(needed)}
+        self._guard_instance_usage(selected)
         counters: dict[str, int] = {}
         values: dict[int, int] = {}
         # A foreign unsupported *format* is never parsed. But an earlier
@@ -522,7 +597,7 @@ def numbering_effects_for_deletion(
         raise ApplyError("invalid_edit", "deleted numbering paragraph index is out of range")
     if len(before.paragraphs) != len(after.paragraphs) + 1:
         _refuse("numbering projections must differ by one paragraph", reason="invalid_projection")
-    affected = before.effective(deleted_index).num_id
+    affected = before.related_numbering([deleted_index])
     selected = {deleted_index}
     owner = before.paragraphs[deleted_index].getparent()
     for index in (deleted_index - 1, deleted_index + 1):
@@ -533,14 +608,14 @@ def numbering_effects_for_deletion(
             # the next cell or in body text is not this unit's neighbor.
             and before.paragraphs[index].getparent() is owner
             and before._story_context(index) == "main"
-            and before.effective(index).num_id in {None, affected}
+            and before.effective(index).num_id in affected | {None}
         ):
             selected.add(index)
-    if affected is not None:
+    if affected:
         for index in range(deleted_index + 1, len(before.paragraphs)):
             if before._story_context(index) == "separate":
                 continue
-            if before.effective(index).num_id == affected:
+            if before.effective(index).num_id in affected:
                 selected.add(index)
     indices = sorted(selected)
     return {

@@ -286,6 +286,10 @@ text_revision_refs}`. Selecting that entire explicit unit is required for
 paragraph insertion/deletion decisions; deciding only its text or mark refuses.
 Both clean projections preserve the surviving neighbor's properties and show
 resolved numbering effects. See [revision decisions](docs/REVISION_DECISIONS.md).
+Different numbering-instance IDs alone do not prove independent counters in
+Word. Ambiguous reuse of a shared abstract definition refuses; genuinely
+independent lists require separately proved definitions. Numbering effects
+include dependent uses of the same abstract family, not only the selected ID.
 
 ## `preflight_document_edits`
 

@@ -204,6 +204,10 @@ effects for the two clean projections. The initial numbering grammar is direct
 or style-inherited single-level decimal numbering, including a proved simple
 start override; unknown formats, unresolved styles/definitions and unsupported
 restart dependencies refuse. Numbers remain Word numbering, never literal text.
+Different `numId` values that share one abstract definition do not establish
+independent Word counters. Ambiguous shared-definition continuation or reuse
+refuses, including dependencies outside the selected instance. Separately
+defined lists and proved consecutive explicit restarts remain distinct cases.
 
 Final/only paragraphs, table/section boundaries, fields, bookmarks, comments,
 permission/revision ranges and conflicting local revisions are outside this

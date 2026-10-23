@@ -15,6 +15,9 @@ public distribution.
 - Add explicit tracked internal paragraph deletion and complete paragraph
   structural decision targets, with resolved numbering effects and exact
   neighbor-property preservation.
+  Check the whole used abstract-numbering family rather than assuming different
+  numbering-instance IDs have independent counters; refuse unproved shared
+  continuation or reuse before saving.
 - Validate explicitly selected same-table property decisions as a group before
   applying their exact local patches. Support compatible grid/span and
   grid/omitted-column outcomes without choosing companions automatically.
