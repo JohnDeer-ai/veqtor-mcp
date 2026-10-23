@@ -887,7 +887,7 @@ def _backup_path_verified(source_parent: str, backup_path: str | None, payload: 
 
 
 def publish_document(source_path: str, output_path: str | None, source_payload: bytes,
-                     candidate_payload: bytes) -> dict:
+                     candidate_payload: bytes, *, journal=None) -> dict:
     """Publish validated bytes, either as a new copy or a backed-up in-place save.
 
     ``None`` or the same normalized source path chooses ``in_place``. A distinct
@@ -908,6 +908,51 @@ def publish_document(source_path: str, output_path: str | None, source_payload: 
     parent_identity: tuple[int, int] | None = None
     backup_identity: tuple[int, int] | None = None
     publication_completed = False
+    publication_entered = False
+    publication_unknown = False
+    journal_status = None
+
+    def publish(action, *args, **kwargs):
+        nonlocal publication_entered, publication_completed, publication_unknown
+        publication_entered = True
+        try:
+            action(*args, **kwargs)
+        except OSError as exc:
+            # POSIX does not guarantee an unchanged destination after EIO.
+            # Preserve the historical no-journal behavior in this change.
+            publication_unknown = journal is not None and exc.errno == errno.EIO
+            raise
+        publication_completed = True
+
+    def prepare_journal():
+        if journal is not None:
+            try:
+                journal.prepare({"source_path": source, "output_path": output,
+                "save_mode": "in_place" if in_place else "copy",
+                "source_sha256": hashlib.sha256(source_payload).hexdigest(),
+                "candidate_sha256": hashlib.sha256(candidate_payload).hexdigest(),
+                "backup_path": backup_path,
+                "backup_sha256": hashlib.sha256(source_payload).hexdigest() if backup_path else None})
+            except ApplyError as exc:
+                raise _error(exc.code, "prepared operation could not be committed; document was not published") from exc
+
+    def finish_journal(error_code=None):
+        if journal is None or not journal.prepared:
+            return None
+        # Import lazily: the journal reuses this module's filesystem guards.
+        from .operation_journal import observed_hash
+        observed = None
+        if publication_completed or (publication_entered and publication_unknown):
+            try:
+                observed = observed_hash(output)
+            except (ApplyError, OSError):
+                pass
+        return journal.finish(publication_completed=publication_completed,
+            publication_uncertain=publication_unknown, observed_output_sha256=observed,
+            backup_path_verified=_backup_path_verified(source_parent, backup_path, source_payload,
+                                                       parent_identity, backup_identity),
+            error_code=error_code)
+
     try:
         with _directory(source_parent) as parent, _writer_lock(parent, source_parent, basename):
             parent_identity = _identity(os.fstat(parent))
@@ -938,39 +983,59 @@ def publish_document(source_path: str, output_path: str | None, source_payload: 
                                 raise _error("output_exists", "refusing to overwrite an existing output")
                     destination_guard = (nullcontext() if _identity(os.fstat(destination)) == _identity(os.fstat(parent))
                                          else _writer_lock(destination, output_parent, output_name))
-                    with destination_guard, _staged(destination, candidate_payload, source_info, attributes) as staged:
-                        if in_place:
-                            try:
-                                with _backup_directory(parent) as backups:
-                                    backup_name = _backup(parent, backups, basename, source_payload,
-                                                          source_info, attributes)
-                                    backup_path = os.path.join(source_parent, _BACKUP_DIRECTORY, backup_name)
-                                    backup_identity = _identity(_at_stat(backups, backup_name))
+                    with destination_guard:
+                        with _staged(destination, candidate_payload, source_info, attributes) as staged:
+                            if in_place:
+                                try:
+                                    with _backup_directory(parent) as backups:
+                                        backup_name = _backup(parent, backups, basename, source_payload,
+                                                              source_info, attributes)
+                                        backup_path = os.path.join(source_parent, _BACKUP_DIRECTORY, backup_name)
+                                        backup_identity = _identity(_at_stat(backups, backup_name))
+                                        _directory_current(parent, source_parent)
+                                        _directory_current(destination, output_parent)
+                                        _backup_current(parent, backups)
+                                        _source_current(parent, basename, source_descriptor, source_payload, version)
+                                        _check_parent_acl(destination)
+                                        prepare_journal()
+                                        if journal is not None:
+                                            _directory_current(parent, source_parent)
+                                            _directory_current(destination, output_parent)
+                                            _word_unlocked(parent, basename)
+                                            _source_current(parent, basename, source_descriptor, source_payload, version)
+                                            if not _backup_path_verified(source_parent, backup_path, source_payload,
+                                                                         parent_identity, backup_identity):
+                                                raise _error("backup_failed", "backup changed during journal preparation")
+                                        publish(os.replace, staged.name, output_name, src_dir_fd=staged.directory, dst_dir_fd=parent)
+                                except ApplyError:
+                                    raise
+                                except OSError as exc:
+                                    code = ("unsupported_filesystem" if exc.errno in _UNSUPPORTED_FILESYSTEM_ERRNOS
+                                            else "backup_failed" if backup_path is None else "output_unwritable")
+                                    raise _error(code, str(exc)) from exc
+                            else:
+                                _directory_current(parent, source_parent)
+                                _directory_current(destination, output_parent)
+                                _source_current(parent, basename, source_descriptor, source_payload, version)
+                                _check_parent_acl(destination)
+                                prepare_journal()
+                                if journal is not None:
                                     _directory_current(parent, source_parent)
                                     _directory_current(destination, output_parent)
-                                    _backup_current(parent, backups)
+                                    _word_unlocked(parent, basename)
                                     _source_current(parent, basename, source_descriptor, source_payload, version)
-                                    _check_parent_acl(destination)
-                                    os.replace(staged.name, output_name, src_dir_fd=staged.directory, dst_dir_fd=parent)
-                                    publication_completed = True
-                            except ApplyError:
-                                raise
-                            except OSError as exc:
-                                code = ("unsupported_filesystem" if exc.errno in _UNSUPPORTED_FILESYSTEM_ERRNOS
-                                        else "backup_failed" if backup_path is None else "output_unwritable")
-                                raise _error(code, str(exc)) from exc
-                        else:
-                            _directory_current(parent, source_parent)
-                            _directory_current(destination, output_parent)
-                            _source_current(parent, basename, source_descriptor, source_payload, version)
-                            _check_parent_acl(destination)
-                            try:
-                                os.link(staged.name, output_name, src_dir_fd=staged.directory,
-                                        dst_dir_fd=destination, follow_symlinks=False)
-                            except FileExistsError as exc:
-                                raise _error("output_exists", "output appeared before publication") from exc
-                            publication_completed = True
-                        os.fsync(destination)
+                                try:
+                                    publish(os.link, staged.name, output_name, src_dir_fd=staged.directory,
+                                            dst_dir_fd=destination, follow_symlinks=False)
+                                except FileExistsError as exc:
+                                    raise _error("output_exists", "output appeared before publication") from exc
+                            os.fsync(destination)
+                        journal_status = finish_journal()
+                        if journal_status is not None and (
+                            journal_status["verification"] != "matched" or
+                            journal_status["backup_verification"] not in {"matched", "not_required"}
+                        ):
+                            raise _error("publication_uncertain", "published files could not be verified; recover before retrying")
             finally:
                 os.close(source_descriptor)
     except (ApplyError, OSError) as exc:
@@ -978,9 +1043,17 @@ def publish_document(source_path: str, output_path: str | None, source_payload: 
             exc = _error("publication_uncertain",
                          "document was published, but final durability confirmation failed; verify the working file before retrying",
                          original_code=getattr(exc, "code", "output_unwritable"))
+        elif publication_entered and publication_unknown:
+            exc = _error("publication_uncertain",
+                         "publication returned an I/O error with unknown outcome; recover before retrying",
+                         publication_status="uncertain")
         elif not isinstance(exc, ApplyError):
             code = "unsupported_filesystem" if exc.errno in _UNSUPPORTED_FILESYSTEM_ERRNOS else "output_unwritable"
             exc = _error(code, str(exc))
+        if journal_status is None:
+            journal_status = finish_journal(getattr(exc, "code", "output_unwritable"))
+        if journal_status is not None:
+            exc.metadata["operation_journal"] = journal_status
         exc.metadata.update(output_path=output, backup_path=backup_path,
                             backup_sha256=hashlib.sha256(source_payload).hexdigest() if backup_path else None,
                             backup_path_verified=_backup_path_verified(
@@ -992,4 +1065,5 @@ def publish_document(source_path: str, output_path: str | None, source_payload: 
         "backup_path": backup_path,
         "backup_sha256": hashlib.sha256(source_payload).hexdigest() if backup_path else None,
         "save_mode": "in_place" if in_place else "copy",
+        **({"operation_journal": journal_status} if journal_status is not None else {}),
     }
