@@ -34,6 +34,8 @@ dependencies = [
   "jsonschema>=4.20,<5",
   "lxml>=6.1,<7",
   "mcp>=2.2.0,<3",
+  # Security floor for the MCP trace-context parser (CVE-2026-114603).
+  "opentelemetry-api>=1.45.1,<2",
 ]
 
 [project.urls]
@@ -78,6 +80,8 @@ include = [
   "/src/veqtor_docx/round_snapshots.py",
   "/src/veqtor_docx/table_map.py",
   "/src/veqtor_docx/incoming_comparison.py",
+  "/src/veqtor_docx/bilingual.py",
+  "/src/veqtor_mcp/_bilingual_contract.py",
   "/src/veqtor_mcp/_incoming_contract.py",
   "/src/veqtor_docx/synthetic.py",
   "/src/veqtor_docx/verify.py",
@@ -107,6 +111,7 @@ include = [
   "/docs/NEGOTIATION_ROUND_ACCEPTANCE_RU.md",
   "/docs/ROUND_FOUNDATION.md",
   "/docs/INCOMING_COMPARISON.md",
+  "/docs/BILINGUAL_COLUMNS.md",
   "/docs/releases/v0.4.0-contract.md",
   "/docs/releases/v0.4.2-contract.md",
   "/docs/NR03_ACCEPTANCE.md",
@@ -156,6 +161,8 @@ include = [
   "/src/veqtor_docx/round_snapshots.py",
   "/src/veqtor_docx/table_map.py",
   "/src/veqtor_docx/incoming_comparison.py",
+  "/src/veqtor_docx/bilingual.py",
+  "/src/veqtor_mcp/_bilingual_contract.py",
   "/src/veqtor_mcp/_incoming_contract.py",
   "/src/veqtor_docx/synthetic.py",
   "/src/veqtor_docx/verify.py",

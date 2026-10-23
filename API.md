@@ -6,7 +6,7 @@ This file defines the public tool surface. Output examples are part of the API
 because models use them to decide how to call tools and how to cite results.
 
 The current source defines the unreleased package candidate `0.6.0.dev1` and advertises the
-sixteen-tool development MCP contract `veqtor.mcp.v0.6.0`. The drafting tools
+eighteen-tool development MCP contract `veqtor.mcp.v0.6.0`. The drafting tools
 are documented in [AUTHOR_DRAFTING.md](docs/AUTHOR_DRAFTING.md):
 `read_document_comments`, `read_document_revisions`, `preflight_document_edits`, `apply_document_edits`.
 They use `document_drafting.v1` and `drafting_preflight.v1`, support paragraph
@@ -47,7 +47,7 @@ transport teardown separately reaps the stdio server process.
 
 Every successful live tool response includes the same bounded `producer`
 object with `name`, package `version`, and the process-start Python source
-snapshot `build`. This applies to all sixteen tools, including read-only results
+snapshot `build`. This applies to all eighteen tools, including read-only results
 and decision-record export. Error envelopes are not successful tool results.
 `producer`, `record_id`, `record_status`, and `record_error` are server-owned;
 core tool results cannot supply them. `record_error` is present only with
@@ -2047,3 +2047,38 @@ See [the complete matching, explanation, pagination and limit contract](docs/INC
 The closed output schema is defined in `_incoming_contract.py`. Inputs come from
 the tool signature in `server.py`; bounded types and values are validated, but
 the MCP SDK may ignore unknown top-level arguments rather than reject them.
+
+## `read_document_tables`
+
+Read-only `bilingual_table_inventory.v1` report for one captured DOCX. Inputs:
+`path`, optional exact `file_sha256`, and optional fresh
+`affected_paragraph_refs`. Returns physical table/row/cell geometry (including
+merges/nesting), exact ordered paragraph text/references including empties,
+coverage, and literal textual-reference/raw-field observations. It scans the
+canonical main body, marks the explicit affected area, and does not assess
+reference targets, renumber text or rewrite fields. Every item is bound to the
+same exact file bytes. The complete report is checked against fixed limits
+before return; no truncated or paginated partial inventory is exposed. See
+[Bilingual columns](docs/BILINGUAL_COLUMNS.md) for limits, schemas and scope.
+`record_status` is `disabled` and `record_id` is null.
+
+## `check_bilingual_conditions`
+
+Read-only `bilingual_condition_check.v1` report. Required inputs: `path`, exact
+`file_sha256`, and `cell_pairs` from `read_document_tables`. Every pair requires
+an exact `table_ref`, `row_ref`, explicit left/right cell/language/grid-column/
+format selections, and exact paragraph quote spans for selected conditions.
+Merged, nested or ambiguous selected geometry refuses pairing. A positive
+numeric result requires exactly one supported value on each side of an
+explicit condition pair. Multiple values, empty/text-only spans and identical
+number multisets never establish a match. Decimal values include explicit
+locale format, scale, currency, units and day basis; ambiguous dates, unknown
+formats, formulas and number-word candidates remain visible unsupported
+observations. All selected-cell value candidates, including outside chosen
+conditions, have exact quotes and paired/unpaired/unsupported coverage.
+`obligation_equivalence` and document-wide numeric coverage are always
+`not_claimed`. See [Bilingual columns](docs/BILINGUAL_COLUMNS.md) for the exact
+input shape and extraction boundary. This tool writes neither DOCX nor journal;
+`record_status` is `disabled` and `record_id` is null. The existing atomic
+`preflight_document_edits` / `apply_document_edits` batch handles authorized
+text edits to both columns; this check does not add another write engine.

@@ -17,7 +17,7 @@ DEVELOPMENT_TOOLS = (
     "list_rounds", "extract_redlines", "inspect_document", "map_rounds",
     "trace_paragraph_history", "preflight_edits", "apply_edits", "verify_quote",
     "export_decision_record", "read_deal_positions", "mutate_deal_positions",
-    "compare_incoming_version", "read_document_comments", "read_document_revisions", "preflight_document_edits", "apply_document_edits",
+    "compare_incoming_version", "read_document_tables", "check_bilingual_conditions", "read_document_comments", "read_document_revisions", "preflight_document_edits", "apply_document_edits",
 )
 FROZEN_TOOLS = (
     "list_rounds", "extract_redlines", "inspect_document", "map_rounds",
@@ -41,7 +41,7 @@ def inventory(names):
     return SimpleNamespace(tools=[SimpleNamespace(name=name) for name in names])
 
 
-def test_explicit_fifteen_tool_development_inventory_passes(smoke):
+def test_explicit_eighteen_tool_development_inventory_passes(smoke):
     assert smoke.__version__ == "0.6.0.dev1"
     assert smoke._assert_tool_inventory(inventory(DEVELOPMENT_TOOLS)) == DEVELOPMENT_TOOLS
 
@@ -101,10 +101,12 @@ def test_complete_smoke_validates_inventory_in_both_stdio_eras_and_inmemory(smok
     monkeypatch.setattr(smoke, "_assert_tool_inventory", observe)
     result = asyncio.run(smoke.smoke())
     assert observed == [DEVELOPMENT_TOOLS, DEVELOPMENT_TOOLS, DEVELOPMENT_TOOLS]
-    assert result["tool_count"] == 16
+    assert result["tool_count"] == 18
     assert result["incoming_comparison"]["pages"] > 1
     assert result["incoming_comparison"]["partition_complete"] is True
     assert result["incoming_comparison"]["sources_unchanged"] is True
+    assert result["bilingual_columns"] == {"selected_conditions": 1, "paired_values": 2,
+                                          "sources_unchanged": True, "obligation_equivalence": "not_claimed"}
     assert result["stdio_protocol_versions"] == {"auto": "2026-07-28", "legacy": "2025-11-25"}
 
 
@@ -118,6 +120,6 @@ def test_drafting_smoke_retains_exact_inventory_and_completes_saves(tmp_path, mo
     result = asyncio.run(module.smoke(tmp_path, interpreter=sys.executable,
                                       author="Synthetic Drafting Reviewer", initials="DR"))
     assert result["tools"] == sorted(DEVELOPMENT_TOOLS)
-    assert result["tool_count"] == 16
+    assert result["tool_count"] == 18
     assert result["save_count"] == result["exact_backup_count"] == 7
     assert result["existing_revisions_preserved"] is True
