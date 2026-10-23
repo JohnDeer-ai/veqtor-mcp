@@ -219,3 +219,43 @@ initial deletion domain. A whole bilingual table row is a separate operation.
 These structural shapes require independent accept/reject native Word evidence;
 a successful library projection alone does not establish native acceptance.
 The operation journal remains explicitly disabled until its separate integration.
+
+## Explicit table row structural units
+
+`insert_table_row` and `delete_table_row` track an entire simple bilingual row.
+The initial domain is a direct main-body rectangular table with two columns,
+one supported paragraph per selected cell and no merges, omitted grid columns,
+nested tables, fields, ranges or conflicting selected revisions. Insertion requires
+a non-header anchor and an explicit non-header formatting template. Every row
+selected for deletion must also be non-header. Deletion checks both complete
+cell texts and refuses the only remaining row. Row height, cell widths, borders
+and supported paragraph/run formatting remain part of the structure.
+
+An optional empty unnumbered separator is explicitly selected with its own
+template on insertion or its adjacent row reference on deletion. Both rows are
+prepared and published atomically. An unselected separator remains untouched.
+No marker is inferred from author, date, numeric revision ID or blank text.
+
+The inventory exposes a `row_structure` target on the row mark. It contains
+`row_mark_ref` and every ordered `content_revision_ref`, including supported
+paragraph-mark revisions added during a Word save. Partial text/mark decisions,
+duplicate, stale, foreign-container and incomplete selections refuse. A row of
+empty paragraphs can legitimately have no content revisions. Explicitly name
+both complete row units in one batch to decide a clause and its separator.
+The complete selected batch must leave at least one row. Unsafe removal of all
+rows refuses independently of a safe accept/reject alternative; the workflow
+does not delete the table itself.
+
+`row_numbering.accepted` and `.rejected` expose both resolved projections using
+the same bounded single-level decimal grammar as paragraph structure. Each
+language column keeps its selected style/list; an unnumbered column stays
+unnumbered. Unproved shared-definition continuation/reuse refuses; different
+instance IDs alone do not establish separate column counters. Independent
+inverse patches must restore the exact selected rows;
+unselected neighbors, history and table geometry remain unchanged.
+Removing a row mark can leave an empty `trPr` container where the marker needed
+one; this does not change effective row formatting. Existing properties,
+including height, are preserved, and the backup retains the exact original bytes.
+Separate native Word accept/reject, pending-save/reread and final save/reopen checks are
+required for each claimed supported positive form. XML-only checks do not
+establish that acceptance, real-corpus coverage or a published release.

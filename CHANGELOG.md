@@ -12,6 +12,11 @@ Unreleased paragraph and comment-thread drafting candidate. This entry describes
 source behavior; it does not establish installation, native Word acceptance or
 public distribution.
 
+- Add tracked insertion/deletion of a simple bilingual table row using explicit
+  source-bound row references, both complete cell texts and a selected formatting
+  template. Support an explicitly selected empty unnumbered separator in the
+  same atomic operation. Add complete row-structure decision targets and show
+  both numbering outcomes while preserving row height and neighboring content.
 - Add explicit tracked internal paragraph deletion and complete paragraph
   structural decision targets, with resolved numbering effects and exact
   neighbor-property preservation.

@@ -212,6 +212,15 @@ def validate_target(target):
             _fail("invalid_revision_target", "select every text revision with the paragraph mark")
         for ref in refs:
             validate_ref(ref)
+    elif target.get("kind") == "row_structure" and set(target) == {
+        "kind", "row_mark_ref", "content_revision_refs"
+    }:
+        validate_ref(target["row_mark_ref"])
+        refs = target["content_revision_refs"]
+        if type(refs) is not list or len(refs) > 128:
+            _fail("invalid_revision_target", "select every ordered content revision with the row mark")
+        for ref in refs:
+            validate_ref(ref)
     else:
         _fail("invalid_revision_target", "select a complete explicit revision unit")
 
@@ -252,7 +261,16 @@ def resolve(root, sha, ref):
 def resolve_target(root, sha, target):
     validate_target(target)
     if target["kind"] == "single":
-        return [resolve(root, sha, target["revision_ref"])]
+        node = resolve(root, sha, target["revision_ref"])
+        if is_row_unit([node]):
+            _fail("row_unit_unsupported", "select an explicit complete row_structure target")
+        return [node]
+    if target["kind"] == "row_structure":
+        from .table_rows import row_structure_unit
+        nodes = [resolve(root, sha, target["row_mark_ref"]),
+                 *[resolve(root, sha, ref) for ref in target["content_revision_refs"]]]
+        row_structure_unit(root, nodes)
+        return nodes
     if target["kind"] == "paragraph_structure":
         from ._drafting_paragraphs import paragraph_structure_unit
         nodes = [resolve(root, sha, target["paragraph_mark_ref"]),
@@ -287,6 +305,11 @@ def overlaps(left, right):
 
 
 
+def is_row_unit(nodes):
+    parent = nodes[0].getparent()
+    return parent is not None and parent.tag == w("trPr") and nodes[0].tag in {w("ins"), w("del")}
+
+
 def is_paragraph_unit(nodes):
     parent = nodes[0].getparent()
     return parent is not None and parent.tag == w("rPr") and (
@@ -295,6 +318,9 @@ def is_paragraph_unit(nodes):
 
 
 def decision_domains(nodes):
+    if is_row_unit(nodes):
+        from .table_rows import row_structure_unit
+        return [row_structure_unit(nodes[0].getroottree().getroot(), nodes)["row"]]
     if is_paragraph_unit(nodes):
         from ._drafting_paragraphs import paragraph_structure_unit
         unit = paragraph_structure_unit(nodes[0].getroottree().getroot(), nodes)
@@ -303,6 +329,8 @@ def decision_domains(nodes):
 
 
 def decision_region(nodes):
+    if is_row_unit(nodes):
+        return nodes[0].getparent().getparent()
     owner = _owner(nodes[0])
     # Decisions in a paragraph conflict with new edits throughout that paragraph.
     paragraph = next(
@@ -452,8 +480,15 @@ def _main_context(root, owner):
         _fail("revision_dependency_unsupported", "unclosed main-story field or range")
 
 
+def _assert_no_pending_row(node):
+    for ancestor in (node, *node.iterancestors()):
+        if ancestor.tag == w("tr") and any(ancestor.find(f"{w('trPr')}/{w(tag)}") is not None for tag in ("ins", "del")):
+            _fail("row_unit_unsupported", "pending row structure requires a complete explicit structural target")
+
+
 def _validate_text(root, nodes):
     parent = nodes[0].getparent()
+    _assert_no_pending_row(parent)
     if parent.tag != w("p") or any(n.getparent() is not parent for n in nodes):
         _fail(
             "revision_dependency_unsupported",
@@ -527,6 +562,7 @@ def _validate_text(root, nodes):
 
 
 def _validate_property(root, node):
+    _assert_no_pending_row(node)
     kind = etree.QName(node).localname
     props = node.getparent()
     if (
@@ -726,6 +762,18 @@ class TableDecisionGroup:
         ]
 
 
+
+@dataclass(frozen=True)
+class RowDecisionGroup:
+    root: etree._Element
+    table: etree._Element
+    selections: tuple[tuple[tuple[etree._Element, ...], str], ...]
+    member_facts: tuple[dict, ...]
+
+    def facts(self):
+        return copy.deepcopy(list(self.member_facts))
+
+
 def table_decision_groups(root, nodes_by_index, operations):
     """Bind explicit table selections before any source nodes are replaced.
 
@@ -733,11 +781,23 @@ def table_decision_groups(root, nodes_by_index, operations):
     Each decision still publishes only its independently verified local patch.
     """
     by_table = {}
+    row_tables = {}
     for index, nodes in nodes_by_index.items():
+        if is_row_unit(nodes):
+            row_tables.setdefault(nodes[0].getparent().getparent().getparent(), []).append(index)
+            continue
         table = decision_table(nodes)
         if table is not None:
             by_table.setdefault(table, []).append(index)
     groups = {}
+    if set(row_tables) & set(by_table):
+        _fail("revision_operation_overlap", "row structures and table-property decisions require separate saves")
+    for table, indexes in row_tables.items():
+        group = RowDecisionGroup(root, table,
+            tuple((tuple(nodes_by_index[i]), operations[i]["decision"]) for i in indexes),
+            tuple({"revision_ref": copy.deepcopy(operations[i]["target"]["row_mark_ref"]),
+                   "decision": operations[i]["decision"]} for i in indexes))
+        groups.update((index, group) for index in indexes)
     for table, indexes in by_table.items():
         if len(indexes) < 2:
             continue
@@ -1037,8 +1097,95 @@ def _paragraph_outcomes(root, nodes, parts):
     return old, outcomes, facts
 
 
+
+def _row_outcomes(root, nodes, parts, group=None):
+    from .table_rows import row_structure_unit, row_structure_outcome
+    from .table_row_numbering import numbering_effects_for_rows
+    unit = row_structure_unit(root, nodes)
+    row = unit["row"]
+    outcomes = {action: row_structure_outcome(unit, action) for action in ("accept", "reject")}
+    projections = {}
+    refusals = {}
+    for action in ("accept", "reject"):
+        clone = copy.deepcopy(root)
+        mapped = dict(zip(root.iter(), clone.iter(), strict=True))
+        selections = group.selections if isinstance(group, RowDecisionGroup) else ((tuple(nodes), action),)
+        for chosen, chosen_action in selections:
+            if chosen[0] not in mapped:
+                continue  # Earlier exact patch already decided this selected unit.
+            selected = row_structure_unit(root, chosen)
+            target = mapped[selected["row"]]
+            parent, index = target.getparent(), target.getparent().index(target)
+            if chosen[0] is nodes[0]:
+                chosen_action = action
+            clean = row_structure_outcome(selected, chosen_action)
+            parent.remove(target)
+            for offset, output in enumerate(clean):
+                parent.insert(index + offset, output)
+        table_path = _path(root, row.getparent())
+        table = clone
+        for index in table_path:
+            table = table[index]
+        try:
+            from .table_rows import _table_shape
+            _table_shape(table)
+            _main_context(clone, table)
+            for output in outcomes[action]:
+                for paragraph in output.iter(w("p")):
+                    _require_style_dependencies(parts, paragraph)
+        except DocxError as exc:
+            refusals[action] = getattr(exc, "code", "revision_dependency_unsupported")
+        else:
+            refusals[action] = None
+        projections[action] = clone
+    longer = "accept" if unit["kind"] == "row_insertion" else "reject"
+    shorter = "reject" if longer == "accept" else "accept"
+    # The selected row survives in exactly one clean outcome. Other selected
+    # rows use their explicit requested outcomes for both counterfactuals.
+    long_root = projections[longer]
+    long_table = long_root
+    for index in _path(root, row.getparent()):
+        long_table = long_table[index]
+    # Find the selected clean row by its source-relative row order, accounting
+    # for explicitly removed preceding group members.
+    preceding_removed = 0
+    if isinstance(group, RowDecisionGroup):
+        for chosen, decision in group.selections:
+            if chosen[0] is nodes[0] or chosen[0] not in set(root.iter()):
+                continue
+            other = row_structure_unit(root, chosen)
+            if other["row"].getparent().index(other["row"]) < row.getparent().index(row) and not row_structure_outcome(other, decision):
+                preceding_removed += 1
+    clean_row_index = row.getparent().index(row) - preceding_removed
+    clean_row = long_table[clean_row_index]
+    all_p = list(long_root.find(w("body")).iter(w("p")))
+    removed = [all_p.index(p) for p in clean_row.iter(w("p"))]
+    numbering = {"before": [], "after": []}
+    try:
+        numbering = numbering_effects_for_rows(parts, long_root, projections[shorter], removed)
+    except DocxError as exc:
+        for action in ("accept", "reject"):
+            refusals[action] = refusals[action] or getattr(exc, "code", "revision_dependency_unsupported")
+    texts = {action: "\n".join(_reading_text(_paragraph_segments(p)) for output in outcomes[action] for p in output.iter(w("p")))
+             for action in ("accept", "reject")}
+    current = "\n".join(_reading_text(_paragraph_segments(p)) for p in row.iter(w("p")))
+    if max(map(len, [current, *texts.values()])) > 40_001:
+        _fail("resource_limit_exceeded", "row decision preview exceeds its text limit")
+    facts = {"operation": "decide_revision", "revision_kind": unit["kind"],
+             "members": [{"kind": etree.QName(n).localname, "id": n.get(w("id")), "author": n.get(w("author")), "date": n.get(w("date"))} for n in nodes],
+             "current_text": current, "accepted_text": texts["accept"], "rejected_text": texts["reject"],
+             "current_properties": None, "previous_properties": None,
+             "accept_refusal_code": refusals["accept"], "reject_refusal_code": refusals["reject"],
+             "fixed_width_validation_scope": "not_applicable", "table_validation_scope": "explicit_batch_final_state" if group else "single_outcome",
+             "table_group_members": group.facts() if isinstance(group, RowDecisionGroup) else [],
+             "row_numbering": {"accepted": numbering["before" if longer == "accept" else "after"],
+                               "rejected": numbering["before" if longer == "reject" else "after"]}}
+    return [row], outcomes, facts
+
 def _plan_outcomes(root, nodes, parts, defer_fixed_widths=False, table_group=None):
     """Describe and validate each outcome without choosing a write operation."""
+    if is_row_unit(nodes):
+        return _row_outcomes(root, nodes, parts, table_group)
     if is_paragraph_unit(nodes):
         return _paragraph_outcomes(root, nodes, parts)
     kind = etree.QName(nodes[0]).localname
@@ -1161,7 +1308,10 @@ def plan_decision(root, nodes, decision, parts, defer_fixed_widths=False, table_
     """Describe both outcomes and select only a validated write operation."""
     if decision not in ("accept", "reject"):
         _fail("invalid_edit", "decision must be accept or reject")
-    if table_group is not None and not any(
+    if isinstance(table_group, RowDecisionGroup):
+        if not any(chosen[0] is nodes[0] and action == decision for chosen, action in table_group.selections):
+            _fail("round_trip_failed", "selected row decision differs from its explicit group")
+    elif table_group is not None and not any(
         item.node is nodes[0] and item.decision == decision
         for item in table_group.selections
     ):
@@ -1235,7 +1385,13 @@ def read_document_revisions(path, file_sha256=None, *, offset=0, max_items=100):
                 )
             selected = [node]
             structural_target = None
-            if is_paragraph_unit(selected):
+            if is_row_unit(selected):
+                from .table_rows import row_structure_candidates
+                selected = row_structure_candidates(node) or selected
+                if row_structure_candidates(node):
+                    structural_target = {"kind": "row_structure", "row_mark_ref": ref,
+                        "content_revision_refs": [reference(root, n, snapshot.sha256) for n in selected[1:]]}
+            elif is_paragraph_unit(selected):
                 from ._drafting_paragraphs import paragraph_structure_candidates
                 selected = paragraph_structure_candidates(node) or selected
                 if len(selected) > 1:
