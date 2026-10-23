@@ -526,6 +526,180 @@ def _image_signature(content_type, data):
     return False
 
 
+_USER_DATA_CT = "application/xml"
+_USER_PROPS_CT = "application/vnd.openxmlformats-officedocument.customXmlProperties+xml"
+_USER_DATA_REL = _ODREL + "customXml"
+_USER_PROPS_REL = _ODREL + "customXmlProps"
+_XSD = "http://www.w3.org/2001/XMLSchema"
+_XSI = "http://www.w3.org/2001/XMLSchema-instance"
+_XSLT = "http://www.w3.org/1999/XSL/Transform"
+_ASCII_PART_CASE = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+_USER_CONSUMER_WORD_NAMES = frozenset("""
+fldSimple fldChar fldData instrText delInstrText dataBinding
+sdt sdtPr sdtContent sdtEndPr contentPart drawing pict object altChunk subDoc
+attachedSchema schemaLibrary attachedTemplate mailMerge saveThroughXslt
+useXSLTWhenSaving saveXmlDataOnly
+""".split())
+
+
+def _xml_like(name, content_type, data):
+    return (name == "[Content_Types].xml" or name.lower().endswith((".xml", ".rels"))
+            or bool(content_type and (content_type.endswith("+xml")
+                                     or content_type in {"application/xml", "text/xml"}))
+            or data.lstrip().startswith(b"<"))
+
+
+def _reserved_storage_namespace(value):
+    """Office roles are not arbitrary user data, including declared-only URIs."""
+    return value.lower().startswith((
+        "http://schemas.microsoft.com/", "https://schemas.microsoft.com/",
+        "urn:schemas-microsoft-com:", "http://schemas.openxmlformats.org/",
+        "https://schemas.openxmlformats.org/", "http://purl.oclc.org/ooxml/",
+        "https://purl.oclc.org/ooxml/",
+    ))
+
+
+def _user_payload(root):
+    # Arbitrary XML is retained, not schema-validated or executed. Keep Office
+    # vocabulary and external-schema/XSLT mechanisms out of this first profile.
+    for event, node in etree.iterwalk(root, events=("start", "start-ns")):
+        if event == "start-ns":
+            uri = node[1] or ""
+            if _reserved_storage_namespace(uri) or uri == _XSLT:
+                return False
+            continue
+        qname = etree.QName(node)
+        if (_reserved_storage_namespace(qname.namespace or "")
+                or qname.namespace == _XSLT
+                or node.tag in {"{" + _XSD + "}" + n for n in ("import", "include", "redefine", "override")}):
+            return False
+        for key, value in node.attrib.items():
+            attr = etree.QName(key)
+            if (_reserved_storage_namespace(attr.namespace or "")
+                    or _reserved_storage_namespace(value.strip())
+                    or attr.namespace == _XSLT
+                    or attr.namespace == _XSI and attr.localname in {"schemaLocation", "noNamespaceSchemaLocation"}):
+                return False
+    return True
+
+
+def _empty_user_properties(root):
+    item, refs = ("{" + _CUSTOM_XML + "}" + n for n in ("datastoreItem", "schemaRefs"))
+    if (root.tag != item or set(root.attrib) != {"{" + _CUSTOM_XML + "}itemID"}
+            or not _sequence(root, [(refs, 0, 1)])
+            or any(not _leaf(node, ()) for node in root)):
+        return False
+    return re.fullmatch(r"\{[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}\}",
+                        root.get("{" + _CUSTOM_XML + "}itemID", "")) is not None
+
+
+def _user_storage_roles(parts, types, roots):
+    """Propose roles only after a complete strict OPC/negative-consumer scan.
+
+    No filename, namespace or absent known-consumer hit is authority by itself.
+    The caller must additionally establish complete existing nonpayload coverage
+    before publishing any role label. Old closed metadata profiles stay separate.
+    """
+    graph_ok, edges = True, []
+    types_root = roots["[Content_Types].xml"]
+    if types_root.attrib or not _white_content(types_root):
+        graph_ok = False
+    for node in types_root:
+        allowed = ({"Extension", "ContentType"} if node.tag == "{" + _CT + "}Default"
+                   else {"PartName", "ContentType"} if node.tag == "{" + _CT + "}Override" else None)
+        if allowed is None or not _leaf(node, allowed):
+            graph_ok = False
+    for name, root in roots.items():
+        is_rels = (name.lower().endswith(".rels") or types[name] == "application/vnd.openxmlformats-package.relationships+xml"
+                   or root.tag == "{" + _REL + "}Relationships")
+        if not is_rels:
+            continue
+        if name == "_rels/.rels":
+            owner = None
+        else:
+            folder, leaf = posixpath.split(name)
+            owner = posixpath.join(posixpath.dirname(folder), leaf[:-5])
+            if (posixpath.basename(folder) != "_rels" or not leaf.endswith(".rels")
+                    or owner not in parts):
+                graph_ok = False
+        if (types[name] != "application/vnd.openxmlformats-package.relationships+xml"
+                or root.tag != "{" + _REL + "}Relationships" or root.attrib
+                or not _white_content(root)):
+            graph_ok = False
+        seen = set()
+        for index, node in enumerate(root):
+            errors = []
+            target = _relationship(node, name, [index], parts, lambda *args: errors.append(args))
+            ident, raw = node.get("Id"), node.get("Target", "")
+            if (errors or not _leaf(node, {"Id", "Type", "Target"}, {"TargetMode"})
+                    or not ident or ident in seen or "%" in raw
+                    or posixpath.normpath(raw) != raw):
+                graph_ok = False
+            seen.add(ident)
+            edges.append((owner, node.get("Type"), target, node.get("TargetMode", "Internal")))
+    # Do not promote the existing bibliography/FormTemplates compatibility paths
+    # into generic opacity, or change those paths when no new user store exists.
+    legacy_roots = {"{" + _BIBLIOGRAPHY + "}Sources", "{" + _SP_FORMS + "}FormTemplates"}
+    attempted = {target for _, kind, target, _ in edges if kind == _USER_DATA_REL
+                 and target in roots and roots[target].tag not in legacy_roots}
+    if not attempted:
+        return {}, set()
+    incoming, outgoing = {}, {}
+    for edge in edges:
+        outgoing.setdefault(edge[0], []).append(edge)
+        incoming.setdefault(edge[2], []).append(edge)
+    main_edges = [edge for edge in edges if edge[1] == _ODREL + "officeDocument"]
+    if (main_edges != [(None, _ODREL + "officeDocument", DOCUMENT_PART, "Internal")]
+            or types.get(DOCUMENT_PART) != _WORD_CT_BASE + "document.main+xml"
+            or roots.get(DOCUMENT_PART) is None or roots[DOCUMENT_PART].tag != w("document")):
+        graph_ok = False
+    # The initial role proof excludes all stored r:* and MC attributes, not just
+    # the currently familiar ids. These may identify implicit/alternate consumers.
+    for root in roots.values():
+        for node in root.iter():
+            if not isinstance(node.tag, str):
+                continue
+            qname = etree.QName(node)
+            if (qname.namespace == _MC or qname.localname == "contentPart"
+                    or qname.namespace == W_NS and (qname.localname in _USER_CONSUMER_WORD_NAMES
+                                                    or qname.localname.startswith("customXml"))
+                    or any(etree.QName(key).namespace in {_MC, _ODREL.rstrip("/")} for key in node.attrib)):
+                graph_ok = False
+    props = {name for name, root in roots.items()
+             if root.tag == "{" + _CUSTOM_XML + "}datastoreItem" or types[name] == _USER_PROPS_CT}
+    ids = []
+    for name, root in roots.items():
+        for node in root.iter("{" + _CUSTOM_XML + "}datastoreItem"):
+            ident = node.get("{" + _CUSTOM_XML + "}itemID", "")
+            if (node is not root or name not in props
+                    or re.fullmatch(r"\{[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}\}", ident) is None):
+                graph_ok = False
+            ids.append(ident.upper())
+    if len(ids) != len(set(ids)):
+        graph_ok = False
+    proposed = {}
+    for name in attempted:
+        ins, outs = incoming.get(name, []), outgoing.get(name, [])
+        if (ins != [(DOCUMENT_PART, _USER_DATA_REL, name, "Internal")]
+                or types.get(name) != _USER_DATA_CT or not _user_payload(roots[name])
+                or len(outs) != 1 or outs[0][1] != _USER_PROPS_REL
+                or outs[0][3] != "Internal"):
+            graph_ok = False
+            continue
+        prop = outs[0][2]
+        if (prop not in props or types.get(prop) != _USER_PROPS_CT
+                or not _empty_user_properties(roots[prop])
+                or incoming.get(prop, []) != [(name, _USER_PROPS_REL, prop, "Internal")]
+                or outgoing.get(prop)):
+            graph_ok = False
+            continue
+        proposed[name] = prop
+    # Orphan/aliased properties cannot supply authority for a different item.
+    if props - set(proposed.values()):
+        graph_ok = False
+    return (proposed, set()) if graph_ok and len(proposed) == len(attempted) else ({}, attempted)
+
+
 def inventory_package_revisions(payload: bytes) -> dict:
     """Inventory every member, refusing to call unsupported coverage complete.
 
@@ -552,25 +726,40 @@ def inventory_package_revisions(payload: bytes) -> dict:
 
     def parse(name, data):
         nonlocal xml_bytes, xml_nodes
+        if name in parsed_roots:
+            return parsed_roots[name]
         xml_bytes += len(data)
         _limit("inventory_xml_bytes", MAX_INVENTORY_XML_BYTES, xml_bytes)
         root = parse_xml(data)
         parsed_roots[name] = root
         # Existing per-part preflight already bounds attributes/namespaces.
-        for node in root.iter():
+        stack = [(root, 0)]
+        while stack:
+            node, depth = stack.pop()
+            _limit("inventory_xml_depth", MAX_INVENTORY_DEPTH, depth)
             if not isinstance(node.tag, str):
                 xml_nodes += 1
                 continue
             parent_ns = node.getparent().nsmap if node.getparent() is not None else {}
             xml_nodes += (1 + len(node.attrib)
                           + sum(parent_ns.get(key) != value for key, value in node.nsmap.items()))
+            _limit("inventory_xml_nodes", MAX_INVENTORY_XML_NODES, xml_nodes)
+            stack.extend((child, depth + 1) for child in reversed(node))
         _limit("inventory_xml_nodes", MAX_INVENTORY_XML_NODES, xml_nodes)
         return root
 
+    # OPC part identity is ASCII case-insensitive, unlike raw ZIP keys. This is
+    # an export gate: refuse ambiguity without normalizing or repairing names.
+    member_identities = set()
+    for name in sorted(package.parts):
+        identity = name.translate(_ASCII_PART_CASE)
+        if identity in member_identities:
+            block("ambiguous_opc_part_identity", name)
+        member_identities.add(identity)
     types_root = parse("[Content_Types].xml", package.parts["[Content_Types].xml"])
     if types_root.tag != f"{{{_CT}}}Types":
         raise DocxError("invalid OPC content-types root")
-    defaults, overrides = {}, {}
+    defaults, overrides, override_identities = {}, {}, set()
     for index, node in enumerate(types_root):
         if node.tag == f"{{{_CT}}}Default" and set(node.attrib) == {"Extension", "ContentType"}:
             key, content_type = node.get("Extension"), node.get("ContentType")
@@ -584,6 +773,10 @@ def inventory_package_revisions(payload: bytes) -> dict:
             target = overrides
             if not raw.startswith("/") or "%" in key or normalized_internal_package_part_name(key) != key:
                 raise DocxError("invalid OPC override part name")
+            identity = key.translate(_ASCII_PART_CASE)
+            if identity in override_identities:
+                block("ambiguous_opc_override_identity", "[Content_Types].xml", [index])
+            override_identities.add(identity)
         else:
             block("unsupported_content_types_markup", "[Content_Types].xml", [index])
             continue
@@ -600,15 +793,23 @@ def inventory_package_revisions(payload: bytes) -> dict:
         content_type = ("application/vnd.openxmlformats-package.content-types+xml"
                         if name == "[Content_Types].xml" else
                         overrides.get(name, defaults.get(name.rsplit(".", 1)[-1].lower())))
+        declared_types[name] = content_type
+        if _xml_like(name, content_type, data):
+            parse(name, data)
+    user_storage, rejected_storage = _user_storage_roles(package.parts, declared_types, parsed_roots)
+    for name in sorted(rejected_storage):
+        block("unsupported_user_storage", name, [])
+
+    for name, data in sorted(package.parts.items()):
+        content_type = ("application/vnd.openxmlformats-package.content-types+xml"
+                        if name == "[Content_Types].xml" else
+                        overrides.get(name, defaults.get(name.rsplit(".", 1)[-1].lower())))
         row = {"part_name": name, "content_type": content_type, "inspection": "uninspected"}
         declared_types[name] = content_type
         parts.append(row)
         if content_type is None:
             block("missing_part_content_type", name)
-        xml_like = (name == "[Content_Types].xml" or name.lower().endswith((".xml", ".rels"))
-                    or bool(content_type and (content_type.endswith("+xml") or content_type in {"application/xml", "text/xml"}))
-                    or data.lstrip().startswith(b"<"))
-        if not xml_like:
+        if not _xml_like(name, content_type, data):
             if _image_signature(content_type, data):
                 row["inspection"] = "recognized_raster"
             else:
@@ -622,6 +823,7 @@ def inventory_package_revisions(payload: bytes) -> dict:
         if (root.getprevious() is not None or root.getnext() is not None
                 or any(isinstance(node, etree._ProcessingInstruction) for node in root.iter())):
             block("unsupported_auxiliary_xml", name, [])
+        user_payload = name in user_storage
         metadata_ok = _metadata_part(root, content_type)
         metadata_nodes = frozenset(root.iter()) if metadata_ok else frozenset()
         metadata_roots = {"{" + ns + "}" + local for ns, local in (
@@ -638,10 +840,11 @@ def inventory_package_revisions(payload: bytes) -> dict:
         if (content_type in {"application/xml", "text/xml"}
                 and root.tag not in set(_TYPED_XML_ROOTS.values()) | {
                     "{" + _BIBLIOGRAPHY + "}Sources", "{" + _CT + "}Types",
-                } and not metadata_ok):
+                } and not metadata_ok and not user_payload):
             block("unsupported_auxiliary_xml", name, [])
         if (name.startswith("customXml/") and not name.endswith(".rels")
                 and root.tag not in {"{" + _BIBLIOGRAPHY + "}Sources", "{" + _CUSTOM_XML + "}datastoreItem"}
+                and not user_payload
                 and not (metadata_ok and root.tag == "{" + _SP_FORMS + "}FormTemplates")):
             block("unsupported_auxiliary_xml", name, [])
         if root.tag == w("numbering"):
@@ -723,7 +926,8 @@ def inventory_package_revisions(payload: bytes) -> dict:
                     block("unsupported_revision", name, path)
             elif namespace == W_NS and local not in _W_NAMES and word_metadata is not True:
                 block("unknown_wordprocessing_markup", name, path)
-            if namespace in _STANDARD_ELEMENT_NAMES and local not in _STANDARD_ELEMENT_NAMES[namespace]:
+            if (namespace in _STANDARD_ELEMENT_NAMES and local not in _STANDARD_ELEMENT_NAMES[namespace]
+                    and not user_payload):
                 block("unknown_standard_xml_markup", name, path)
             if content_type == "application/vnd.openxmlformats-officedocument.theme+xml" and namespace not in {_DRAWING, _THEME_2012}:
                 block("unsupported_auxiliary_xml", name, path)
@@ -758,7 +962,7 @@ def inventory_package_revisions(payload: bytes) -> dict:
                 block("stray_revision_atom", name, path)
             if (namespace not in _STANDARD_NAMESPACES
                     and local not in _KNOWN_EXTENSION_NAMES.get(namespace, ())
-                    and node not in metadata_nodes and word_metadata is not True):
+                    and node not in metadata_nodes and word_metadata is not True and not user_payload):
                 block("unknown_xml_namespace", name, path)
             # Embedded content and alternate representations are not proven by
             # merely finding zero recognized revision tags in their outer XML.
@@ -774,7 +978,7 @@ def inventory_package_revisions(payload: bytes) -> dict:
                         and attr.namespace != _ODREL.rstrip("/")
                         and attr.localname not in _KNOWN_EXTENSION_ATTRIBUTES.get(attr.namespace, ())
                         and (attr.namespace, attr.localname) not in _BENIGN_EXTENSION_ATTRIBUTES
-                        and node not in metadata_nodes):
+                        and node not in metadata_nodes and not user_payload):
                     block("unknown_attribute_namespace", name, path)
             if root.tag == f"{{{_REL}}}Relationships" and node is not root:
                 target = _relationship(node, name, path, package.parts, block)
@@ -809,6 +1013,18 @@ def inventory_package_revisions(payload: bytes) -> dict:
         block("missing_main_document", DOCUMENT_PART)
     if "_rels/.rels" not in package.parts:
         block("missing_package_relationships", "_rels/.rels")
+    if user_storage:
+        if blockers:
+            # An unknown outside context may hide a consumer. Never report a
+            # complete store proof merely because the known-QName scan was empty.
+            for name in sorted(user_storage):
+                block("unproved_user_storage_context", name, [])
+        else:
+            for row in parts:
+                if row["part_name"] in user_storage:
+                    row["inspection"] = "opaque_user_storage"
+                    row["preservation"] = "exact_bytes_only"
+                    row["properties_part"] = user_storage[row["part_name"]]
     incomplete = {"opaque_part_uninspected", "unknown_xml_namespace", "unknown_standard_xml_markup",
                   "unknown_wordprocessing_markup", "unsupported_xml_content_type",
                   "missing_part_content_type", "unknown_attribute_namespace",
@@ -818,7 +1034,8 @@ def inventory_package_revisions(payload: bytes) -> dict:
                   "invalid_document_body", "missing_main_document"}
     incomplete |= {"invalid_numbering_order", "unsupported_main_content_type", "missing_package_relationships",
                    "unsupported_main_relationship", "part_content_type_mismatch"}
-    incomplete.add("unsupported_auxiliary_xml")
+    incomplete |= {"unsupported_auxiliary_xml", "unsupported_user_storage", "unproved_user_storage_context",
+                   "ambiguous_opc_part_identity", "ambiguous_opc_override_identity"}
     return {"schema_version": "package_revisions.v1",
             "source_sha256": hashlib.sha256(payload).hexdigest(),
             "parts": parts, "revisions": revisions, "blockers": blockers,
