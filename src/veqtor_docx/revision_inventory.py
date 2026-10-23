@@ -149,6 +149,59 @@ _STANDARD_NAMESPACES = frozenset({
     "urn:schemas-microsoft-com:vml", "urn:schemas-microsoft-com:office:office",
     "urn:schemas-microsoft-com:office:word",
 })
+# Namespace recognition alone does not prove a supported schema: arbitrary
+# custom XML can borrow a standard namespace and carry opaque future content.
+_STANDARD_ELEMENT_NAMES = {
+    _CT: frozenset("Types Default Override".split()),
+    _REL: frozenset("Relationships Relationship".split()),
+    _XML: frozenset(),
+    "http://schemas.openxmlformats.org/package/2006/metadata/core-properties": frozenset(
+        "coreProperties category contentStatus contentType keywords lastModifiedBy lastPrinted revision version".split()),
+    "http://purl.org/dc/elements/1.1/": frozenset("title subject creator description identifier language".split()),
+    "http://purl.org/dc/terms/": frozenset("created modified".split()),
+    "http://purl.org/dc/dcmitype/": frozenset(),
+    "http://www.w3.org/2001/XMLSchema-instance": frozenset(),
+    "http://schemas.openxmlformats.org/officeDocument/2006/extended-properties": frozenset(
+        "Properties Template Manager Company Pages Words Characters PresentationFormat Lines Paragraphs Slides Notes TotalTime HiddenSlides MMClips ScaleCrop HeadingPairs TitlesOfParts LinksUpToDate CharactersWithSpaces SharedDoc HyperlinkBase HLinks HyperlinksChanged DigSig Application AppVersion DocSecurity".split()),
+    "http://schemas.openxmlformats.org/officeDocument/2006/custom-properties": frozenset({"Properties", "property"}),
+    _VTYPES: frozenset(
+        "vector array variant empty null i1 i2 i4 i8 int ui1 ui2 ui4 ui8 uint r4 r8 decimal lpstr lpwstr bstr date filetime bool cy error clsid blob oblob stream ostream storage ostorage vstream cf".split()),
+    "http://schemas.openxmlformats.org/drawingml/2006/main": frozenset("""
+        accent1 accent2 accent3 accent4 accent5 accent6 alpha alphaMod alphaOff
+        bevelT bevelB bgFillStyleLst bodyPr camera clrScheme clrMap cs dk1 dk2 ea
+        effectLst effectRef effectStyle effectStyleLst extraClrSchemeLst fillRef
+        fillStyleLst fillToRect fmtScheme folHlink font fontRef fontScheme gradFill
+        gs gsLst hlink latin lightRig lin ln lnDef lnRef lnStyleLst lstStyle lt1 lt2
+        majorFont minorFont objectDefaults outerShdw path prstDash rot satMod
+        scene3d schemeClr shade solidFill sp3d spDef spPr srgbClr style sysClr
+        theme themeElements themeOverride tint noFill blip blipFill srcRect
+        stretch tile xfrm off ext chOff chExt prstGeom avLst custGeom gdLst gd
+        ahLst cxnLst rect pathLst moveTo lnTo close arcTo cubicBezTo quadBezTo pt
+        graphic graphicData graphicFrameLocks picLocks hlinkClick hlinkHover
+        buNone buChar buAutoNum p pPr r rPr t endParaRPr defRPr txBody
+    """.split()),
+    "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing": frozenset("""
+        inline anchor simplePos positionH positionV align posOffset extent
+        effectExtent wrapNone wrapSquare wrapTight wrapThrough wrapTopAndBottom
+        wrapPolygon start lineTo docPr cNvGraphicFramePr
+    """.split()),
+    "http://schemas.openxmlformats.org/drawingml/2006/picture": frozenset(
+        "pic nvPicPr cNvPr cNvPicPr blipFill spPr".split()),
+    "http://schemas.openxmlformats.org/officeDocument/2006/math": frozenset("""
+        mathPr mathFont brkBin brkBinSub defJc dispDef intLim lMargin naryLim rMargin
+        smallFrac wrapIndent oMath oMathPara oMathParaPr r rPr t ctrlPr f fPr num den
+        rad radPr deg e d dPr begChr endChr sepChr grow nary naryPr chr limLoc
+        sub sup sSub sSubPr sSup sSupPr sSubSup sSubSupPr limLow limLowPr limUpp
+        limUppPr func funcPr fName acc accPr bar barPr box boxPr borderBox borderBoxPr
+        groupChr groupChrPr eqArr eqArrPr m mPr mr mc mcPr mcs count baseJc
+    """.split()),
+    "urn:schemas-microsoft-com:vml": frozenset(
+        "shape shapetype group textbox fill stroke shadow path formulas f handles h imagedata textpath rect roundrect oval line polyline arc curve image background".split()),
+    "urn:schemas-microsoft-com:office:office": frozenset(
+        "shapedefaults shapelayout idmap lock signatureline skew extrusion callout clippath".split()),
+    "urn:schemas-microsoft-com:office:word": frozenset(
+        "wrap anchorlock bordertop borderleft borderbottom borderright".split()),
+}
 _BENIGN_EXTENSION_ATTRIBUTES = frozenset({
     (_MC, "Ignorable"), (_W14, "paraId"), (_W14, "textId"),
     (_W15, "collapsed"), (_W16DU, "dateUtc"),
@@ -289,6 +342,23 @@ def inventory_package_revisions(payload: bytes) -> dict:
             continue
         root = types_root if name == "[Content_Types].xml" else parse(name, data)
         row["inspection"] = "xml"
+        if (content_type in {"application/xml", "text/xml"}
+                and root.tag not in set(_TYPED_XML_ROOTS.values()) | {
+                    "{" + _BIBLIOGRAPHY + "}Sources", "{" + _CT + "}Types",
+                }):
+            block("unsupported_auxiliary_xml", name, [])
+        if (name.startswith("customXml/") and not name.endswith(".rels")
+                and root.tag not in {"{" + _BIBLIOGRAPHY + "}Sources", "{" + _CUSTOM_XML + "}datastoreItem"}):
+            block("unsupported_auxiliary_xml", name, [])
+        if root.tag == w("numbering"):
+            # Word can repair interleaved abstract/instance definitions by
+            # dropping an instance and joining two independent list counters.
+            order = tuple(w(n) for n in ("numPicBullet", "abstractNum", "num", "numIdMacAtCleanup"))
+            children = [n.tag for n in root if isinstance(n.tag, str)]
+            if (any(tag not in order for tag in children)
+                    or children != sorted(children, key=lambda tag: order.index(tag) if tag in order else -1)
+                    or children.count(w("numIdMacAtCleanup")) > 1):
+                block("invalid_numbering_order", name, [])
         if name != "[Content_Types].xml" and content_type not in _SAFE_XML_CONTENT_TYPES:
             block("unsupported_xml_content_type", name)
         if content_type in _TYPED_XML_ROOTS and root.tag != _TYPED_XML_ROOTS[content_type]:
@@ -351,6 +421,8 @@ def inventory_package_revisions(payload: bytes) -> dict:
                     block("unsupported_revision", name, path)
             elif namespace == W_NS and local not in _W_NAMES:
                 block("unknown_wordprocessing_markup", name, path)
+            if namespace in _STANDARD_ELEMENT_NAMES and local not in _STANDARD_ELEMENT_NAMES[namespace]:
+                block("unknown_standard_xml_markup", name, path)
             if node.tag in {w("delText"), w("delInstrText")} and not any(
                 ancestor.tag in {w("del"), w("moveFrom"), w("conflictDel")}
                 for ancestor in node.iterancestors()
@@ -382,14 +454,14 @@ def inventory_package_revisions(payload: bytes) -> dict:
         block("missing_main_document", DOCUMENT_PART)
     if "_rels/.rels" not in package.parts:
         block("missing_package_relationships", "_rels/.rels")
-    incomplete = {"opaque_part_uninspected", "unknown_xml_namespace",
+    incomplete = {"opaque_part_uninspected", "unknown_xml_namespace", "unknown_standard_xml_markup",
                   "unknown_wordprocessing_markup", "unsupported_xml_content_type",
                   "missing_part_content_type", "unknown_attribute_namespace",
                   "opaque_content_reference", "unsupported_relationship",
                   "unsupported_external_relationship", "missing_relationship_target",
                   "unsupported_content_types_markup", "missing_declared_part",
                   "invalid_document_body", "missing_main_document"}
-    incomplete |= {"unsupported_main_content_type", "missing_package_relationships",
+    incomplete |= {"invalid_numbering_order", "unsupported_main_content_type", "missing_package_relationships",
                    "unsupported_main_relationship", "part_content_type_mismatch"}
     incomplete.add("unsupported_auxiliary_xml")
     return {"schema_version": "package_revisions.v1",

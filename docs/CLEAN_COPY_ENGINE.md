@@ -62,8 +62,10 @@ as opaque revision-free media. This is an export gate, not a promise
 that every legal DOCX or all hidden data is supported.
 
 All existing ZIP/XML resource limits apply. The inventory additionally bounds
-aggregate XML work, depth and findings. The engine bounds revisions and charges
-the full document size for repeated outcome validation. Exceeding a bound refuses
+aggregate XML work, depth and findings. Invalid numbering-definition order blocks
+export rather than relying on Word repair. The engine bounds revisions, charges
+the full main document for repeated outcome validation and charges each actual
+read of its formatting dependencies against the same work budget. Exceeding a bound refuses
 the entire candidate; it never truncates an inventory, accepts only the first
 page or labels a partial result clean. It performs no filesystem operation and
 returns no authorization or journal receipt.

@@ -150,6 +150,18 @@ def test_bound_hash_and_resource_budget(demo_dir, monkeypatch):
         _clean(source)
 
 
+def test_repeated_format_dependency_reads_share_validation_budget(demo_dir, monkeypatch):
+    source_root = _fixture.source_document("ins")
+    source = _package(demo_dir, source_root)
+    dependencies = _parts(source)
+    initial = len(etree.tostring(source_root)) * 8
+    # One read fits, but validation parses the same styles on both outcomes
+    # and again for its exact application. Those reads must share one bound.
+    monkeypatch.setattr(clean_copy, "MAX_CLEAN_VALIDATION_BYTES", initial + len(dependencies['word/styles.xml']) + 1)
+    with pytest.raises(ApplyError, match="resource_limit_exceeded"):
+        _clean(source)
+
+
 def test_revision_in_header_blocks_even_when_body_clean(demo_dir):
     source = _package(demo_dir, _root('<w:p/>'), {
         'word/header1.xml': f'<w:hdr xmlns:w="{W_NS}"><w:p>{_revision("ins", "Header.")}</w:p></w:hdr>'.encode(),
@@ -162,6 +174,19 @@ def test_revision_in_header_blocks_even_when_body_clean(demo_dir):
 def test_range_enclosing_revision_refuses(demo_dir, marker):
     body = f'<w:p><w:{marker}Start w:id="3"/>{_revision("del", "Selected.")}<w:{marker}End w:id="3"/></w:p>'
     source = _package(demo_dir, _root(body))
+    with pytest.raises(ApplyError, match="clean_copy_range_dependency"):
+        _clean(source)
+
+
+@pytest.mark.parametrize("marker", ["bookmark", "commentRange"])
+def test_excluded_story_endpoint_cannot_clear_main_story_range(demo_dir, marker):
+    # An ambiguous duplicate in a separate textbox story must not erase the
+    # main-story guard. This is a refusal test, not a Word-validity claim.
+    textbox = ('<w:pict xmlns:v="urn:schemas-microsoft-com:vml"><v:shape><v:textbox>'
+               f'<w:txbxContent><w:p><w:{marker}Start w:id="3"/><w:r><w:t>Separate story.</w:t></w:r>'
+               f'<w:{marker}End w:id="3"/></w:p></w:txbxContent></v:textbox></v:shape></w:pict>')
+    source = _package(demo_dir, _root(
+        f'<w:p><w:{marker}Start w:id="3"/>{textbox}{_revision("del", "Selected.")}<w:{marker}End w:id="3"/></w:p>'))
     with pytest.raises(ApplyError, match="clean_copy_range_dependency"):
         _clean(source)
 
@@ -288,8 +313,8 @@ def test_disjoint_numbered_structures_use_complete_accept_context(demo_dir, rest
     numbering = (f'<w:numbering xmlns:w="{W_NS}">'
                  + ''.join(f'<w:abstractNum w:abstractNumId="{i}"><w:multiLevelType w:val="singleLevel"/>'
                            f'<w:lvl w:ilvl="0"><w:start w:val="{start}"/><w:numFmt w:val="decimal"/>'
-                           '<w:lvlText w:val="%1."/></w:lvl></w:abstractNum>'
-                           f'<w:num w:numId="{i}"><w:abstractNumId w:val="{i}"/></w:num>' for i, start in ((1, 1), (2, 7)))
+                           '<w:lvlText w:val="%1."/></w:lvl></w:abstractNum>' for i, start in ((1, 1), (2, 7)))
+                 + ''.join(f'<w:num w:numId="{i}"><w:abstractNumId w:val="{i}"/></w:num>' for i in (1, 2))
                  + '</w:numbering>').encode()
     source = _package(demo_dir, _root(body), {'word/numbering.xml': numbering})
     result, actual = _clean(source)

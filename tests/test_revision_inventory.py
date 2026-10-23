@@ -91,6 +91,32 @@ def test_standard_generated_template_is_covered(demo_dir):
     assert source.read_bytes() == before
 
 
+def test_interleaved_numbering_instances_are_not_silently_called_clean():
+    root = xml(f'<w:numbering xmlns:w="{W_NS}"><w:abstractNum w:abstractNumId="1"/>'
+               '<w:num w:numId="1"><w:abstractNumId w:val="1"/></w:num>'
+               '<w:abstractNum w:abstractNumId="2"/><w:num w:numId="2">'
+               '<w:abstractNumId w:val="2"/></w:num></w:numbering>')
+    result = inventory.inventory_package_revisions(package(extras=[
+        ("word/numbering.xml", WORD + "numbering+xml", root)]))
+    assert "invalid_numbering_order" in codes(result)
+    assert not result["complete"]
+    assert not result["clean_eligible"]
+
+
+@pytest.mark.parametrize("namespace", [
+    "http://schemas.openxmlformats.org/drawingml/2006/main",
+    "http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes",
+])
+def test_arbitrary_auxiliary_xml_cannot_borrow_standard_namespace(namespace):
+    root = xml(f'<x:futureRevisionContainer xmlns:x="{namespace}">UEsDBA==</x:futureRevisionContainer>')
+    result = inventory.inventory_package_revisions(package(extras=[
+        ("customXml/future.xml", "application/xml", root)]))
+    assert "unsupported_auxiliary_xml" in codes(result)
+    assert "unknown_standard_xml_markup" in codes(result)
+    assert not result["complete"]
+    assert not result["clean_eligible"]
+
+
 @pytest.mark.parametrize("kind", sorted(inventory._ACCEPTABLE_KINDS))
 def test_supported_location_is_type_fact_not_shape_promise(kind):
     # Deliberately malformed decision shape: inventory promises no applicability.

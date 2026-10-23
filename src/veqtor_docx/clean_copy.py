@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from lxml import etree
@@ -22,6 +23,7 @@ from ._drafting_paragraphs import (
 )
 from ._ooxml import (
     DOCUMENT_PART,
+    canonical_body_flow_v1,
     load_validated_docx,
     parse_xml,
     require_single_direct_document_body,
@@ -55,6 +57,27 @@ class CleanCopyCandidate:
     decisions: tuple[dict, ...]
 
 
+class _ValidationParts(Mapping):
+    """Charge actual repeated dependency reads without mutating shared helpers."""
+
+    def __init__(self, parts, initial):
+        self.parts = parts
+        self.consumed = initial
+
+    def __getitem__(self, name):
+        value = self.parts[name]
+        self.consumed += len(value)
+        if self.consumed > MAX_CLEAN_VALIDATION_BYTES:
+            _fail("resource_limit_exceeded", "the clean-copy dependency validation budget was exceeded")
+        return value
+
+    def __iter__(self):
+        return iter(self.parts)
+
+    def __len__(self):
+        return len(self.parts)
+
+
 def _sha(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
@@ -85,7 +108,11 @@ def _range_guard(root, patch):
     affected = {n for item in list(patch.parent)[patch.index:patch.index + len(patch.before)]
                 for n in item.iter()}
     active = set()
-    for node in root.iter():
+    body = root.find(w("body"))
+    flow = canonical_body_flow_v1(body)
+    for node in body.iter():
+        if flow.exclusion_kind_for(node) is not None:
+            continue  # A textbox endpoint cannot close a main-story range.
         if node in affected and (active or node.tag in _RANGES):
             _fail("clean_copy_range_dependency", "a selected decision touches a bookmark or comment range")
         if node.tag in {w("bookmarkStart"), w("commentRangeStart")}:
@@ -219,6 +246,7 @@ def prepare_clean_copy(payload: bytes, *, expected_source_sha256: str) -> CleanC
     # Reject before quadratic validation, not after constructing a partial file.
     if source_size * count * 8 > MAX_CLEAN_VALIDATION_BYTES:
         _fail("resource_limit_exceeded", "the clean-copy outcome validation budget was exceeded")
+    validation_parts = _ValidationParts(parts, source_size * count * 8)
     _structural_units(root)  # Validate the complete original structural selection.
     facts = []
     remaining = count
@@ -236,15 +264,15 @@ def prepare_clean_copy(payload: bytes, *, expected_source_sha256: str) -> CleanC
         for index, nodes in selections.items():
             original = etree.tostring(root)
             if decisions.is_row_unit(nodes) or decisions.is_paragraph_unit(nodes):
-                expected, detail = _structural_plan(root, nodes, parts)
+                expected, detail = _structural_plan(root, nodes, validation_parts)
                 _range_guard(root, expected)
                 present = list(expected.parent)[expected.index:expected.index + len(expected.before)]
                 decisions._replace_span(expected.parent, expected.index, present, copy.deepcopy(expected.after))
                 patch = expected
             else:
-                expected, _, _ = decisions.plan_decision(root, nodes, "accept", parts, True, groups.get(index))
+                expected, _, _ = decisions.plan_decision(root, nodes, "accept", validation_parts, True, groups.get(index))
                 _range_guard(root, expected)
-                patch, detail = decisions.apply_decision(root, nodes, "accept", parts, True, groups.get(index))
+                patch, detail = decisions.apply_decision(root, nodes, "accept", validation_parts, True, groups.get(index))
             if (patch.parent is not expected.parent or patch.index != expected.index
                     or [etree.tostring(n) for n in patch.before] != [etree.tostring(n) for n in expected.before]
                     or [etree.tostring(n) for n in patch.after] != [etree.tostring(n) for n in expected.after]):
