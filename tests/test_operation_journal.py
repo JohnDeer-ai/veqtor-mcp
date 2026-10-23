@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Fault boundaries of the independent two-record store and save integration."""
 import hashlib
+import errno
 import json
 import os
 import uuid
@@ -160,6 +161,127 @@ def test_prepublication_failure_records_not_published_and_preserves_source(tmp_p
     assert failure.value.metadata["operation_journal"]["publication_status"] == "not_published"
     assert path.read_bytes() == SOURCE
     assert json.loads((folder / "result.json").read_text())["result"]["publication_status"] == "not_published"
+
+
+@pytest.mark.parametrize("copy", [False, True], ids=["replace", "copy-link"])
+@pytest.mark.parametrize("effect", ["candidate", "none", "noop"])
+def test_eio_publication_stays_unknown_until_observed_recovery(tmp_path, monkeypatch, copy, effect):
+    path, store, folder = fixture(tmp_path)
+    output = tmp_path / "copy.docx" if copy else path
+    candidate = SOURCE if effect == "noop" else CANDIDATE
+    original = io.os.link if copy else io.os.replace
+
+    def ambiguous(*args, **kwargs):
+        if args[1] != output.name:
+            return original(*args, **kwargs)
+        if effect != "none":
+            original(*args, **kwargs)
+        raise OSError(errno.EIO, "fictional unsuccessful publication return")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(io.os, "link" if copy else "replace", ambiguous)
+        with pytest.raises(ApplyError, match="publication_uncertain") as failed:
+            io.publish_document(str(path), str(output) if copy else None,
+                                SOURCE, candidate, journal=store)
+    metadata = failed.value.metadata
+    assert metadata["publication_completed"] is False
+    assert metadata["publication_status"] == "uncertain"
+    status = metadata["operation_journal"]
+    assert status["publication_status"] == "uncertain" and status["journal_status"] == "incomplete"
+    expected_hash = hashlib.sha256(output.read_bytes()).hexdigest() if output.exists() else None
+    assert status["observed_output_sha256"] == expected_hash
+    assert (folder / "prepared.json").exists() and not (folder / "result.json").exists()
+    before = output.read_bytes() if output.exists() else None
+    recovered = journal.recover_operation(str(path), store.operation_id)
+    matched = effect == "candidate"
+    assert recovered["recovered"] is matched
+    assert recovered["recovery_status"] == ("recovered" if matched else "unresolved")
+    assert (folder / "result.json").exists() is matched
+    if matched:
+        assert journal.recover_operation(str(path), store.operation_id)["recovery_status"] == "existing_result"
+    assert (output.read_bytes() if output.exists() else None) == before
+    if not copy:
+        assert Path(metadata["backup_path"]).read_bytes() == SOURCE
+
+
+@pytest.mark.parametrize("mutation", ["shared_write", "symlink", "missing", "foreign_owner", "nested_mount"])
+def test_recovery_never_certifies_an_unsafe_backup_directory(tmp_path, monkeypatch, mutation):
+    from types import SimpleNamespace
+    path, store, folder = fixture(tmp_path)
+    with monkeypatch.context() as patch:
+        patch.setattr(store, "finish", lambda **kw: (_ for _ in ()).throw(KeyboardInterrupt()))
+        with pytest.raises(KeyboardInterrupt):
+            save(path, store)
+    backups = tmp_path / ".veqtor-backups"
+    backup_identity = io._identity(backups.stat())
+    if mutation == "shared_write":
+        backups.chmod(0o777)
+    elif mutation in {"symlink", "missing"}:
+        target = tmp_path / "retained-backups"
+        backups.rename(target)
+        if mutation == "symlink":
+            backups.symlink_to(target, target_is_directory=True)
+    elif mutation == "foreign_owner":
+        original = io._at_stat
+
+        def foreign(parent, name):
+            value = original(parent, name)
+            if name == io._BACKUP_DIRECTORY:
+                return SimpleNamespace(st_uid=os.geteuid() + 1, st_mode=value.st_mode,
+                                       st_dev=value.st_dev, st_ino=value.st_ino)
+            return value
+
+        monkeypatch.setattr(io, "_at_stat", foreign)
+    else:
+        original = io._supported_filesystem
+
+        def mounted(fd, parent=None):
+            if io._identity(os.fstat(fd)) == backup_identity:
+                raise ApplyError("unsupported_filesystem", "fictional nested mount")
+            return original(fd, parent)
+
+        monkeypatch.setattr(io, "_supported_filesystem", mounted)
+    before = path.read_bytes()
+    if mutation == "symlink":
+        with pytest.raises(ApplyError):
+            journal.recover_operation(str(path), store.operation_id)
+        assert path.read_bytes() == before and not (folder / "result.json").exists()
+        assert backups.is_symlink()
+        return
+    recovered = journal.recover_operation(str(path), store.operation_id)
+    assert recovered["recovery_status"] == "unresolved"
+    assert recovered["publication_status"] == "uncertain"
+    assert recovered["backup_verification"] == "not_checked"
+    assert path.read_bytes() == before and not (folder / "result.json").exists()
+    if mutation == "shared_write":
+        assert backups.stat().st_mode & 0o777 == 0o777
+    elif mutation == "missing":
+        assert not backups.exists()
+
+
+def test_recovery_refuses_native_backup_directory_acl_without_removing_it(tmp_path, monkeypatch):
+    import subprocess
+    import sys
+    if sys.platform != "darwin":
+        pytest.skip("native macOS extended ACL regression")
+    path, store, folder = fixture(tmp_path)
+    with monkeypatch.context() as patch:
+        patch.setattr(store, "finish", lambda **kw: (_ for _ in ()).throw(KeyboardInterrupt()))
+        with pytest.raises(KeyboardInterrupt):
+            save(path, store)
+    backups = tmp_path / ".veqtor-backups"
+    subprocess.run(["chmod", "+a", "user:nobody deny read", str(backups)],
+                   check=True, capture_output=True)
+    before = path.read_bytes()
+    recovered = journal.recover_operation(str(path), store.operation_id)
+    assert recovered["recovery_status"] == "unresolved"
+    assert recovered["backup_verification"] == "not_checked"
+    assert path.read_bytes() == before and not (folder / "result.json").exists()
+    descriptor = os.open(backups, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        assert io._darwin_acl_present(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def test_legacy_journal_bytes_untouched(tmp_path):

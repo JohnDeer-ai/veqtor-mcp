@@ -187,34 +187,60 @@ def _read(directory, name, *, raw=False):
         os.close(fd)
 
 
+def _observed_at(parent, name, *, check_attributes=False):
+    fd = os.open(name, os.O_RDONLY | io._NOFOLLOW | io._CLOEXEC | os.O_NONBLOCK,
+                 dir_fd=parent)
+    try:
+        before = _regular(fd)
+        if check_attributes:
+            io._attributes(fd)
+        if before.st_size > MAX_DOCX_INPUT_BYTES:
+            _fail("operation_file_limit_exceeded")
+        digest = hashlib.sha256()
+        remaining = MAX_DOCX_INPUT_BYTES + 1
+        while remaining:
+            chunk = os.read(fd, min(remaining, 1024 * 1024))
+            if not chunk:
+                break
+            digest.update(chunk)
+            remaining -= len(chunk)
+        if not remaining:
+            _fail("operation_file_limit_exceeded")
+        if (io._version(os.fstat(fd)) != io._version(before)
+                or io._version(io._at_stat(parent, name)) != io._version(before)):
+            _fail("operation_file_changed")
+        return digest.hexdigest()
+    finally:
+        os.close(fd)
+
+
 def observed_hash(path):
     """Bounded stable path observation, without following leaf/hardlink aliases."""
     path = io._path(path)
     folder, name = os.path.split(path)
     with io._directory(folder) as parent:
-        fd = os.open(name, os.O_RDONLY | io._NOFOLLOW | io._CLOEXEC | os.O_NONBLOCK,
-                     dir_fd=parent)
-        try:
-            before = _regular(fd)
-            if before.st_size > MAX_DOCX_INPUT_BYTES:
-                _fail("operation_file_limit_exceeded")
-            digest = hashlib.sha256()
-            remaining = MAX_DOCX_INPUT_BYTES + 1
-            while remaining:
-                chunk = os.read(fd, min(remaining, 1024 * 1024))
-                if not chunk:
-                    break
-                digest.update(chunk)
-                remaining -= len(chunk)
-            if not remaining:
-                _fail("operation_file_limit_exceeded")
-            if (io._version(os.fstat(fd)) != io._version(before)
-                    or io._version(io._at_stat(parent, name)) != io._version(before)):
-                _fail("operation_file_changed")
-            io._directory_current(parent, folder)
-            return digest.hexdigest()
-        finally:
-            os.close(fd)
+        digest = _observed_at(parent, name)
+        io._directory_current(parent, folder)
+        return digest
+
+
+def _observed_backup(source, path):
+    """Read an existing backup through the publisher's directory safety guards."""
+    folder = os.path.dirname(source)
+    try:
+        with io._directory(folder) as parent:
+            backups = os.open(io._BACKUP_DIRECTORY,
+                os.O_RDONLY | os.O_DIRECTORY | io._NOFOLLOW | io._CLOEXEC, dir_fd=parent)
+            try:
+                io._backup_current(parent, backups)
+                digest = _observed_at(backups, os.path.basename(path), check_attributes=True)
+                io._backup_current(parent, backups)
+                io._directory_current(parent, folder)
+                return digest
+            finally:
+                os.close(backups)
+    except (ApplyError, OSError):
+        return None  # Unsafe/missing evidence is never certified or repaired.
 
 
 def _observe(path):
@@ -243,7 +269,7 @@ def _backup(source, intent, backup):
     if (not name.startswith(prefix) or not name.endswith(".docx") or len(token) != 32
             or any(c not in "0123456789abcdef" for c in token)):
         _fail("operation_record_invalid")
-    return {"path": path, "sha256": _observe(path)}
+    return {"path": path, "sha256": _observed_backup(source, path)}
 
 
 def _timestamp(value):
@@ -332,7 +358,7 @@ class OperationJournal:
             raise ApplyError("journal_prepare_failed", "prepared operation could not be saved; document was not published") from exc
 
     def finish(self, *, publication_completed, observed_output_sha256,
-               backup_path_verified, error_code=None):
+               backup_path_verified, error_code=None, publication_uncertain=False):
         intent = self.entry["intent"]
         try:
             backup = _backup(self.source_path, intent, self.entry["backup"])
@@ -345,9 +371,14 @@ class OperationJournal:
                 or (backup is not None and backup["sha256"] != intent["source_sha256"]))):
             error_code = error_code or "operation_verification_failed"
         result = records.make_operation_result(
-            intent, publication_status="published" if publication_completed else "not_published",
-            observed_output_sha256=observed_output_sha256 if publication_completed else None,
-            backup=backup, error_code=error_code)
+            intent, publication_status=("published" if publication_completed else
+                                       "uncertain" if publication_uncertain else "not_published"),
+            observed_output_sha256=observed_output_sha256 if publication_completed or publication_uncertain else None,
+            backup=backup, error_code=error_code or ("publication_uncertain" if publication_uncertain else None))
+        if publication_uncertain:
+            # Keep preparation until recovery proves the actual outcome rather
+            # than freezing a false negative after an unsuccessful EIO return.
+            return _status(self.operation_id, result, written=False, error="operation_outcome_unresolved")
         try:
             with _storage(self.source_path, self.operation_id, create=False) as fd:
                 current = _read(fd, "prepared.json")

@@ -17,6 +17,9 @@ public distribution.
   failure blocks publication; result-record failure reports publication and
   incomplete journaling separately. Preserve legacy provenance unchanged and
   retain v1 proofs only in explicitly disabled transitional journal mode.
+  Keep unsuccessful `EIO` publication returns unresolved until recovery, rather
+  than recording a false negative; recheck existing backup-folder safety during
+  recovery without creating or repairing that folder.
 - Add tracked insertion/deletion of a simple bilingual table row using explicit
   source-bound row references, both complete cell texts and a selected formatting
   template. Support an explicitly selected empty unnumbered separator in the

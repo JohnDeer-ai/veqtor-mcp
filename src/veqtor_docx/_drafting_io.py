@@ -908,7 +908,21 @@ def publish_document(source_path: str, output_path: str | None, source_payload: 
     parent_identity: tuple[int, int] | None = None
     backup_identity: tuple[int, int] | None = None
     publication_completed = False
+    publication_entered = False
+    publication_unknown = False
     journal_status = None
+
+    def publish(action, *args, **kwargs):
+        nonlocal publication_entered, publication_completed, publication_unknown
+        publication_entered = True
+        try:
+            action(*args, **kwargs)
+        except OSError as exc:
+            # POSIX does not guarantee an unchanged destination after EIO.
+            # Preserve the historical no-journal behavior in this change.
+            publication_unknown = journal is not None and exc.errno == errno.EIO
+            raise
+        publication_completed = True
 
     def prepare_journal():
         if journal is not None:
@@ -928,13 +942,13 @@ def publish_document(source_path: str, output_path: str | None, source_payload: 
         # Import lazily: the journal reuses this module's filesystem guards.
         from .operation_journal import observed_hash
         observed = None
-        if publication_completed:
+        if publication_completed or (publication_entered and publication_unknown):
             try:
                 observed = observed_hash(output)
             except (ApplyError, OSError):
                 pass
         return journal.finish(publication_completed=publication_completed,
-            observed_output_sha256=observed,
+            publication_uncertain=publication_unknown, observed_output_sha256=observed,
             backup_path_verified=_backup_path_verified(source_parent, backup_path, source_payload,
                                                        parent_identity, backup_identity),
             error_code=error_code)
@@ -992,8 +1006,7 @@ def publish_document(source_path: str, output_path: str | None, source_payload: 
                                             if not _backup_path_verified(source_parent, backup_path, source_payload,
                                                                          parent_identity, backup_identity):
                                                 raise _error("backup_failed", "backup changed during journal preparation")
-                                        os.replace(staged.name, output_name, src_dir_fd=staged.directory, dst_dir_fd=parent)
-                                        publication_completed = True
+                                        publish(os.replace, staged.name, output_name, src_dir_fd=staged.directory, dst_dir_fd=parent)
                                 except ApplyError:
                                     raise
                                 except OSError as exc:
@@ -1012,11 +1025,10 @@ def publish_document(source_path: str, output_path: str | None, source_payload: 
                                     _word_unlocked(parent, basename)
                                     _source_current(parent, basename, source_descriptor, source_payload, version)
                                 try:
-                                    os.link(staged.name, output_name, src_dir_fd=staged.directory,
+                                    publish(os.link, staged.name, output_name, src_dir_fd=staged.directory,
                                             dst_dir_fd=destination, follow_symlinks=False)
                                 except FileExistsError as exc:
                                     raise _error("output_exists", "output appeared before publication") from exc
-                                publication_completed = True
                             os.fsync(destination)
                         journal_status = finish_journal()
                         if journal_status is not None and (
@@ -1031,6 +1043,10 @@ def publish_document(source_path: str, output_path: str | None, source_payload: 
             exc = _error("publication_uncertain",
                          "document was published, but final durability confirmation failed; verify the working file before retrying",
                          original_code=getattr(exc, "code", "output_unwritable"))
+        elif publication_entered and publication_unknown:
+            exc = _error("publication_uncertain",
+                         "publication returned an I/O error with unknown outcome; recover before retrying",
+                         publication_status="uncertain")
         elif not isinstance(exc, ApplyError):
             code = "unsupported_filesystem" if exc.errno in _UNSUPPORTED_FILESYSTEM_ERRNOS else "output_unwritable"
             exc = _error(code, str(exc))

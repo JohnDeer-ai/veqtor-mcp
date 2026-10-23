@@ -262,8 +262,13 @@ def _drafting_recovery(fn, args, kwargs, exc, code: str, detail: str) -> dict | 
         bound_id = proof.get("operation_id") if isinstance(proof, dict) else None
         if (jsonschema.Draft202012Validator(OPERATION_JOURNAL).is_valid(operation_journal)
                 and operation_journal["operation_id"] == bound_id
-                and (operation_journal["publication_status"] == "published") == metadata["publication_completed"]):
+                and ((operation_journal["publication_status"] == "published" and metadata["publication_completed"])
+                     or (not metadata["publication_completed"] and
+                         (operation_journal["publication_status"] == "not_published" or
+                          (operation_journal["publication_status"] == "uncertain" and
+                           metadata.get("publication_status") == "uncertain"))))):
             payload["recovery"]["operation_journal"] = operation_journal
+            payload["recovery"]["publication_status"] = operation_journal["publication_status"]
     lock_path = metadata.get("lock_path")
     if isinstance(lock_path, str) and metadata.get("lock_reason") == "owner_not_proven_dead":
         from veqtor_docx._drafting_io import _legacy_lock_name

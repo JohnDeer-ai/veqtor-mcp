@@ -43,6 +43,13 @@ Direct library callers retain the old default and opt in with `journal=True`.
   `journal_status=incomplete`. The document must not be applied again.
 - A post-publication observation or durability failure retains the known
   publication fact and structured recovery guidance instead of claiming no save.
+- An unsuccessful publication syscall with `EIO` has an unknown outcome: it may
+  already have changed the destination. Required mode observes the actual output,
+  returns `publication_status=uncertain` and leaves only the prepared record.
+  `publication_completed=false` then means no successful return was confirmed;
+  it is not evidence that the document stayed unchanged. Recovery may establish
+  the matching candidate and backup, but identical source/candidate bytes remain
+  ambiguous. No terminal `not_published` result is written for this case.
 - `recover_document_operation(source_path, operation_id)` never applies edits.
   Matching candidate and exact backup hashes can complete a lost result with
   `recovered=true`. A copy additionally requires its source still to match.
@@ -74,6 +81,9 @@ keys and non-finite numbers. File observations retain the existing 50 MiB compre
 DOCX limit. Supported local filesystems, safe paths, owner/permission checks,
 Word owner locks and source-change checks still apply. An uncooperative external
 writer cannot be made part of an atomic compare-and-swap protocol.
+Recovery reads existing backup folders without creating or repairing them. The
+publisher's owner, shared-write, ACL, alias and same-filesystem guards also apply
+to recovery observations; unsafe backup evidence stays unverified.
 
 No new database, cloud transport, sender-state inference, outgoing package or
 complete round manager is introduced by this journal.

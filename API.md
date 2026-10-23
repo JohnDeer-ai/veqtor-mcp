@@ -416,6 +416,11 @@ with `record_status="write_failed"`; do not apply again. Explicit transitional
 records. Changing mode requires a fresh preflight; a v2 proof cannot be downgraded.
 This setting is independent of legacy `VEQTOR_DISABLE_DECISION_RECORD`.
 See [operation journal](docs/OPERATION_JOURNAL.md) for limits and recovery.
+Journal-bound errors also expose `recovery.publication_status`. An unsuccessful
+`EIO` return from publication reports `uncertain`, even when
+`publication_completed=false`: the latter only says a successful return was not
+confirmed. The saved output is observed, and recovery must resolve the prepared
+operation before any retry; no terminal negative result is inferred from `EIO`.
 
 ## `list_rounds`
 

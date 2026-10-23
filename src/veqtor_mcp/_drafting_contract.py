@@ -388,7 +388,16 @@ DRAFTING_ERROR_RESULT = obj(
                  lock_reason=nullable(LOCK_REASON)),
 )
 DRAFTING_ERROR_RESULT["properties"]["recovery"]["properties"]["operation_journal"] = OPERATION_JOURNAL
+DRAFTING_ERROR_RESULT["properties"]["recovery"]["properties"]["publication_status"] = {
+    "enum": ["not_published", "published", "uncertain"],
+}
 DRAFTING_ERROR_RESULT["properties"]["recovery"]["allOf"] = [
+    {"if": {"required": ["publication_status"],
+            "properties": {"publication_status": {"const": "published"}}},
+     "then": {"properties": {"publication_completed": {"const": True}}}},
+    {"if": {"required": ["publication_status"],
+            "properties": {"publication_status": {"enum": ["not_published", "uncertain"]}}},
+     "then": {"properties": {"publication_completed": {"const": False}}}},
     {"if": {"properties": {"backup_path": {"type": "null"}}},
      "then": {"properties": {"backup_sha256": {"type": "null"},
                               "backup_path_verified": {"const": False}}},

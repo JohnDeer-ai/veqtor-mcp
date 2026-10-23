@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Journal-enabled proof migration and actual MCP boundaries on fictional DOCX."""
 import copy
+import errno
 import hashlib
 import json
 
@@ -106,6 +107,45 @@ async def test_mcp_postpublication_journal_failure_is_not_document_failure(tmp_p
         recovered = await client.call_tool("recover_document_operation", {
             "source_path": str(path), "operation_id": proof["operation_id"]})
         assert not recovered.is_error and recovered.structured_content["recovered"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("effect", [False, True])
+async def test_mcp_exposes_unknown_syscall_outcome_and_recovers_without_apply(tmp_path, demo_dir, monkeypatch, effect):
+    import jsonschema
+    from veqtor_docx import _drafting_io as io
+    path, args = arguments(tmp_path, demo_dir)
+    monkeypatch.setenv("VEQTOR_OPERATION_JOURNAL", "required")
+    original = io.os.replace
+
+    def ambiguous(*a, **kw):
+        if a[1] != path.name:
+            return original(*a, **kw)
+        if effect:
+            original(*a, **kw)
+        raise OSError(errno.EIO, "PRIVATE_AMBIGUOUS_PUBLICATION")
+
+    async with Client(server.mcp) as client:
+        schemas = {t.name: t.output_schema for t in (await client.list_tools()).tools}
+        dry = await client.call_tool("preflight_document_edits", args)
+        proof = dry.structured_content["preflight_proof"]
+        with monkeypatch.context() as patch:
+            patch.setattr(io.os, "replace", ambiguous)
+            failed = await client.call_tool("apply_document_edits", {**args, "preflight_proof": proof})
+        assert failed.is_error and failed.structured_content["error_code"] == "publication_uncertain"
+        recovery = failed.structured_content["recovery"]
+        assert recovery["publication_completed"] is False
+        assert recovery["publication_status"] == recovery["operation_journal"]["publication_status"] == "uncertain"
+        assert recovery["operation_journal"]["observed_output_sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+        assert "PRIVATE_AMBIGUOUS" not in str(failed)
+        jsonschema.validate(failed.structured_content, schemas["apply_document_edits"])
+        before = path.read_bytes()
+        recovered = await client.call_tool("recover_document_operation", {
+            "source_path": str(path), "operation_id": proof["operation_id"]})
+        assert not recovered.is_error
+        assert recovered.structured_content["recovered"] is effect
+        assert recovered.structured_content["recovery_status"] == ("recovered" if effect else "unresolved")
+        assert path.read_bytes() == before
 
 
 def test_journal_does_not_change_legacy_candidate_bytes(tmp_path, demo_dir, monkeypatch):

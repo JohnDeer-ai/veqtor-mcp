@@ -1309,7 +1309,7 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
                 "output_path", "backup_path", "backup_sha256", "backup_path_verified",
                 "publication_completed", "lock_path", "lock_reason",
             }
-            assert set(recovery_schema["properties"]) == set(recovery_schema["required"]) | {"operation_journal"}
+            assert set(recovery_schema["properties"]) == set(recovery_schema["required"]) | {"operation_journal", "publication_status"}
             failure = {
                 "schema_version": "drafting_error.v1", "status": "error",
                 "error_code": "file_locked", "message": "Close the synthetic document.",

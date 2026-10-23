@@ -231,6 +231,34 @@ await scenario("published save with lost journal result recovers without reapply
   assert.deepEqual(readFileSync(source), saved);
 });
 
+await scenario("unsuccessful EIO return preserves unknown publication then recovers", "eio_after_publish", async ({ call, prepare }) => {
+  const source = fixtures.eio_after_publish;
+  const before = readFileSync(source);
+  const args = await prepare(source);
+  const result = await call("apply_document_edits", args, true);
+  const error = draftingError(result);
+  assert.equal(error.error_code, "publication_uncertain");
+  assert.equal(error.recovery.publication_completed, false);
+  assert.equal(error.recovery.publication_status, "uncertain");
+  assert.equal(error.recovery.operation_journal.publication_status, "uncertain");
+  assert.equal(error.recovery.operation_journal.journal_status, "incomplete");
+  assert.equal(sha(readFileSync(error.recovery.backup_path)), sha(before));
+  const saved = readFileSync(source);
+  assert.equal(sha(saved), args.preflight_proof.candidate_sha256);
+  assert.equal(error.recovery.operation_journal.observed_output_sha256, sha(saved));
+  const resultPath = path.join(path.dirname(source), ".veqtor", "operations", args.preflight_proof.operation_id, "result.json");
+  assert(!existsSync(resultPath));
+  const recoveryArgs = { source_path: source, operation_id: args.preflight_proof.operation_id };
+  const recovered = payload(await call("recover_document_operation", recoveryArgs));
+  assert.equal(recovered.recovered, true);
+  assert.equal(recovered.recovery_status, "recovered");
+  assert.equal(recovered.operation_journal.publication_status, "published");
+  assert(existsSync(resultPath));
+  const repeated = payload(await call("recover_document_operation", recoveryArgs));
+  assert.equal(repeated.recovery_status, "existing_result");
+  assert.deepEqual(readFileSync(source), saved);
+});
+
 await scenario("invalid arguments and proof binding", null, async ({ call, prepare }) => {
   const source = fixtures.invalid;
   const before = readFileSync(source);
