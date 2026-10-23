@@ -240,8 +240,8 @@ def test_benign_word_ids_do_not_mean_extension_elements_are_supported():
 
 @pytest.mark.parametrize("ns,root_name,item_name,content_type,attrs", [
     (inventory._W15, "commentsEx", "commentEx", WORD + "commentsExtended+xml", {"paraId": "12345678", "done": "0"}),
-    (inventory._W16CID, "commentsIds", "commentId", "application/vnd.ms-word.commentsIds+xml", {"paraId": "12345678", "durableId": "1"}),
-    (inventory._W16CEX, "commentsExtensible", "commentExtensible", "application/vnd.ms-word.commentsExtensible+xml", {"durableId": "1", "dateUtc": "2026-01-01T00:00:00Z"}),
+    (inventory._W16CID, "commentsIds", "commentId", "application/vnd.ms-word.commentsIds+xml", {"paraId": "12345678", "durableId": "00000001"}),
+    (inventory._W16CEX, "commentsExtensible", "commentExtensible", "application/vnd.ms-word.commentsExtensible+xml", {"durableId": "00000001", "dateUtc": "2026-01-01T00:00:00Z"}),
 ])
 def test_known_comment_extension_metadata_can_remain_unchanged(ns, root_name, item_name, content_type, attrs):
     root = etree.Element("{" + ns + "}" + root_name, nsmap={"x": ns})

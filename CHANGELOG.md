@@ -8,6 +8,11 @@ through its `published_at` timestamp.
 
 ## 0.6.0.dev1
 
+- Inspect narrowly validated Office style, web-division, people, comment-identity
+  and FormTemplates metadata without modifying those parts. Preserve or restore
+  the documented ligature leaf in selective text/run-property decisions; unknown
+  extensions and dynamic custom schemas continue to block clean-copy export.
+
 - Add an internal clean-copy candidate engine with a revision inventory across
   every package part. Accept supported main-body text, property and complete
   paragraph/row revisions in detached bytes, preserve other parts exactly, and

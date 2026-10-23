@@ -57,6 +57,16 @@ Unknown revision forms, unknown WordprocessingML/extension markup, alternate
 representations, embedded Office/opaque parts and unresolved package declarations
 also block. Known Word comment metadata and narrowly validated empty bibliography
 metadata are recognized without deletion; arbitrary custom XML remains blocked.
+Additional closed inspection profiles recognize the style `locked` on/off leaf,
+web-division formatting, a bound `people` part, canonical modern comment-identity
+content types and a bound SharePoint `FormTemplates` tree with the three documented
+text leaves. These profiles check the complete supported subtree and package
+binding; recognizing a namespace or `mc:Ignorable` token grants no permission.
+Unknown children, attributes, values, bindings and dynamic custom schemas still
+block export. Metadata recognition does not authorize comment mutation or deletion.
+The documented `w14:ligatures` leaf is recognized in its exact run-property
+context. Selective text and run-property acceptance/rejection preserve its known
+value or restore the recorded value; other OpenType extensions remain unsupported.
 Only explicitly recognized raster-image content types and signatures are treated
 as opaque revision-free media. This is an export gate, not a promise
 that every legal DOCX or all hidden data is supported.
