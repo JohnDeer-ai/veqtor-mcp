@@ -616,6 +616,12 @@ def inventory_package_revisions(payload: bytes) -> dict:
             continue
         root = types_root if name == "[Content_Types].xml" else parse(name, data)
         row["inspection"] = "xml"
+        # Root-only mutation proofs cannot account for document siblings, and
+        # processing instructions may declare semantics outside our vocabulary.
+        # Keep the shared XML reader compatible; refuse only this clean gate.
+        if (root.getprevious() is not None or root.getnext() is not None
+                or any(isinstance(node, etree._ProcessingInstruction) for node in root.iter())):
+            block("unsupported_auxiliary_xml", name, [])
         metadata_ok = _metadata_part(root, content_type)
         metadata_nodes = frozenset(root.iter()) if metadata_ok else frozenset()
         metadata_roots = {"{" + ns + "}" + local for ns, local in (

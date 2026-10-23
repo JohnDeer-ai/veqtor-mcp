@@ -64,6 +64,10 @@ text leaves. These profiles check the complete supported subtree and package
 binding; recognizing a namespace or `mc:Ignorable` token grants no permission.
 Unknown children, attributes, values, bindings and dynamic custom schemas still
 block export. Metadata recognition does not authorize comment mutation or deletion.
+Processing instructions anywhere in an XML part and document nodes before or
+after its root also block: root-only mutation proofs cannot establish their
+semantics or preservation. XML declarations and comments inside the root remain
+subject to their existing context checks; the shared document reader is unchanged.
 The documented `w14:ligatures` leaf is recognized in its exact run-property
 context. Selective text and run-property acceptance/rejection preserve its known
 value or restore the recorded value; other OpenType extensions remain unsupported.
