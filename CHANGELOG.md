@@ -8,6 +8,11 @@ through its `published_at` timestamp.
 
 ## 0.6.0.dev1
 
+- Validate larger nonstructural clean-copy selections with bounded local proofs,
+  one whole-ledger reversal and an independent outcome replay. Reuse formatting
+  dependency proofs only for the same immutable bytes and reference semantics;
+  retain full-context fallbacks and existing resource limits and refusals.
+
 - Inspect narrowly validated Office style, web-division, people, comment-identity
   and FormTemplates metadata without modifying those parts. Preserve or restore
   the documented ligature leaf in selective text/run-property decisions; unknown
