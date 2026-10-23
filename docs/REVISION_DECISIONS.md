@@ -208,6 +208,10 @@ Different `numId` values that share one abstract definition do not establish
 independent Word counters. Ambiguous shared-definition continuation or reuse
 refuses, including dependencies outside the selected instance. Separately
 defined lists and proved consecutive explicit restarts remain distinct cases.
+Validated Word `durableId` metadata and an explicitly disabled
+`restartNumberingAfterBreak` flag do not change this counter grammar. An enabled
+flag, invalid metadata or unknown attributes still refuse; metadata never
+selects a revision or establishes grouping.
 
 Final/only paragraphs, table/section boundaries, fields, bookmarks, comments,
 permission/revision ranges and conflicting local revisions are outside this

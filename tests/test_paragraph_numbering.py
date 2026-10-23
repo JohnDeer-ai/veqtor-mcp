@@ -219,6 +219,80 @@ def test_removing_only_restart_item_cannot_hide_later_return_to_original_instanc
     assert raised.value.metadata["reason"] == "interleaved_numbering_instances"
 
 
+_DURABLE_METADATA = "{http://schemas.microsoft.com/office/word/2016/wordml/cid}durableId"
+_SECTION_RESTART = "{http://schemas.microsoft.com/office/word/2012/wordml}restartNumberingAfterBreak"
+
+
+def _metadata_parts(attribute, value, owner="num", *, parts=None):
+    result = dict(parts or _parts())
+    root = etree.fromstring(result["word/numbering.xml"])
+    root.find(".//" + w(owner)).set(attribute, value)
+    result["word/numbering.xml"] = etree.tostring(root)
+    return result
+
+
+@pytest.mark.parametrize("durable", ["1", "930235092", "2147483646", "0001"])
+@pytest.mark.parametrize("restart", ["0", "false", "off"])
+def test_native_word_numbering_metadata_preserves_supported_labels_and_input(durable, restart):
+    parts = _metadata_parts(_DURABLE_METADATA, durable)
+    parts = _metadata_parts(_SECTION_RESTART, restart, "abstractNum", parts=parts)
+    root = _document(_paragraph(num=1), _paragraph(num=1))
+    original = (dict(parts), etree.tostring(root))
+    assert _labels(parts, root, [0, 1]) == ["1.", "2."]
+    assert original == (dict(parts), etree.tostring(root))
+
+
+@pytest.mark.parametrize("value", ["0", "2147483647", "2147483648", "-1", "+1", "1.0", "", " 1", "1 ", "١", "A1", "1" * 1000])
+def test_durable_metadata_is_bounded_positive_ascii_decimal(value):
+    _refusal(_metadata_parts(_DURABLE_METADATA, value), _document(_paragraph(num=1)), [0], "invalid_value")
+
+
+@pytest.mark.parametrize("value", ["1", "true", "on", "FALSE", "False", "", "no", " 0", "0 "])
+def test_enabled_or_invalid_section_restart_is_not_ignored(value):
+    _refusal(_metadata_parts(_SECTION_RESTART, value, "abstractNum"), _document(_paragraph(num=1)), [0], "unsupported_section_restart")
+
+
+@pytest.mark.parametrize(("attribute", "owner"), [
+    (_DURABLE_METADATA, "abstractNum"),
+    (_DURABLE_METADATA, "lvl"),
+    (_SECTION_RESTART, "num"),
+    (_SECTION_RESTART, "lvl"),
+    (w("durableId"), "num"),
+    ("{http://schemas.microsoft.com/office/word/2016/wordml}durableId", "num"),
+    ("{http://schemas.microsoft.com/office/word/2012/wordml}durableId", "num"),
+    (w("restartNumberingAfterBreak"), "abstractNum"),
+    ("{http://schemas.microsoft.com/office/word/2016/wordml/cid}restartNumberingAfterBreak", "abstractNum"),
+])
+def test_metadata_allowlist_requires_exact_owner_and_namespace(attribute, owner):
+    _refusal(_metadata_parts(attribute, "1" if "durableId" in attribute else "0", owner), _document(_paragraph(num=1)), [0], "unknown_attributes")
+
+
+def test_durable_metadata_does_not_become_counter_or_group_identity():
+    parts = _parts(instances='''
+      <w:num w:numId="1"><w:abstractNumId w:val="9"/></w:num>
+      <w:num w:numId="2"><w:abstractNumId w:val="8"/></w:num>''',
+      extra='<w:abstractNum w:abstractNumId="8">' + _level(start=7) + '</w:abstractNum>')
+    numbering_root = etree.fromstring(parts["word/numbering.xml"])
+    for instance in numbering_root.findall(w("num")):
+        instance.set(_DURABLE_METADATA, "17")
+    parts["word/numbering.xml"] = etree.tostring(numbering_root)
+    root = _document(*[_paragraph(num=number) for number in (1, 2, 1, 2)])
+    original = dict(parts)
+    assert _labels(parts, root, [0, 1, 2, 3]) == ["1.", "7.", "2.", "8."]
+    assert parts == original
+
+
+def test_unknown_attribute_remains_refusal_beside_allowed_metadata():
+    parts = _metadata_parts(_DURABLE_METADATA, "17")
+    parts = _metadata_parts("{urn:fictional-unknown}counter", "1", parts=parts)
+    _refusal(parts, _document(_paragraph(num=1)), [0], "unknown_attributes")
+
+
+def test_unused_definition_metadata_does_not_expand_selected_dependencies():
+    extra = '<w:num xmlns:unknown="urn:fictional-unknown" w:numId="2" unknown:counter="1"><w:abstractNumId w:val="9"/></w:num>'
+    assert _labels(_parts(extra=extra), _document(_paragraph(num=1)), [0]) == ["1."]
+
+
 @pytest.mark.parametrize("with_replacement", [False, True])
 def test_start_override_wins_and_is_used_once_per_instance(with_replacement):
     replacement = _level(start=3, text="(%1)") if with_replacement else ""

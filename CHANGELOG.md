@@ -18,6 +18,8 @@ public distribution.
   Check the whole used abstract-numbering family rather than assuming different
   numbering-instance IDs have independent counters; refuse unproved shared
   continuation or reuse before saving.
+  Recognize narrowly validated Word-resave numbering metadata while refusing
+  enabled restart-after-break behavior and unknown attributes.
 - Validate explicitly selected same-table property decisions as a group before
   applying their exact local patches. Support compatible grid/span and
   grid/omitted-column outcomes without choosing companions automatically.

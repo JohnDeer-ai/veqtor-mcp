@@ -46,6 +46,8 @@ MAX_NUMBERING_LABEL_CHARS = 256
 
 _DECIMAL = re.compile(r"[0-9]{1,10}\Z", re.ASCII)
 _XML_WHITESPACE = " \t\r\n"
+_DURABLE_ID = "{http://schemas.microsoft.com/office/word/2016/wordml/cid}durableId"
+_RESTART_AFTER_BREAK = "{http://schemas.microsoft.com/office/word/2012/wordml}restartNumberingAfterBreak"
 _REVISION_NAMES = frozenset({
     "ins", "del", "moveFrom", "moveTo", "numberingChange", "pPrChange",
 })
@@ -60,8 +62,8 @@ def _bounded(condition: bool, detail: str) -> None:
         raise ApplyError("resource_limit_exceeded", detail)
 
 
-def _attributes(node: etree._Element, names: set[str]) -> None:
-    if set(node.attrib) - {w(name) for name in names}:
+def _attributes(node: etree._Element, names: set[str], *, metadata: frozenset[str] = frozenset()) -> None:
+    if set(node.attrib) - ({w(name) for name in names} | metadata):
         _refuse("numbering dependency has unsupported attributes", reason="unknown_attributes")
 
 
@@ -436,7 +438,14 @@ class _Resolver:
         if num_id in self._levels:
             return self._levels[num_id]
         instance = self._definition(self._nums, num_id, "numbering instance")
-        _attributes(instance, {"numId"})
+        _attributes(instance, {"numId"}, metadata=frozenset({_DURABLE_ID}))
+        durable_id = instance.get(_DURABLE_ID)
+        if durable_id is not None:
+            # MS-DOCX 2.8.2.2: decimal metadata identity, strictly positive
+            # and below Int32.MaxValue. It never supplies a counter/group key.
+            value = _integer(durable_id, name="numbering durableId", maximum=MAX_NUMBERING_VALUE - 1)
+            if value == 0:
+                _refuse("numbering durableId must be positive", reason="invalid_value")
         if any(child.tag not in {w("abstractNumId"), w("lvlOverride")} for child in instance):
             _refuse("numbering instance has unsupported properties", reason="unknown_instance_properties")
         abstract_ref = _one(instance, "abstractNumId")
@@ -444,7 +453,12 @@ class _Resolver:
             _refuse("abstract numbering reference is missing", reason="missing_definition")
         abstract_id = _id(_value(abstract_ref), name="abstractNumId")
         abstract = self._definition(self._abstracts, abstract_id, "abstract numbering definition")
-        _attributes(abstract, {"abstractNumId"})
+        _attributes(abstract, {"abstractNumId"}, metadata=frozenset({_RESTART_AFTER_BREAK}))
+        restart_after_break = abstract.get(_RESTART_AFTER_BREAK)
+        if restart_after_break is not None and restart_after_break not in {"0", "false", "off"}:
+            # An enabled section restart changes counter semantics and is
+            # outside this continuous single-level proof (MS-DOCX 2.5.2.1).
+            _refuse("section-based numbering restart is unsupported or invalid", reason="unsupported_section_restart")
         if any(child.tag not in {w(name) for name in ("nsid", "multiLevelType", "tmpl", "name", "lvl")} for child in abstract):
             _refuse("style-linked, picture or unknown numbering is unsupported", reason="linked_or_unknown_numbering")
         for name in ("nsid", "multiLevelType", "tmpl", "name"):
