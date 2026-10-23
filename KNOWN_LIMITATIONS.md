@@ -23,11 +23,22 @@ history and refresh all references. Veqtor does not silently disable tracking or
 change the user's proofing/language settings to prevent Word's own behavior.
 
 The legacy guarantees below still apply to the eleven document/position tools.
-All sixteen current tools expose `veqtor.mcp.v0.6.0`; legacy calls remain
+All eighteen current tools expose `veqtor.mcp.v0.6.0`; legacy calls remain
 compatible with public `0.4.0`. Source presence and test results do
 not establish a new publication or exact-candidate client acceptance. The
 archived v0.4.0 release contract, historical golden records and published artifacts
 are unchanged; v0.3 remains a historical eight-tool artifact.
+
+The read-only [bilingual column tools](docs/BILINGUAL_COLUMNS.md) use explicit
+hash-bound cells, formats and single-value condition pairs. They do not infer
+obligation correspondence or translation equivalence. Every observed candidate
+in selected cells remains visible, including unsupported and unpaired values.
+Merges/nesting/ambiguous geometry refuse pairing; formulas, ambiguous dates,
+compound rates and conservative number-word candidates do not establish matches.
+The reference report scans canonical main-body text and raw field nodes, leaves
+target validity unassessed, and never renumbers or rewrites field codes. Fixed
+whole-result limits refuse rather than truncate. This is synthetic technical
+coverage, with native Word, real-document acceptance and F7 still separate.
 
 The [Codex guide](docs/CODEX.md) records historical public 0.4.0 CLI write and
 desktop read observations, plus a distinct unpublished error-transport patch.

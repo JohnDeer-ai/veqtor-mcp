@@ -39,6 +39,11 @@ from veqtor_mcp import positions
 from veqtor_mcp._positions_contract import DealPositionsResult, OperationsInput, RevisionInput
 from veqtor_docx import drafting, revision_decisions
 from veqtor_docx import incoming_comparison
+from veqtor_docx import bilingual
+from veqtor_mcp._bilingual_contract import (
+    AffectedParagraphsInput, BilingualConditionsResult, BilingualPairsInput,
+    ReadDocumentTablesResult,
+)
 from veqtor_mcp._incoming_contract import IncomingComparisonResult, ComparisonShaInput
 from veqtor_mcp._drafting_contract import (
     ApplyDocumentEditsResult, ApplyDocumentEditsSuccessResult, DRAFTING_ERROR_RESULT,
@@ -331,6 +336,8 @@ _RESULT_MODELS = {
     "extract_redlines": ExtractRedlinesResult,
     "inspect_document": InspectDocumentResult,
     "compare_incoming_version": IncomingComparisonResult,
+    "read_document_tables": ReadDocumentTablesResult,
+    "check_bilingual_conditions": BilingualConditionsResult,
     "map_rounds": RoundMapResult,
     "trace_paragraph_history": ParagraphHistoryResult,
     "preflight_edits": PreflightEditsResult,
@@ -464,6 +471,8 @@ def _validated_success_result(
             InspectionContractV1.validate_critical(normalized)
         elif tool_name == "compare_incoming_version":
             incoming_comparison.validate_comparison_page(normalized)
+        elif tool_name in {"read_document_tables", "check_bilingual_conditions"}:
+            bilingual.validate_bilingual_result(normalized)
     except Exception:
         # Validation diagnostics may contain document text, private paths or an
         # implementation sentinel.  Neither the journal nor the MCP client may
@@ -1903,6 +1912,50 @@ def compare_incoming_version(
         max_items=max_items, cursor=cursor,
     )
     return _drafting_result("compare_incoming_version", result)
+
+
+@_mcp_tool(annotations=ToolAnnotations(title="Read Word tables and references", read_only_hint=True,
+           destructive_hint=False, idempotent_hint=True, open_world_hint=False),
+           meta=contract_meta(), structured_output=True)
+def read_document_tables(path: str, file_sha256: ComparisonShaInput | None = None,
+                         affected_paragraph_refs: AffectedParagraphsInput | None = None
+                         ) -> ReadDocumentTablesResult:
+    """Read complete bounded table geometry, paragraphs and reference observations.
+
+    Includes physical cells, merges, nested content and empty paragraphs, all
+    bound to exact source bytes. No language columns or pairs are inferred.
+    Exact current-text reference candidates and raw field nodes are observations;
+    their targets and relevance after structural edits are not validated. Pass
+    fresh affected_paragraph_refs to mark an explicitly selected changed area.
+    All canonical main-body paragraphs are scanned; other parts and semantic
+    references are outside scope. The whole report refuses if a fixed limit is
+    exceeded, including late quotes. Refresh every reference after any save.
+    No file or negotiation journal is written.
+    """
+    return _drafting_result("read_document_tables", bilingual.read_document_tables(
+        path, file_sha256, affected_paragraph_refs=affected_paragraph_refs))
+
+
+@_mcp_tool(annotations=ToolAnnotations(title="Check selected bilingual conditions", read_only_hint=True,
+           destructive_hint=False, idempotent_hint=True, open_world_hint=False),
+           meta=contract_meta(), structured_output=True)
+def check_bilingual_conditions(path: str, file_sha256: ComparisonShaInput,
+                               cell_pairs: BilingualPairsInput) -> BilingualConditionsResult:
+    """Compare explicit single-value condition spans in selected language cells.
+
+    First read_document_tables. Supply its table/row/cell and paragraph refs,
+    explicit language/grid columns, numeric/date formats and exact quote spans.
+    Selected geometry must be unmerged and unambiguous. A condition matches only
+    with one supported value on each side. Multiple values require narrower
+    explicit pairs; a number multiset never proves correspondence. Unselected,
+    unsupported and unpaired values remain visible with exact quotes/counts.
+    Decimal comparison includes currency, scale, units and calendar/business
+    days. Ambiguous dates, formulas and number words do not establish matches.
+    Numeric agreement never verifies translation or obligation equivalence.
+    Current main-body reading only; no file or negotiation journal is written.
+    """
+    return _drafting_result("check_bilingual_conditions", bilingual.check_bilingual_conditions(
+        path, file_sha256, cell_pairs))
 
 
 @_mcp_tool(annotations=ToolAnnotations(title="Read Word comments", read_only_hint=True,

@@ -7,11 +7,13 @@ import asyncio
 from collections import Counter
 from contextlib import nullcontext
 import hashlib
+import io
 from importlib.metadata import distribution
 import json
 import os
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 
 from mcp import StdioServerParameters
@@ -64,7 +66,7 @@ EXPECTED_TOOL_NAMES_BY_VERSION = {
                     "preflight_document_edits", "apply_document_edits"),
     "0.5.0.dev3": (*NR02_TOOL_NAMES, "read_document_comments",
                     "preflight_document_edits", "apply_document_edits"),
-    "0.6.0.dev1": (*NR02_TOOL_NAMES, "compare_incoming_version", "read_document_comments", "read_document_revisions",
+    "0.6.0.dev1": (*NR02_TOOL_NAMES, "compare_incoming_version", "read_document_tables", "check_bilingual_conditions", "read_document_comments", "read_document_revisions",
                    "preflight_document_edits", "apply_document_edits"),
     "0.5.0": (*NR02_TOOL_NAMES, "read_document_comments",
                     "preflight_document_edits", "apply_document_edits"),
@@ -191,8 +193,49 @@ async def _dual_era_stdio_smoke() -> dict[str, str]:
                 await _exercise_public_v04(client, matter, listed)
                 if __version__ == "0.6.0.dev1":
                     await _exercise_incoming_comparison(client, listed)
+                    await _exercise_bilingual_columns(client)
             assert negotiated[mode] == expected_protocol_version
         return negotiated
+
+
+async def _exercise_bilingual_columns(client: Client) -> dict:
+    """Independent synthetic input through both new installed MCP tools."""
+    with tempfile.TemporaryDirectory(prefix="veqtor-bilingual-smoke-") as root:
+        source = Path(root).resolve() / "synthetic.docx"
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as package:
+            package.writestr("[Content_Types].xml", '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>')
+            package.writestr("word/document.xml", '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w="2000"/><w:gridCol w:w="2000"/></w:tblGrid><w:tr><w:tc><w:p><w:r><w:t>1,000.50 USD</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>1 000,50 USD</w:t></w:r></w:p></w:tc></w:tr></w:tbl><w:sectPr/></w:body></w:document>')
+        payload = buffer.getvalue()
+        source.write_bytes(payload)
+        result = await client.call_tool("read_document_tables", {"path": str(source)})
+        assert not result.is_error
+        inventory = _payload(result)
+        assert inventory["producer"] == {"name": "veqtor-mcp", "version": __version__, "build": SOURCE_SNAPSHOT_IDENTITY}
+        assert inventory["record_status"] == "disabled"
+        table = next(i for i in inventory["items"] if i["kind"] == "table")
+        row = next(i for i in inventory["items"] if i["kind"] == "row")
+        cells = [i for i in inventory["items"] if i["kind"] == "cell"]
+        paragraphs = [i for i in inventory["items"] if i["kind"] == "paragraph"]
+        pair = {"pair_id": "synthetic-payment", "table_ref": table["table_ref"], "row_ref": row["row_ref"], "conditions": []}
+        condition = {"condition_id": "amount"}
+        for side, language, index, decimal, grouping in (("left", "en", 0, ".", ","), ("right", "ru", 1, ",", " ")):
+            pair[side] = {"cell_ref": cells[index]["cell_ref"], "language": language, "grid_column": index,
+                          "format": {"decimal_separator": decimal, "grouping_separator": grouping, "date_order": "reject_ambiguous"}}
+            p = paragraphs[index]
+            condition[side] = {"paragraph_ref": p["paragraph_ref"], "start": 0, "end": len(p["text"]), "quote": p["text"]}
+        pair["conditions"].append(condition)
+        result = await client.call_tool("check_bilingual_conditions", {"path": str(source), "file_sha256": inventory["file_sha256"], "cell_pairs": [pair]})
+        assert not result.is_error
+        checked = _payload(result)
+        assert checked["producer"] == inventory["producer"]
+        assert checked["record_status"] == "disabled"
+        assert checked["pairs"][0]["conditions"][0]["status"] == "numeric_values_and_units_match"
+        assert checked["pairs"][0]["coverage"]["paired_values"] == 2
+        assert checked["obligation_equivalence"] == "not_claimed"
+        assert source.read_bytes() == payload and sorted(p.name for p in Path(root).iterdir()) == ["synthetic.docx"]
+        return {"selected_conditions": 1, "paired_values": 2, "sources_unchanged": True,
+                "obligation_equivalence": "not_claimed"}
 
 
 async def _exercise_incoming_comparison(client: Client, listed: dict) -> dict:
@@ -268,6 +311,8 @@ async def smoke() -> dict:
             await _exercise_public_v04(session, matter, listed)
             incoming_result = (await _exercise_incoming_comparison(session, listed)
                                if __version__ == "0.6.0.dev1" else None)
+            bilingual_result = (await _exercise_bilingual_columns(session)
+                                if __version__ == "0.6.0.dev1" else None)
             positions_result = (
                 await exercise_positions(session)
                 if __version__ in {"0.4.2.dev0", "0.4.2", "0.5.0.dev1", "0.5.0.dev2", "0.5.0.dev3", "0.5.0", "0.6.0.dev1"} else None
@@ -434,6 +479,7 @@ async def smoke() -> dict:
                 "used_bundled_demo": configured_matter is not None,
                 "positions": positions_result,
                 "incoming_comparison": incoming_result,
+                "bilingual_columns": bilingual_result,
             }
 
 
