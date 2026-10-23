@@ -40,7 +40,7 @@ EXPECTED_TOOLS = frozenset({
     "read_document_tables",
     "check_bilingual_conditions",
     "read_document_comments", "preflight_document_edits", "apply_document_edits",
-    "read_document_revisions",
+    "read_document_revisions", "recover_document_operation",
 })
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 TITLE_FIRST = "Master Development and Supply Agreement"

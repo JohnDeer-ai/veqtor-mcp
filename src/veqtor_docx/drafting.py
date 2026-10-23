@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
 import os
 import zipfile
+import uuid
 from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -63,6 +65,7 @@ from .inspect import _resolve_paragraph, _snapshot_from_validated
 
 SCHEMA_VERSION = "document_drafting.v1"
 PROOF_VERSION = "drafting_preflight.v1"
+JOURNAL_PROOF_VERSION = "drafting_preflight.v2"
 MAX_OPERATIONS = 100
 MAX_TEXT_CHARS = 20_000
 MAX_BATCH_CHARS = 200_000
@@ -1181,6 +1184,7 @@ def _proof(
     initials: str,
     producer_build: str,
     output_path: str | None,
+    operation_id: str | None = None,
 ) -> dict:
     if not isinstance(producer_build, str) or not producer_build:
         raise ApplyError("preflight_proof_invalid", "producer build is required")
@@ -1188,7 +1192,7 @@ def _proof(
         _path(output_path) if output_path is not None else candidate.source_path
     )
     fields = {
-        "schema_version": PROOF_VERSION,
+        "schema_version": JOURNAL_PROOF_VERSION if operation_id else PROOF_VERSION,
         "source_path": candidate.source_path,
         "source_sha256": _sha(candidate.source_payload),
         "output_path": destination,
@@ -1199,7 +1203,19 @@ def _proof(
         "timestamp": candidate.timestamp,
         "candidate_sha256": _sha(candidate.payload),
     }
+    if operation_id is not None:
+        fields["operation_id"] = operation_id
     return {**fields, "proof_sha256": _canonical_digest(fields)}
+
+
+def _journal_plan(operations, previews, proof):
+    from .round_operations import canonical_plan_bytes, OperationRecordError
+    plan = {"schema_version": "drafting_operation_plan.v1", "operations": operations,
+            "observed_previews": previews, "preflight_proof": proof}
+    try:
+        return json.loads(canonical_plan_bytes(plan))
+    except OperationRecordError as exc:
+        raise ApplyError(exc.code, "operation plan exceeds the journal contract") from exc
 
 
 def preflight_document_edits(
@@ -1211,14 +1227,18 @@ def preflight_document_edits(
     initials: str = "VM",
     producer_build: str,
     output_path: str | None = None,
+    journal: bool = False,
 ) -> dict:
     """Dry-run the full sequential batch; no document, backup or journal is written."""
     try:
         candidate = _prepare(source_path, file_sha256, operations, author, initials,
                              timestamp=_new_timestamp())
         proof = _proof(
-            candidate, operations, author, initials, producer_build, output_path
+            candidate, operations, author, initials, producer_build, output_path,
+            operation_id=str(uuid.uuid4()) if journal else None,
         )
+        if journal:
+            _journal_plan(operations, candidate.operations, proof)
         return {
             "schema_version": SCHEMA_VERSION,
             "batch_applicable": True,
@@ -1256,21 +1276,36 @@ def apply_document_edits(
     initials: str = "VM",
     producer_build: str,
     output_path: str | None = None,
+    journal: bool = False,
 ) -> dict:
     """Apply the exact successful preflight candidate, with backup for in-place saves."""
     _validate_operations(operations)
+    operation_id = None
+    if journal:
+        from .operation_journal import _id
+        if not isinstance(preflight_proof, dict) or preflight_proof.get("schema_version") != JOURNAL_PROOF_VERSION:
+            raise ApplyError("journal_preflight_required", "obtain a fresh journal-enabled preflight")
+        operation_id = _id(preflight_proof.get("operation_id"))
+    elif isinstance(preflight_proof, dict) and preflight_proof.get("schema_version") == JOURNAL_PROOF_VERSION:
+        raise ApplyError("journal_mode_mismatch", "journal-enabled preflight cannot be downgraded")
     timestamp = _proof_timestamp(preflight_proof)
     candidate = _prepare(source_path, file_sha256, operations, author, initials,
                          timestamp=timestamp)
     expected = _proof(
-        candidate, operations, author, initials, producer_build, output_path
+        candidate, operations, author, initials, producer_build, output_path, operation_id
     )
     if not isinstance(preflight_proof, dict) or preflight_proof != expected:
         raise ApplyError(
             "preflight_binding_mismatch", "preflight does not match current inputs"
         )
+    options = {}
+    if journal:
+        from .operation_journal import OperationJournal
+        options["journal"] = OperationJournal(operation_id, source_path=candidate.source_path,
+            plan=_journal_plan(operations, candidate.operations, expected),
+            author_profile={"name": author, "initials": initials}, producer=producer_build)
     publication = publish_document(
-        candidate.source_path, output_path, candidate.source_payload, candidate.payload
+        candidate.source_path, output_path, candidate.source_payload, candidate.payload, **options
     )
     return {
         "schema_version": SCHEMA_VERSION,

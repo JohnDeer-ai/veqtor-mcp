@@ -1,6 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Additive, closed contracts for the author drafting workflow."""
 from typing import Annotated, Any, ClassVar
+import uuid
+
+from pydantic import model_validator
 
 from pydantic import StringConstraints, WithJsonSchema
 
@@ -134,6 +137,11 @@ PROOF = obj(schema_version={"const": "drafting_preflight.v1"}, source_path=TEXT,
             source_sha256=SHA, output_path=TEXT, operations_sha256=SHA, author=NONEMPTY,
             initials=NONEMPTY, producer_build=NONEMPTY, timestamp=TIMESTAMP,
             candidate_sha256=SHA, proof_sha256=SHA)
+OPERATION_ID = {"type": "string", "pattern": r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![\s\S])"}
+_LEGACY_PROOF = PROOF
+_JOURNAL_PROOF = obj(**{**_LEGACY_PROOF["properties"],
+    "schema_version": {"const": "drafting_preflight.v2"}, "operation_id": OPERATION_ID})
+PROOF = {"oneOf": [_LEGACY_PROOF, _JOURNAL_PROOF]}
 DraftingOperationsInput = Annotated[list[dict[str, Any]], WithJsonSchema(OPERATIONS)]
 DraftingProofInput = Annotated[dict[str, Any], WithJsonSchema(PROOF)]
 AUTHOR_PROFILE = obj(
@@ -339,11 +347,26 @@ PREFLIGHT_RESULT["allOf"] = [{
     "else": {"properties": {"preflight_proof": {"type": "null"}, "refusal_code": NONEMPTY,
                              "operations": {"maxItems": 0}}},
 }]
+OPERATION_JOURNAL = obj(
+    schema_version={"const": "operation_journal_status.v1"}, operation_id=OPERATION_ID,
+    publication_status={"enum": ["published", "not_published", "uncertain"]},
+    verification={"enum": ["matched", "mismatch", "not_checked"]},
+    observed_output_sha256=nullable(SHA),
+    backup_verification={"enum": ["not_required", "not_checked", "matched", "mismatch", "same_as_output"]},
+    journal_status={"enum": ["written", "incomplete"]},
+    journal_error=nullable({"enum": ["journal_finalize_failed", "operation_outcome_unresolved"]}),
+    operation_error=nullable({"type": "string", "pattern": RECORD_ERROR_PATTERN}),
+)
+_JOURNAL_METADATA = {"record_id": nullable(OPERATION_ID),
+    "record_status": {"enum": ["written", "disabled", "write_failed"]}}
 APPLY_RESULT = obj(**_COMMON, status={"const": "ok"}, output_path=TEXT,
                    backup_path=nullable(TEXT), backup_sha256=nullable(SHA),
                    save_mode={"enum": ["copy", "in_place"]}, source_sha256=SHA, output_sha256=SHA,
                    tracked_change_author=TEXT, comment_initials=TEXT, operations=_APPLIED,
                    preflight_binding_status={"const": "verified"})
+APPLY_RESULT["properties"].update(_JOURNAL_METADATA)
+APPLY_RESULT["properties"]["record_error"] = {"type": "string", "pattern": RECORD_ERROR_PATTERN}
+APPLY_RESULT["properties"]["operation_journal"] = OPERATION_JOURNAL
 APPLY_RESULT["properties"]["operations"] = {**_APPLIED, "minItems": 1}
 APPLY_RESULT["allOf"] = [{
     "if": {"properties": {"save_mode": {"const": "in_place"}}},
@@ -364,7 +387,17 @@ DRAFTING_ERROR_RESULT = obj(
                  publication_completed={"type": "boolean"}, lock_path=nullable(NONEMPTY),
                  lock_reason=nullable(LOCK_REASON)),
 )
+DRAFTING_ERROR_RESULT["properties"]["recovery"]["properties"]["operation_journal"] = OPERATION_JOURNAL
+DRAFTING_ERROR_RESULT["properties"]["recovery"]["properties"]["publication_status"] = {
+    "enum": ["not_published", "published", "uncertain"],
+}
 DRAFTING_ERROR_RESULT["properties"]["recovery"]["allOf"] = [
+    {"if": {"required": ["publication_status"],
+            "properties": {"publication_status": {"const": "published"}}},
+     "then": {"properties": {"publication_completed": {"const": True}}}},
+    {"if": {"required": ["publication_status"],
+            "properties": {"publication_status": {"enum": ["not_published", "uncertain"]}}},
+     "then": {"properties": {"publication_completed": {"const": False}}}},
     {"if": {"properties": {"backup_path": {"type": "null"}}},
      "then": {"properties": {"backup_sha256": {"type": "null"},
                               "backup_path_verified": {"const": False}}},
@@ -393,6 +426,37 @@ class PreflightDocumentEditsResult(_ContractResult):
 
 class ApplyDocumentEditsSuccessResult(_ContractResult):
     contract_schema: ClassVar[dict[str, Any]] = APPLY_RESULT
+
+    @model_validator(mode="after")
+    def _validate_record_metadata_tuple(self):
+        error = (self.model_extra or {}).get("record_error")
+        if self.record_status == "written":
+            try:
+                valid = str(uuid.UUID(self.record_id)) == self.record_id and error is None
+            except (ValueError, TypeError, AttributeError):
+                valid = False
+        elif self.record_status == "disabled":
+            valid = self.record_id is None and error is None
+        else:
+            valid = self.record_id is None and isinstance(error, str) and bool(error)
+        if not valid:
+            raise ValueError("operation journal metadata is inconsistent")
+        return self
+
+
+RECOVERY_RESULT = obj(
+    **{**_COMMON, **_JOURNAL_METADATA},
+    source_path=NONEMPTY, operation_journal=OPERATION_JOURNAL,
+    recovered={"type": "boolean"}, current_output_sha256=nullable(SHA),
+    recovery_status={"enum": ["existing_result", "recovered", "unresolved"]},
+)
+RECOVERY_RESULT["properties"]["schema_version"] = {"const": "document_operation_recovery.v1"}
+RECOVERY_RESULT["properties"]["record_error"] = {"type": "string", "pattern": RECORD_ERROR_PATTERN}
+RECOVERY_RESULT[MCP_CONTRACT_SCHEMA_EXTENSION] = MCP_CONTRACT_SCHEMA_VERSION
+
+
+class RecoverDocumentOperationResult(ApplyDocumentEditsSuccessResult):
+    contract_schema: ClassVar[dict[str, Any]] = RECOVERY_RESULT
 
 
 class ApplyDocumentEditsResult(ApplyDocumentEditsSuccessResult):
