@@ -498,6 +498,12 @@ def _ordinary_batch(root, parts):
     _remember_parent_paths(planned, (), nodes, parent_paths, parts)
     ledger, facts = [], []
     geometric_tables = {decisions.decision_table([n]) for n in table_nodes if n.tag in {w("tcPrChange"), w("trPrChange"), w("tblGridChange")}}
+    # Geometry covers the table, while style dependencies follow the selective
+    # owners: a cell/row change must not inspect untouched siblings' styles.
+    style_regions = {
+        table: tuple(dict.fromkeys(n.getparent().getparent() for n in selection))
+        for table, selection in by_table.items()
+    }
     group_ends = {selection[-1]: table for table, selection in by_table.items()}
     while queue:
         node = queue.popleft()
@@ -544,8 +550,12 @@ def _ordinary_batch(root, parts):
             if table in geometric_tables:
                 decisions._grid(table)
             decisions.validate_fixed_table_widths(table)
-            for paragraph in table.iter(w("p")):
-                style_proofs.require(paragraph)
+            checked_paragraphs = set()
+            for region in style_regions[table]:
+                for paragraph in region.iter(w("p")):
+                    if paragraph not in checked_paragraphs:
+                        style_proofs.require(paragraph)
+                        checked_paragraphs.add(paragraph)
         elif node not in table_properties:
             paragraphs = [parent] if parent.tag == w("p") else list(parent.iter(w("p")))
             if parent.tag in {w("r"), w("pPr")}:
