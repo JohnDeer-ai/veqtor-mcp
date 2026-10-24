@@ -419,6 +419,124 @@ def test_lost_copy_result_requires_source_and_output_match(tmp_path, monkeypatch
     assert (folder / "result.json").exists() == (not source_changed)
 
 
+def _copy_crashed_after_link(tmp_path, separate_directory=True):
+    import subprocess
+    import sys
+
+    path, store, folder = fixture(tmp_path)
+    destination = tmp_path / "destination" if separate_directory else tmp_path
+    destination.mkdir(exist_ok=True)
+    output = destination / "copy.docx"
+    code = r"""
+import sys
+from veqtor_docx import operation_journal as journal, _drafting_io as io
+source, output, identifier = sys.argv[1:]
+store = journal.OperationJournal(identifier, source_path=source,
+    plan={'operations':[{'kind':'synthetic'}]},
+    author_profile={'name':'Fictional Counsel','initials':'FC'}, producer='test-build')
+original = io.os.link
+def pause(*args, **kwargs):
+    original(*args, **kwargs)
+    if args[1] == 'copy.docx':
+        print('PUBLISHED', flush=True)
+        sys.stdin.read()
+io.os.link = pause
+io.publish_document(source, output, b'old exact package bytes', b'new exact package bytes', journal=store)
+"""
+    child = subprocess.Popen(
+        [sys.executable, "-c", code, str(path), str(output), store.operation_id],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")},
+    )
+    try:
+        assert child.stdout.readline().strip() == "PUBLISHED"
+        child.kill()
+        child.wait(timeout=10)
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait(timeout=10)
+    assert output.stat().st_nlink == 2
+    assert list(destination.glob(".veqtor-stage-*"))
+    return path, store, folder, output
+
+
+@pytest.mark.parametrize("separate_directory", [False, True])
+@pytest.mark.parametrize("source_changed", [False, True])
+def test_copy_link_crash_recovery_cleans_destination_stage_without_reapplying(
+    tmp_path, separate_directory, source_changed
+):
+    path, store, folder, output = _copy_crashed_after_link(tmp_path, separate_directory)
+    if source_changed:
+        path.write_bytes(b"later source")
+    source_before, output_before = path.read_bytes(), output.read_bytes()
+    recovered = journal.recover_operation(str(path), store.operation_id)
+    assert recovered["recovered"] is (not source_changed)
+    assert recovered["current_output_sha256"] == hashlib.sha256(CANDIDATE).hexdigest()
+    assert output.stat().st_nlink == 1
+    assert not list(output.parent.glob(".veqtor-stage-*"))
+    assert path.read_bytes() == source_before and output.read_bytes() == output_before
+    assert (folder / "result.json").exists() is (not source_changed)
+    repeat = journal.recover_operation(str(path), store.operation_id)
+    assert repeat["recovery_status"] == ("unresolved" if source_changed else "existing_result")
+    assert path.read_bytes() == source_before and output.read_bytes() == output_before
+
+
+@pytest.mark.parametrize("mutation", ["extra_link", "changed_candidate", "symlink_parent", "missing_parent"])
+def test_cross_directory_recovery_preserves_unverified_destination_evidence(tmp_path, mutation):
+    path, store, folder, output = _copy_crashed_after_link(tmp_path)
+    retained = output
+    if mutation == "extra_link":
+        alias = tmp_path / "external-alias.docx"
+        os.link(output, alias)
+    elif mutation == "changed_candidate":
+        output.write_bytes(b"changed candidate")
+    else:
+        original = output.parent
+        moved = tmp_path / "retained-destination"
+        original.rename(moved)
+        retained = moved / output.name
+        if mutation == "symlink_parent":
+            original.symlink_to(moved, target_is_directory=True)
+    before = retained.read_bytes()
+    stages = sorted(retained.parent.glob(".veqtor-stage-*"))
+    if mutation == "symlink_parent":
+        with pytest.raises(ApplyError, match="operation_recovery_failed") as refusal:
+            journal.recover_operation(str(path), store.operation_id)
+        assert isinstance(refusal.value.__cause__, ApplyError)
+        assert refusal.value.__cause__.code == "operation_record_invalid"
+    else:
+        recovered = journal.recover_operation(str(path), store.operation_id)
+        assert recovered["recovery_status"] == "unresolved"
+        assert recovered["current_output_sha256"] is None
+    assert not (folder / "result.json").exists()
+    assert retained.read_bytes() == before and path.read_bytes() == SOURCE
+    assert sorted(retained.parent.glob(".veqtor-stage-*")) == stages
+    if mutation == "extra_link":
+        assert alias.read_bytes() == before and retained.stat().st_nlink == 3
+
+
+def test_cross_directory_recovery_respects_active_destination_writer(tmp_path):
+    import fcntl
+
+    path, store, folder, output = _copy_crashed_after_link(tmp_path)
+    fd = os.open(output.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(ApplyError, match="operation_recovery_failed") as refusal:
+            journal.recover_operation(str(path), store.operation_id)
+        assert isinstance(refusal.value.__cause__, ApplyError)
+        assert refusal.value.__cause__.code == "file_locked"
+        assert output.stat().st_nlink == 2
+        assert list(output.parent.glob(".veqtor-stage-*"))
+        assert not (folder / "result.json").exists()
+    finally:
+        os.close(fd)
+    assert journal.recover_operation(str(path), store.operation_id)["recovered"]
+    assert output.stat().st_nlink == 1 and output.read_bytes() == CANDIDATE
+    assert path.read_bytes() == SOURCE
+
+
 def test_noop_lost_result_cannot_infer_publication(tmp_path, monkeypatch):
     path, store, folder = fixture(tmp_path)
     monkeypatch.setattr(store, "finish", lambda **kw: (_ for _ in ()).throw(KeyboardInterrupt()))

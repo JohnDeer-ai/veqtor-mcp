@@ -14,7 +14,7 @@ import math
 import os
 import stat
 import uuid
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
 
 from . import _drafting_io as io
@@ -399,10 +399,20 @@ def recover_operation(source_path, operation_id):
     try:
         with io._directory(folder) as parent, io._writer_lock(parent, folder, basename):
             io._word_unlocked(parent, basename)
-            with _storage(source, identifier, create=False) as fd:
+            with _storage(source, identifier, create=False) as fd, ExitStack() as destinations:
                 prepared = _read(fd, "prepared.json")
                 intent = _prepared(prepared, source, identifier)
-                output = _observe(intent["destination"])
+                output_folder, output_name = os.path.split(intent["destination"])
+                try:
+                    destination = destinations.enter_context(io._directory(output_folder))
+                except (ApplyError, OSError):
+                    destination = None  # Missing/unsafe evidence remains unobserved.
+                if destination is not None and io._identity(os.fstat(destination)) != io._identity(os.fstat(parent)):
+                    # The publisher stages a copy in its destination directory.
+                    # Recover its owned dead-writer link under the same guard;
+                    # never certify an output while that staging link remains.
+                    destinations.enter_context(io._writer_lock(destination, output_folder, output_name))
+                output = _observe(intent["destination"]) if destination is not None else None
                 backup = _backup(source, intent, prepared["backup"])
                 try:
                     stored = _read(fd, "result.json")

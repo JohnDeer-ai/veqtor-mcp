@@ -53,6 +53,10 @@ Direct library callers retain the old default and opt in with `journal=True`.
 - `recover_document_operation(source_path, operation_id)` never applies edits.
   Matching candidate and exact backup hashes can complete a lost result with
   `recovered=true`. A copy additionally requires its source still to match.
+  For a copy in another folder, recovery also acquires that folder's writer
+  guard before observing the output. The existing dead-writer recovery may
+  remove its verified temporary publication link; it never reapplies the edit.
+  Active writers or unsafe, changed or aliased evidence cannot confirm recovery.
 - Missing, changed, unreadable or ambiguous evidence stays unresolved. In
   particular, identical source/candidate hashes cannot prove a lost publication.
   Recovery does not restore backups, move files or search other folders.
