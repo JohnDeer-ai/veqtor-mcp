@@ -229,6 +229,81 @@ def test_problematic_style_remains_a_refusal(demo_dir, monkeypatch, style):
             _run_mode(payload, monkeypatch, batch)
 
 
+@pytest.mark.parametrize("kind", ["tcPrChange", "trPrChange", "tblPrExChange"])
+@pytest.mark.parametrize("style_in_selected_region", [False, True])
+def test_local_table_property_batch_preserves_selective_style_scope(
+    demo_dir, monkeypatch, kind, style_in_selected_region
+):
+    root = _fixture.source_document(kind)
+    table = next(root.iter(w("tbl")))
+    first_row = next(table.iter(w("tr")))
+    if kind == "tcPrChange":
+        selected, untouched = list(first_row.iter(w("tc")))
+    else:
+        selected = first_row
+        untouched = copy.deepcopy(first_row)
+        for change in list(untouched.iter(w(kind))):
+            change.getparent().remove(change)
+        table.append(untouched)
+    paragraph = next((selected if style_in_selected_region else untouched).iter(w("p")))
+    props = etree.Element(w("pPr"))
+    etree.SubElement(props, w("pStyle"), {w("val"): "MissingFictionalStyle"})
+    paragraph.insert(0, props)
+    body = root.find(w("body"))
+    for index in range(127):
+        body.insert(len(body) - 1, _root(
+            '<w:p>' + _revision("ins", f"Fictional clause {index}.", 100 + index) + '</w:p>'
+        ).find(w("body"))[0])
+    payload = _package(demo_dir, root)
+    assert len(clean_copy._nodes(root)) == 128
+    if style_in_selected_region:
+        for batch in (False, True):
+            with pytest.raises(ApplyError, match="paragraph_structure_unsupported"):
+                _run_mode(payload, monkeypatch, batch)
+    else:
+        legacy, _ = _run_mode(payload, monkeypatch, False)
+        batched, _ = _run_mode(payload, monkeypatch, True)
+        assert batched.accepted_revision_count == 128
+        assert _parts(batched.payload) == _parts(legacy.payload)
+
+
+@pytest.mark.parametrize("table_wide_change", [False, True])
+def test_mixed_table_batch_uses_union_of_selected_style_regions(demo_dir, monkeypatch, table_wide_change):
+    root = _fixture.source_document("tcPrChange")
+    table = next(root.iter(w("tbl")))
+    first = next(table.iter(w("tr")))
+    second = copy.deepcopy(first)
+    for change in list(second.iter(w("tcPrChange"))):
+        change.getparent().remove(change)
+    row_properties = copy.deepcopy(next(_fixture.source_document("tblPrExChange").iter(w("tblPrEx"))))
+    row_properties.find(w("tblPrExChange")).set(w("id"), "300")
+    second.insert(0, row_properties)
+    table.append(second)
+    untouched = list(first.iter(w("tc")))[1]
+    paragraph = next(untouched.iter(w("p")))
+    props = etree.Element(w("pPr"))
+    etree.SubElement(props, w("pStyle"), {w("val"): "MissingFictionalStyle"})
+    paragraph.insert(0, props)
+    if table_wide_change:
+        broad = copy.deepcopy(next(_fixture.source_document("tblPrChange").iter(w("tblPrChange"))))
+        broad.set(w("id"), "301")
+        table.find(w("tblPr")).append(broad)
+    body = root.find(w("body"))
+    for index in range(126):
+        body.insert(len(body) - 1, _root(
+            '<w:p>' + _revision("ins", f"Fictional clause {index}.", 100 + index) + '</w:p>'
+        ).find(w("body"))[0])
+    payload = _package(demo_dir, root)
+    if table_wide_change:
+        for batch in (False, True):
+            with pytest.raises(ApplyError, match="paragraph_structure_unsupported"):
+                _run_mode(payload, monkeypatch, batch)
+    else:
+        legacy, _ = _run_mode(payload, monkeypatch, False)
+        batched, _ = _run_mode(payload, monkeypatch, True)
+        assert _parts(batched.payload) == _parts(legacy.payload)
+
+
 def test_table_style_cannot_be_hidden_by_later_text_deletion(demo_dir, monkeypatch):
     root = _fixture.source_document("tblPrChange")
     paragraph = next(root.iter(w("p")))

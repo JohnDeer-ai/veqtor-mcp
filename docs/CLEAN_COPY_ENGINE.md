@@ -51,6 +51,9 @@ unproved cross-paragraph field/range or nested-table dependencies fall back to t
 full-context selective path. One whole-ledger reversal must restore the exact
 source, and an independently replayed candidate must equal the planned outcome.
 Complete selected table groups and their final geometry are still checked.
+Style dependencies follow the selected cell, row or table owners, matching the
+selective path. An untouched sibling cell's style is not a new dependency of a
+cell-only change; a selected whole-table property still checks the whole table.
 The final package
 is inventoried again and must contain zero revision markers. Its member set and
 every part other than `word/document.xml` remain byte-identical. An already clean
@@ -87,7 +90,9 @@ that every legal DOCX or all hidden data is supported.
 All existing ZIP/XML resource limits apply. The inventory additionally bounds
 aggregate XML work, depth and findings. Invalid numbering-definition order blocks
 export rather than relying on Word repair. The engine keeps the same revision
-and validation-byte limits. The selective path charges the full main document for
+and validation-byte limits. Repeated `locked` and ligature leaves are checked
+without repeatedly scanning their siblings; invalid duplicates still block.
+The selective path charges the full main document for
 repeated outcome validation. The batch path charges its full-source copies and
 actual local validation work. Successfully proved formatting dependencies may be
 reused only for the same immutable dependency bytes and reference semantics;
