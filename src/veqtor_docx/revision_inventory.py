@@ -585,8 +585,10 @@ def _user_payload(root):
 
 def _empty_user_properties(root):
     item, refs = ("{" + _CUSTOM_XML + "}" + n for n in ("datastoreItem", "schemaRefs"))
+    # Omission permits application-selected schemas; only an explicitly empty
+    # list supplies this profile's no-custom-schema declaration.
     if (root.tag != item or set(root.attrib) != {"{" + _CUSTOM_XML + "}itemID"}
-            or not _sequence(root, [(refs, 0, 1)])
+            or not _sequence(root, [(refs, 1, 1)])
             or any(not _leaf(node, ()) for node in root)):
         return False
     return re.fullmatch(r"\{[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}\}",

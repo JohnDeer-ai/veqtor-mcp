@@ -141,6 +141,19 @@ def test_literal_docproperty_word_is_not_a_field_consumer():
     assert inventory.inventory_package_revisions(archive(package_parts))["clean_eligible"]
 
 
+@pytest.mark.parametrize("omitted_items", [(0,), (1,), (0, 1)])
+@pytest.mark.parametrize("tracked", [False, True])
+def test_omitted_schema_references_do_not_prove_explicitly_disabled_schemas(omitted_items, tracked):
+    p, _, props = fixture()
+    if not tracked:
+        p["word/document.xml"] = etree.tostring(document('<w:p><w:r><w:t>' + EXPECTED + '</w:t></w:r></w:p>'))
+    for index in omitted_items:
+        set_xml(p, props[index], lambda root: root.remove(root[0]))
+    result = unsupported(p)
+    assert not result["complete"]
+    assert "unsupported_user_storage" in codes(result)
+
+
 @pytest.mark.parametrize("mutation", ["data_mime", "props_mime", "props_root", "missing_main_edge", "wrong_source",
     "duplicate_main", "wrong_alias", "missing_props", "duplicate_props", "shared_props", "extra_data_outgoing",
     "props_outgoing", "orphan_props", "orphan_rels", "external", "query", "encoded", "bad_mode",

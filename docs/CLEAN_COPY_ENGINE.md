@@ -87,7 +87,10 @@ that every legal DOCX or all hidden data is supported.
 A separate first profile recognizes standard unconsumed user XML storage by
 its complete OPC role, not by filenames or XML prefixes. It requires one implicit
 main-document `customXml` edge, one exact `customXmlProps` edge, the fixed
-properties MIME/root, globally unique braced GUIDs and empty schema references.
+properties MIME/root, globally unique braced GUIDs and exactly one explicitly
+empty `schemaRefs` element. An omitted element does not disable schema selection:
+applications may then choose schemas by other means
+([Microsoft reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.customxmldataproperties.schemareferences?view=openxml-3.0.1)).
 All incoming aliases, unexpected outgoing edges, external/missing sources or
 targets and orphan properties refuse. ASCII-case-equivalent package member or
 override names also refuse, following OPC part-URI equivalence
@@ -121,6 +124,14 @@ The role is based on ECMA-376 Part 1 sections 15.2.5-15.2.6 and the pinned SDK
 [CustomXmlPart](https://github.com/dotnet/Open-XML-SDK/blob/431ab05cf160248cc3885a4a766026d4f8243792/data/parts/CustomXmlPart.json)
 and [CustomXmlPropertiesPart](https://github.com/dotnet/Open-XML-SDK/blob/431ab05cf160248cc3885a4a766026d4f8243792/data/parts/CustomXmlPropertiesPart.json)
 declarations. No MCP delivery or native interoperability acceptance is implied.
+
+Fictional Word for Mac 16.95.1 save/reopen checks confirmed the expected accepted and
+rejected text. The accepted engine result and native Word acceptance had equal
+effective formatting and identical full-page PDF renders. Word also reserialized
+stored XML, populated schema references and added MC attributes even in a no-op
+save. Those Word-saved packages remain outside this initial profile. The engine's
+exact-byte preservation proof applies to its own candidate, not to subsequent
+Word saves; no Word roundtrip byte-identity or repeated-export support is claimed.
 
 All existing ZIP/XML resource limits apply. The inventory additionally bounds
 aggregate XML work, depth and findings. Invalid numbering-definition order blocks
