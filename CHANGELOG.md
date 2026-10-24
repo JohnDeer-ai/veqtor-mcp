@@ -8,6 +8,14 @@ through its `published_at` timestamp.
 
 ## 0.6.0.dev1
 
+- Preserve standard unconsumed user XML storage and standalone XSD-as-data by
+  exact OPC role and full-package byte proofs. Refuse aliases, unresolved
+  consumers, omitted schema declarations, unknown context and Office built-in
+  metadata; do not compile or interpret user schemas, reserialize stored data or
+  change selective editing.
+  Clean export now also refuses ASCII-case-equivalent package member or override
+  identities, including documents without user storage; no repair is performed.
+
 - Recover interrupted copy publication in another folder under its writer guard,
   without repeating edits or certifying changed or aliased output. Match batch
   clean-copy style checks to the selected property owners, and avoid quadratic

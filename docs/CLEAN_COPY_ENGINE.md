@@ -68,7 +68,7 @@ footers, notes, comments, styles or any other external story block this version.
 Unknown revision forms, unknown WordprocessingML/extension markup, alternate
 representations, embedded Office/opaque parts and unresolved package declarations
 also block. Known Word comment metadata and narrowly validated empty bibliography
-metadata are recognized without deletion; arbitrary custom XML remains blocked.
+metadata are recognized without deletion; unproved custom XML remains blocked.
 Additional closed inspection profiles recognize the style `locked` on/off leaf,
 web-division formatting, a bound `people` part, canonical modern comment-identity
 content types and a bound SharePoint `FormTemplates` tree with the three documented
@@ -86,6 +86,55 @@ value or restore the recorded value; other OpenType extensions remain unsupporte
 Only explicitly recognized raster-image content types and signatures are treated
 as opaque revision-free media. This is an export gate, not a promise
 that every legal DOCX or all hidden data is supported.
+
+A separate first profile recognizes standard unconsumed user XML storage by
+its complete OPC role, not by filenames or XML prefixes. It requires one implicit
+main-document `customXml` edge, one exact `customXmlProps` edge, the fixed
+properties MIME/root, globally unique braced GUIDs and exactly one explicitly
+empty `schemaRefs` element. An omitted element does not disable schema selection:
+applications may then choose schemas by other means
+([Microsoft reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.customxmldataproperties.schemareferences?view=openxml-3.0.1)).
+All incoming aliases, unexpected outgoing edges, external/missing sources or
+targets and orphan properties refuse. ASCII-case-equivalent package member or
+override names also refuse, following OPC part-URI equivalence
+([Microsoft reference](https://learn.microsoft.com/en-us/dotnet/core/compatibility/core-libraries/8.0/system-io-packaging-case-insensitive-uri));
+no identity normalization or repair is performed. This identity-ambiguity gate
+also applies to clean export without user storage, including zero-revision
+packages; the shared reader and selective editing remain unchanged. The entire remaining package must have
+recognized coverage before an item receives `inspection: opaque_user_storage`,
+`preservation: exact_bytes_only` and its `properties_part`; unknown auxiliary or
+story context cannot receive a complete-consumer-graph claim.
+
+This first consumer proof excludes fields (including split/deleted instructions),
+controls/bindings, custom XML document markup, content-part/drawing alternatives,
+MC markup or attributes and all stored `r:*` attributes anywhere in the package.
+Plain literal words such as `DOCPROPERTY` are not fields. Office vocabulary in a
+payload or its namespace bindings/attributes, reserved Office roots, nonempty
+schema references, XSLT and schema imports/includes/locations remain unsupported.
+Other existing closed metadata profiles and documents without new user stores
+retain their previous rules. This does not open dynamic Office, SharePoint,
+InfoPath or Office Intelligence metadata.
+
+The data may include fresh generic XML or a separate standalone XSD stored only
+as arbitrary data. The engine neither compiles nor fetches schemas, validates the
+user payload's business meaning, normalizes it nor applies its values to text.
+All payload/properties bytes, relationship and content-type parts remain exact
+under the same full-package before/after proof. This is preserved opaque user
+storage within the supported offline Word model, not a warranty of arbitrary
+external application semantics or previously valid data. Global revision,
+XML-envelope/DTD, depth and aggregate work limits still inspect every part.
+The role is based on ECMA-376 Part 1 sections 15.2.5-15.2.6 and the pinned SDK
+[CustomXmlPart](https://github.com/dotnet/Open-XML-SDK/blob/431ab05cf160248cc3885a4a766026d4f8243792/data/parts/CustomXmlPart.json)
+and [CustomXmlPropertiesPart](https://github.com/dotnet/Open-XML-SDK/blob/431ab05cf160248cc3885a4a766026d4f8243792/data/parts/CustomXmlPropertiesPart.json)
+declarations. No MCP delivery or native interoperability acceptance is implied.
+
+Fictional Word for Mac 16.95.1 save/reopen checks confirmed the expected accepted and
+rejected text. The accepted engine result and native Word acceptance had equal
+effective formatting and identical full-page PDF renders. Word also reserialized
+stored XML, populated schema references and added MC attributes even in a no-op
+save. Those Word-saved packages remain outside this initial profile. The engine's
+exact-byte preservation proof applies to its own candidate, not to subsequent
+Word saves; no Word roundtrip byte-identity or repeated-export support is claimed.
 
 All existing ZIP/XML resource limits apply. The inventory additionally bounds
 aggregate XML work, depth and findings. Invalid numbering-definition order blocks
