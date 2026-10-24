@@ -477,13 +477,16 @@ def _ligature_context(properties, root):
     return paragraphs == 1
 
 
-def _word_metadata(node, root, content_type, web_cache):
+def _word_metadata(node, root, content_type, web_cache, locked_cache):
     """Return None for old vocabulary; new vocabulary needs exact context."""
     parent = node.getparent()
     if node.tag == w("locked"):
-        return (root.tag == w("styles") and content_type in {_WORD_CT_BASE + "styles+xml", "application/vnd.ms-word.stylesWithEffects+xml"}
-                and parent is not None and parent.tag == w("style") and parent.getparent() is root
-                and sum(child.tag == w("locked") for child in parent) == 1
+        if not (root.tag == w("styles") and content_type in {_WORD_CT_BASE + "styles+xml", "application/vnd.ms-word.stylesWithEffects+xml"}
+                and parent is not None and parent.tag == w("style") and parent.getparent() is root):
+            return False
+        if parent not in locked_cache:
+            locked_cache[parent] = sum(child.tag == w("locked") for child in parent)
+        return (locked_cache[parent] == 1
                 and _leaf(node, (), {w("val")}) and node.get(w("val"), "on") in {"on", "off"})
     if node.tag in {w("divBdr"), w("divsChild"), w("divs")}:
         current = node
@@ -494,14 +497,14 @@ def _word_metadata(node, root, content_type, web_cache):
                 and current.tag == w("divs") and current.getparent() is root and _web_divs(current))
         return web_cache[current]
     if node.tag == "{" + _W14 + "}ligatures":
-        following = list(parent)[parent.index(node) + 1:] if parent is not None else []
+        following = node.getnext()
         original = parent is not None and parent.getparent() is not None and parent.getparent().tag == w("rPrChange")
         return (root.tag in {w(n) for n in ("document", "hdr", "ftr", "comments", "footnotes", "endnotes")}
                 and content_type in _WORD_CONTENT_TYPES and parent is not None and parent.tag == w("rPr")
+                and (following is None or (not original and following.tag == w("rPrChange")
+                                           and following.getnext() is None))
                 and _ligature_context(parent, root)
-                and _leaf(node, {"{" + _W14 + "}val"}) and node.get("{" + _W14 + "}val") in _LIGATURES
-                and (not original or not following)
-                and len(following) <= 1 and all(sibling.tag == w("rPrChange") for sibling in following))
+                and _leaf(node, {"{" + _W14 + "}val"}) and node.get("{" + _W14 + "}val") in _LIGATURES)
     return None
 
 
@@ -902,7 +905,7 @@ def inventory_package_revisions(payload: bytes) -> dict:
             else:
                 body = bodies[0]
         stack = [(root, [], False)]
-        web_cache = {}
+        web_cache, locked_cache = {}, {}
         while stack:
             node, path, in_body = stack.pop()
             _limit("inventory_xml_depth", MAX_INVENTORY_DEPTH, len(path))
@@ -911,7 +914,7 @@ def inventory_package_revisions(payload: bytes) -> dict:
             in_body = in_body or node is body
             qname = etree.QName(node)
             local, namespace = qname.localname, qname.namespace
-            word_metadata = _word_metadata(node, root, content_type, web_cache)
+            word_metadata = _word_metadata(node, root, content_type, web_cache, locked_cache)
             if word_metadata is False:
                 block("unsupported_auxiliary_xml", name, path)
             if ((namespace in {_W16CID, _W16CEX}

@@ -16,6 +16,11 @@ through its `published_at` timestamp.
   Clean export now also refuses ASCII-case-equivalent package member or override
   identities, including documents without user storage; no repair is performed.
 
+- Recover interrupted copy publication in another folder under its writer guard,
+  without repeating edits or certifying changed or aliased output. Match batch
+  clean-copy style checks to the selected property owners, and avoid quadratic
+  sibling scans for repeated Office metadata while retaining existing refusals.
+
 - Validate larger nonstructural clean-copy selections with bounded local proofs,
   one whole-ledger reversal and an independent outcome replay. Reuse formatting
   dependency proofs only for the same immutable bytes and reference semantics;
