@@ -85,6 +85,47 @@ def test_style_locked_rejects_future_values_and_other_contexts(mutation):
     assert not result["complete"]
 
 
+@pytest.mark.parametrize("kind", ["locked", "ligatures"])
+def test_duplicate_metadata_has_linear_sibling_traversal(monkeypatch, kind):
+    count = 2048
+    if kind == "locked":
+        root = styles()
+        owner = next(root.iter(w("style")))
+        leaf = next(root.iter(w("locked")))
+        extras = [("word/styles.xml", WORD + "styles+xml", root)]
+        main = None
+    else:
+        main = ligature_document()
+        owner = next(main.iter(w("rPr")))
+        leaf = next(main.iter(q(W14, "ligatures")))
+        extras = []
+    for _ in range(count - 1):
+        owner.append(copy.deepcopy(leaf))
+    payload = package(main, extras) if main is not None else package(extras=extras)
+    visits = 0
+
+    class MeteredElement(etree.ElementBase):
+        def __iter__(self):
+            nonlocal visits
+            for child in super().__iter__():
+                visits += 1
+                assert visits <= 64 * count, "duplicate metadata rescanned its siblings quadratically"
+                yield child
+
+    parser = etree.XMLParser(resolve_entities=False, no_network=True, load_dtd=False)
+    parser.set_element_class_lookup(etree.ElementDefaultClassLookup(element=MeteredElement))
+    original = inventory.parse_xml
+
+    def parse_metered(data):
+        original(data)
+        return etree.fromstring(data, parser)
+
+    monkeypatch.setattr(inventory, "parse_xml", parse_metered)
+    result = inspect_unchanged(payload)
+    assert not result["complete"] and not result["clean_eligible"]
+    assert "unsupported_auxiliary_xml" in codes(result)
+
+
 def web_settings():
     root = etree.Element(w("webSettings"), nsmap={"w": W_NS})
     divs = etree.SubElement(root, w("divs"))
