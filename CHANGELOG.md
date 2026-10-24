@@ -8,6 +8,12 @@ through its `published_at` timestamp.
 
 ## 0.6.0.dev1
 
+- Retain one closed root-namespace schema association and a validated root-only
+  Word `Ignorable` annotation for standard user XML storage after Word saves.
+  Preserve storage and package bindings exactly while accepting body revisions;
+  continue to refuse unresolved consumers, unknown markup and reserved Office
+  metadata. No schema is fetched, compiled or declared valid.
+
 - Preserve standard unconsumed user XML storage and standalone XSD-as-data by
   exact OPC role and full-package byte proofs. Refuse aliases, unresolved
   consumers, omitted schema declarations, unknown context and Office built-in

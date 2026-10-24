@@ -586,16 +586,44 @@ def _user_payload(root):
     return True
 
 
-def _empty_user_properties(root):
-    item, refs = ("{" + _CUSTOM_XML + "}" + n for n in ("datastoreItem", "schemaRefs"))
-    # Omission permits application-selected schemas; only an explicitly empty
-    # list supplies this profile's no-custom-schema declaration.
+def _user_properties(root, payload):
+    item, refs, ref = ("{" + _CUSTOM_XML + "}" + n for n in ("datastoreItem", "schemaRefs", "schemaRef"))
+    # An explicit list is required. Empty means no associated schemas; the
+    # narrow named form retains a validation association, not an assertion that
+    # no schema will be used. Neither form links body text to the stored data.
     if (root.tag != item or set(root.attrib) != {"{" + _CUSTOM_XML + "}itemID"}
             or not _sequence(root, [(refs, 1, 1)])
-            or any(not _leaf(node, ()) for node in root)):
+            or root[0].attrib or not _sequence(root[0], [(ref, 0, 1)])
+            or re.fullmatch(r"\{[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}\}",
+                            root.get("{" + _CUSTOM_XML + "}itemID", "")) is None):
         return False
-    return re.fullmatch(r"\{[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}\}",
-                        root.get("{" + _CUSTOM_XML + "}itemID", "")) is not None
+    if not len(root[0]):
+        return True
+    reference = root[0][0]
+    uri = reference.get("{" + _CUSTOM_XML + "}uri", "")
+    return (_leaf(reference, {"{" + _CUSTOM_XML + "}uri"})
+            and uri == etree.QName(payload).namespace
+            and re.fullmatch(r"(?:urn:[A-Za-z0-9][A-Za-z0-9-]{1,31}:[A-Za-z0-9._~:-]+"
+                             r"|https?://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?:/[A-Za-z0-9._~/-]*)?)", uri) is not None
+            and not _reserved_storage_namespace(uri) and uri != _XSLT)
+
+
+def _storage_root_ignorable(root, content_type):
+    """Allow one root annotation, without treating unknown content as ignored.
+
+    Every used element/attribute must still pass the existing whole-part
+    inventory. This does not implement MC preprocessing or alternate content.
+    Non-Word parts and user payloads cannot acquire this exception.
+    """
+    if content_type not in _WORD_CONTENT_TYPES or root.tag != _TYPED_XML_ROOTS.get(content_type):
+        return False
+    tokens = root.get("{" + _MC + "}Ignorable", "").split()
+    namespaces = root.nsmap
+    return (bool(tokens) and len(tokens) == len(set(tokens))
+            and all(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*", prefix) is not None
+                    and prefix in namespaces and namespaces[prefix]
+                    and namespaces[prefix] not in {W_NS, _MC, _XML, _REL, _CT, _ODREL.rstrip("/")}
+                    for prefix in tokens))
 
 
 def _user_storage_roles(parts, types, roots):
@@ -658,9 +686,10 @@ def _user_storage_roles(parts, types, roots):
             or types.get(DOCUMENT_PART) != _WORD_CT_BASE + "document.main+xml"
             or roots.get(DOCUMENT_PART) is None or roots[DOCUMENT_PART].tag != w("document")):
         graph_ok = False
-    # The initial role proof excludes all stored r:* and MC attributes, not just
-    # the currently familiar ids. These may identify implicit/alternate consumers.
-    for root in roots.values():
+    # All stored r:* and MC constructs remain excluded except the closed root
+    # annotation. An Ignorable prefix never grants permission to skip content.
+    for name, root in roots.items():
+        root_ignorable = _storage_root_ignorable(root, types[name])
         for node in root.iter():
             if not isinstance(node.tag, str):
                 continue
@@ -668,7 +697,10 @@ def _user_storage_roles(parts, types, roots):
             if (qname.namespace == _MC or qname.localname == "contentPart"
                     or qname.namespace == W_NS and (qname.localname in _USER_CONSUMER_WORD_NAMES
                                                     or qname.localname.startswith("customXml"))
-                    or any(etree.QName(key).namespace in {_MC, _ODREL.rstrip("/")} for key in node.attrib)):
+                    or any(etree.QName(key).namespace == _ODREL.rstrip("/")
+                           or etree.QName(key).namespace == _MC
+                           and not (node is root and key == "{" + _MC + "}Ignorable" and root_ignorable)
+                           for key in node.attrib)):
                 graph_ok = False
     props = {name for name, root in roots.items()
              if root.tag == "{" + _CUSTOM_XML + "}datastoreItem" or types[name] == _USER_PROPS_CT}
@@ -693,7 +725,7 @@ def _user_storage_roles(parts, types, roots):
             continue
         prop = outs[0][2]
         if (prop not in props or types.get(prop) != _USER_PROPS_CT
-                or not _empty_user_properties(roots[prop])
+                or not _user_properties(roots[prop], roots[name])
                 or incoming.get(prop, []) != [(name, _USER_PROPS_REL, prop, "Internal")]
                 or outgoing.get(prop)):
             graph_ok = False
