@@ -90,8 +90,8 @@ that every legal DOCX or all hidden data is supported.
 A separate first profile recognizes standard unconsumed user XML storage by
 its complete OPC role, not by filenames or XML prefixes. It requires one implicit
 main-document `customXml` edge, one exact `customXmlProps` edge, the fixed
-properties MIME/root, globally unique braced GUIDs and exactly one explicitly
-empty `schemaRefs` element. An omitted element does not disable schema selection:
+properties MIME/root, globally unique braced GUIDs and exactly one explicit
+`schemaRefs` element. An omitted element does not disable schema selection:
 applications may then choose schemas by other means
 ([Microsoft reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.customxmldataproperties.schemareferences?view=openxml-3.0.1)).
 All incoming aliases, unexpected outgoing edges, external/missing sources or
@@ -105,15 +105,40 @@ recognized coverage before an item receives `inspection: opaque_user_storage`,
 `preservation: exact_bytes_only` and its `properties_part`; unknown auxiliary or
 story context cannot receive a complete-consumer-graph claim.
 
-This first consumer proof excludes fields (including split/deleted instructions),
+The consumer proof excludes fields (including split/deleted instructions),
 controls/bindings, custom XML document markup, content-part/drawing alternatives,
-MC markup or attributes and all stored `r:*` attributes anywhere in the package.
+MC markup and all stored `r:*` attributes anywhere in the package. The only MC
+attribute exception is root-level `Ignorable` on a content-type-matched known Word
+part. Prefixes must be nonempty, unique and in scope; core Word, XML, relationship,
+content-type and MC namespaces cannot be declared ignorable in this profile.
+Every actual element and attribute still needs existing inventory coverage.
+The engine does not skip unfamiliar content, preprocess MC, select alternatives
+or remove the annotation. Nested directives and all other MC constructs refuse.
+This is a bounded configuration for the root annotation under ECMA-376 Part 3
+sections 7.2 and 9.2, not general MC conformance
+([standard](https://ecma-international.org/publications-and-standards/standards/ecma-376/)).
 Plain literal words such as `DOCPROPERTY` are not fields. Office vocabulary in a
-payload or its namespace bindings/attributes, reserved Office roots, nonempty
-schema references, XSLT and schema imports/includes/locations remain unsupported.
+payload or its namespace bindings/attributes, reserved Office roots, unmatched or
+multiple schema references, XSLT and schema imports/includes/locations remain
+unsupported.
 Other existing closed metadata profiles and documents without new user stores
 retain their previous rules. This does not open dynamic Office, SharePoint,
 InfoPath or Office Intelligence metadata.
+
+An empty schema-reference list explicitly declares no associated schemas. The
+Word-resaved form may instead retain one closed `schemaRef` whose namespace URI
+exactly equals the payload root namespace. This narrow identifier syntax supports
+simple URNs and HTTP(S) namespace identifiers; query/fragment/encoded and other
+URI forms remain unsupported. A named reference is a validation association,
+not an empty declaration or an assertion of schema validity
+([Microsoft reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.customxmldataproperties.schemareference?view=openxml-3.0.1)).
+The storage, reference and their package bindings stay byte-identical while body
+decisions are applied. The already-excluded document consumers, unknown context
+and external relationship rules remain necessary. The engine does not locate,
+download, compile or validate against an associated schema and makes no claim
+about external application validation, validity of the stored data or future Word
+normalization. Association with a separate stored XSD is not inferred from its
+filename or `targetNamespace`.
 
 The data may include fresh generic XML or a separate standalone XSD stored only
 as arbitrary data. The engine neither compiles nor fetches schemas, validates the
@@ -132,9 +157,20 @@ Fictional Word for Mac 16.95.1 save/reopen checks confirmed the expected accepte
 rejected text. The accepted engine result and native Word acceptance had equal
 effective formatting and identical full-page PDF renders. Word also reserialized
 stored XML, populated schema references and added MC attributes even in a no-op
-save. Those Word-saved packages remain outside this initial profile. The engine's
+save. The closed root-annotation/association profile permits these particular
+fictional Word-saved inputs to be inventoried and processed again, with exact
+non-main-part preservation and zero-revision ZIP identity. These input replay
+checks are separate from native handling. A fresh follow-up used owned copies of
+the reingested engine candidate and the native accepted reference: both completed
+Save As, close and reopen in Word, retained their literal accepted text and had
+equal effective text/paragraph/mark properties in the declared plain-paragraph
+model. Both fresh Word outputs were eligible and returned byte-identically when
+already clean. Their stored payload bytes and named references survived this
+particular second save. Screenshots confirmed the visible paragraph; a new
+full-page PDF pixel comparison was not performed. This is a bounded fictional
+roundtrip, not acceptance of a real contract or reserved Office metadata. The engine's
 exact-byte preservation proof applies to its own candidate, not to subsequent
-Word saves; no Word roundtrip byte-identity or repeated-export support is claimed.
+Word saves; no Word roundtrip byte-identity is claimed.
 
 All existing ZIP/XML resource limits apply. The inventory additionally bounds
 aggregate XML work, depth and findings. Invalid numbering-definition order blocks
