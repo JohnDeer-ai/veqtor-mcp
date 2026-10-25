@@ -71,6 +71,7 @@ class _Model:
             return None
         namespace = active.get(prefix, "")
         expanded = _q(namespace, local) if namespace else local
+        self.limit("sharepoint_qname_chars", MAX_QNAME_CHARS, len(expanded))
         self.charge(len(expanded))
         return expanded
 
@@ -98,7 +99,7 @@ class _Model:
                 pending = []
                 self.nodes += 1
                 self.limit("sharepoint_model_nodes", MAX_MODEL_NODES, self.nodes)
-                self.charge(1 + len(value.attrib))
+                self.charge(1 + len(value.tag) + len(value.attrib))
                 refs = []
                 if value.tag in {_q(XSD, k) for k in ("include", "redefine", "override")}:
                     self.issue("unresolved_schema_dependency", part)
@@ -160,10 +161,11 @@ class _Model:
                     declarations.setdefault(name, []).append(node)
             for node in schema.iter():
                 self.charge()
-                if isinstance(node.tag, str) and any(a in node.attrib for a in ("default", "fixed")):
+                if isinstance(node.tag, str) and any(a in node.attrib for a in ("default", "fixed", _q(META, "default"))):
                     defaults.append({"schema_namespace": namespace,
                                      "declaration_name": node.get("name"),
                                      "default_present": "default" in node.attrib,
+                                     "metadata_default_present": _q(META, "default") in node.attrib,
                                      "fixed_present": "fixed" in node.attrib})
         manager, refs = None, {}
         if len(root_schemas) != 1 or root_schemas[0].get("targetNamespace") != PROPERTIES:
@@ -211,11 +213,13 @@ class _Model:
                 continue
             declaration = options[0]
             type_refs = []
+            element_refs = []
             for node in declaration.iter():
                 self.charge()
                 type_refs.extend(r for r in self.references.get(node, []) if r["attribute"] in {"type", "base", "itemType", "memberTypes"})
+                element_refs.extend(r["qname"] for r in self.references.get(node, []) if r["attribute"] == "ref")
             fields[name] = {"nillable": declaration.get("nillable") in {"true", "1"},
-                            "type_references": type_refs}
+                            "type_references": type_refs, "element_references": element_refs}
         return {"part_name": part, "document_management_qname": manager,
                 "root_field_references": sorted(refs), "imports": imports,
                 "defaults_or_fixed": defaults}, fields, refs
@@ -251,6 +255,7 @@ class _Model:
                     self.issue("missing_or_ambiguous_property_declaration", part, qname=name)
                 else:
                     row["type_references"] = declaration["type_references"]
+                    row["element_references"] = declaration["element_references"]
                     nil = node.get(_q(XSI, "nil"))
                     if nil in {"true", "1"}:
                         if (not declaration["nillable"] or len(node) or node.text

@@ -158,6 +158,7 @@ include = [
   "/src/veqtor_docx/revision_decisions.py",
   "/src/veqtor_docx/revision_inventory.py",
   "/src/veqtor_docx/clean_copy.py",
+  "/src/veqtor_docx/_sharepoint_metadata.py",
   "/src/veqtor_docx/_drafting_text.py",
   "/src/veqtor_docx/_drafting_paragraphs.py",
   "/src/veqtor_docx/paragraph_numbering.py",

@@ -82,6 +82,7 @@ def test_literal_mapping_derives_local_qualification(form, local_form, expected)
     assert result["schemas"][0]["root_field_references"] == [Q]
     assert field(result) == {"qname": Q, "status": "scalar_value_requires_type_semantics",
                              "type_semantics_proven": False,
+                             "element_references": [],
                              "type_references": [{"attribute": "base", "qname": "{" + DMS + "}Text"}]}
     for flag in ("schema_validated", "schema_compiled", "external_schema_fetched", "consumer_effect_proven",
                  "package_binding_proven", "clean_export_authorized"):
@@ -118,6 +119,31 @@ def test_structured_reserved_value_is_preserved_as_unproved():
     roots = fixture(value=None)
     etree.SubElement(roots["records/fictional-properties.xml"][0][0], "{" + F + "}Term").text = "Fictional term"
     assert field(model(roots))["status"] == "structured_value_requires_type_semantics"
+
+
+def test_nested_element_refs_are_retained_without_guessing_type_semantics():
+    roots = fixture(value=None)
+    decl = declaration(roots)
+    decl.remove(decl[0])
+    complex_type = etree.SubElement(decl, "{" + X + "}complexType", nsmap={"pc": "urn:fictional:partner-controls"})
+    sequence = etree.SubElement(complex_type, "{" + X + "}sequence")
+    etree.SubElement(sequence, "{" + X + "}element", ref="pc:Terms", minOccurs="0")
+    result = model(roots)
+    assert field(result)["element_references"] == ["{urn:fictional:partner-controls}Terms"]
+    assert field(result)["type_references"] == []
+    assert not field(result)["type_semantics_proven"]
+
+
+@pytest.mark.parametrize("attribute", ["default", "fixed", "{" + MA + "}default"])
+def test_schema_and_metadata_defaults_report_presence_without_values(attribute):
+    roots = fixture()
+    declaration(roots).set(attribute, "Private fictional default")
+    result = model(roots)
+    assert result["schemas"][0]["defaults_or_fixed"] == [{
+        "schema_namespace": F, "declaration_name": "FictionalLabel",
+        "default_present": attribute == "default", "fixed_present": attribute == "fixed",
+        "metadata_default_present": attribute == "{" + MA + "}default"}]
+    assert "Private fictional default" not in str(result)
 
 
 @pytest.mark.parametrize("lexical,namespace,expected", [
