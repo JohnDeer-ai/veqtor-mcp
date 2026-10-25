@@ -146,6 +146,15 @@ and import identifiers without exposing stored values or resolving dependencies.
 The report does not include property values, labels or default/fixed values.
 QName, field, node and aggregate-work bounds apply to the diagnostic, with
 namespace undo frames rather than copying every inherited namespace map.
+QName attributes are read only from XSD declarations outside annotations and
+from instance `xsi:type`; arbitrary appinfo/documentation and ordinary value
+attributes are not schema references. Their labels/default values are not copied
+into the diagnostic. An explicit nil may retain `xsi:type`
+or XML comments; ordinary attributes require separate semantics rather than a
+false nil-content error. These shape facts still do not validate the type.
+Before returning, a lazy traversal bounds the model's conservative encoded JSON
+size to 2 MiB, counting every occurrence of shared reference arrays. It refuses
+before materializing an amplified JSON report; input work/node bounds also remain.
 
 `schema_validated`, `schema_compiled`, `external_schema_fetched`,
 `package_binding_proven`, `consumer_effect_proven` and `clean_export_authorized`

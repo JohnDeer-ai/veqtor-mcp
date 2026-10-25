@@ -7,6 +7,8 @@ or consumer proof. Call only with the inventory's already bounded XML forest.
 """
 from __future__ import annotations
 
+import re
+
 from lxml import etree
 
 from ._ooxml import ResourceLimitError
@@ -20,6 +22,41 @@ MAX_MODEL_NODES = 20000
 MAX_MODEL_FIELDS = 2048
 MAX_MODEL_WORK = 500000
 MAX_QNAME_CHARS = 2048
+MAX_MODEL_OUTPUT_BYTES = 2 * 1024 * 1024
+_XML_SPACE = " \t\r\n"
+
+
+def _bound_output(value):
+    """Bound JSON expansion before serialization, including repeated aliases.
+
+    Reference arrays are shared internally but JSON repeats them for every row.
+    Visit those occurrences lazily with a conservative ensure_ascii byte bound;
+    do not materialize a large encoded report just to measure its size.
+    """
+    def entries(mapping):
+        for key, child in mapping.items():
+            yield key
+            yield child
+
+    frames, observed = [iter((value,))], 0
+    while frames:
+        try:
+            item = next(frames[-1])
+        except StopIteration:
+            frames.pop()
+            continue
+        if isinstance(item, dict):
+            observed += 2 + 4 * len(item)
+            frames.append(entries(item))
+        elif isinstance(item, list):
+            observed += 2 + 2 * len(item)
+            frames.append(iter(item))
+        elif isinstance(item, str):
+            # An astral code point may become two escaped UTF-16 surrogates.
+            observed += 2 + 12 * len(item)
+        else:
+            observed += 8  # Only bool/None leaves are produced by this model.
+        _Model.limit("sharepoint_model_output", MAX_MODEL_OUTPUT_BYTES, observed)
 
 
 def _q(namespace, local):
@@ -40,6 +77,7 @@ class _Model:
         self.work = self.nodes = self.fields = 0
         self.issues = []
         self.references = {}
+        self.schema_nodes = set()
 
     def charge(self, amount=1):
         self.work += amount
@@ -80,6 +118,8 @@ class _Model:
         # field. Each declaration/attribute/reference is visited a bounded number
         # of times, including malicious wide or deeply rebound namespace sets.
         active, pending, frames = {"xml": "http://www.w3.org/XML/1998/namespace"}, [], []
+        schema_mode = root.tag == _q(CONTENT_TYPE, "contentTypeSchema")
+        annotation_depth = 0
         missing = object()
         for event, value in etree.iterwalk(root, events=("start-ns", "start", "end")):
             if event == "start-ns":
@@ -89,6 +129,8 @@ class _Model:
                 pending.append((prefix, active.get(prefix, missing)))
                 active[prefix] = uri
             elif event == "end":
+                if schema_mode and value.tag == _q(XSD, "annotation"):
+                    annotation_depth -= 1
                 for prefix, old in reversed(frames.pop()):
                     if old is missing:
                         active.pop(prefix, None)
@@ -100,19 +142,26 @@ class _Model:
                 self.nodes += 1
                 self.limit("sharepoint_model_nodes", MAX_MODEL_NODES, self.nodes)
                 self.charge(1 + len(value.tag) + len(value.attrib))
+                if schema_mode and value.tag == _q(XSD, "annotation"):
+                    annotation_depth += 1
+                schema_node = schema_mode and not annotation_depth and value.tag.startswith("{" + XSD + "}")
+                if schema_node:
+                    self.schema_nodes.add(value)
                 refs = []
-                if value.tag in {_q(XSD, k) for k in ("include", "redefine", "override")}:
+                if schema_node and value.tag in {_q(XSD, k) for k in ("include", "redefine", "override")}:
                     self.issue("unresolved_schema_dependency", part)
                 for attr, raw in value.attrib.items():
                     self.charge(len(attr) + len(raw))
-                    if attr in {"ref", "type", "base", "itemType", "memberTypes", _q(XSI, "type")}:
-                        values = raw.split() if attr == "memberTypes" else [raw]
+                    if ((schema_node and attr in {"ref", "type", "base", "itemType", "memberTypes"})
+                            or (not schema_mode and attr == _q(XSI, "type"))):
+                        values = re.split(r"[ \t\r\n]+", raw.strip(_XML_SPACE)) if attr == "memberTypes" else [raw]
                         if not values:
                             self.issue("invalid_qname", part)
                         for token in values:
                             refs.append({"attribute": attr, "qname": self.qname(token, active, part)})
-                    if attr in {"schemaLocation", _q(XSI, "schemaLocation"),
-                                _q(XSI, "noNamespaceSchemaLocation")}:
+                    if (not annotation_depth and
+                            ((schema_node and attr == "schemaLocation") or
+                             attr in {_q(XSI, "schemaLocation"), _q(XSI, "noNamespaceSchemaLocation")})):
                         self.issue("unresolved_schema_dependency", part)
                 self.references[value] = refs
 
@@ -161,7 +210,7 @@ class _Model:
                     declarations.setdefault(name, []).append(node)
             for node in schema.iter():
                 self.charge()
-                if isinstance(node.tag, str) and any(a in node.attrib for a in ("default", "fixed", _q(META, "default"))):
+                if node in self.schema_nodes and any(a in node.attrib for a in ("default", "fixed", _q(META, "default"))):
                     defaults.append({"schema_namespace": namespace,
                                      "declaration_name": node.get("name"),
                                      "default_present": "default" in node.attrib,
@@ -257,11 +306,15 @@ class _Model:
                     row["type_references"] = declaration["type_references"]
                     row["element_references"] = declaration["element_references"]
                     nil = node.get(_q(XSI, "nil"))
+                    if nil is not None:
+                        nil = nil.strip(_XML_SPACE)
                     if nil in {"true", "1"}:
-                        if (not declaration["nillable"] or len(node) or node.text
-                                or set(node.attrib) != {_q(XSI, "nil")}):
+                        content = node.text or any(isinstance(child.tag, str) or child.tail for child in node)
+                        if not declaration["nillable"] or content:
                             row["status"] = "inconsistent_explicit_nil"
                             self.issue("inconsistent_explicit_nil", part, qname=name)
+                        elif set(node.attrib) - {_q(XSI, "nil"), _q(XSI, "type")}:
+                            row["status"] = "explicit_nil_shape_requires_attribute_semantics"
                         else:
                             row["status"] = "explicit_nil_shape"
                     elif nil is not None and nil not in {"false", "0"}:
@@ -305,10 +358,12 @@ def sharepoint_schema_model(parsed_roots):
     else:
         part, root = properties[0]
         property_rows.append(model.properties(root, part, *indexed[0]))
-    return {"schema_version": "sharepoint_schema_model.v1", "diagnostic_only": True,
+    result = {"schema_version": "sharepoint_schema_model.v1", "diagnostic_only": True,
             "association": "unique_namespace_candidate" if len(schemas) == len(properties) == 1 else "unresolved",
             "schema_validated": False, "schema_compiled": False,
             "external_schema_fetched": False, "consumer_effect_proven": False,
             "package_binding_proven": False, "clean_export_authorized": False,
             "field_mapping_complete": not model.issues,
             "schemas": schema_rows, "properties": property_rows, "issues": model.issues}
+    _bound_output(result)
+    return result

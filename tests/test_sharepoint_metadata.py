@@ -2,6 +2,7 @@
 """Literal, fictional SharePoint maps; a map never authorizes clean export."""
 import copy
 import hashlib
+import json
 
 import pytest
 from lxml import etree
@@ -100,7 +101,7 @@ def test_nil_is_not_inferred_from_empty_text(nil, value, status):
     assert field(result)["status"] == status
 
 
-@pytest.mark.parametrize("mutation", ["not_nillable", "child", "extra_attribute"])
+@pytest.mark.parametrize("mutation", ["not_nillable", "child"])
 def test_explicit_nil_requires_consistent_declaration_and_empty_shape(mutation):
     roots = fixture(nil="true", value=None)
     leaf = roots["records/fictional-properties.xml"][0][0]
@@ -108,11 +109,124 @@ def test_explicit_nil_requires_consistent_declaration_and_empty_shape(mutation):
         declaration(roots).set("nillable", "false")
     elif mutation == "child":
         etree.SubElement(leaf, "fictional")
-    else:
-        leaf.set("future", "true")
     result = model(roots)
     assert not result["field_mapping_complete"]
     assert field(result)["status"] == "inconsistent_explicit_nil"
+
+
+def builtin_field(roots):
+    """Self-contained fictional XSD oracle, never a customer schema."""
+    schema = roots["records/fictional-schema.xml"][1]
+    schema.remove(schema[0])  # Unused external DMS import.
+    decl = schema[0]
+    decl.remove(decl[0])
+    decl.set("type", "x:string")
+    return schema, decl
+
+
+def literal_field_validates(schema, leaf):
+    return etree.XMLSchema(etree.fromstring(etree.tostring(schema))).validate(
+        etree.fromstring(etree.tostring(leaf)))
+
+
+@pytest.mark.parametrize("placement", ["foreign_appinfo", "xsd_in_appinfo", "instance_attributes"])
+def test_arbitrary_annotation_and_value_attributes_never_become_schema_qnames(placement):
+    roots = fixture()
+    schema, decl = builtin_field(roots)
+    leaf = roots["records/fictional-properties.xml"][0][0]
+    secret = "FictionalPrivateLabelValue"
+    if placement == "instance_attributes":
+        decl.attrib.pop("type")
+        ct = etree.SubElement(decl, "{" + X + "}complexType")
+        content = etree.SubElement(ct, "{" + X + "}simpleContent")
+        extension = etree.SubElement(content, "{" + X + "}extension", base="x:string")
+        for name in ("type", "ref", "default"):
+            etree.SubElement(extension, "{" + X + "}attribute", name=name, type="x:string")
+            leaf.set(name, secret)
+    else:
+        annotation = etree.SubElement(decl, "{" + X + "}annotation")
+        appinfo = etree.SubElement(annotation, "{" + X + "}appinfo")
+        namespace = X if placement == "xsd_in_appinfo" else "urn:fictional:appinfo"
+        etree.SubElement(appinfo, "{" + namespace + "}display", type=secret, ref=secret,
+                         name=secret, default=secret, schemaLocation=secret)
+    assert literal_field_validates(schema, leaf)
+    result = model(roots)
+    assert result["field_mapping_complete"], result
+    assert secret not in json.dumps(result)
+    assert result["schemas"][0]["defaults_or_fixed"] == []
+    source = package(extras=[(name, "application/xml", r) for name, r in roots.items()])
+    inventory_result = revision_inventory.inventory_package_revisions(source)
+    assert secret not in json.dumps(inventory_result)
+    assert not inventory_result["clean_eligible"]
+
+
+@pytest.mark.parametrize("extra", ["type", "comment", "ordinary_attribute"])
+def test_valid_nil_shape_keeps_type_or_attribute_validity_separate(extra):
+    roots = fixture(nil="true", value=None)
+    schema, decl = builtin_field(roots)
+    manager = roots["records/fictional-properties.xml"][0]
+    if extra == "type":
+        manager.remove(manager[0])
+        leaf = etree.SubElement(manager, Q, nsmap={"x": X})
+        leaf.set("{" + metadata.XSI + "}nil", "true")
+        leaf.set("{" + metadata.XSI + "}type", "x:string")
+    else:
+        leaf = manager[0]
+        if extra == "comment":
+            leaf.append(etree.Comment("Private fictional comment"))
+        else:
+            decl.attrib.pop("type")
+            ct = etree.SubElement(decl, "{" + X + "}complexType")
+            etree.SubElement(ct, "{" + X + "}attribute", name="note", type="x:string")
+            leaf.set("note", "Private fictional note")
+    assert literal_field_validates(schema, leaf)
+    result = model(roots)
+    assert result["field_mapping_complete"]
+    assert field(result)["status"] == ("explicit_nil_shape_requires_attribute_semantics"
+                                       if extra == "ordinary_attribute" else "explicit_nil_shape")
+    assert not field(result)["type_semantics_proven"]
+    assert not result["schema_validated"] and not result["clean_export_authorized"]
+    assert "Private fictional" not in json.dumps(result)
+
+
+def test_instance_nil_flag_uses_xml_schema_boolean_whitespace():
+    roots = fixture(nil="true", value=None)
+    schema, decl = builtin_field(roots)
+    leaf = roots["records/fictional-properties.xml"][0][0]
+    leaf.set("{" + metadata.XSI + "}nil", " true ")
+    assert literal_field_validates(schema, leaf)
+    result = model(roots)
+    assert result["field_mapping_complete"], result
+    assert field(result)["status"] == "explicit_nil_shape"
+
+
+def test_repeated_alias_arrays_are_output_bounded_before_json_materialization():
+    roots = fixture()
+    decl = declaration(roots)
+    simple = decl[0]
+    simple.remove(simple[0])
+    etree.SubElement(simple, "{" + X + "}union", memberTypes=" ".join(["d:Text"] * 400))
+    manager = roots["records/fictional-properties.xml"][0]
+    for _ in range(399):
+        manager.append(copy.deepcopy(manager[0]))
+    before = {n: etree.tostring(r) for n, r in roots.items()}
+    with pytest.raises(ResourceLimitError) as caught:
+        metadata.sharepoint_schema_model(roots)
+    assert caught.value.limit == "sharepoint_model_output"
+    assert before == {n: etree.tostring(r) for n, r in roots.items()}
+    source = package(extras=[(name, "application/xml", r) for name, r in roots.items()])
+    with pytest.raises(ResourceLimitError) as caught:
+        revision_inventory.inventory_package_revisions(source)
+    assert caught.value.limit == "sharepoint_model_output"
+
+
+def test_output_budget_covers_ascii_escaped_astral_values(monkeypatch):
+    value = {"sample": "\U0001f600" * 20}
+    actual = len(json.dumps(value, ensure_ascii=True).encode())
+    monkeypatch.setattr(metadata, "MAX_MODEL_OUTPUT_BYTES", actual - 1)
+    with pytest.raises(ResourceLimitError) as caught:
+        metadata._bound_output(value)
+    assert caught.value.limit == "sharepoint_model_output"
 
 
 def test_structured_reserved_value_is_preserved_as_unproved():
