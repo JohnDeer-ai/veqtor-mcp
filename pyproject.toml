@@ -104,6 +104,8 @@ include = [
   "/src/veqtor_mcp/round_map_contract.py",
   "/src/veqtor_mcp/_positions_contract.py",
   "/src/veqtor_mcp/positions.py",
+  "/src/veqtor_mcp/_deal_state_contract.py",
+  "/src/veqtor_mcp/deal_state.py",
   "/src/veqtor_mcp/server.py",
 ]
 
@@ -119,6 +121,9 @@ include = [
   "/docs/NEGOTIATION_ROUND_RELEASE_SPEC_RU.md",
   "/docs/NEGOTIATION_ROUND_ACCEPTANCE_RU.md",
   "/docs/ROUND_FOUNDATION.md",
+  "/docs/DEAL_STATE.md",
+  "/docs/MVP_END_TO_END_PLAN_RU.md",
+  "/docs/MVP_EXECUTION_STATUS_RU.md",
   "/docs/INCOMING_COMPARISON.md",
   "/docs/BILINGUAL_COLUMNS.md",
   "/docs/releases/v0.4.0-contract.md",
@@ -194,6 +199,8 @@ include = [
   "/src/veqtor_mcp/round_map_contract.py",
   "/src/veqtor_mcp/_positions_contract.py",
   "/src/veqtor_mcp/positions.py",
+  "/src/veqtor_mcp/_deal_state_contract.py",
+  "/src/veqtor_mcp/deal_state.py",
   "/src/veqtor_mcp/server.py",
 ]
 

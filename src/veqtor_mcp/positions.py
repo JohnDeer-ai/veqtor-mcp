@@ -301,7 +301,9 @@ def _gitignore(side):
 
 
 @contextmanager
-def _storage(folder, *, write):
+def _storage(folder, *, write, load_store=None):
+    # Round links share this lock, but retain a separate closed store/schema.
+    load_store = _load if load_store is None else load_store
     path = None
     root = side = lock = None
     try:
@@ -336,7 +338,7 @@ def _storage(folder, *, write):
             if write:
                 # Never treat failed write-side lock setup as an absent read.
                 _fail("storage_failure")
-            store, _ = _load(side)
+            store, _ = load_store(side)
             if store is not None:
                 _fail("unsafe_storage")
             _recheck_root(path, root)
@@ -559,7 +561,9 @@ def _write_all(fd, payload):
         view = view[written:]
 
 
-def _publish(side, candidate, prior_stamp, recheck):
+def _publish(side, candidate, prior_stamp, recheck, *, store_name=None, load_store=None):
+    store_name = STORE_NAME if store_name is None else store_name
+    load_store = _load if load_store is None else load_store
     raw = _json_bytes(candidate)
     name = ".deal-positions.tmp." + uuid.uuid4().hex
     fd = None
@@ -571,13 +575,13 @@ def _publish(side, candidate, prior_stamp, recheck):
         os.fsync(fd)
         _named_same(side, name, fd)
         recheck()
-        _, observed = _load(side)
+        _, observed = load_store(side)
         if prior_stamp != observed:
             _fail("workspace_changed")
         possible_commit = True
-        os.replace(name, STORE_NAME, src_dir_fd=side, dst_dir_fd=side)
+        os.replace(name, store_name, src_dir_fd=side, dst_dir_fd=side)
         os.fsync(side)
-        _named_same(side, STORE_NAME, fd)
+        _named_same(side, store_name, fd)
         _regular(fd, private=True)
         recheck()
     except Exception:
