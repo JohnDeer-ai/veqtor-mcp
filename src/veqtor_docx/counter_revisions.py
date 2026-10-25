@@ -27,11 +27,11 @@ sz space shadow frame id bidi combine combineBrackets vert vertCompress
 """.split())
 
 
-def _closed_attributes(wrapper):
+def _closed_attributes(wrapper, *, allow_history=False):
     for node in wrapper.iter():
         if _proof(node):
             continue
-        if node.tag in {w("ins"), w("del")}:
+        if node.tag in {w("ins"), w("del")} or (allow_history and node.tag == w("rPrChange")):
             allowed = {w("id"), w("author"), w("date")}
         elif node.tag == w("r"):
             allowed = {w("rsidR"), w("rsidDel"), w("rsidRPr")}
@@ -51,6 +51,41 @@ def _closed_attributes(wrapper):
             d._fail("counter_unit_unsupported", "counter contains unknown run markup")
         if set(node.attrib) - allowed:
             d._fail("counter_unit_unsupported", "counter contains unknown attributes")
+
+
+def formatting_context(root, history):
+    """Prove only a selected run history inside an otherwise closed counter.
+
+    Histories are removed on a detached context-validation clone only. Actual
+    source/history bytes remain selected individually by the ordinary property
+    patch. No del/ins ancestor is admitted by the general context validator.
+    """
+    props = history.getparent()
+    run = props.getparent() if props is not None else None
+    wrapper = run.getparent() if run is not None else None
+    original = wrapper.getparent() if wrapper is not None and wrapper.tag == w("del") else wrapper
+    if original is None or candidates(original) is None or run.tag != w("r"):
+        return None
+    selected = candidates(original)
+    if wrapper not in selected or props.tag != w("rPr"):
+        return None
+    _closed_attributes(original, allow_history=True)
+    histories = list(original.iter(w("rPrChange")))
+    for change in histories:
+        properties = change.getparent()
+        owner = properties.getparent()
+        if (properties.tag != w("rPr") or owner.tag != w("r") or owner.getparent() not in selected
+                or len(change) != 1 or change[0].tag != w("rPr")
+                or len(properties.findall(w("rPrChange"))) != 1 or properties[-1] is not change):
+            d._fail("counter_unit_unsupported", "counter formatting history is not an isolated run property set")
+    clone = copy.deepcopy(root)
+    outer = clone
+    for index in d._path(root, original):
+        outer = outer[index]
+    for change in list(outer.iter(w("rPrChange"))):
+        change.getparent().remove(change)
+    validate(clone, candidates(outer))
+    return original.getparent()
 
 
 def candidates(node):

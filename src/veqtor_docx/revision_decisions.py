@@ -637,7 +637,13 @@ def _validate_property(root, node):
         _fail(
             "property_revision_unsupported", "property history contains unexpected text"
         )
-    _main_context(root, props.getparent())
+    owner = props.getparent()
+    if kind == "rPrChange":
+        from .counter_revisions import formatting_context
+        counter_owner = formatting_context(root, node)
+        if counter_owner is not None:
+            owner = counter_owner
+    _main_context(root, owner)
     preserved = {w("rPr"), w("sectPr")} if kind == "pPrChange" else set()
     for old in (False, True):
         current = node[0] if old else props

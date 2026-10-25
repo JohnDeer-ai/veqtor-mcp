@@ -104,6 +104,8 @@ same-profile preflight/apply. A counter_insertion target requires two explicit
 choices: decision for the original insertion and counter_decision for the
 selected counter deletion/replacement. Show all four outcomes; never infer
 either choice from authorship or from a proposed final wording.
+If the countered run retains a supported formatting history, select that history
+explicitly first, save and reread before deciding the counter group.
 Drafting saves use a durable prepared/result journal;
 recover an uncertain operation_id before considering any retry. Transitional disabled
 mode is explicit and does not provide a complete journal.

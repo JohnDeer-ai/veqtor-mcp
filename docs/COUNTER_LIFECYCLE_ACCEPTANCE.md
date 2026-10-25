@@ -19,6 +19,8 @@ an explicit refusal. This adds no author-based acceptance or hidden agreement.
 | Native Word reference | Six fictional copies: suffix/whole Save As + close/reopen, native all-accept and all-reject. All-accept matches current proposal; all-reject removes the original insertion too |
 | Engine after Word | Eight explicitly selected combinations over the two Word-saved/reopened sources; exact literal outcomes, zero selected pending history, identical non-main part bytes |
 | Following round | Both Word-saved shapes decided, edited again through fresh paragraph references, journaled and prepared as clean candidates; Word opens the expected next-round text |
+| Existing run-format history | A whole-run counter retains `rPrChange`; a separate explicit format choice and fresh references precede the counter choice. All-accept clean resolves known histories first; unknown attributes/context refuse |
+| Additional native contexts | Word-saved/reopened bilingual table with comments: four paired outcomes and a following round retain geometry/comments/auxiliary bytes. Word-saved run-format history: eight format-plus-counter outcomes and direct clean pass |
 
 Word-save compatibility required one exact document-default ligature leaf and
 known empty spelling hints. The default leaf has its own canonical-part,

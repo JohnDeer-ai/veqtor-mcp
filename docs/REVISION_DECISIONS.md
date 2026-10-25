@@ -69,6 +69,15 @@ non-main package parts retain the existing collateral and exact-byte proofs.
 Decide, save, reread fresh references, then edit in the next round. Clean-copy
 preparation accepts both selected layers, with the existing whole-package gate.
 
+The creation engine can retain a known `rPrChange` on the original countered
+run. Select that formatting history explicitly as a `single` decision first,
+save, then reread the counter target. The property patch changes only that run's
+current/previous formatting; the text revisions and their authors remain pending.
+Its context proof covers only an otherwise supported suffix/whole counter, with
+closed history metadata and property attributes. It does not admit general
+revision ancestors. Compound decisions refuse until these histories are resolved;
+clean preparation's explicitly all-accept workflow resolves them before the text.
+
 Word may add a default ligature setting during Save As. Inventory has a separate
 preservation profile for the singleton final finite-enum `w14:ligatures` leaf in
 the uniquely bound canonical `word/styles.xml` chain

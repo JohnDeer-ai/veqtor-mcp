@@ -126,6 +126,7 @@ include = [
   "/docs/DEAL_STATE.md",
   "/docs/MVP_END_TO_END_PLAN_RU.md",
   "/docs/MVP_EXECUTION_STATUS_RU.md",
+  "/docs/COUNTER_LIFECYCLE_ACCEPTANCE.md",
   "/docs/INCOMING_COMPARISON.md",
   "/docs/BILINGUAL_COLUMNS.md",
   "/docs/releases/v0.4.0-contract.md",

@@ -573,3 +573,89 @@ def test_new_plain_revision_hint_support_cannot_discard_unknown_wrapper_attribut
     before = path.read_bytes()
     assert not drafting.preflight_document_edits(str(path), sha(path), [op], **PROFILE)["batch_applicable"]
     assert path.read_bytes() == before
+
+
+def with_format_history(tmp_path, demo_dir, *, two=False, fault=None):
+    from test_drafting_text import _changed_style
+
+    content = (_r("thirty ", _changed_style(author="Fictional Format Reviewer", identity="81"))
+               + _r("days", _changed_style(author="Fictional Format Reviewer", identity="82"))) if two else _r(
+                   "thirty days", _changed_style(author="Fictional Format Reviewer", identity="81"))
+    paragraph = _p(_r("Pay ") + _ins(content, author=OTHER) + _r(" later"))
+    assert _replace(paragraph, "thirty days", "45 days")["operation"] == "counter"
+    history = next(paragraph.iter(w("rPrChange")))
+    if fault:
+        fault(history)
+    root = _root("")
+    root.find(w("body")).append(paragraph)
+    path = tmp_path / "formatted.docx"
+    path.write_bytes(_package(demo_dir, root))
+    return path
+
+
+@pytest.mark.parametrize("format_decision", ["accept", "reject"])
+@pytest.mark.parametrize("original,counter", [("accept", "accept"), ("accept", "reject"), ("reject", "accept"), ("reject", "reject")])
+def test_engine_created_format_history_explicit_prerequisite_then_counter_and_clean(
+    tmp_path, demo_dir, format_decision, original, counter
+):
+    path = with_format_history(tmp_path, demo_dir)
+    before = parts(path.read_bytes())
+    group = operation(path, original, counter)
+    pre = drafting.preflight_document_edits(str(path), sha(path), [group], **PROFILE)
+    assert not pre["batch_applicable"]  # No hidden formatting choice.
+    row = next(r for r in read_document_revisions(str(path))["revisions"] if r["kind"] == "rPrChange")
+    assert row["supported"], row
+    save(path, [{"kind": "decide_revision", "decision": format_decision,
+                 "target": {"kind": "single", "revision_ref": row["revision_ref"]}}])
+    assert not list(main(path).iter(w("rPrChange")))
+    save(path, [operation(path, original, counter)])
+    expected = "thirty days" if original == "accept" and counter == "reject" else "45 days" if counter == "accept" else ""
+    assert texts(main(path)) == ["Pay " + expected + " later"]
+    if original == "accept" and counter == "reject":
+        selected = next(r for r in main(path).iter(w("r")) if r.find(w("rPr")) is not None)
+        assert selected.find(f"{w('rPr')}/{w('i') if format_decision == 'reject' else w('b')}") is not None
+    assert all(parts(path.read_bytes())[n] == data for n, data in before.items() if n != "word/document.xml")
+    assert prepare_clean_copy(path.read_bytes(), expected_source_sha256=sha(path)).inventory_after["revisions"] == []
+
+
+def test_clean_explicit_all_accept_handles_multiple_preserved_format_histories(tmp_path, demo_dir):
+    path = with_format_history(tmp_path, demo_dir, two=True)
+    source = path.read_bytes()
+    result = prepare_clean_copy(source, expected_source_sha256=sha(path))
+    assert texts(etree.fromstring(parts(result.payload)["word/document.xml"])) == ["Pay 45 days later"]
+    assert result.inventory_after["revisions"] == []
+    assert path.read_bytes() == source
+    rows = read_document_revisions(str(path))["revisions"]
+    history = next(r for r in rows if r["kind"] == "rPrChange")
+    remaining_before = etree.tostring(list(main(path).iter(w("rPrChange")))[1])
+    save(path, [{"kind": "decide_revision", "decision": "reject", "target": {"kind": "single", "revision_ref": history["revision_ref"]}}])
+    assert len(list(main(path).iter(w("rPrChange")))) == 1
+    assert etree.tostring(next(main(path).iter(w("rPrChange")))) == remaining_before
+
+
+@pytest.mark.parametrize("fault", ["history_attr", "old_props_attr", "old_leaf_attr", "extra_history", "middle", "unknown_atom"])
+def test_format_prerequisite_never_broadens_unknown_history_or_counter_context(tmp_path, demo_dir, fault):
+    def damage(history):
+        if fault == "history_attr":
+            history.set("{urn:fictional:unknown}binding", "preserve")
+        elif fault == "old_props_attr":
+            history[0].set(w("future"), "preserve")
+        elif fault == "old_leaf_attr":
+            history[0][0].set("{urn:fictional:unknown}binding", "preserve")
+        elif fault == "extra_history":
+            history[0].append(copy.deepcopy(history))
+        elif fault == "middle":
+            outer = next(n for n in history.iterancestors() if n.tag == w("ins"))
+            outer.append(_p(_r("unselected trailing text"))[0])
+        else:
+            etree.SubElement(history.getparent().getparent(), "{urn:fictional:unknown}hidden")
+    path = with_format_history(tmp_path, demo_dir, fault=damage)
+    source = path.read_bytes()
+    root = main(path)
+    history = next(root.iter(w("rPrChange")))
+    from veqtor_docx.revision_decisions import reference
+    op = {"kind": "decide_revision", "decision": "accept", "target": {"kind": "single", "revision_ref": reference(root, history, sha(path))}}
+    assert not drafting.preflight_document_edits(str(path), sha(path), [op], **PROFILE)["batch_applicable"]
+    assert source == path.read_bytes()
+    with pytest.raises(ApplyError):
+        prepare_clean_copy(source, expected_source_sha256=sha(path))
