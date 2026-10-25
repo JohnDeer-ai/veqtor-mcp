@@ -448,3 +448,34 @@ def recover_operation(source_path, operation_id):
                         "current_output_sha256": output, "recovery_status": "recovered"}
     except (OSError, ValueError) as exc:
         raise ApplyError("operation_recovery_failed", "operation could not be safely recovered") from exc
+
+
+def read_operation(source_path, operation_id):
+    """Read the original intent and historical result without recovering/writing.
+
+    The current output is a separate observation. A missing result is not proof
+    of failure; callers must use recover_operation before considering a retry.
+    """
+    source = io._path(source_path)
+    identifier = _id(operation_id)
+    try:
+        with _storage(source, identifier, create=False) as fd:
+            prepared = _read(fd, "prepared.json")
+            intent = _prepared(prepared, source, identifier)
+            try:
+                stored = _read(fd, "result.json")
+            except FileNotFoundError:
+                stored = None
+            result = None if stored is None else _completed(stored, intent)
+            if result is not None:
+                recorded = result["backup"]
+                expected = prepared["backup"]
+                if ((recorded is None) != (expected is None)
+                        or (recorded is not None and recorded["path"] != expected["path"])):
+                    _fail("operation_record_invalid")
+            return {"intent": intent, "intent_sha256": records.operation_intent_digest(intent),
+                    "result": result, "current_output_sha256": _observe(intent["destination"]),
+                    "backup_current_verified": (intent["save_mode"] == "create_new" or
+                        _backup(source, intent, prepared["backup"])["sha256"] == intent["source_sha256"])}
+    except (OSError, ValueError) as exc:
+        raise ApplyError("operation_read_failed", "operation could not be safely read") from exc
