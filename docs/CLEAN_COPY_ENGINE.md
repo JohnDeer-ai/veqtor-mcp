@@ -165,6 +165,35 @@ annotated schema/type semantics, OPC binding and consumer closure, and relevant
 native application checks remain separate acceptance requirements. No MCP tool,
 client connection or release changes as part of this diagnostic.
 
+Each uniquely mapped property now also receives a redacted `value_check` with
+profile version `sharepoint_scalar_candidate.v1`. It compares scalar content
+with a finite reference profile; it does not validate the embedded schema or
+resolve its imports. `matches_reference_profile` is conditional on the referenced
+type actually having the reference definition. `type_definition_proven`,
+`full_type_validity_proven` and `business_semantics_proven` stay false even on a
+match. The existing `field_mapping_complete` continues to describe mapping only.
+
+The initial profile recognizes direct types and one anonymous restriction over
+XSD string, boolean, positiveInteger, decimal, double and dateTime, or reference
+DMS Text, Note, Unknown, Lookup, UserId, Boolean, Currency, Number and DateTime.
+The scalar lexical rules follow [XML Schema datatypes](https://www.w3.org/TR/xmlschema-2/).
+DMS reference shapes were checked against the type resource in Word 16.95.1;
+this is not proof of the document's external type definitions or CAML semantics.
+String `maxLength` and `enumeration` restrictions are checked without returning
+their values. XML whitespace is distinguished from general Unicode whitespace.
+DateTime checks use a deliberately finite subset: four-digit years, explicit
+timezones and at most six fractional digits; the DMS profile additionally checks
+the reference minimum of 1900-01-01T00:00:00Z. Extended years, missing timezones,
+24:00, unknown types/facets, named local derivations, type overrides, structured
+content and other unresolved contexts remain `unsupported`, never coerced to a
+string or a successful check. Explicit nil has a separate shape outcome.
+
+Value length and facet counts are bounded; shared declarations and import
+indexes are reused. Existing aggregate work and report-size bounds still apply.
+Reference matches neither clear an export blocker nor prove OPC roles, native
+consumer closure, schema validity, formatting preservation or readiness to send.
+Tests use fictional packages only. No customer schema is compiled or fetched.
+
 An empty schema-reference list explicitly declares no associated schemas. The
 Word-resaved form may instead retain one closed `schemaRef` whose namespace URI
 exactly equals the payload root namespace. This narrow identifier syntax supports
