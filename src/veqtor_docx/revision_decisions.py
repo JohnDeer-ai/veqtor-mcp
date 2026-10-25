@@ -254,6 +254,13 @@ def validate_target(target):
             _fail("invalid_revision_target", "select every ordered content revision with the row mark")
         for ref in refs:
             validate_ref(ref)
+    elif target.get("kind") == "counter_insertion" and set(target) == {
+        "kind", "original_insertion_ref", "counter_deletion_ref", "counter_insertion_ref"
+    }:
+        validate_ref(target["original_insertion_ref"])
+        validate_ref(target["counter_deletion_ref"])
+        if target["counter_insertion_ref"] is not None:
+            validate_ref(target["counter_insertion_ref"])
     else:
         _fail("invalid_revision_target", "select a complete explicit revision unit")
 
@@ -293,6 +300,14 @@ def resolve(root, sha, ref):
 
 def resolve_target(root, sha, target):
     validate_target(target)
+    if target["kind"] == "counter_insertion":
+        from .counter_revisions import validate
+        nodes = [resolve(root, sha, target[key]) for key in
+                 ("original_insertion_ref", "counter_deletion_ref")]
+        if target["counter_insertion_ref"] is not None:
+            nodes.append(resolve(root, sha, target["counter_insertion_ref"]))
+        validate(root, nodes)
+        return nodes
     if target["kind"] == "single":
         node = resolve(root, sha, target["revision_ref"])
         if is_row_unit([node]):
@@ -520,6 +535,8 @@ def _assert_no_pending_row(node):
 
 
 def _validate_text(root, nodes):
+    from ._drafting_text import _proof_hint
+
     parent = nodes[0].getparent()
     _assert_no_pending_row(parent)
     if parent.tag != w("p") or any(n.getparent() is not parent for n in nodes):
@@ -538,6 +555,9 @@ def _validate_text(root, nodes):
                 _fail("paragraph_unit_unsupported", "paragraph-mark dependencies require a complete supported structural target")
     _main_context(root, parent)
     for node in nodes:
+        if any(_proof_hint(child) for child in node):
+            from .counter_revisions import _closed_attributes
+            _closed_attributes(node)
         if (
             node.tag not in {w("ins"), w("del")}
             or not len(node)
@@ -549,6 +569,8 @@ def _validate_text(root, nodes):
                 "selected node is not an isolated text revision",
             )
         for child in node:
+            if _proof_hint(child):
+                continue
             if (
                 child.tag != w("r")
                 or len(child.findall(w("rPr"))) > 1
@@ -1219,6 +1241,10 @@ def _row_outcomes(root, nodes, parts, group=None):
 
 def _plan_outcomes(root, nodes, parts, defer_fixed_widths=False, table_group=None):
     """Describe and validate each outcome without choosing a write operation."""
+    from . import counter_revisions
+    if counter_revisions.is_unit(nodes):
+        old, outcomes, facts = counter_revisions.evaluate(root, nodes, parts)
+        return old, {"accept": outcomes["accept", "accept"], "reject": outcomes["reject", "reject"]}, facts
     if is_row_unit(nodes):
         return _row_outcomes(root, nodes, parts, table_group)
     if is_paragraph_unit(nodes):
@@ -1339,10 +1365,17 @@ def _plan_outcomes(root, nodes, parts, defer_fixed_widths=False, table_group=Non
     return old_nodes, outcomes, facts
 
 
-def plan_decision(root, nodes, decision, parts, defer_fixed_widths=False, table_group=None):
+def plan_decision(root, nodes, decision, parts, defer_fixed_widths=False, table_group=None, *, counter_decision=None):
     """Describe both outcomes and select only a validated write operation."""
     if decision not in ("accept", "reject"):
         _fail("invalid_edit", "decision must be accept or reject")
+    from . import counter_revisions
+    if counter_revisions.is_unit(nodes):
+        if table_group is not None:
+            _fail("counter_unit_unsupported", "counter units cannot use a table-property validation group")
+        return counter_revisions.plan(root, nodes, decision, counter_decision, parts)
+    if counter_decision is not None:
+        _fail("invalid_edit", "a counter decision requires an explicit counter target")
     if isinstance(table_group, RowDecisionGroup):
         if not any(chosen[0] is nodes[0] and action == decision for chosen, action in table_group.selections):
             _fail("round_trip_failed", "selected row decision differs from its explicit group")
@@ -1366,9 +1399,10 @@ def plan_decision(root, nodes, decision, parts, defer_fixed_widths=False, table_
     )
 
 
-def apply_decision(root, nodes, decision, parts, defer_fixed_widths=False, table_group=None):
+def apply_decision(root, nodes, decision, parts, defer_fixed_widths=False, table_group=None, *, counter_decision=None):
+    counter_options = {"counter_decision": counter_decision} if counter_decision is not None else {}
     patch, chosen, facts = plan_decision(
-        root, nodes, decision, parts, defer_fixed_widths, table_group
+        root, nodes, decision, parts, defer_fixed_widths, table_group, **counter_options
     )
     present = list(patch.parent)[patch.index : patch.index + len(patch.before)]
     _replace_span(patch.parent, patch.index, present, chosen)
@@ -1411,6 +1445,7 @@ def read_document_revisions(path, file_sha256=None, *, offset=0, max_items=100):
         refusal = None
         preview = None
         structural_target = None
+        counter_target = None
         try:
             planning_bytes += 2 * document_bytes
             if planning_bytes > MAX_FINGERPRINT_BYTES:
@@ -1432,6 +1467,16 @@ def read_document_revisions(path, file_sha256=None, *, offset=0, max_items=100):
                 if len(selected) > 1:
                     structural_target = {"kind": "paragraph_structure", "paragraph_mark_ref": ref,
                                          "text_revision_refs": [reference(root, n, snapshot.sha256) for n in selected[1:]]}
+            from . import counter_revisions
+            counter_target = None
+            counter_nodes = counter_revisions.candidates(node)
+            if counter_nodes is not None:
+                selected = counter_nodes
+                planning_bytes += 2 * document_bytes  # Four compound outcomes.
+                fingerprint_bytes += sum(len(_xml(n)) + len(_xml(n.getparent())) for n in selected)
+                if max(planning_bytes, fingerprint_bytes) > MAX_FINGERPRINT_BYTES:
+                    _fail("resource_limit_exceeded", "reduce revision page size to bound counter validation")
+                counter_target = counter_revisions.target(root, selected, snapshot.sha256)
             _, _, preview = _plan_outcomes(root, selected, package.parts)
             # A readable revision can allow only one of the two decisions.
             # Preserve both refusal codes even when neither outcome is safe.
@@ -1441,7 +1486,14 @@ def read_document_revisions(path, file_sha256=None, *, offset=0, max_items=100):
                 and preview["reject_refusal_code"] is None
                 else "accept"
             )
-            if all(
+            if preview["revision_kind"] == "counter_insertion":
+                usable = [entry for entry in preview["counter_outcomes"] if entry["refusal_code"] is None]
+                chosen = (usable or preview["counter_outcomes"])[0]
+                preview["decision"] = chosen["original_decision"]
+                preview["counter_decision"] = chosen["counter_decision"]
+                if not usable:
+                    refusal = chosen["refusal_code"]
+            elif all(
                 preview[f"{action}_refusal_code"] is not None
                 for action in ("accept", "reject")
             ):
@@ -1459,6 +1511,7 @@ def read_document_revisions(path, file_sha256=None, *, offset=0, max_items=100):
                 "refusal_code": refusal,
                 "preview": preview,
                 **({"structural_target": structural_target} if structural_target is not None else {}),
+                **({"counter_target": counter_target} if counter_target is not None else {}),
             }
         )
     result = {

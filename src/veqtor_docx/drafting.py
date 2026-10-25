@@ -176,7 +176,8 @@ def _validate_operations(operations: object) -> list[dict]:
         keys = _OP_KEYS.get(op["kind"])
         optional = ({"mode"} if op["kind"] == "replace_paragraph"
                     else {"separator"} if op["kind"] == "insert_table_row"
-                    else {"separator_row_ref"} if op["kind"] == "delete_table_row" else set())
+                    else {"separator_row_ref"} if op["kind"] == "delete_table_row"
+                    else {"counter_decision"} if op["kind"] == "decide_revision" else set())
         if keys is None or not keys <= set(op) or set(op) - keys - optional:
             raise ApplyError(
                 "invalid_edit", "operation fields do not match the drafting contract"
@@ -190,6 +191,11 @@ def _validate_operations(operations: object) -> list[dict]:
             decisions.validate_target(op["target"])
             if op["decision"] not in ("accept", "reject"):
                 raise ApplyError("invalid_edit", "decision must be accept or reject")
+            if op["target"]["kind"] == "counter_insertion":
+                if op.get("counter_decision") not in ("accept", "reject"):
+                    raise ApplyError("invalid_edit", "select both original and counter decisions explicitly")
+            elif "counter_decision" in op:
+                raise ApplyError("invalid_edit", "a counter decision requires a counter target")
             continue
         if "paragraph_ref" in op:
             validate_paragraph_target(
@@ -860,12 +866,13 @@ def _prepare(
                 allowed_parts |= {_SETTINGS_PART, _RELS_PART, _CT_PART}
             elif kind == "decide_revision":
                 before_decision = copy.deepcopy(document)
+                counter_options = {"counter_decision": op["counter_decision"]} if "counter_decision" in op else {}
                 expected_patch, _, expected_facts = decisions.plan_decision(
                     document, decision_nodes[index], op["decision"], parts, True,
-                    table_groups.get(index))
+                    table_groups.get(index), **counter_options)
                 patch, applied = decisions.apply_decision(
                     document, decision_nodes[index], op["decision"], parts, True,
-                    table_groups.get(index))
+                    table_groups.get(index), **counter_options)
                 if (patch.parent is not expected_patch.parent or patch.index != expected_patch.index
                     or [etree.tostring(n) for n in patch.before] != [etree.tostring(n) for n in expected_patch.before]
                     or [etree.tostring(n) for n in patch.after] != [etree.tostring(n) for n in expected_patch.after]

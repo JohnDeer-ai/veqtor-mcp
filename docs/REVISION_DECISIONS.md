@@ -22,6 +22,64 @@ never groups by matching ID, author, date, or similar text. Duplicate IDs are
 safe because references bind file bytes, part, child-index path and both node
 and owner fingerprints. References are not durable identities across saves.
 
+### Counter-insertion decisions
+
+For a suffix or whole replacement inside a pending insertion, use the complete
+`counter_target` returned by the fresh reader. It selects only the original
+insertion and nested deletion, with `counter_insertion_ref=null`. To decide a
+complete replacement, explicitly select the separate following insertion from
+the reader and copy its full `revision_ref` into `counter_insertion_ref`.
+Adjacency alone cannot distinguish a replacement from an unrelated insertion.
+The original insertion and counterproposal have separate choices:
+
+```json
+{"kind":"decide_revision","decision":"accept","counter_decision":"reject",
+ "target":{"kind":"counter_insertion",
+   "original_insertion_ref":{"...":"complete returned reference"},
+   "counter_deletion_ref":{"...":"complete returned reference"},
+   "counter_insertion_ref":{"...":"complete returned reference, or null for deletion"}}}
+```
+
+For an original insertion `thirty days` countered with `thirty weeks`:
+
+| Original `decision` | `counter_decision` | Selected span after the decision |
+| --- | --- | --- |
+| accept | accept | `thirty weeks` |
+| accept | reject | `thirty days` |
+| reject | accept | `weeks` |
+| reject | reject | empty |
+
+`counter_outcomes` previews all four literal readings and their independent
+dependency refusals. `supported` means at least one of these four works. A
+preview's two displayed choices are defaults, never authorization. The reader
+proposes a structural group from exact containment and adjacency; it does not
+assert common authorship or infer who agreed to it. Select the complete intended
+group explicitly. The minimal reader preview concerns two members; preflight
+previews all three when the additional insertion is explicitly selected.
+A nullable counter insertion leaves every unselected insertion
+pending. Reading a member on a later page still returns full group references.
+
+This closed grammar supports one final nested deletion inside a direct paragraph
+insertion, optional prefix runs, and an optional adjacent replacement insertion.
+It includes suffix/whole deletion and paragraphs in table cells. Known empty
+spelling/grammar markers added by Word are retained. Unknown markers, intervening
+anchors, middle deletions, extra nesting and incomplete groups refuse. Selected
+run formatting, neighboring content, comments outside the selected span and
+non-main package parts retain the existing collateral and exact-byte proofs.
+Decide, save, reread fresh references, then edit in the next round. Clean-copy
+preparation accepts both selected layers, with the existing whole-package gate.
+
+Word may add a default ligature setting during Save As. Inventory has a separate
+preservation profile for the singleton final finite-enum `w14:ligatures` leaf in
+the uniquely bound canonical `word/styles.xml` chain
+`styles/docDefaults/rPrDefault/rPr`, with an explicit compatibility declaration.
+This is a bounded type-based inference from Ecma-376 Part 4 `CT_RPrDefault` and
+Part 1 §17.7.5.4 plus [MS-DOCX §2.2.1](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-docx/d0e2eaf6-ed50-445f-ad90-2bd0fa24a442).
+It does not admit general style/default/history placements: Word's documented
+[default-property restrictions](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-oi29500/9f0ca7a0-5e6a-487e-bb52-2b74d4bb614a)
+still apply. Styles, settings and relationship bytes stay unchanged during the
+decision and clean preparation. Unknown Office data remains a blocker.
+
 Preflight returns every selected member's original kind, ID, author and date,
 the action, acting reviewer, current reading, both outcome readings for text,
 and current/previous property XML for property changes. XML and document text

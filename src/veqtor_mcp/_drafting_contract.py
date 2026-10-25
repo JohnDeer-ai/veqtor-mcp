@@ -52,12 +52,20 @@ DECISION_TARGET = {"oneOf": [
         text_revision_refs={"type": "array", "minItems": 1, "maxItems": 64, "items": REVISION_REF}),
     obj(kind={"const": "row_structure"}, row_mark_ref=REVISION_REF,
         content_revision_refs={"type": "array", "maxItems": 128, "items": REVISION_REF}),
+    obj(kind={"const": "counter_insertion"}, original_insertion_ref=REVISION_REF,
+        counter_deletion_ref=REVISION_REF, counter_insertion_ref=nullable(REVISION_REF)),
 ]}
 DECISION_INPUT = obj(kind={"const": "decide_revision"},
                      decision={"enum": ["accept", "reject"]}, target=DECISION_TARGET)
+DECISION_INPUT["properties"]["counter_decision"] = {"enum": ["accept", "reject"]}
+DECISION_INPUT["allOf"] = [{
+    "if": {"properties": {"target": {"properties": {"kind": {"const": "counter_insertion"}}}}},
+    "then": {"required": ["counter_decision"]},
+    "else": {"properties": {"counter_decision": False}},
+}]
 DECISION_PREVIEW = obj(
     operation={"const": "decide_revision"}, decision={"enum": ["accept", "reject"]},
-    revision_kind={"enum": ["ins", "del", "replacement", "rPrChange", "pPrChange", "tcPrChange", "trPrChange", "tblPrChange", "tblGridChange", "tblPrExChange", "paragraph_insertion", "paragraph_deletion", "row_insertion", "row_deletion"]},
+    revision_kind={"enum": ["ins", "del", "replacement", "counter_insertion", "rPrChange", "pPrChange", "tcPrChange", "trPrChange", "tblPrChange", "tblGridChange", "tblPrExChange", "paragraph_insertion", "paragraph_deletion", "row_insertion", "row_deletion"]},
     members={"type": "array", "minItems": 1, "maxItems": 129,
              "items": obj(kind=TEXT, id=nullable(TEXT), author=nullable(TEXT), date=nullable(TEXT))},
     current_text=NEW_TEXT, accepted_text=nullable(NEW_TEXT), rejected_text=nullable(NEW_TEXT),
@@ -91,6 +99,18 @@ PARAGRAPH_NUMBERING = obj(**{action: {"type": "array", "maxItems": 1000, "items"
 # Optional additive fields, present only for the respective structural units.
 DECISION_PREVIEW["properties"]["paragraph_numbering"] = PARAGRAPH_NUMBERING
 DECISION_PREVIEW["properties"]["row_numbering"] = PARAGRAPH_NUMBERING
+DECISION_PREVIEW["properties"]["counter_decision"] = {"enum": ["accept", "reject"]}
+DECISION_PREVIEW["properties"]["counter_outcomes"] = {
+    "type": "array", "minItems": 4, "maxItems": 4,
+    "items": obj(original_decision={"enum": ["accept", "reject"]},
+                 counter_decision={"enum": ["accept", "reject"]},
+                 text=NEW_TEXT, refusal_code=nullable(NONEMPTY)),
+}
+DECISION_PREVIEW["allOf"].append({
+    "if": {"properties": {"revision_kind": {"const": "counter_insertion"}}},
+    "then": {"required": ["counter_decision", "counter_outcomes"]},
+    "else": {"properties": {"counter_decision": False, "counter_outcomes": False}},
+})
 _REPLACE_PARAGRAPH_INPUT = obj(
     kind={"const": "replace_paragraph"}, paragraph_ref=PARAGRAPH_REF_SCHEMA,
     old_text=NEW_TEXT, new_text=NEW_TEXT,
@@ -310,10 +330,12 @@ _REPLACE_PARAGRAPH = obj(
            "items": _PARAGRAPH_STEP},
 )
 _DECISION_APPLIED = obj(**{k: v for k, v in DECISION_PREVIEW["properties"].items()
-                         if k not in {"paragraph_numbering", "row_numbering"}}, index=_INDEX,
+                         if k not in {"paragraph_numbering", "row_numbering", "counter_decision", "counter_outcomes"}}, index=_INDEX,
                         target=DECISION_TARGET, actor_profile=AUTHOR_PROFILE)
 _DECISION_APPLIED["properties"]["paragraph_numbering"] = PARAGRAPH_NUMBERING
 _DECISION_APPLIED["properties"]["row_numbering"] = PARAGRAPH_NUMBERING
+for field in ("counter_decision", "counter_outcomes"):
+    _DECISION_APPLIED["properties"][field] = DECISION_PREVIEW["properties"][field]
 _DECISION_APPLIED["allOf"] = DECISION_PREVIEW["allOf"]
 _APPLIED = {"type": "array", "maxItems": 100,
             "items": {"oneOf": [_TEXT_OPERATION, _COMMENT_OPERATION, _DELETE_REPLY_OPERATION, _DELETE_THREAD_OPERATION,
@@ -334,8 +356,9 @@ REVISIONS_RESULT = obj(
     coverage={"const": "main_document_only"}, uninspected_parts={"type": "array", "items": TEXT},
 )
 REVISIONS_RESULT["properties"]["revisions"]["items"]["properties"]["structural_target"] = {
-    "oneOf": DECISION_TARGET["oneOf"][2:],
+    "oneOf": DECISION_TARGET["oneOf"][2:4],
 }
+REVISIONS_RESULT["properties"]["revisions"]["items"]["properties"]["counter_target"] = DECISION_TARGET["oneOf"][4]
 PREFLIGHT_RESULT = obj(**_COMMON, batch_applicable={"type": "boolean"}, source_sha256=SHA,
                        tracked_change_author=TEXT, comment_initials=TEXT, operations=_APPLIED,
                        preflight_proof=nullable(PROOF), refusal_code=nullable(TEXT),

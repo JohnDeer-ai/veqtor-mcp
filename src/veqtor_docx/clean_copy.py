@@ -133,6 +133,15 @@ def _range_guard(root, patch):
 
 
 def _target(root, node, sha):
+    from . import counter_revisions
+    selected = counter_revisions.candidates(node)
+    if selected is not None:
+        return selected, counter_revisions.target(root, selected, sha)
+    if node.tag in {w("ins"), w("del")} and node.getparent().tag == w("p"):
+        # A replacement left outside the minimal counter target is decided in
+        # its own later step. It must not discard unknown attributes merely
+        # because WML attribute namespaces are broadly inventoried elsewhere.
+        counter_revisions._closed_attributes(node)
     ref = decisions.reference(root, node, sha)
     if decisions.is_row_unit([node]):
         selected = row_structure_candidates(node)
@@ -331,6 +340,8 @@ def _needs_full_context(root):
     the source-global guard; no fallback grants a previously unsafe operation.
     """
     nodes = _nodes(root)
+    if any(any(ancestor.tag in _REVISION_TAGS for ancestor in node.iterancestors()) for node in nodes):
+        return True
     tables = {table for node in nodes if (table := decisions.decision_table([node])) is not None}
     if any(next(table.iterancestors(w("tbl")), None) is not None
            or any(item is not table for item in table.iter(w("tbl"))) for table in tables):
@@ -636,9 +647,11 @@ def prepare_clean_copy(payload: bytes, *, expected_source_sha256: str) -> CleanC
                 decisions._replace_span(expected.parent, expected.index, present, copy.deepcopy(expected.after))
                 patch = expected
             else:
-                expected, _, _ = decisions.plan_decision(root, nodes, "accept", validation_parts, True, groups.get(index))
+                from .counter_revisions import is_unit
+                counter_options = {"counter_decision": "accept"} if is_unit(nodes) else {}
+                expected, _, _ = decisions.plan_decision(root, nodes, "accept", validation_parts, True, groups.get(index), **counter_options)
                 _range_guard(root, expected)
-                patch, detail = decisions.apply_decision(root, nodes, "accept", validation_parts, True, groups.get(index))
+                patch, detail = decisions.apply_decision(root, nodes, "accept", validation_parts, True, groups.get(index), **counter_options)
             if (patch.parent is not expected.parent or patch.index != expected.index
                     or [etree.tostring(n) for n in patch.before] != [etree.tostring(n) for n in expected.before]
                     or [etree.tostring(n) for n in patch.after] != [etree.tostring(n) for n in expected.after]):
