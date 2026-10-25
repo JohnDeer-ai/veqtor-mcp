@@ -23,6 +23,7 @@ from ._ooxml import (
 )
 from ._paragraph_edits import _PROPERTY_TAGS, _REVISION_TAGS
 from .contracts import normalized_internal_package_part_name
+from ._sharepoint_metadata import sharepoint_schema_model
 
 MAX_INVENTORY_XML_BYTES = 64 * 1024 * 1024
 MAX_INVENTORY_XML_NODES = 500_000
@@ -1073,11 +1074,17 @@ def inventory_package_revisions(payload: bytes) -> dict:
                    "unsupported_main_relationship", "part_content_type_mismatch"}
     incomplete |= {"unsupported_auxiliary_xml", "unsupported_user_storage", "unproved_user_storage_context",
                    "ambiguous_opc_part_identity", "ambiguous_opc_override_identity"}
-    return {"schema_version": "package_revisions.v1",
-            "source_sha256": hashlib.sha256(payload).hexdigest(),
-            "parts": parts, "revisions": revisions, "blockers": blockers,
-            "complete": not any(item["code"] in incomplete for item in blockers),
-            "clean_eligible": not blockers}
+    result = {"schema_version": "package_revisions.v1",
+              "source_sha256": hashlib.sha256(payload).hexdigest(),
+              "parts": parts, "revisions": revisions, "blockers": blockers,
+              "complete": not any(item["code"] in incomplete for item in blockers),
+              "clean_eligible": not blockers}
+    # Advisory schema/field mapping is not an export proof. It must never clear
+    # blockers, reclassify reserved stores or weaken the existing coverage gate.
+    model = sharepoint_schema_model(parsed_roots)
+    if model is not None:
+        result["sharepoint_schema_model"] = model
+    return result
 
 
 def _relationship(node, part_name, path, parts, block):

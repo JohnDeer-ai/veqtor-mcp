@@ -125,6 +125,37 @@ Other existing closed metadata profiles and documents without new user stores
 retain their previous rules. This does not open dynamic Office, SharePoint,
 InfoPath or Office Intelligence metadata.
 
+Reserved SharePoint schema/property pairs now receive an optional read-only
+`sharepoint_schema_model` in `package_revisions.v1`. It maps the root schema's
+`properties/documentManagement` field references to global declarations by
+expanded QName and derives local-element qualification from `form` and
+`elementFormDefault` (whose default is unqualified). This follows the documented
+[content-type schema structure](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-oi29500/0365ee65-da5b-4476-9eaa-73f1dda94db8)
+and [XML Schema name rules](https://www.w3.org/TR/xmlschema-1/#src-qname).
+Duplicate, missing or ambiguous declarations, references, root containers and
+schema/property pairs produce explicit diagnostics. Multiple pairs are not
+matched by filenames or first occurrence. Ordinary inventories have no new field.
+
+This is a namespace candidate map, not a package-role proof or XSD validation.
+`field_mapping_complete` means only that this bounded mapping found no issue;
+it says nothing about schema validity, value validity or readiness to send.
+The report distinguishes an explicit consistent `xsi:nil` shape from an empty
+scalar or a structured value. It retains declared type QNames without coercing
+reserved DMS/InfoPath types to strings, and records default/fixed declarations
+and import identifiers without exposing stored values or resolving dependencies.
+The report does not include property values, labels or default/fixed values.
+QName, field, node and aggregate-work bounds apply to the diagnostic, with
+namespace undo frames rather than copying every inherited namespace map.
+
+`schema_validated`, `schema_compiled`, `external_schema_fetched`,
+`package_binding_proven`, `consumer_effect_proven` and `clean_export_authorized`
+remain false. No schemas are loaded, executed, compiled or fetched, no source
+tree is changed, and no existing blocker or inspection classification is cleared.
+This step does not enable clean export for reserved SharePoint metadata. Full
+annotated schema/type semantics, OPC binding and consumer closure, and relevant
+native application checks remain separate acceptance requirements. No MCP tool,
+client connection or release changes as part of this diagnostic.
+
 An empty schema-reference list explicitly declares no associated schemas. The
 Word-resaved form may instead retain one closed `schemaRef` whose namespace URI
 exactly equals the payload root namespace. This narrow identifier syntax supports
