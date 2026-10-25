@@ -157,12 +157,13 @@ def _positions_observation(basis, current):
     return "current" if current["revision"] == basis["revision"] else "historical_available"
 
 
-def _result(folder, store, positions_store, request_id=None):
+def _result(folder, store, positions_store, request_id=None, *, pending_snapshot=None):
     documents = []
     total = 0
     for digest in sorted(_hashes(store)) if store else []:
         destination = _snapshot_path(folder, digest)
-        snapshot = snapshots.load_snapshot(destination)
+        snapshot = (pending_snapshot if pending_snapshot is not None and pending_snapshot.sha256 == digest
+                    else snapshots.load_snapshot(destination))
         if snapshot.sha256 != digest:
             p._fail("snapshot_conflict")
         total += snapshot.size_bytes
@@ -247,9 +248,12 @@ def mutate_deal_state(folder, expected_revision, request_id, command, *, validat
         candidate["revision"] = p._revision(candidate)
         _validate(c.STORE, candidate)
         snapshot = snapshots.capture_document_snapshot(command["path"], command["file_sha256"])
-        _store_snapshot(folder, side, snapshot, recheck)
-        result = _result(folder, candidate, positions_store, request_id)
+        # Validate the aggregate budget and transport result with captured bytes
+        # before publishing another snapshot. The publisher still verifies an
+        # existing same-hash snapshot, including orphan reuse, before role commit.
+        result = _result(folder, candidate, positions_store, request_id, pending_snapshot=snapshot)
         if validate_result:
             result = validate_result(result)
+        _store_snapshot(folder, side, snapshot, recheck)
         p._publish(side, candidate, stamp, recheck, store_name=STORE_NAME, load_store=_load)
         return result

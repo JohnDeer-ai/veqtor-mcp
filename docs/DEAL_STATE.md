@@ -45,7 +45,10 @@ Unknown or corrupt data is retained and refused, never cleaned up automatically.
 
 Limits: 50 rounds, 150 requests/documents, 100 send records per round, 2 MiB state,
 and 100 MiB aggregate linked DOCX bytes, in addition to existing per-file ZIP/XML
-and supported local-filesystem limits. Storage is private local data, not
+and supported local-filesystem limits. Aggregate accounting and result-contract
+validation occur before a new snapshot is published. Predictable over-limit
+refusals do not retain additional snapshots. Crash-orphan reuse remains separate.
+Storage is private local data, not
 encryption or a forgery-resistant audit trail. No timestamp or legal agreement is
 inferred. Snapshot validation is byte integrity, not clean-export eligibility.
 

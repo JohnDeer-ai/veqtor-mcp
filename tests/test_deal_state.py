@@ -284,6 +284,17 @@ def test_precommit_failure_leaves_verified_orphan_reusable_but_no_applied_role(
     assert len(state["rounds"]) == len(state["documents"]) == 1
 
 
+def test_result_contract_refusal_precedes_snapshot_publication(tmp_path, docs):
+    def refuse(_):
+        raise ValueError("output contract refused")
+
+    with pytest.raises(ValueError, match="output contract refused"):
+        d.mutate_deal_state(
+            str(tmp_path), None, request(), start(docs[0]), validate_result=refuse
+        )
+    assert not (tmp_path / ".veqtor" / d.DOCUMENTS).exists()
+
+
 @pytest.mark.parametrize(
     "kind",
     [
@@ -426,3 +437,37 @@ async def test_role_tools_over_MCP_and_safe_invalid_command(tmp_path, docs, mode
         assert response.is_error
         wire = str(response)
         assert "never disclose" not in wire and "secret_private_field" not in wire
+
+
+def test_aggregate_refusals_never_publish_new_snapshots(tmp_path, docs, monkeypatch):
+    state = apply(tmp_path, None, 1, start(docs[0]))
+    before = store_path(tmp_path).read_bytes()
+    directory = tmp_path / ".veqtor" / d.DOCUMENTS
+    baseline = {
+        str(p.relative_to(directory)): p.read_bytes()
+        for p in directory.rglob("*")
+        if p.is_file()
+    }
+    limit = docs[0].stat().st_size + min(p.stat().st_size for p in docs[1:4]) - 1
+    monkeypatch.setattr(d, "MAX_DOCUMENT_BYTES", limit)
+    for n, path in enumerate(docs[1:4], 2):
+        with pytest.raises(p.PositionError, match="resource_limit_exceeded"):
+            apply(tmp_path, state, n, start(path, n))
+        assert store_path(tmp_path).read_bytes() == before
+        assert {
+            str(p.relative_to(directory)): p.read_bytes()
+            for p in directory.rglob("*")
+            if p.is_file()
+        } == baseline
+    # Reusing the same exact bytes does not consume another document budget.
+    duplicate = apply(tmp_path, state, 9, start(docs[0], 9))
+    assert len(duplicate["documents"]) == 1
+
+
+def test_exact_aggregate_boundary_allows_the_new_snapshot(tmp_path, docs, monkeypatch):
+    state = apply(tmp_path, None, 1, start(docs[0]))
+    monkeypatch.setattr(
+        d, "MAX_DOCUMENT_BYTES", docs[0].stat().st_size + docs[1].stat().st_size
+    )
+    state = apply(tmp_path, state, 2, start(docs[1], 2))
+    assert len(state["rounds"]) == len(state["documents"]) == 2
