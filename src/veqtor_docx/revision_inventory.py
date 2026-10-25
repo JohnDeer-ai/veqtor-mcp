@@ -447,9 +447,9 @@ def _ligature_context(properties, root):
 
     MS-DOCX CT_Ligatures extends run properties. A familiar immediate owner
     does not make a misplaced style, numbering level or text run a valid
-    context. The SDK schema includes ligatures only in current/original run
-    properties and paragraph-mark run properties. Style/default/list property
-    types, content controls and text boxes remain outside this leaf profile.
+    context. This story profile covers current/original run properties and
+    paragraph marks. Document defaults have a separate, bound preservation
+    profile below; style/list/history defaults remain outside both profiles.
     """
     inline = {w(n) for n in ("ins", "del", "moveFrom", "moveTo", "hyperlink", "fldSimple", "smartTag")}
     stories = {w(n) for n in ("body", "tc", "hdr", "ftr", "comment", "footnote", "endnote")}
@@ -478,7 +478,48 @@ def _ligature_context(properties, root):
     return paragraphs == 1
 
 
-def _word_metadata(node, root, content_type, web_cache, locked_cache):
+def _default_ligature(root, name, content_type, roots):
+    """Exact Word-saved default leaf; no new style/default property vocabulary.
+
+    Ecma-376 Part 4 CT_RPrDefault/rPr uses CT_RPr (Part 1 17.7.5.4).
+    MS-DOCX 2.2.1 extends CT_RPr, but names the ordinary-run clause: using
+    this one leaf in defaults is a bounded type-based preservation inference.
+    MS-OI29500 2.1.245 rules out broad CT_RPr equivalence in Word defaults.
+    """
+    if (name != "word/styles.xml" or root.tag != w("styles")
+            or content_type != _WORD_CT_BASE + "styles+xml"):
+        return None
+    prefixes = root.get("{" + _MC + "}Ignorable", "").split()
+    if not any(root.nsmap.get(prefix) == _W14 for prefix in prefixes):
+        return None
+    current = root
+    for tag in ("docDefaults", "rPrDefault", "rPr"):
+        found = current.findall(w(tag))
+        if len(found) != 1:
+            return None
+        current = found[0]
+        if current.attrib or (current.text or "").strip() or (current.tail or "").strip():
+            return None
+    if any(n.tag in {w(tag) for tag in ("cs", "highlight", "oMath", "rPrChange", "rStyle", "rtl")}
+           for n in current):
+        return None
+    leaves = current.findall("{" + _W14 + "}ligatures")
+    if (any((child.tail or "").strip() for child in current)
+            or len(leaves) != 1 or leaves[0].getnext() is not None
+            or not _leaf(leaves[0], {"{" + _W14 + "}val"})
+            or leaves[0].get("{" + _W14 + "}val") not in _LIGATURES):
+        return None
+    links = [(part, node) for part, rels in roots.items()
+             if rels.tag == "{" + _REL + "}Relationships"
+             for node in rels if node.get("Type") == _ODREL + "styles"]
+    if (len(links) != 1 or links[0][0] != "word/_rels/document.xml.rels"
+            or links[0][1].get("Target") not in {"styles.xml", "/word/styles.xml"}
+            or links[0][1].get("TargetMode", "Internal") != "Internal"):
+        return None
+    return leaves[0]
+
+
+def _word_metadata(node, root, content_type, web_cache, locked_cache, default_ligature=None):
     """Return None for old vocabulary; new vocabulary needs exact context."""
     parent = node.getparent()
     if node.tag == w("locked"):
@@ -498,6 +539,8 @@ def _word_metadata(node, root, content_type, web_cache, locked_cache):
                 and current.tag == w("divs") and current.getparent() is root and _web_divs(current))
         return web_cache[current]
     if node.tag == "{" + _W14 + "}ligatures":
+        if node is default_ligature:
+            return True
         following = node.getnext()
         original = parent is not None and parent.getparent() is not None and parent.getparent().tag == w("rPrChange")
         return (root.tag in {w(n) for n in ("document", "hdr", "ftr", "comments", "footnotes", "endnotes")}
@@ -939,6 +982,7 @@ def inventory_package_revisions(payload: bytes) -> dict:
                 body = bodies[0]
         stack = [(root, [], False)]
         web_cache, locked_cache = {}, {}
+        default_ligature = _default_ligature(root, name, content_type, parsed_roots)
         while stack:
             node, path, in_body = stack.pop()
             _limit("inventory_xml_depth", MAX_INVENTORY_DEPTH, len(path))
@@ -947,7 +991,7 @@ def inventory_package_revisions(payload: bytes) -> dict:
             in_body = in_body or node is body
             qname = etree.QName(node)
             local, namespace = qname.localname, qname.namespace
-            word_metadata = _word_metadata(node, root, content_type, web_cache, locked_cache)
+            word_metadata = _word_metadata(node, root, content_type, web_cache, locked_cache, default_ligature)
             if word_metadata is False:
                 block("unsupported_auxiliary_xml", name, path)
             if ((namespace in {_W16CID, _W16CEX}

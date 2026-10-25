@@ -204,6 +204,7 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
         "/src/veqtor_docx/round_operations.py",
         "/src/veqtor_docx/operation_journal.py",
         "/src/veqtor_docx/revision_decisions.py",
+        "/src/veqtor_docx/counter_revisions.py",
         "/src/veqtor_docx/revision_inventory.py",
         "/src/veqtor_docx/_sharepoint_metadata.py",
         "/src/veqtor_docx/_sharepoint_values.py",
@@ -236,6 +237,7 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
         "/docs/ROUND_FOUNDATION.md",
         "/docs/INCOMING_COMPARISON.md",
         "/docs/REVISION_DECISIONS.md",
+        "/docs/COUNTER_LIFECYCLE_ACCEPTANCE.md",
     } <= sdist_includes
 
 

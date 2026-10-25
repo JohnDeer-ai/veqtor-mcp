@@ -47,6 +47,14 @@ _OUTSIDE_MARKERS = frozenset(
 )
 
 
+def _proof_hint(node):
+    """Closed nonsemantic Word spelling hints; never a general range marker."""
+    return (node.tag == w("proofErr") and set(node.attrib) == {w("type")}
+            and node.get(w("type")) in {"spellStart", "spellEnd", "gramStart", "gramEnd"}
+            and not len(node) and not (node.text or "").strip()
+            and not (node.tail or "").strip())
+
+
 def parse_drafting_timestamp(value: object) -> datetime:
     """Validate one captured instant, including its explicit original offset."""
     if not isinstance(value, str) or re.fullmatch(DRAFTING_TIMESTAMP_PATTERN, value) is None:
@@ -381,7 +389,8 @@ def _replace_candidate(
         and _movable_goback_start(paragraph, parent, child)
     ]
     if any(
-        child not in movable_markers and not _layout_run(child) for child in interleaved
+        child not in movable_markers and not _layout_run(child) and not _proof_hint(child)
+        for child in interleaved
     ):
         raise ApplyError(
             "unsupported_run_shape",
