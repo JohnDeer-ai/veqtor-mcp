@@ -6,7 +6,7 @@ This file defines the public tool surface. Output examples are part of the API
 because models use them to decide how to call tools and how to cite results.
 
 The current source defines the unreleased package candidate `0.6.0.dev1` and advertises the
-nineteen-tool development MCP contract `veqtor.mcp.v0.6.0`. The drafting tools
+twenty-one-tool development MCP contract `veqtor.mcp.v0.6.0`. The drafting tools
 are documented in [AUTHOR_DRAFTING.md](docs/AUTHOR_DRAFTING.md):
 `read_document_comments`, `read_document_revisions`, `preflight_document_edits`, `apply_document_edits`, `recover_document_operation`.
 Drafting uses `document_drafting.v1` and, by default, `drafting_preflight.v2`;
@@ -51,7 +51,7 @@ transport teardown separately reaps the stdio server process.
 
 Every successful live tool response includes the same bounded `producer`
 object with `name`, package `version`, and the process-start Python source
-snapshot `build`. This applies to all nineteen tools, including read-only results
+snapshot `build`. This applies to all twenty-one tools, including read-only results
 and decision-record export. Error envelopes are not successful tool results.
 `producer`, `record_id`, `record_status`, and `record_error` are server-owned;
 core tool results cannot supply them. `record_error` is present only with
@@ -2097,6 +2097,36 @@ file fsync, atomic snapshot replace (commit point) and directory fsync. A
 `commit_uncertain`, reread revision before any retry: the write may have committed.
 No DOCX is modified and a saved position itself grants no edit authority.
 
+
+## `read_deal_state`
+
+Development `0.6.0.dev1` only. Read an explicitly selected matter `folder`.
+Returns closed `deal_state_result.v1`: state `revision`, rounds, idempotency
+requests, verified private document paths/hashes, current position-store revision
+and explicit limitations. An absent store creates nothing. A round's
+`sent_basis` is frozen at round creation; use its hash and the incoming hash
+to select `documents` for `compare_incoming_version`. A first round has no sent
+basis. Role selection and recorded send statements are client assertions.
+
+## `mutate_deal_state`
+
+Development `0.6.0.dev1` only. Inputs: `folder`, `expected_revision` (null for
+an absent store), a retained 32-hex `request_id`, and one closed `command`:
+
+- `start_round`: `round_id` (`round_` plus 32 hex digits),
+  `previous_round_id` (or null), exact source `path` and `file_sha256`.
+- `record_sent`: existing `round_id`, actual sent `path` and `file_sha256`,
+  `user_confirmed: true` and the user's `statement` identifying the sent bytes.
+
+The second command must follow an explicit user assertion; preparing a file does
+not imply it was sent. No network transmission or DOCX mutation occurs. Exact
+snapshots are create-only and checked on every state read. Start captures a
+reference to the original position store's current revision/history boundary;
+positions are not duplicated. Identical request retries recover an already
+committed action even with an old expected revision or unavailable original.
+A different command with the same ID refuses. State and snapshot publication are
+separate: after an uncertain commit, read state and retry only the same request.
+See [deal state](docs/DEAL_STATE.md) for limits and unfinished integration.
 
 ## `compare_incoming_version`
 
