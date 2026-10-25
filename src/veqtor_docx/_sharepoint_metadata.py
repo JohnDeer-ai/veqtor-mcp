@@ -12,6 +12,7 @@ import re
 from lxml import etree
 
 from ._ooxml import ResourceLimitError
+from ._sharepoint_values import scalar_candidate_check
 
 CONTENT_TYPE = "http://schemas.microsoft.com/office/2006/metadata/contentType"
 PROPERTIES = "http://schemas.microsoft.com/office/2006/metadata/properties"
@@ -78,6 +79,9 @@ class _Model:
         self.issues = []
         self.references = {}
         self.schema_nodes = set()
+        self.schema_namespaces = set()
+        self.schema_imports = {}
+        self.value_profiles = {}
 
     def charge(self, amount=1):
         self.work += amount
@@ -183,9 +187,11 @@ class _Model:
                 self.issue("unsupported_schema_set_child", part)
                 continue
             namespace = schema.get("targetNamespace")
+            self.schema_namespaces.add(namespace)
             if not namespace or namespace in schemas:
                 self.issue("missing_or_duplicate_schema_namespace", part)
             schemas[namespace] = schema
+            self.schema_imports[schema] = {}
             root_flag = schema.get(_q(META, "root"))
             if root_flag in {"true", "1"}:
                 root_schemas.append(schema)
@@ -194,6 +200,7 @@ class _Model:
             for node in schema:
                 self.charge()
                 if node.tag == _q(XSD, "import"):
+                    self.schema_imports[schema].setdefault(node.get("namespace"), []).append(node)
                     imports.append({"namespace": node.get("namespace"),
                                     "location_present": "schemaLocation" in node.attrib})
                 elif node.tag == _q(XSD, "element"):
@@ -268,6 +275,7 @@ class _Model:
                 type_refs.extend(r for r in self.references.get(node, []) if r["attribute"] in {"type", "base", "itemType", "memberTypes"})
                 element_refs.extend(r["qname"] for r in self.references.get(node, []) if r["attribute"] == "ref")
             fields[name] = {"nillable": declaration.get("nillable") in {"true", "1"},
+                            "declaration": declaration,
                             "type_references": type_refs, "element_references": element_refs}
         return {"part_name": part, "document_management_qname": manager,
                 "root_field_references": sorted(refs), "imports": imports,
@@ -303,6 +311,10 @@ class _Model:
                 if declaration is None or name not in refs:
                     self.issue("missing_or_ambiguous_property_declaration", part, qname=name)
                 else:
+                    row["value_check"] = scalar_candidate_check(
+                        node, declaration["declaration"], self.references,
+                        self.schema_namespaces, self.schema_imports, self.value_profiles, self.charge,
+                    )
                     row["type_references"] = declaration["type_references"]
                     row["element_references"] = declaration["element_references"]
                     nil = node.get(_q(XSI, "nil"))

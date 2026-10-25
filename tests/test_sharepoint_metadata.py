@@ -82,6 +82,12 @@ def test_literal_mapping_derives_local_qualification(form, local_form, expected)
     assert result["schemas"][0]["document_management_qname"] == expected
     assert result["schemas"][0]["root_field_references"] == [Q]
     assert field(result) == {"qname": Q, "status": "scalar_value_requires_type_semantics",
+                             "value_check": {"profile_version": "sharepoint_scalar_candidate.v1",
+                                             "status": "matches_reference_profile", "lexical_match": True,
+                                             "type_definition_proven": False, "full_type_validity_proven": False,
+                                             "business_semantics_proven": False,
+                                             "reference_type_qname": "{" + DMS + "}Text",
+                                             "reason_code": "reference_scalar_and_facets_match"},
                              "type_semantics_proven": False,
                              "element_references": [],
                              "type_references": [{"attribute": "base", "qname": "{" + DMS + "}Text"}]}
