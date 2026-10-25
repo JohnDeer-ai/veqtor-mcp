@@ -659,3 +659,26 @@ def test_format_prerequisite_never_broadens_unknown_history_or_counter_context(t
     assert source == path.read_bytes()
     with pytest.raises(ApplyError):
         prepare_clean_copy(source, expected_source_sha256=sha(path))
+
+
+def test_counter_format_work_is_charged_before_any_context_clone(tmp_path, demo_dir, monkeypatch):
+    from veqtor_docx import counter_revisions, revision_decisions as decisions
+
+    path = with_format_history(tmp_path, demo_dir)
+    root = main(path)
+    history = next(root.iter(w("rPrChange")))
+    monkeypatch.setattr(decisions, "MAX_FINGERPRINT_BYTES", 3 * len(decisions._xml(root)))
+    copies = []
+    real = counter_revisions.copy.deepcopy
+    def meter(node, *args, **kwargs):
+        if node is root:
+            copies.append(node)
+        return real(node, *args, **kwargs)
+    monkeypatch.setattr(counter_revisions.copy, "deepcopy", meter)
+    with pytest.raises(ApplyError, match="resource_limit_exceeded"):
+        counter_revisions.formatting_context(root, history)
+    assert not copies
+    nodes = [n for n in root.iter() if n.tag in {w("ins"), w("del"), w("rPrChange")}]
+    report = read_document_revisions(str(path), offset=nodes.index(history), max_items=1)
+    assert not report["revisions"][0]["supported"]
+    assert report["revisions"][0]["refusal_code"] == "resource_limit_exceeded"

@@ -1474,6 +1474,10 @@ def read_document_revisions(path, file_sha256=None, *, offset=0, max_items=100):
                     structural_target = {"kind": "paragraph_structure", "paragraph_mark_ref": ref,
                                          "text_revision_refs": [reference(root, n, snapshot.sha256) for n in selected[1:]]}
             from . import counter_revisions
+            if node.tag == w("rPrChange") and counter_revisions.formatting_candidates(node) is not None:
+                planning_bytes += 2 * document_bytes
+                if planning_bytes > MAX_FINGERPRINT_BYTES:
+                    _fail("resource_limit_exceeded", "reduce revision page size to bound counter formatting validation")
             counter_target = None
             counter_nodes = counter_revisions.candidates(node)
             if counter_nodes is not None:

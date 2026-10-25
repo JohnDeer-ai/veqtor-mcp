@@ -53,6 +53,20 @@ def _closed_attributes(wrapper, *, allow_history=False):
             d._fail("counter_unit_unsupported", "counter contains unknown attributes")
 
 
+def formatting_candidates(history):
+    """Cheap ancestry discovery only; never validates or clones a document."""
+    props = history.getparent()
+    run = props.getparent() if props is not None else None
+    wrapper = run.getparent() if run is not None else None
+    original = wrapper.getparent() if wrapper is not None and wrapper.tag == w("del") else wrapper
+    if original is None or original.tag != w("ins") or run.tag != w("r"):
+        return None
+    selected = candidates(original)
+    if selected is None or wrapper not in selected or props.tag != w("rPr"):
+        return None
+    return original, selected
+
+
 def formatting_context(root, history):
     """Prove only a selected run history inside an otherwise closed counter.
 
@@ -60,15 +74,12 @@ def formatting_context(root, history):
     source/history bytes remain selected individually by the ordinary property
     patch. No del/ins ancestor is admitted by the general context validator.
     """
-    props = history.getparent()
-    run = props.getparent() if props is not None else None
-    wrapper = run.getparent() if run is not None else None
-    original = wrapper.getparent() if wrapper is not None and wrapper.tag == w("del") else wrapper
-    if original is None or candidates(original) is None or run.tag != w("r"):
+    found = formatting_candidates(history)
+    if found is None:
         return None
-    selected = candidates(original)
-    if wrapper not in selected or props.tag != w("rPr"):
-        return None
+    if 4 * len(d._xml(root)) > d.MAX_FINGERPRINT_BYTES:
+        d._fail("resource_limit_exceeded", "counter formatting validation exceeds the fixed work budget")
+    original, selected = found
     _closed_attributes(original, allow_history=True)
     histories = list(original.iter(w("rPrChange")))
     for change in histories:
