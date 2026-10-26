@@ -22,6 +22,36 @@ never groups by matching ID, author, date, or similar text. Duplicate IDs are
 safe because references bind file bytes, part, child-index path and both node
 and owner fingerprints. References are not durable identities across saves.
 
+### Decisions inside an automatic date result
+
+An isolated complex `DATE` or `TIME` field can contain ordinary text revisions
+or the closed counter-insertion group described below. Decisions resolve only
+the cached display text, preserving the instruction, begin/separator/end runs,
+lock/dirty attributes and all package settings. They do not set the date,
+freeze an automatic date, enable updates or infer legal approval of its value.
+Literal dates outside fields retain ordinary text semantics.
+
+The optional `field_result_context` in reader/preflight/applied facts identifies
+the field kind, exact instruction, whether its begin marker is locked, and
+`decision_scope=cached_result_only`. Show this qualification with the outcomes:
+**Word may recalculate an unlocked field when it updates; the displayed outcome
+is not a promise that this date will remain fixed.** A source lock remains intact.
+
+This slice requires one complete field within one canonical paragraph, direct
+unrevised control runs and one `DATE`/`TIME` instruction with a bounded quoted
+`\\@` picture. It refuses nested/split/cross-paragraph fields, other field kinds
+or switches, revised instructions, unknown control markup and targets outside
+the result. Full-story field/range checks and structural dependencies still
+apply. Clean-copy preparation uses the same selective proof and still requires
+the complete package inventory; this does not whitelist unknown Office data.
+Creating new tracked edits inside a field and deciding its formatting history
+remain outside this slice.
+
+The distinction between field instructions and cached results follows
+[Microsoft's complex-field reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.fieldchar?view=openxml-3.0.1);
+[date/time pictures](https://support.microsoft.com/en-au/word/format-field-results)
+are preserved without evaluating them.
+
 ### Counter-insertion decisions
 
 For a suffix or whole replacement inside a pending insertion, use the complete
@@ -211,7 +241,8 @@ Style and numbering dependencies are checked on each surviving outcome in its
 paragraph and ancestor-table context. Keeping text with an unresolved style
 refuses; removing that text can remain valid if the surviving context resolves.
 Bookmarks and comments outside the selected wrapper remain in place. Anchors
-inside it, fields (including fields spanning paragraphs), nested counters, move revisions, unknown wrappers and
+inside it, fields outside the closed DATE/TIME result domain above, nested
+counters outside the closed counter group, move revisions, unknown wrappers and
 paragraph/row/cell-existence history refuse through isolated text targets.
 Supported complete paragraph units use the explicit structural contract below;
 arbitrary row/cell-existence history still requires separate later support.

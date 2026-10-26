@@ -104,6 +104,10 @@ same-profile preflight/apply. A counter_insertion target requires two explicit
 choices: decision for the original insertion and counter_decision for the
 selected counter deletion/replacement. Show all four outcomes; never infer
 either choice from authorship or from a proposed final wording.
+When field_result_context is present, explain that the decision resolves only
+cached DATE/TIME display text. Word may recalculate an unlocked field on update.
+Field instructions, locks and update settings are preserved; do not promise a
+fixed date or infer approval to change its automatic/static behavior.
 If the countered run retains a supported formatting history, select that history
 explicitly first, save and reread before deciding the counter group.
 Drafting saves use a durable prepared/result journal;
@@ -2186,6 +2190,9 @@ def preflight_document_edits(source_path: str, file_sha256: DraftingShaInput,
     decision (original) and counter_decision; each is accept or reject. The
     reader previews all four combinations. Only complete suffix/whole counters
     are supported; arbitrary nesting still refuses.
+    A field_result_context qualifies DATE/TIME outcomes as cached display text
+    only. Controls and update/lock settings survive; Word may recalculate an
+    unlocked field. This does not authorize or implement changing field settings.
     Paragraph structural decisions preserve the surviving neighboring paragraph's
     properties; references must be refreshed after any save, including Word.
     All six

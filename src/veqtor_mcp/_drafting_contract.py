@@ -99,6 +99,15 @@ PARAGRAPH_NUMBERING = obj(**{action: {"type": "array", "maxItems": 1000, "items"
 # Optional additive fields, present only for the respective structural units.
 DECISION_PREVIEW["properties"]["paragraph_numbering"] = PARAGRAPH_NUMBERING
 DECISION_PREVIEW["properties"]["row_numbering"] = PARAGRAPH_NUMBERING
+DECISION_PREVIEW["properties"]["field_result_context"] = obj(
+    field_kind={"enum": ["DATE", "TIME"]}, instruction={"type": "string", "maxLength": 512},
+    field_locked={"type": "boolean"}, decision_scope={"const": "cached_result_only"},
+    field_controls={"const": "preserved"},
+)
+DECISION_PREVIEW["allOf"].append({
+    "if": {"required": ["field_result_context"]},
+    "then": {"properties": {"revision_kind": {"enum": ["ins", "del", "replacement", "counter_insertion"]}}},
+})
 DECISION_PREVIEW["properties"]["counter_decision"] = {"enum": ["accept", "reject"]}
 DECISION_PREVIEW["properties"]["counter_outcomes"] = {
     "type": "array", "minItems": 4, "maxItems": 4,
@@ -330,11 +339,11 @@ _REPLACE_PARAGRAPH = obj(
            "items": _PARAGRAPH_STEP},
 )
 _DECISION_APPLIED = obj(**{k: v for k, v in DECISION_PREVIEW["properties"].items()
-                         if k not in {"paragraph_numbering", "row_numbering", "counter_decision", "counter_outcomes"}}, index=_INDEX,
+                         if k not in {"paragraph_numbering", "row_numbering", "counter_decision", "counter_outcomes", "field_result_context"}}, index=_INDEX,
                         target=DECISION_TARGET, actor_profile=AUTHOR_PROFILE)
 _DECISION_APPLIED["properties"]["paragraph_numbering"] = PARAGRAPH_NUMBERING
 _DECISION_APPLIED["properties"]["row_numbering"] = PARAGRAPH_NUMBERING
-for field in ("counter_decision", "counter_outcomes"):
+for field in ("counter_decision", "counter_outcomes", "field_result_context"):
     _DECISION_APPLIED["properties"][field] = DECISION_PREVIEW["properties"][field]
 _DECISION_APPLIED["allOf"] = DECISION_PREVIEW["allOf"]
 _APPLIED = {"type": "array", "maxItems": 100,

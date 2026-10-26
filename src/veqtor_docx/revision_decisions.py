@@ -536,6 +536,7 @@ def _assert_no_pending_row(node):
 
 def _validate_text(root, nodes):
     from ._drafting_text import _proof_hint
+    from ._date_field_revisions import validation_context
 
     parent = nodes[0].getparent()
     _assert_no_pending_row(parent)
@@ -544,6 +545,11 @@ def _validate_text(root, nodes):
             "revision_dependency_unsupported",
             "only isolated direct paragraph text revisions are supported",
         )
+    field_context = validation_context(root, nodes)
+    if field_context is not None:
+        clone, mapped, facts = field_context
+        _validate_text(clone, mapped)
+        return facts
     for candidate in (parent, parent.getprevious()):
         if candidate is None or candidate.tag != w("p"):
             continue
@@ -1256,8 +1262,9 @@ def _plan_outcomes(root, nodes, parts, defer_fixed_widths=False, table_group=Non
     if is_paragraph_unit(nodes):
         return _paragraph_outcomes(root, nodes, parts)
     kind = etree.QName(nodes[0]).localname
+    field_context = None
     if len(nodes) == 2 or kind in {"ins", "del"}:
-        _validate_text(root, nodes)
+        field_context = _validate_text(root, nodes)
         kind = "replacement" if len(nodes) == 2 else kind
         old_nodes = nodes
     else:
@@ -1368,6 +1375,8 @@ def _plan_outcomes(root, nodes, parts, defer_fixed_widths=False, table_group=Non
         if kind in PROPERTY_KINDS
         else None,
     }
+    if field_context is not None:
+        facts["field_result_context"] = field_context
     return old_nodes, outcomes, facts
 
 

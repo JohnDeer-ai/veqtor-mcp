@@ -176,10 +176,10 @@ def validate(root, nodes):
         for child in list(wrapper):
             if _proof(child):
                 wrapper.remove(child)
-    d._validate_text(clone, checked)
+    field_context = d._validate_text(clone, checked)
     start_index = parent.index(original)
     old = list(parent)[start_index:parent.index(end) + 1]
-    return parent, old
+    return parent, old, field_context
 
 
 def _restored(children):
@@ -215,7 +215,7 @@ def _reading(nodes):
 def evaluate(root, nodes, parts):
     if len(d._xml(root)) * 4 > d.MAX_FINGERPRINT_BYTES:
         d._fail("resource_limit_exceeded", "counter outcome validation exceeds the fixed work budget")
-    parent, old = validate(root, nodes)
+    parent, old, field_context = validate(root, nodes)
     outcomes = {}
     entries = []
     for original_decision in ("accept", "reject"):
@@ -244,6 +244,8 @@ def evaluate(root, nodes, parts):
              "accept_refusal_code": entries[0]["refusal_code"], "reject_refusal_code": entries[3]["refusal_code"],
              "table_validation_scope": "not_applicable", "fixed_width_validation_scope": "not_applicable",
              "table_group_members": [], "counter_outcomes": entries, "counter_decision": "accept"}
+    if field_context is not None:
+        facts["field_result_context"] = field_context
     return old, outcomes, facts
 
 
