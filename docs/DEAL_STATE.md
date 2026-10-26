@@ -141,11 +141,16 @@ file without editing it and records `client_asserted_working_import`, a null
 operation ID and null predecessor. It cannot prove the asserted derivation from
 incoming bytes, reconstruct unseen Word actions or certify legal agreement.
 It does not infer a sent role or migrate any old approval onto changed bytes.
+Technical guards protect private snapshots/backups and reject unsafe path
+aliases. The former mutable incoming source path is not retained in deal state,
+so separation from that former path remains part of the caller's explicit
+assertion; this command cannot mechanically establish it.
 
 This layer does not publish edits or manufacture a journal for manually changed
 files. After initial import, use `record_working_version` for manual saves at the
-selected path and the existing journal/link commands for Veqtor edits. An incoming-original in-place edit cannot be labelled the first working
-copy. Mutable paths and frozen snapshots remain distinct.
+selected path and the existing journal/link commands for Veqtor edits. For the
+journaled first-working selection, an incoming-original in-place edit cannot be
+labelled the first working copy. Mutable paths and frozen snapshots remain distinct.
 
 Every working selection retains an immutable exact-byte snapshot and its prior
 selection ID. A lost response can be replayed even after the working path or
