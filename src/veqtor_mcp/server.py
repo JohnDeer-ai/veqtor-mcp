@@ -132,7 +132,16 @@ links without renewing or erasing that approval. Changed proposals reset approva
 changed bytes/positions make the old basis historical. current_basis alone never
 authorizes fresh edits or proves legal agreement. Comment closure never closes an
 issue. Follow read_deal_state observation pages before claiming all actions
-checked. Outgoing packages and finalization remain unfinished; report that boundary.
+checked. For an outgoing kit, use prepare_outgoing_package in mutate_deal_state
+with the current working request/hash, a new relative folder and selected DOCX
+names. Show its complete saved report and preserve-all comment/property policies.
+Publication requires explicit confirmation of that exact plan; never infer it
+from a stored issue decision. publish_outgoing_package writes selected files only.
+After any uncertain result reread state and use record_outgoing_verification on
+the same plan, never blindly publish another folder. Receipts are historical;
+fresh verification is needed before relying on mutable outgoing files. Keep
+prepared_unreviewed distinct from readiness, actual sending and final agreement.
+Selected cleanup, full round acceptance and legal finalization remain unfinished.
 """
 
 
@@ -1929,7 +1938,10 @@ def read_deal_state(folder: str, observation_offset: int = 0) -> DealStateResult
     Follow observation_page.next_offset to check all original journals and
     working paths. Off-page entries say not_checked; all state records are still
     returned. Matching state revisions do not freeze live filesystem observations.
-    Outgoing packages and final agreement are not managed here yet.
+    Outgoing previews include the exact internal report and selected files.
+    Outgoing receipts are historical; this read does not verify live outgoing
+    files. Use a fresh record_outgoing_verification request for a new observation.
+    Neither a prepared plan nor a publication receipt asserts sending or agreement.
     """
     return _position_result("read_deal_state", deal_state.read_deal_state(folder, observation_offset))
 
@@ -1967,9 +1979,26 @@ def mutate_deal_state(folder: str, expected_revision: RevisionInput,
     expected issue version and current exact basis. It is not permission inferred
     from model wording. link_issue_operation adds an existing operation's factual
     link without changing the proposal version or its historical decision.
-    No file is transmitted or modified. Snapshot publication precedes the state
+    prepare_outgoing_package binds the current working snapshot, issues and
+    positions revision to exact output names/path and persists its full internal
+    report in private state before publication. The current supported policies
+    preserve every comment and property; show the report, including unknown-area
+    blockers and automatic-field limitations, before seeking publication approval.
+    Selecting a clean draft explicitly means accepting all supported revisions
+    in a separate candidate, never declaring legal agreement. Unsupported clean
+    preparation refuses the whole selected kit. publish_outgoing_package requires
+    the exact saved plan hash and explicit user confirmation; it creates one new
+    folder containing only the selected DOCX files. Changed working bytes, issues
+    or positions invalidate publication. record_outgoing_verification observes an
+    existing kit against its saved plan without repair or rewriting, including
+    after a lost reply. Receipts are historical observations; verify again before
+    relying on current files. Prepared/published is not ready-to-send or sent.
+    No file is transmitted or overwritten. Snapshot publication precedes the state
     commit. On commit_uncertain reread state; retry the identical request only,
     never change its ID or treat an orphan snapshot as an applied role.
+    After publication_uncertain or outgoing_state_commit_uncertain, reread state
+    and verify the saved outgoing plan. Never choose a new destination merely to
+    retry. A recovered observed_match does not assert a new publication or send.
     """
     return deal_state.mutate_deal_state(folder, expected_revision, request_id, command,
         validate_result=lambda result: _position_result("mutate_deal_state", result))

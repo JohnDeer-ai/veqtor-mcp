@@ -63,8 +63,33 @@ REQUEST_V3 = obj(request_id=UUID, command_sha256=SHA, round_id=ROUND_ID,
 STORE_V3 = obj(schema_version={"const": "deal_rounds_store.v3"}, revision=SHA,
     rounds=array(ROUND, 50), requests=array(REQUEST_V3, 150), operations=array(OPERATION, 100),
     working_documents=array(WORKING_RESULT, 100), issue_events=array(ISSUE, 100))
-STORE = {"oneOf": [STORE_V1, STORE_V2, STORE_V3]}
+OUTGOING_ACTIONS = ["prepare_outgoing_package", "publish_outgoing_package", "record_outgoing_verification"]
+OUTGOING_FILE = obj(kind={"enum": ["cumulative_redline", "clean_draft"]}, name=text(120), sha256=SHA)
+OUTGOING = obj(request_id=UUID, round_id=ROUND_ID, working_request_id=UUID, source_sha256=SHA,
+    path=RELATIVE_PATH, positions_revision=nullable(SHA), basis_sha256=SHA, plan_sha256=SHA,
+    redline_name=nullable(text(120)), clean_draft_name=nullable(text(120)),
+    files=array(OUTGOING_FILE, 2), report_utf8=text(2 * 1024 * 1024),
+    readiness={"const": "prepared_unreviewed"}, comments_policy={"const": "preserve_all"},
+    properties_policy={"const": "preserve_all"})
+OUTGOING_EVENT = obj(request_id=UUID, round_id=ROUND_ID, package_request_id=UUID, plan_sha256=SHA,
+    status={"enum": ["published", "observed_match"]}, statement=nullable(text(2000)))
+REQUEST_V4 = obj(request_id=UUID, command_sha256=SHA, round_id=ROUND_ID,
+    action={"enum": ["start_round", "record_sent", *WORKFLOW_ACTIONS, *OUTGOING_ACTIONS]})
+STORE_V4 = obj(schema_version={"const": "deal_rounds_store.v4"}, revision=SHA,
+    rounds=array(ROUND, 50), requests=array(REQUEST_V4, 150), operations=array(OPERATION, 100),
+    working_documents=array(WORKING_RESULT, 100), issue_events=array(ISSUE, 100),
+    outgoing_packages=array(OUTGOING, 20), outgoing_events=array(OUTGOING_EVENT, 20))
+STORE = {"oneOf": [STORE_V1, STORE_V2, STORE_V3, STORE_V4]}
 COMMAND = {"oneOf": [
+    obj(action={"const": "prepare_outgoing_package"}, round_id=ROUND_ID,
+        expected_working_request_id=UUID, file_sha256=SHA, path=RELATIVE_PATH,
+        redline_name=nullable(text(120)), clean_draft_name=nullable(text(120)),
+        comments_policy={"const": "preserve_all"}, properties_policy={"const": "preserve_all"}),
+    obj(action={"const": "publish_outgoing_package"}, round_id=ROUND_ID,
+        package_request_id=UUID, plan_sha256=SHA, user_confirmed={"type": "boolean", "const": True},
+        statement=text(2000)),
+    obj(action={"const": "record_outgoing_verification"}, round_id=ROUND_ID,
+        package_request_id=UUID, plan_sha256=SHA),
     obj(action={"const": "import_working_document"}, round_id=ROUND_ID,
         path=RELATIVE_PATH, file_sha256=SHA, incoming_basis_sha256=SHA,
         user_confirmed={"type": "boolean", "const": True}, statement=text(2000)),
@@ -90,14 +115,15 @@ COMMAND[MCP_CONTRACT_SCHEMA_EXTENSION] = MCP_CONTRACT_SCHEMA_VERSION
 CommandInput = Annotated[dict[str, Any], WithJsonSchema(COMMAND)]
 RequestIdInput = Annotated[str, WithJsonSchema(UUID)]
 RESULT = obj(
-    schema_version={"const": "deal_state_result.v3"}, status={"const": "ok"},
-    revision=nullable(SHA), rounds=array(ROUND, 50), requests=array(REQUEST_V3, 150),
+    schema_version={"const": "deal_state_result.v4"}, status={"const": "ok"},
+    revision=nullable(SHA), rounds=array(ROUND, 50), requests=array(REQUEST_V4, 150),
     documents=array(obj(file_sha256=SHA, path=text(4096)), 150),
     positions_current_revision=nullable(SHA), applied_request_id=nullable(UUID),
     positions_basis_observations=array(obj(round_id=ROUND_ID,
         status={"enum": ["not_recorded", "current", "historical_available", "unavailable"]}), 50),
     operations=array(OPERATION, 100), working_documents=array(WORKING_RESULT, 100),
     issues=array(ISSUE, 100), issue_events=array(ISSUE, 100),
+    outgoing_packages=array(OUTGOING, 20), outgoing_events=array(OUTGOING_EVENT, 20),
     operation_observations=array(obj(operation_id=JOURNAL_ID,
         status={"enum": ["completed", "prepared_only", "unavailable", "intent_changed", "not_checked"]},
         publication_status=nullable({"enum": ["published", "not_published", "uncertain"]}),

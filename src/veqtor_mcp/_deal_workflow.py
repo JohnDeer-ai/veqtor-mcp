@@ -29,7 +29,8 @@ def _sources(folder):
 
 def upgrade(store, *, imported=False):
     candidate = deepcopy(store)
-    candidate["schema_version"] = ("deal_rounds_store.v3" if imported or store["schema_version"] == "deal_rounds_store.v3"
+    candidate["schema_version"] = ("deal_rounds_store.v4" if store["schema_version"] == "deal_rounds_store.v4"
+                                   else "deal_rounds_store.v3" if imported or store["schema_version"] == "deal_rounds_store.v3"
                                    else "deal_rounds_store.v2")
     for name in COLLECTIONS:
         candidate.setdefault(name, [])
