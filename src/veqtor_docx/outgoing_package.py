@@ -215,6 +215,10 @@ def publish_outgoing_package(plan, destination, *, expected_plan_sha256):
                     try:
                         parent.check()
                         _check_directory(stage_fd, plan)
+                        # Recovery must validate the advertised path after
+                        # reading bytes, just like the successful branch.
+                        parent.check()
+                        s._parent_controlled(fd)
                         verified = s._matches(fd, name, identity)
                     except (OSError, DocxError):
                         verified = False

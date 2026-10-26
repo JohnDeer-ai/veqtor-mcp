@@ -235,3 +235,58 @@ def test_internal_report_budget_and_private_destination_refuse(tmp_path, demo_di
     with pytest.raises(s.SnapshotError, match='resource_limit_exceeded'):
         o.prepare_outgoing_package(snap, tmp_path / 'out', redline_name='Redline.docx')
     assert not (tmp_path / 'out').exists()
+
+
+@pytest.mark.parametrize('mutation', ['none', 'parent', 'ancestor', 'output', 'parent_permissions'])
+def test_recovery_verifies_advertised_path_after_content_check(tmp_path, demo_dir, monkeypatch, mutation):
+    _, snap = fixture_source(tmp_path, demo_dir)
+    ancestor = tmp_path / 'target'
+    parent = ancestor / 'nested'
+    parent.mkdir(parents=True, mode=0o700)
+    output = parent / 'out'
+    moved = tmp_path / 'moved'
+    plan = o.prepare_outgoing_package(snap, output, redline_name='Redline.docx')
+    fsync = o.os.fsync
+    check = o._check_directory
+    failed = False
+    checks = 0
+
+    def fail_after_publication(fd):
+        nonlocal failed
+        if output.is_dir() and not failed:
+            failed = True
+            raise OSError('injected post-rename fsync failure')
+        fsync(fd)
+
+    def mutate_during_recovery(fd, selected):
+        nonlocal checks
+        checks += 1
+        check(fd, selected)
+        if checks != 2:
+            return
+        if mutation == 'parent_permissions':
+            parent.chmod(0o777)
+        elif mutation != 'none':
+            selected_path = {'parent': parent, 'ancestor': ancestor, 'output': output}[mutation]
+            selected_path.rename(moved)
+            output.mkdir(parents=True, mode=0o700)
+            (output / 'foreign').write_text('keep')
+
+    monkeypatch.setattr(o.os, 'fsync', fail_after_publication)
+    monkeypatch.setattr(o, '_check_directory', mutate_during_recovery)
+    try:
+        with pytest.raises(s.SnapshotError, match='publication_uncertain') as caught:
+            publish(plan, output)
+        assert failed and checks == 2
+        assert caught.value.metadata['publication_completed'] is True
+        assert caught.value.metadata['output_path_verified'] is (mutation == 'none')
+        if mutation in {'parent', 'ancestor', 'output'}:
+            assert sorted(p.name for p in output.iterdir()) == ['foreign']
+            assert (output / 'foreign').read_text() == 'keep'
+            retained = {'parent': moved / 'out', 'ancestor': moved / 'nested' / 'out', 'output': moved}[mutation]
+        else:
+            retained = output
+        assert (retained / 'Redline.docx').read_bytes() == snap.payload
+    finally:
+        if mutation == 'parent_permissions':
+            parent.chmod(0o700)
