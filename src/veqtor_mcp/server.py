@@ -125,7 +125,14 @@ for a later round use its saved sent_basis and incoming snapshots with the full
 compare_incoming_version report. A prepared output is not an actually sent file.
 Record sent bytes only after the user identifies that exact actual file. Retain
 request IDs across retries. Never edit saved snapshots: use a separate checked
-working copy. Link its original operation_id with link_operation, then its
+working copy. Without an existing working selection or linked operation, use
+prepare_working_copy with this round's exact incoming hash and a new relative
+DOCX path, then publish_working_copy with the saved plan ID/hash. This copies
+bytes without edits, manual-history assertions or sending. After an uncertain
+result reread state, then record_working_copy_verification on that same plan;
+observed_match establishes matching bytes, not who created them. Never overwrite
+or retry restore at a different destination to bypass an unknown outcome.
+For a real edit, link its original operation_id with link_operation, then its
 verified result with link_working_document. Recover an incomplete journal first;
 state reads never recover or reapply edits. A manual save of the existing working
 path needs explicit record_working_version confirmation and exact new bytes.
@@ -1929,7 +1936,8 @@ def read_deal_state(folder: str, observation_offset: int = 0) -> DealStateResult
     Document paths point to verified private snapshots, not mutable originals.
     Never draft directly from these paths: first restore exact bytes to a new
     ordinary file outside private storage, then inspect and draft that file.
-    The local round_snapshots.restore_snapshot_copy helper is not an MCP tool.
+    Initial incoming copies can be prepared/published through mutate_deal_state;
+    arbitrary snapshot restoration remains a local helper, not a standalone tool.
     For a later round use its frozen sent_basis and incoming_sha256 with
     compare_incoming_version. A first round has no sent basis. Read existing
     positions with history to recover the round's exact positions_basis. All
@@ -1967,12 +1975,22 @@ def mutate_deal_state(folder: str, expected_revision: RevisionInput,
     merely preparing/exporting a document never authorizes that assertion.
     link_operation reads an existing original journal, including unresolved
     outcomes. link_working_document selects only its verified published result;
-    the first operation must create a separate copy from this round's incoming
-    or frozen sent basis. Later in-place operations must extend the selected copy.
+    without a working selection, its operation must create a separate copy from
+    this round's incoming or frozen sent basis. In-place operations must extend
+    an already selected copy, including a verified unchanged incoming copy.
     import_working_document explicitly selects an existing separate human-edited
     file as the first working copy, bound to this round's exact incoming hash.
     It requires a user assertion and records no fabricated operation journal,
     legal approval or send. Subsequent saves use record_working_version.
+    prepare_working_copy persists a plan to copy the current incoming snapshot
+    to a new relative DOCX path; no working selection or linked operation may
+    already exist in this round. publish_working_copy creates that exact copy
+    without changing text and selects it as verified_snapshot_copy. After an
+    uncertain result, reread state and record_working_copy_verification using
+    the original copy_plan_request_id/plan_sha256: it never writes the document
+    and records observed_match rather than claiming creation. Existing paths
+    are never overwritten; changed/unsafe copies cannot be selected. Publication
+    and state commit are separate. Replays of recorded requests are historical.
     record_working_version explicitly snapshots a manual save at that existing
     working path, with expected_working_request_id; it never guesses a role.
     save_issue creates/versions a question; exact quote offsets and references

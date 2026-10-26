@@ -2,7 +2,7 @@
 name: veqtor-negotiation-round
 description: Run a first or later contract negotiation round with local Veqtor MCP, saved deal state, checked edits and a selected outgoing file set. Use when preparing or continuing a contract response; does not send files or certify final agreement.
 metadata:
-  version: mvp-negotiation-round.v1
+  version: mvp-negotiation-round.v2
 ---
 
 # Veqtor negotiation round
@@ -20,7 +20,8 @@ for missing file roles or concrete decisions. Preserve originals and already
 sufficient authorization. Keep proposed wording, lawyer decisions, applied
 operations, prepared files and actually sent bytes distinct.
 
-Contract editing uses the checked Veqtor MCP protocol. Report unavailable copy
-restoration, unsupported edits/export and incomplete checks without bypassing
+Contract editing uses the checked Veqtor MCP protocol. Initial incoming copies
+use the saved working-copy plan; report other unavailable restoration,
+unsupported edits/export and incomplete checks without bypassing
 them. The older `veqtor-next-round` skill and NR-03 evidence cover selected issues;
 they do not establish acceptance of this complete-round workflow.

@@ -47,9 +47,10 @@ symlinks, unsupported filesystems and a destination inside the source snapshot.
 It never changes the snapshot folder. A late failure reports whether publication
 occurred; inspect the destination/hash before retrying. This restoration itself
 assigns no working/sent role and creates no fictional drafting journal. The
-helper is not yet exposed as a standalone MCP tool, so MCP-only recovery is not
-claimed. After restoration use a fresh inspect/preflight/create-new operation,
-then link its original source path/journal and select its checked working result.
+helper is not a standalone MCP tool. The initial incoming-copy commands below
+expose a bounded route through it, including exact-plan verification after a lost
+reply. Restoring arbitrary historical working/sent snapshots remains outside
+that route. Inspect the ordinary selected file afresh before real edits.
 
 Retain each request UUID before mutation. The same ID and command return the
 committed state without a second round or send record, even after the source
@@ -112,13 +113,15 @@ not relabelled as acceptance of the complete MVP round.
 
 ## Working copies, operations and legal issues
 
-The advertised result is now `deal_state_result.v4`. Existing closed v1 role
+The advertised result is now `deal_state_result.v5`. Existing closed v1 role
 stores are validated and read without rewriting their bytes or revision. The
 first workflow mutation atomically upgrades only `deal-rounds.json` to the closed
 v2 format, retaining all prior roles/requests. An explicit initial manual import
 upgrades v1/v2 to the closed v3 format. The first outgoing preparation upgrades
-to v4, retaining previous records; all later mutations retain that version.
-Existing v1/v2/v3 stores remain unchanged when read. Position and journal formats stay
+to at least v4, retaining previous records and any newer store version.
+The first initial-copy preparation upgrades to v5, adding bounded copy plans and
+a distinct `verified_snapshot_copy` origin. Later commands retain v5.
+Existing v1/v2/v3/v4 stores remain unchanged when read. Position and journal formats stay
 unchanged. Older development builds cannot open newer store versions;
 no downgrade or lossy rewrite is attempted. The live installed client is not
 switched by this source change.
@@ -127,6 +130,9 @@ All commands use the same expected state revision and retained request UUID:
 
 | Command | Meaning |
 | --- | --- |
+| `prepare_working_copy` | Persist a plan for a new unchanged ordinary DOCX from this round's exact incoming snapshot, before creating any file. |
+| `publish_working_copy` | Create only the file bound to that saved plan, then select it without a fictitious edit, manual-save assertion or operation ID. |
+| `record_working_copy_verification` | Verify/select the existing exact planned copy after an uncertain result, recording observed matching bytes without claiming creation. |
 | `import_working_document` | Explicitly select an existing separate human-edited file as the first working copy, with the exact round incoming hash, exact file hash and user statement. Its origin is a client assertion, not reconstructed edit history. |
 | `link_operation` | Read an existing journal by its absolute original source path and dashed operation UUID; retain its complete intent digest and document hashes. A prepared-only operation stays unresolved. |
 | `link_working_document` | Snapshot and select a verified published result. The first operation must create a new copy from the round incoming/frozen sent bytes. Later in-place operations extend the latest selected path/hash. |
@@ -137,7 +143,27 @@ All commands use the same expected state revision and retained request UUID:
 
 The working path must be relative to the selected matter folder and outside
 `.veqtor` and `.veqtor-backups`; journals are read from the explicitly selected
-original source path. Initial working copies made by Veqtor use a create-only drafting save.
+original source path. Initial working copies use a create-only drafting save or
+the exact incoming-copy route above. For that route, prepare with the selected
+round's `incoming_basis_sha256` and a new relative `.docx` path in an existing
+owner-controlled directory. Read the saved plan, then publish with its
+`copy_plan_request_id`/`plan_sha256`. No working selection or linked operation may
+precede preparation/publication; later import or linkage invalidates an unused
+initial plan. At most 20 plans are retained, within the existing state byte and
+request limits. A first unchanged response can therefore use outgoing preparation
+without inventing a document edit.
+
+Publication and state commit are separate. On uncertainty, reread state. Replay
+an already recorded original request; otherwise verify the same planned path.
+`observed_match` is only a successful byte/path observation, never proof of the
+creator, a previous successful publication, human editing or transmission.
+Verification requires the same private owner-controlled regular-file conditions
+as restoration, including mode `0600`, no aliases/hardlinks and bounded size.
+It never changes permissions, repairs bytes or overwrites an existing file.
+An identical recorded verification replay is historical; live drift remains
+visible in working observations. Real subsequent edits use the existing checked
+drafting operation journal and link commands at the selected ordinary path.
+
 For an existing human-edited version, first place a separate authorized copy in
 the matter folder and use `import_working_document` with its relative path,
 `file_sha256`, the round's exact `incoming_basis_sha256`, `user_confirmed=true`

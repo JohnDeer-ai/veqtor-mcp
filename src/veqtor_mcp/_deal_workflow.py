@@ -15,6 +15,7 @@ COLLECTIONS = ("operations", "working_documents", "issue_events")
 MAX_OPERATION_OBSERVATIONS = 20
 TABLE = {"import_working_document": "working_documents", "link_operation": "operations", "link_working_document": "working_documents",
          "record_working_version": "working_documents", "save_issue": "issue_events", "decide_issue": "issue_events", "link_issue_operation": "issue_events"}
+TABLE.update(publish_working_copy="working_documents", record_working_copy_verification="working_documents")
 
 
 @contextmanager
@@ -29,7 +30,7 @@ def _sources(folder):
 
 def upgrade(store, *, imported=False):
     candidate = deepcopy(store)
-    candidate["schema_version"] = ("deal_rounds_store.v4" if store["schema_version"] == "deal_rounds_store.v4"
+    candidate["schema_version"] = (store["schema_version"] if store["schema_version"] in {"deal_rounds_store.v4", "deal_rounds_store.v5"}
                                    else "deal_rounds_store.v3" if imported or store["schema_version"] == "deal_rounds_store.v3"
                                    else "deal_rounds_store.v2")
     for name in COLLECTIONS:
@@ -127,10 +128,17 @@ def validate(store):
                       or event["output_path"] != works[-1]["path"]):
                     p._fail("storage_corrupt")
                 seen_ops.append(event)
-            elif action in {"link_working_document", "record_working_version", "import_working_document"}:
+            elif name == "working_documents":
                 relative(event["path"])
                 if event["previous_request_id"] != (works[-1]["request_id"] if works else None):
                     p._fail("storage_corrupt")
+                if action in {"publish_working_copy", "record_working_copy_verification"}:
+                    if (works or event["operation_id"] is not None or event["statement"] is not None
+                            or event["origin"] != "verified_snapshot_copy"
+                            or event["file_sha256"] != row["incoming_sha256"]):
+                        p._fail("storage_corrupt")
+                    seen_works.append(event)  # Plan/request linkage checked by working-copy validator.
+                    continue
                 if action == "import_working_document":
                     if (works or event["operation_id"] is not None or event["statement"] is None
                             or event["origin"] != "client_asserted_working_import"

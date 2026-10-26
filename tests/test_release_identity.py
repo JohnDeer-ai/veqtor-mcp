@@ -218,6 +218,7 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
         "/src/veqtor_mcp/_deal_state_contract.py",
         "/src/veqtor_mcp/_deal_workflow.py",
         "/src/veqtor_mcp/_deal_outgoing.py",
+            "/src/veqtor_mcp/_working_copies.py",
         "/src/veqtor_mcp/deal_state.py",
     }
     assert {"/src/veqtor_docx/_paragraph_edits.py",
