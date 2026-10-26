@@ -77,6 +77,10 @@ Word interoperability, installed-client acceptance or real A/B corpus acceptance
 
 ## Agent continuation in development
 
+Use the [first/later-round workflow](prompts/negotiation-round.md) and its thin
+`veqtor-negotiation-round` skill for the complete development sequence below.
+Its existence does not close native-client or real-document acceptance.
+
 1. Read saved state and original positions/history in the selected matter folder.
    Report an unavailable historical basis; never substitute the current position.
 2. For a first round use no predecessor and disclose the absence of comparison.
@@ -94,9 +98,10 @@ Word interoperability, installed-client acceptance or real A/B corpus acceptance
    and lawyer decisions separately. Report unresolved actions and unsupported
    counter-revision decisions; do not alter authorship, delete unknown XML or
    declare a blocked export completed.
-5. After the outgoing-package step is implemented and verified, prepare that
-   package. Until then explicitly report that the integrated outgoing result is
-   unfinished; an individual edited file is not evidence of the whole package.
+5. Prepare the selected outgoing package, inspect its full saved report, publish
+   only the explicitly confirmed exact plan, and verify the resulting files.
+   This preserve-all slice remains `prepared_unreviewed`; an individual edited
+   file is not evidence of a checked whole package or legal readiness.
 6. Record actual sent bytes only when the user identifies the exact file sent,
    including any subsequent manual Word save. Continue the next round from this
    snapshot. Legal finalization still requires the separate F10 workflow.
