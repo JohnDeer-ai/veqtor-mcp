@@ -324,6 +324,15 @@ compact `export_decision_record` response. The raw journal retains the
 workspace and caller-supplied paths, and may retain search phrases and other
 verbatim matter text; do not commit or share it.
 
+Optional provenance is disabled for a workspace inside `.veqtor` or
+`.veqtor-backups` (case-insensitive path components after resolving aliases).
+Reading immutable round snapshots or retained backups therefore does not add a
+nested sidecar: successful reads return `record_id: null`, `record_status:
+disabled`. An existing legacy journal there can be exported without appending
+an access event; an uninitialized folder remains refused. Nothing is redirected
+to a guessed parent matter or automatically repaired. Ordinary matter journals
+and the required drafting operation journal keep their existing behavior.
+
 `trace_paragraph_history` is success-only for journaling: a refusal before a
 valid result writes no history record or sidecar. A later journal-publication
 failure returns the complete valid result with `record_status: write_failed`.

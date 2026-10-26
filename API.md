@@ -143,6 +143,14 @@ normally writes its own local `access_event.v1` after the response snapshot.
 Export requires an existing journal in the exact supplied workspace; it never
 initializes an empty sidecar merely because the caller supplied a parent or an
 uninitialized folder.
+The optional journal is also disabled when the canonical workspace is inside
+`.veqtor` or `.veqtor-backups` (case-insensitive path components, including
+resolved aliases). Successful reads return `record_id: null` and
+`record_status: "disabled"` without creating or changing a nested sidecar.
+Export of an already initialized journal there remains read-only; it does not
+append an access event. No parent journal is selected automatically and no
+unexpected snapshot members are removed. The required drafting operation
+journal is independent of this policy.
 Every workspace-directory and journal-file lock uses non-blocking POSIX
 `fcntl` attempts under one fixed one-second monotonic deadline. Nested
 root-then-journal acquisition shares that deadline rather than multiplying it.

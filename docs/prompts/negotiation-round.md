@@ -75,6 +75,11 @@ and plausible competing clauses even when proposing to leave wording unchanged.
 Use `verify_quote` for literal quotes on their exact file/ref and appropriate
 projection. A missing phrase alone does not prove deletion or renumbering.
 
+Snapshot reads disable the optional legacy provenance sidecar and report
+`record_status=disabled`; this does not disable the required drafting journal.
+If snapshot validation fails, preserve the evidence and stop dependent work.
+Never delete unexpected members or alter a snapshot to make state load.
+
 ## Record the questions and obtain only missing decisions
 
 For each material issue present verified wording and changes, the full saved
@@ -105,11 +110,14 @@ do not silently omit it or label the whole task completed.
 Follow [AUTHOR_DRAFTING_WORKFLOW.md](../AUTHOR_DRAFTING_WORKFLOW.md) for edits,
 author profiles and comment actions. Preserve original contracts and private
 snapshots. For the first Veqtor edit, use an ordinary selected source whose
-bytes match this round's incoming or frozen sent basis and a new working
+bytes match this round's incoming version and a new working
 `output_path` inside the matter folder, outside private storage. Preflight and
 apply use `preflight_document_edits` / `apply_document_edits`, not the legacy
 selected-issue writer. Never draft from `.veqtor` snapshots: it would place locks
 and journals there even with a different destination.
+Using an ordinary copy of the frozen sent basis instead requires the user's
+explicit choice and an account of how incoming counterparty changes will be
+handled; do not silently discard them by selecting the earlier basis.
 
 If the only surviving source is a snapshot, the local restore helper is not an
 MCP tool. Under an MCP-only boundary, request an authorized ordinary copy or
