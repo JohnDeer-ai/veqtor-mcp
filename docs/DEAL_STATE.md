@@ -107,11 +107,13 @@ not relabelled as acceptance of the complete MVP round.
 
 ## Working copies, operations and legal issues
 
-The advertised result is now `deal_state_result.v2`. Existing closed v1 role
+The advertised result is now `deal_state_result.v3`. Existing closed v1 role
 stores are validated and read without rewriting their bytes or revision. The
 first workflow mutation atomically upgrades only `deal-rounds.json` to the closed
-v2 format, retaining all prior roles/requests. Position and journal formats stay
-unchanged. Old development builds that only understand v1 cannot open v2 stores;
+v2 format, retaining all prior roles/requests. An explicit initial manual import
+upgrades v1/v2 to the closed v3 format; later mutations retain v3. Existing v1
+and v2 stores remain unchanged when read. Position and journal formats stay
+unchanged. Older development builds cannot open newer store versions;
 no downgrade or lossy rewrite is attempted. The live installed client is not
 switched by this source change.
 
@@ -119,6 +121,7 @@ All commands use the same expected state revision and retained request UUID:
 
 | Command | Meaning |
 | --- | --- |
+| `import_working_document` | Explicitly select an existing separate human-edited file as the first working copy, with the exact round incoming hash, exact file hash and user statement. Its origin is a client assertion, not reconstructed edit history. |
 | `link_operation` | Read an existing journal by its absolute original source path and dashed operation UUID; retain its complete intent digest and document hashes. A prepared-only operation stays unresolved. |
 | `link_working_document` | Snapshot and select a verified published result. The first operation must create a new copy from the round incoming/frozen sent bytes. Later in-place operations extend the latest selected path/hash. |
 | `record_working_version` | Explicitly record a manual save at the already selected working path, with its previous working request ID, new exact hash and user statement. It changes neither incoming nor sent roles. |
@@ -128,9 +131,20 @@ All commands use the same expected state revision and retained request UUID:
 
 The working path must be relative to the selected matter folder and outside
 `.veqtor` and `.veqtor-backups`; journals are read from the explicitly selected
-original source path. Initial working copies use a create-only drafting save.
+original source path. Initial working copies made by Veqtor use a create-only drafting save.
+For an existing human-edited version, first place a separate authorized copy in
+the matter folder and use `import_working_document` with its relative path,
+`file_sha256`, the round's exact `incoming_basis_sha256`, `user_confirmed=true`
+and a statement identifying this as the user's working version of that round.
+The command requires no existing working selection. It validates/captures the
+file without editing it and records `client_asserted_working_import`, a null
+operation ID and null predecessor. It cannot prove the asserted derivation from
+incoming bytes, reconstruct unseen Word actions or certify legal agreement.
+It does not infer a sent role or migrate any old approval onto changed bytes.
+
 This layer does not publish edits or manufacture a journal for manually changed
-files. An incoming-original in-place edit cannot be labelled the first working
+files. After initial import, use `record_working_version` for manual saves at the
+selected path and the existing journal/link commands for Veqtor edits. An incoming-original in-place edit cannot be labelled the first working
 copy. Mutable paths and frozen snapshots remain distinct.
 
 Every working selection retains an immutable exact-byte snapshot and its prior

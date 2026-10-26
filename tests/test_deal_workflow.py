@@ -547,6 +547,7 @@ def test_restore_missing_original_before_journaled_work_leaves_snapshot_intact(r
     assert preflight['refusal_code'] == 'protected_storage_path'
     assert store_bytes(folder) == state_before
     assert {f.name: f.read_bytes() for f in frozen.parent.iterdir()} == directory_before
+
     # Restoration is an explicit local helper, not a synthetic drafting operation.
     restored = folder / 'restored-incoming.docx'
     snapshots.restore_snapshot_copy(frozen.parent, restored, expected_sha256=sha(frozen))
@@ -560,6 +561,163 @@ def test_restore_missing_original_before_journaled_work_leaves_snapshot_intact(r
     assert state['rounds'][0]['sent_documents'] == []
     assert work.read_bytes() != original
     assert {f.name: f.read_bytes() for f in frozen.parent.iterdir()} == directory_before
+
+def human_copy(folder, source):
+    import io
+    import zipfile
+    out = io.BytesIO()
+    with zipfile.ZipFile(source) as z, zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as target:
+        for name in z.namelist():
+            data = z.read(name)
+            if name == 'word/document.xml':
+                data = data.replace(b'Supply', b'Manual supply')
+            target.writestr(name, data)
+    path = folder / 'manual-working.docx'
+    path.write_bytes(out.getvalue())
+    return path
+
+
+def import_command(state, path):
+    return dict(action='import_working_document', path=path.name, file_sha256=sha(path),
+        incoming_basis_sha256=state['rounds'][0]['incoming_sha256'], user_confirmed=True,
+        statement='I selected this separate working copy containing my manual edits to this incoming version.')
+
+
+def test_explicit_initial_manual_import_is_not_a_fabricated_journal_or_send(round_data):
+    folder, source, state = round_data
+    source_bytes = source.read_bytes()
+    work = human_copy(folder, source)
+    command = import_command(state, work)
+    state = mutate(folder, state, 2, command)
+    assert state['schema_version'] == 'deal_state_result.v3'
+    assert json.loads(store_bytes(folder))['schema_version'] == 'deal_rounds_store.v3'
+    selected = state['working_documents'][0]
+    assert selected['origin'] == 'client_asserted_working_import'
+    assert selected['operation_id'] is selected['previous_request_id'] is None
+    assert selected['incoming_basis_sha256'] == sha(source)
+    assert state['operations'] == state['issue_events'] == []
+    assert state['rounds'][0]['sent_documents'] == []
+    assert not (folder / '.veqtor' / 'operations').exists()
+    assert source.read_bytes() == source_bytes
+    assert state['working_observations'][0]['status'] == 'same_bytes'
+    # Cold restart and a lost-reply retry retain the import after its live path disappears.
+    work.unlink()
+    script = 'import json,sys;from veqtor_mcp.server import read_deal_state;print(json.dumps(read_deal_state(sys.argv[1])))'
+    fresh = json.loads(subprocess.check_output([sys.executable, '-c', script, str(folder)], text=True))
+    assert fresh['working_documents'] == state['working_documents']
+    assert fresh['working_observations'][0]['status'] == 'unavailable'
+    retried = mutate(folder, None, 2, command)
+    assert retried['revision'] == state['revision']
+    assert len(retried['working_documents']) == 1
+
+
+def test_manual_import_invalidates_old_decision_and_allows_later_journal_and_manual_save(round_data):
+    folder, source, state = round_data
+    state = mutate(folder, state, 2, dict(action='save_issue', issue_id=IID, expected_version=None, content=content(source)))
+    state = mutate(folder, state, 3, dict(action='decide_issue', issue_id=IID, expected_version=1,
+        choice='approve', basis_sha256=sha(source), user_confirmed=True, statement='Approve the incoming wording.'))
+    old_decision = state['issues'][0]['decision']
+    work = human_copy(folder, source)
+    state = mutate(folder, state, 4, import_command(state, work))
+    assert state['issues'][0]['decision'] == old_decision
+    assert state['issue_observations'][0]['decision_status'] == 'basis_changed'
+    saved = edit(work, old='Manual supply', new='Revised manual supply')
+    oid = saved['operation_journal']['operation_id']
+    state = mutate(folder, state, 5, dict(action='link_operation', source_path=str(work), operation_id=oid))
+    state = mutate(folder, state, 6, dict(action='link_working_document', operation_id=oid))
+    assert state['working_documents'][1]['previous_request_id'] == state['working_documents'][0]['request_id']
+    assert state['working_documents'][1]['origin'] == 'journaled_operation'
+    work.write_bytes(source.read_bytes())
+    state = mutate(folder, state, 7, dict(action='record_working_version',
+        expected_working_request_id=state['working_documents'][-1]['request_id'], file_sha256=sha(work),
+        user_confirmed=True, statement='I manually saved this version after the checked edit.'))
+    assert len(state['working_documents']) == 3
+    assert json.loads(store_bytes(folder))['schema_version'] == 'deal_rounds_store.v3'
+    assert len(state['rounds'][0]['sent_documents']) == 0
+
+
+@pytest.mark.parametrize('fault', ['wrong_basis', 'wrong_hash', 'unconfirmed', 'empty_statement',
+                                 'existing_work', 'hardlink', 'symlink', 'parent_alias', 'private_case', 'traversal'])
+def test_initial_manual_import_refuses_without_new_snapshot_or_state(round_data, fault):
+    folder, source, state = round_data
+    work = human_copy(folder, source)
+    command = import_command(state, work)
+    if fault == 'wrong_basis':
+        command['incoming_basis_sha256'] = '0' * 64
+    elif fault == 'wrong_hash':
+        command['file_sha256'] = '0' * 64
+    elif fault == 'unconfirmed':
+        command['user_confirmed'] = False
+    elif fault == 'empty_statement':
+        command['statement'] = ''
+    elif fault == 'existing_work':
+        state, _, _ = link_copy(folder, source, state)
+    elif fault == 'hardlink':
+        os.link(work, folder / 'alias.docx')
+    elif fault == 'symlink':
+        (folder / 'alias.docx').symlink_to(work)
+        command['path'] = 'alias.docx'
+    elif fault == 'parent_alias':
+        (folder / 'alias').symlink_to(folder, target_is_directory=True)
+        command['path'] = 'alias/' + work.name
+    elif fault == 'private_case':
+        command['path'] = '.VEQTOR/' + work.name
+    else:
+        command['path'] = 'nested/../' + work.name
+    before = store_bytes(folder)
+    snapshots = sorted((folder / '.veqtor' / d.DOCUMENTS).iterdir())
+    with pytest.raises(DocxError):
+        mutate(folder, state, 9, command)
+    assert store_bytes(folder) == before
+    assert sorted((folder / '.veqtor' / d.DOCUMENTS).iterdir()) == snapshots
+
+
+def test_initial_manual_import_checks_aggregate_snapshot_budget_before_publication(round_data, monkeypatch):
+    folder, source, state = round_data
+    work = human_copy(folder, source)
+    command = import_command(state, work)
+    before = store_bytes(folder)
+    snapshots = sorted((folder / '.veqtor' / d.DOCUMENTS).iterdir())
+    monkeypatch.setattr(d, 'MAX_DOCUMENT_BYTES', source.stat().st_size + work.stat().st_size - 1)
+    with pytest.raises(p.PositionError, match='resource_limit_exceeded'):
+        mutate(folder, state, 2, command)
+    assert store_bytes(folder) == before
+    assert sorted((folder / '.veqtor' / d.DOCUMENTS).iterdir()) == snapshots
+
+
+@pytest.mark.parametrize('field,value', [('incoming_basis_sha256', '0' * 64),
+                                       ('previous_request_id', '0' * 32),
+                                       ('origin', 'journaled_operation')])
+def test_corrupt_initial_import_never_reclassifies_as_verified_history(round_data, field, value):
+    folder, source, state = round_data
+    work = human_copy(folder, source)
+    state = mutate(folder, state, 2, import_command(state, work))
+    raw = json.loads(store_bytes(folder))
+    raw['working_documents'][0][field] = value
+    raw['revision'] = p._revision(raw)
+    location = folder / '.veqtor' / d.STORE_NAME
+    location.write_text(json.dumps(raw))
+    before = location.read_bytes()
+    with pytest.raises(p.PositionError, match='storage_corrupt'):
+        server.read_deal_state(str(folder))
+    assert location.read_bytes() == before
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize('mode', ['auto', 'legacy'])
+async def test_import_working_document_through_mcp(round_data, mode):
+    from mcp import Client
+    folder, source, state = round_data
+    work = human_copy(folder, source)
+    async with Client(server.mcp, mode=mode) as client:
+        imported = await client.call_tool('mutate_deal_state', dict(folder=str(folder),
+            expected_revision=state['revision'], request_id=f'{2:032x}',
+            command=dict(round_id=RID, **import_command(state, work))))
+        assert not imported.is_error, imported
+        result = imported.structured_content
+        jsonschema.validate(result, RESULT)
+        assert result['working_documents'][0]['origin'] == 'client_asserted_working_import'
+
 
 
 @pytest.mark.parametrize('offset', [-1, 101, True, '0'])
