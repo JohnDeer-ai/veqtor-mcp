@@ -37,14 +37,14 @@ def upgrade(store):
 
 def relative(path):
     parts = p._source_path(path)
-    if ".veqtor-backups" in parts:
+    if any(part.casefold() in {".veqtor", ".veqtor-backups"} for part in parts):
         p._fail("invalid_request")
     return path
 
 
 def absolute(path):
     if (not os.path.isabs(path) or os.path.normpath(path) != path
-            or any(part in {".veqtor", ".veqtor-backups"} for part in path.split("/"))):
+            or any(part.casefold() in {".veqtor", ".veqtor-backups"} for part in path.split("/"))):
         p._fail("invalid_request")
     return path
 

@@ -61,6 +61,19 @@ def test_restore_exact_bytes_outside_snapshot_and_refuse_existing_or_wrong_hash(
     assert {p.name: p.read_bytes() for p in directory.iterdir()} == original
 
 
+def test_restore_refuses_case_alias_of_snapshot_directory(source, tmp_path):
+    directory = tmp_path / 'Snapshot'
+    alias = tmp_path / 'SNAPSHOT'
+    snap = _capture(source)
+    snapshots.persist_snapshot(snap, directory)
+    if not alias.exists():
+        pytest.skip('requires a case-insensitive filesystem')
+    with pytest.raises(snapshots.SnapshotError, match='protected_storage_path'):
+        snapshots.restore_snapshot_copy(directory, alias / 'copy.docx', expected_sha256=snap.sha256)
+    assert snapshots.load_snapshot(directory) == snap
+    assert sorted(p.name for p in directory.iterdir()) == ['manifest.json', 'source.docx']
+
+
 @pytest.mark.parametrize('fault', ['before_rename', 'after_rename', 'foreign_stage'])
 def test_restore_failure_reports_publication_and_keeps_foreign_data(source, tmp_path, monkeypatch, fault):
     directory = tmp_path / 'snapshot'

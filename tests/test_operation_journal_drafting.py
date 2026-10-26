@@ -24,7 +24,7 @@ def arguments(tmp_path, demo_dir):
                         "old_text": "Supply", "new_text": "Services"}]}
 
 
-@pytest.mark.parametrize('private', ['.veqtor', '.veqtor-backups'])
+@pytest.mark.parametrize('private', ['.veqtor', '.veqtor-backups', '.VEQTOR', '.Veqtor-Backups'])
 @pytest.mark.parametrize('target', ['source', 'output', 'aliased_source', 'aliased_output'])
 def test_private_storage_refused_before_any_publication_or_journal(tmp_path, demo_dir, monkeypatch, private, target):
     from veqtor_docx import _drafting_io as io

@@ -61,7 +61,7 @@ def _path(value: str) -> str:
 
 def require_editable_path(value: str) -> None:
     """Keep role snapshots/backups read-only, including normalized parent aliases."""
-    if any(part in {".veqtor", ".veqtor-backups"} for part in _path(value).split(os.path.sep)):
+    if any(part.casefold() in {".veqtor", ".veqtor-backups"} for part in _path(value).split(os.path.sep)):
         raise _error("protected_storage_path", "restore an exact separate copy outside private storage before editing")
 
 

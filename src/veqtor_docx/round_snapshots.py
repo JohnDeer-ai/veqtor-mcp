@@ -409,19 +409,30 @@ def restore_snapshot_copy(
     """
     if not _digest(expected_sha256):
         raise SnapshotError("invalid_sha256", "expected_sha256 must be lowercase SHA-256")
-    snapshot = load_snapshot(snapshot_directory)
-    if snapshot.sha256 != expected_sha256:
-        raise SnapshotError("file_sha256_mismatch", "snapshot does not match the selected document")
+    try:
+        with _directory(_path(snapshot_directory)) as origin:
+            _supported_filesystem(origin.descriptor, origin.chain[-1][0])
+            snapshot = _load_directory(origin.descriptor)
+            origin.check()
+            if snapshot.sha256 != expected_sha256:
+                raise SnapshotError("file_sha256_mismatch", "snapshot does not match the selected document")
+            return _restore_copy(snapshot, destination, origin)
+    except OSError as exc:
+        raise SnapshotError("snapshot_unreadable", "cannot read the selected snapshot safely") from exc
+
+
+def _restore_copy(snapshot, destination, origin):
     output = _path(destination)
     require_editable_path(output)
     folder, name = os.path.split(output)
-    if os.path.realpath(folder) == os.path.realpath(_path(snapshot_directory)):
-        raise SnapshotError("protected_storage_path", "restore outside the snapshot directory")
     stage = ".veqtor-restore-" + uuid.uuid4().hex + ".tmp"
     published = False
     try:
         with _directory(folder) as parent:
             fd = parent.descriptor
+            origin.check()
+            if _identity(os.fstat(fd)) == _identity(os.fstat(origin.descriptor)):
+                raise SnapshotError("protected_storage_path", "restore outside the snapshot directory")
             _parent_controlled(fd)
             try:
                 os.stat(name, dir_fd=fd, follow_symlinks=False)
@@ -443,6 +454,9 @@ def restore_snapshot_copy(
                 _parent_controlled(fd)
                 if not _matches(fd, stage, identity):
                     raise SnapshotError("source_changed", "restoration stage moved")
+                origin.check()
+                if _identity(os.fstat(fd)) == _identity(os.fstat(origin.descriptor)):
+                    raise SnapshotError("protected_storage_path", "restore outside the snapshot directory")
                 try:
                     _rename_noreplace(fd, stage, name)
                     published = True
