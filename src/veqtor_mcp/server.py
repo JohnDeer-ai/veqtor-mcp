@@ -1953,6 +1953,10 @@ def mutate_deal_state(folder: str, expected_revision: RevisionInput,
     outcomes. link_working_document selects only its verified published result;
     the first operation must create a separate copy from this round's incoming
     or frozen sent basis. Later in-place operations must extend the selected copy.
+    import_working_document explicitly selects an existing separate human-edited
+    file as the first working copy, bound to this round's exact incoming hash.
+    It requires a user assertion and records no fabricated operation journal,
+    legal approval or send. Subsequent saves use record_working_version.
     record_working_version explicitly snapshots a manual save at that existing
     working path, with expected_working_request_id; it never guesses a role.
     save_issue creates/versions a question; exact quote offsets and references

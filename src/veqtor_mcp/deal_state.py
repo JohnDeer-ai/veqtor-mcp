@@ -22,6 +22,7 @@ LIMITATIONS = [
     "positions_remain_in_the_original_store_and_history",
     "snapshot_publication_and_state_commit_are_separate_recoverable_steps",
     "no_legal_agreement_or_finalization_inferred",
+    "manual_working_import_is_a_client_assertion_not_a_reconstructed_edit_history",
 ]
 
 
@@ -176,7 +177,7 @@ def _result(folder, store, positions_store, request_id=None, *, pending_snapshot
         if total > MAX_DOCUMENT_BYTES:
             p._fail("resource_limit_exceeded")
         documents.append({"file_sha256": digest, "path": os.path.join(destination, "source.docx")})
-    return {"schema_version": "deal_state_result.v2", "status": "ok",
+    return {"schema_version": "deal_state_result.v3", "status": "ok",
             "revision": store["revision"] if store else None,
             "rounds": deepcopy(store["rounds"]) if store else [],
             "requests": deepcopy(store["requests"]) if store else [],
@@ -227,7 +228,7 @@ def mutate_deal_state(folder, expected_revision, request_id, command, *, validat
             "schema_version": "deal_rounds_store.v1", "revision": "0" * 64,
             "rounds": [], "requests": []}
         if command["action"] in c.WORKFLOW_ACTIONS:
-            candidate = w.upgrade(candidate)
+            candidate = w.upgrade(candidate, imported=command["action"] == "import_working_document")
         snapshot = None
         rid = command["round_id"]
         by_id = {row["round_id"]: row for row in candidate["rounds"]}

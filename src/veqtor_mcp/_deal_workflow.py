@@ -13,7 +13,7 @@ from . import positions as p
 
 COLLECTIONS = ("operations", "working_documents", "issue_events")
 MAX_OPERATION_OBSERVATIONS = 20
-TABLE = {"link_operation": "operations", "link_working_document": "working_documents",
+TABLE = {"import_working_document": "working_documents", "link_operation": "operations", "link_working_document": "working_documents",
          "record_working_version": "working_documents", "save_issue": "issue_events", "decide_issue": "issue_events", "link_issue_operation": "issue_events"}
 
 
@@ -27,9 +27,10 @@ def _sources(folder):
         os.close(root)
 
 
-def upgrade(store):
+def upgrade(store, *, imported=False):
     candidate = deepcopy(store)
-    candidate["schema_version"] = "deal_rounds_store.v2"
+    candidate["schema_version"] = ("deal_rounds_store.v3" if imported or store["schema_version"] == "deal_rounds_store.v3"
+                                   else "deal_rounds_store.v2")
     for name in COLLECTIONS:
         candidate.setdefault(name, [])
     return candidate
@@ -125,9 +126,18 @@ def validate(store):
                       or event["output_path"] != works[-1]["path"]):
                     p._fail("storage_corrupt")
                 seen_ops.append(event)
-            elif action in {"link_working_document", "record_working_version"}:
+            elif action in {"link_working_document", "record_working_version", "import_working_document"}:
                 relative(event["path"])
                 if event["previous_request_id"] != (works[-1]["request_id"] if works else None):
+                    p._fail("storage_corrupt")
+                if action == "import_working_document":
+                    if (works or event["operation_id"] is not None or event["statement"] is None
+                            or event["origin"] != "client_asserted_working_import"
+                            or event["incoming_basis_sha256"] != row["incoming_sha256"]):
+                        p._fail("storage_corrupt")
+                    seen_works.append(event)
+                    continue
+                if "incoming_basis_sha256" in event:
                     p._fail("storage_corrupt")
                 if action == "record_working_version":
                     if (not works or event["operation_id"] is not None or event["statement"] is None
@@ -302,7 +312,23 @@ def change(folder, store, positions_store, request_id, command, snapshot_path):
     ops = [o for o in store["operations"] if o["round_id"] == rid]
     works = working(store, rid)
     snapshot = None
-    if action == "link_operation":
+    if action == "import_working_document":
+        if works:
+            p._fail("working_document_exists")
+        if command["incoming_basis_sha256"] != row["incoming_sha256"]:
+            p._fail("working_basis_mismatch")
+        selected = relative(command["path"])
+        # Reuse descriptor-safe observation to reject hardlink/symlink aliases
+        # before capturing or publishing a new immutable snapshot.
+        path = os.path.join(os.path.expanduser(folder), selected)
+        if journal.observed_hash(path) != command["file_sha256"]:
+            p._fail("working_basis_mismatch")
+        snapshot = snapshots.capture_document_snapshot(path, command["file_sha256"])
+        store["working_documents"].append({**meta, "operation_id": None,
+            "path": selected, "file_sha256": snapshot.sha256, "previous_request_id": None,
+            "origin": "client_asserted_working_import", "statement": command["statement"],
+            "incoming_basis_sha256": row["incoming_sha256"]})
+    elif action == "link_operation":
         absolute(command["source_path"])
         if any(o["operation_id"] == command["operation_id"] for o in store["operations"]):
             p._fail("operation_exists")
