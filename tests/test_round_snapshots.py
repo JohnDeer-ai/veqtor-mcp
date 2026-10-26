@@ -41,6 +41,57 @@ def _persist(source, path):
     return snapshots.persist_snapshot(_capture(source), path)
 
 
+def test_restore_exact_bytes_outside_snapshot_and_refuse_existing_or_wrong_hash(source, tmp_path):
+    directory = tmp_path / 'snapshot'
+    snap = _capture(source)
+    snapshots.persist_snapshot(snap, directory)
+    source.unlink()
+    original = {p.name: p.read_bytes() for p in directory.iterdir()}
+    output = tmp_path / 'restored.docx'
+    with pytest.raises(snapshots.SnapshotError, match='file_sha256_mismatch'):
+        snapshots.restore_snapshot_copy(directory, output, expected_sha256='0' * 64)
+    assert not output.exists()
+    result = snapshots.restore_snapshot_copy(directory, output, expected_sha256=snap.sha256)
+    assert result.sha256 == snap.sha256 and output.read_bytes() == snap.payload
+    assert stat.S_IMODE(output.stat().st_mode) == 0o600 and output.stat().st_nlink == 1
+    with pytest.raises(snapshots.SnapshotError, match='output_exists'):
+        snapshots.restore_snapshot_copy(directory, output, expected_sha256=snap.sha256)
+    with pytest.raises(snapshots.SnapshotError, match='protected_storage_path'):
+        snapshots.restore_snapshot_copy(directory, directory / 'new.docx', expected_sha256=snap.sha256)
+    assert {p.name: p.read_bytes() for p in directory.iterdir()} == original
+
+
+@pytest.mark.parametrize('fault', ['before_rename', 'after_rename', 'foreign_stage'])
+def test_restore_failure_reports_publication_and_keeps_foreign_data(source, tmp_path, monkeypatch, fault):
+    directory = tmp_path / 'snapshot'
+    snap = _capture(source)
+    snapshots.persist_snapshot(snap, directory)
+    output = tmp_path / 'restored.docx'
+    rename = snapshots._rename_noreplace
+
+    def fail(fd, stage, name):
+        if fault == 'after_rename':
+            rename(fd, stage, name)
+        elif fault == 'foreign_stage':
+            os.rename(stage, 'owned-moved', src_dir_fd=fd, dst_dir_fd=fd)
+            (tmp_path / stage).write_bytes(b'foreign bytes')
+        raise OSError('injected failure')
+
+    monkeypatch.setattr(snapshots, '_rename_noreplace', fail)
+    with pytest.raises(snapshots.SnapshotError) as caught:
+        snapshots.restore_snapshot_copy(directory, output, expected_sha256=snap.sha256)
+    assert caught.value.metadata['publication_completed'] == {
+        'before_rename': False, 'after_rename': True, 'foreign_stage': None}[fault]
+    assert output.exists() == (fault == 'after_rename')
+    if output.exists():
+        assert output.read_bytes() == snap.payload
+        assert caught.value.metadata['output_path_verified'] is True
+    if fault == 'foreign_stage':
+        assert next(tmp_path.glob('.veqtor-restore-*')).read_bytes() == b'foreign bytes'
+        assert (tmp_path / 'owned-moved').read_bytes() == snap.payload
+    assert snapshots.load_snapshot(directory) == snap
+
+
 def test_capture_is_frozen_exact_bytes_not_live_source(source):
     original = source.read_bytes()
     result = snapshots.capture_document_snapshot(source, hashlib.sha256(original).hexdigest())

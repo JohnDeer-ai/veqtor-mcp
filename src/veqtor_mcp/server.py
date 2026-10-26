@@ -1914,6 +1914,9 @@ def read_deal_state(folder: str, observation_offset: int = 0) -> DealStateResult
     """Reload exact incoming/sent roles from an explicitly selected matter folder.
 
     Document paths point to verified private snapshots, not mutable originals.
+    Never draft directly from these paths: first restore exact bytes to a new
+    ordinary file outside private storage, then inspect and draft that file.
+    The local round_snapshots.restore_snapshot_copy helper is not an MCP tool.
     For a later round use its frozen sent_basis and incoming_sha256 with
     compare_incoming_version. A first round has no sent basis. Read existing
     positions with history to recover the round's exact positions_basis. All

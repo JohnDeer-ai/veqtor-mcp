@@ -116,6 +116,8 @@ def _child(parent, name, *, create):
 
 @contextmanager
 def _storage(source, identifier, *, create):
+    if create:
+        io.require_editable_path(source)
     folder = os.path.dirname(source)
     with io._directory(folder) as parent:
         with _child(parent, ".veqtor", create=create) as side:

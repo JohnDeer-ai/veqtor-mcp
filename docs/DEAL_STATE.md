@@ -31,10 +31,25 @@ Exact snapshots live at `.veqtor/round-documents/<sha256>/`, using the existing
 two-file `round_snapshot.v1` format. State reads validate all linked snapshots;
 they never fall back to a changed original or silently select another file.
 The returned paths and hashes feed the existing incoming comparison tool.
-Do not edit these snapshot files. Make a separate working copy using the
-existing checked drafting copy save for the lawyer's authorized plan. Link its
+Do not pass these snapshot paths to drafting, even with a separate output:
+writer locks and journals belong beside ordinary documents, never inside a
+snapshot. Private `.veqtor` and `.veqtor-backups` paths (including normalized
+parent aliases) refuse before drafting/publication side effects. First restore
+exact bytes into a new ordinary file outside private storage, then inspect it
+and use the checked drafting copy save for the lawyer's authorized plan. Link its
 original operation and verified result as described below. Outgoing-package
 registration and finalization remain later work.
+
+The local Python helper `veqtor_docx.round_snapshots.restore_snapshot_copy(
+snapshot_directory, destination, expected_sha256=...)` validates the closed
+snapshot and atomically creates one new ordinary DOCX. It refuses overwrite,
+symlinks, unsupported filesystems and a destination inside the source snapshot.
+It never changes the snapshot folder. A late failure reports whether publication
+occurred; inspect the destination/hash before retrying. This restoration itself
+assigns no working/sent role and creates no fictional drafting journal. The
+helper is not yet exposed as a standalone MCP tool, so MCP-only recovery is not
+claimed. After restoration use a fresh inspect/preflight/create-new operation,
+then link its original source path/journal and select its checked working result.
 
 Retain each request UUID before mutation. The same ID and command return the
 committed state without a second round or send record, even after the source
@@ -68,7 +83,8 @@ Word interoperability, installed-client acceptance or real A/B corpus acceptance
    For the next round explicitly select its predecessor and register the incoming
    bytes. Use the returned frozen sent basis and incoming snapshot with the
    existing comparison tool, consuming its entire supported paginated report.
-3. Read the source, comments and revisions. Create a separate working copy for
+3. Restore the selected frozen bytes to a new ordinary source file as above
+   if necessary. Read that file, comments and revisions. Create a separate working copy for
    the user's concrete authorized plan through the existing checked drafting
    save. Preserve facts, model proposals and legal decisions separately. Reread
    after each overlapping revision decision before addressing the next edit.
@@ -153,7 +169,10 @@ links/history are still returned. A decision whose current working path was not
 checked on this page also says `not_checked`. Merge observations by their IDs;
 matching state revisions do not freeze the live filesystem between pages.
 Working observations reuse the original 20-file/100 MiB source-read budget
-(20 MiB per file) and report limits explicitly. Unknown records are preserved and refused. This local
+(20 MiB per file). A byte-limited page resumes at the first deferred selection,
+which may precede the usual 20-item boundary. A file that cannot be inspected
+even with a fresh page budget is `unavailable`; it never creates an endless
+continuation cursor. Unknown records are preserved and refused. This local
 store is not a forgery-resistant audit trail and cannot prove user identity,
 transmission or agreement.
 

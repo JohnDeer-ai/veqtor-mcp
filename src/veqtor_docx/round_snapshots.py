@@ -28,6 +28,7 @@ from ._drafting_io import (
     _unlink_owned,
     _version,
     _write_all,
+    require_editable_path,
 )
 from ._ooxml import (
     DOCUMENT_PART,
@@ -393,4 +394,90 @@ def persist_snapshot(snapshot: DocumentSnapshot, destination: str | os.PathLike[
             else "snapshot preparation failed before publication",
             publication_completed=published, output_path=output,
         ) from exc
+    return SnapshotPublication(output, snapshot.sha256, snapshot.size_bytes)
+
+
+def restore_snapshot_copy(
+    snapshot_directory: str | os.PathLike[str], destination: str | os.PathLike[str],
+    *, expected_sha256: str,
+) -> SnapshotPublication:
+    """Restore exact bytes to one new ordinary file; never edit the snapshot.
+
+    This local helper is not a working-role assignment or a drafting journal.
+    Inspect the restored file afresh before a checked drafting copy save. No
+    lock, journal, backup or temporary is ever created in the snapshot folder.
+    """
+    if not _digest(expected_sha256):
+        raise SnapshotError("invalid_sha256", "expected_sha256 must be lowercase SHA-256")
+    snapshot = load_snapshot(snapshot_directory)
+    if snapshot.sha256 != expected_sha256:
+        raise SnapshotError("file_sha256_mismatch", "snapshot does not match the selected document")
+    output = _path(destination)
+    require_editable_path(output)
+    folder, name = os.path.split(output)
+    if os.path.realpath(folder) == os.path.realpath(_path(snapshot_directory)):
+        raise SnapshotError("protected_storage_path", "restore outside the snapshot directory")
+    stage = ".veqtor-restore-" + uuid.uuid4().hex + ".tmp"
+    published = False
+    try:
+        with _directory(folder) as parent:
+            fd = parent.descriptor
+            _parent_controlled(fd)
+            try:
+                os.stat(name, dir_fd=fd, follow_symlinks=False)
+            except FileNotFoundError:
+                pass
+            else:
+                raise SnapshotError("output_exists", "restoration never replaces an existing destination")
+            descriptor = os.open(stage, os.O_RDWR | os.O_CREAT | os.O_EXCL | _NOFOLLOW | _CLOEXEC,
+                                 0o600, dir_fd=fd)
+            identity = _identity(os.fstat(descriptor))
+            try:
+                _private(descriptor, directory=False)
+                _supported_filesystem(descriptor, fd)
+                _write_all(descriptor, snapshot.payload)
+                os.fsync(descriptor)
+                if _read_file(fd, stage, limit=MAX_DOCX_INPUT_BYTES, private=True) != snapshot.payload:
+                    raise SnapshotError("source_changed", "restored stage differs from the snapshot")
+                parent.check()
+                _parent_controlled(fd)
+                if not _matches(fd, stage, identity):
+                    raise SnapshotError("source_changed", "restoration stage moved")
+                try:
+                    _rename_noreplace(fd, stage, name)
+                    published = True
+                    os.fsync(fd)
+                    parent.check()
+                    _parent_controlled(fd)
+                    if (_read_file(fd, name, limit=MAX_DOCX_INPUT_BYTES, private=True) != snapshot.payload
+                            or not _matches(fd, name, identity)):
+                        raise SnapshotError("source_changed", "restored file changed after publication")
+                except (OSError, DocxError) as exc:
+                    completed = (True if published or _matches(fd, name, identity)
+                                 else False if _matches(fd, stage, identity) else None)
+                    published = completed
+                    try:
+                        parent.check()
+                        verified = (_matches(fd, name, identity)
+                                    and _read_file(fd, name, limit=MAX_DOCX_INPUT_BYTES, private=True) == snapshot.payload)
+                    except (OSError, DocxError):
+                        verified = False
+                    raise SnapshotError(
+                        "publication_uncertain" if completed is not False
+                        else "output_exists" if isinstance(exc, FileExistsError) else "snapshot_write_failed",
+                        "restoration did not complete with confirmed durability",
+                        publication_completed=completed, output_path=output, output_path_verified=verified,
+                    ) from exc
+            finally:
+                _unlink_owned(fd, stage, identity)
+                os.close(descriptor)
+    except SnapshotError as exc:
+        exc.metadata.setdefault("publication_completed", published)
+        exc.metadata.setdefault("output_path", output)
+        exc.metadata.setdefault("output_path_verified", False)
+        raise
+    except (OSError, DocxError) as exc:
+        raise SnapshotError("publication_uncertain" if published is not False else "snapshot_write_failed",
+                            "cannot restore the selected snapshot safely", publication_completed=published,
+                            output_path=output, output_path_verified=False) from exc
     return SnapshotPublication(output, snapshot.sha256, snapshot.size_bytes)

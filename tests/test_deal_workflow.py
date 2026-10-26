@@ -501,6 +501,67 @@ def test_observation_pages_reach_every_journal_and_latest_working_basis(round_da
     assert first['working_documents'] == second['working_documents']
 
 
+def test_byte_budget_pages_reach_all_distinct_live_files(round_data, monkeypatch):
+    folder, source, state = round_data
+    state, first_work, _ = link_copy(folder, source, state)
+    second_work = folder / 'second-working.docx'
+    saved = edit(source, second_work)
+    oid = saved['operation_journal']['operation_id']
+    state = mutate(folder, state, 4, dict(action='link_operation', source_path=str(source), operation_id=oid))
+    state = mutate(folder, state, 5, dict(action='link_working_document', operation_id=oid))
+    state = mutate(folder, state, 6, dict(action='save_issue', issue_id=IID, expected_version=None, content=content(source)))
+    state = mutate(folder, state, 7, dict(action='decide_issue', issue_id=IID, expected_version=1,
+        choice='approve', basis_sha256=sha(second_work), user_confirmed=True, statement='Approve this wording.'))
+    monkeypatch.setattr(p, 'MAX_SOURCE_TOTAL', max(first_work.stat().st_size, second_work.stat().st_size))
+    before = store_bytes(folder)
+    first = server.read_deal_state(str(folder))
+    assert first['observation_page']['next_offset'] == 1
+    assert [o['status'] for o in first['working_observations']] == ['same_bytes', 'not_checked']
+    assert first['issue_observations'][0]['decision_status'] == 'not_checked'
+    second = server.read_deal_state(str(folder), observation_offset=first['observation_page']['next_offset'])
+    assert second['observation_page']['next_offset'] is None
+    assert second['working_observations'][1]['status'] == 'same_bytes'
+    assert second['issue_observations'][0]['decision_status'] == 'current_basis'
+    # A file exceeding even a fresh page's bound must not create an endless cursor.
+    monkeypatch.setattr(p, 'MAX_SOURCE_BYTES', 1)
+    unavailable = server.read_deal_state(str(folder), observation_offset=1)
+    assert unavailable['working_observations'][1]['status'] == 'unavailable'
+    assert unavailable['observation_page']['next_offset'] is None
+    assert unavailable['issue_observations'][0]['decision_status'] == 'unavailable'
+    assert store_bytes(folder) == before
+
+
+def test_restore_missing_original_before_journaled_work_leaves_snapshot_intact(round_data):
+    from veqtor_docx import round_snapshots as snapshots
+    folder, source, state = round_data
+    frozen = Path(state['documents'][0]['path'])
+    original = source.read_bytes()
+    source.unlink()
+    directory_before = {f.name: f.read_bytes() for f in frozen.parent.iterdir()}
+    state_before = store_bytes(folder)
+    para = inspect_document(str(frozen), 'browse', max_items=1)['paragraphs'][0]
+    preflight = drafting.preflight_document_edits(source_path=str(frozen), file_sha256=sha(frozen),
+        operations=[dict(kind='replace_text', paragraph_ref=para['paragraph_ref'], old_text='Supply', new_text='Services')],
+        output_path=str(folder / 'working.docx'), journal=True, **PROFILE)
+    assert not preflight['batch_applicable']
+    assert preflight['refusal_code'] == 'protected_storage_path'
+    assert store_bytes(folder) == state_before
+    assert {f.name: f.read_bytes() for f in frozen.parent.iterdir()} == directory_before
+    # Restoration is an explicit local helper, not a synthetic drafting operation.
+    restored = folder / 'restored-incoming.docx'
+    snapshots.restore_snapshot_copy(frozen.parent, restored, expected_sha256=sha(frozen))
+    assert restored.read_bytes() == original
+    assert store_bytes(folder) == state_before
+    state, work, oid = link_copy(folder, restored, state)
+    assert state['operation_observations'][0]['status'] == 'completed'
+    assert state['working_observations'][0]['status'] == 'same_bytes'
+    assert state['operations'][0]['source_path'] == str(restored)
+    assert state['operations'][0]['operation_id'] == oid
+    assert state['rounds'][0]['sent_documents'] == []
+    assert work.read_bytes() != original
+    assert {f.name: f.read_bytes() for f in frozen.parent.iterdir()} == directory_before
+
+
 @pytest.mark.parametrize('offset', [-1, 101, True, '0'])
 def test_invalid_observation_offset_is_refused_without_storage_change(round_data, offset):
     folder, _, _ = round_data

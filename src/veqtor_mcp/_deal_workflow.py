@@ -229,19 +229,26 @@ def observations(folder, store, positions_store, offset):
          "verification": None, "operation_error": None, "current_output_sha256": None, "backup_current_verified": None}
         for n, op in enumerate(result["operations"])]
     result["working_observations"] = []
+    retry_from = None
     with _sources(folder) as sources:
         for n, work in enumerate(result["working_documents"]):
-            if not offset <= n < offset + MAX_OPERATION_OBSERVATIONS:
+            if retry_from is not None or not offset <= n < offset + MAX_OPERATION_OBSERVATIONS:
                 result["working_observations"].append({"request_id": work["request_id"], "status": "not_checked"})
                 continue
             try:
                 payload = sources.payload(work["path"])
                 status = "same_bytes" if hashlib.sha256(payload).hexdigest() == work["file_sha256"] else "changed"
             except p.PositionError as exc:
-                status = "not_checked" if exc.code == "resource_limit_exceeded" else "unavailable"
+                # Retry a shortened page with a fresh budget. A file that fails
+                # even as the first item is unavailable; do not loop forever.
+                if exc.code == "resource_limit_exceeded" and n > offset:
+                    retry_from = n
+                    status = "not_checked"
+                else:
+                    status = "unavailable"
             result["working_observations"].append({"request_id": work["request_id"], "status": status})
     total = max(len(result["operations"]), len(result["working_documents"]))
-    next_offset = offset + MAX_OPERATION_OBSERVATIONS
+    next_offset = retry_from if retry_from is not None else offset + MAX_OPERATION_OBSERVATIONS
     result["observation_page"] = {"offset": offset, "page_size": MAX_OPERATION_OBSERVATIONS,
         "total": total, "next_offset": next_offset if next_offset < total else None}
     by_work = {w["request_id"]: obs["status"] for w, obs in zip(result["working_documents"], result["working_observations"])}

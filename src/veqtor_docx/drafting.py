@@ -34,7 +34,7 @@ from ._drafting_comments import (
     update_comment,
 )
 from ._drafting_paragraphs import delete_paragraph, insert_paragraph, replace_paragraph
-from ._drafting_io import publish_document
+from ._drafting_io import publish_document, require_editable_path
 from ._drafting_text import annotation_date, parse_drafting_timestamp, replace_text
 from ._ooxml import (
     DOCUMENT_PART,
@@ -721,6 +721,7 @@ def _prepare(
     _profile(author, initials)
     _validate_operations(operations)
     source = _path(source_path)
+    require_editable_path(source)
     try:
         payload = read_docx_payload(source)
     except OSError as exc:
@@ -1198,6 +1199,7 @@ def _proof(
     destination = (
         _path(output_path) if output_path is not None else candidate.source_path
     )
+    require_editable_path(destination)
     fields = {
         "schema_version": JOURNAL_PROOF_VERSION if operation_id else PROOF_VERSION,
         "source_path": candidate.source_path,
