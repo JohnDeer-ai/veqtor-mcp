@@ -198,6 +198,34 @@ def test_destination_race_preserves_preexisting_foreign_directory(tmp_path, demo
     assert not list(tmp_path.glob('.veqtor-outgoing-*'))
 
 
+def test_output_directory_substituted_during_final_verification_is_uncertain(tmp_path, demo_dir, monkeypatch):
+    _, snap = fixture_source(tmp_path, demo_dir)
+    output = tmp_path / 'out'
+    moved = tmp_path / 'published-moved'
+    plan = o.prepare_outgoing_package(snap, output, redline_name='Redline.docx')
+    check = o._check_directory
+    count = 0
+
+    def race(fd, selected):
+        nonlocal count
+        count += 1
+        check(fd, selected)
+        if count == 2:
+            output.rename(moved)
+            output.mkdir(mode=0o700)
+            (output / 'foreign').write_text('keep')
+
+    monkeypatch.setattr(o, '_check_directory', race)
+    with pytest.raises(s.SnapshotError, match='publication_uncertain') as caught:
+        publish(plan, output)
+    assert caught.value.metadata['publication_completed'] is True
+    assert caught.value.metadata['output_path_verified'] is False
+    assert (output / 'foreign').read_text() == 'keep'
+    assert (moved / 'Redline.docx').read_bytes() == snap.payload
+    with pytest.raises(s.SnapshotError, match='outgoing_mismatch'):
+        o.verify_outgoing_package(plan, output, expected_plan_sha256=plan.plan_sha256)
+
+
 def test_internal_report_budget_and_private_destination_refuse(tmp_path, demo_dir, monkeypatch):
     _, snap = fixture_source(tmp_path, demo_dir)
     for private in ('.veqtor', '.VEQTOR', '.Veqtor-Backups'):

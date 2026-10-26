@@ -202,6 +202,12 @@ def publish_outgoing_package(plan, destination, *, expected_plan_sha256):
                     if not s._matches(fd, name, identity):
                         _fail('source_changed', 'published outgoing folder moved')
                     _check_directory(stage_fd, plan)
+                    # Verifying the held directory is not proof that the
+                    # advertised output path still names that directory.
+                    parent.check()
+                    s._parent_controlled(fd)
+                    if not s._matches(fd, name, identity):
+                        _fail('source_changed', 'published outgoing path changed during verification')
                 except (OSError, DocxError) as exc:
                     completed = (True if published or s._matches(fd, name, identity)
                                  else False if s._matches(fd, stage, identity) else None)
