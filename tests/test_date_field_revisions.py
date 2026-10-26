@@ -199,6 +199,32 @@ def test_literal_date_retains_ordinary_semantics(tmp_path, demo_dir):
     assert "June 8, 2026" in "".join(main(path).itertext())
 
 
+@pytest.mark.parametrize("tag", ["r", "rPr", "ins", "del", "proofErr"])
+def test_unproved_control_properties_cannot_disappear_on_validation_clone(
+    tmp_path, demo_dir, tag
+):
+    def malformed(_root, p):
+        props = etree.Element(w("rPr"))
+        p[0].insert(0, props)
+        child = etree.SubElement(props, w(tag))
+        if tag in {"ins", "del"}:
+            child.attrib.update({w("id"): "901", w("author"): "Unselected"})
+        elif tag == "proofErr":
+            child.set(w("type"), "spellStart")
+        elif tag == "r":
+            etree.SubElement(child, w("rPr"))
+        elif tag == "rPr":
+            etree.SubElement(child, w("b"))
+
+    path = fixture(tmp_path, demo_dir, mutation=malformed)
+    before = path.read_bytes()
+    preflight = drafting.preflight_document_edits(
+        str(path), sha(path), [operation(path)], **PROFILE
+    )
+    assert not preflight["batch_applicable"]
+    assert path.read_bytes() == before
+
+
 @pytest.mark.parametrize("kind", ["DATE", "TIME"])
 @pytest.mark.parametrize("decision", ["accept", "reject"])
 @pytest.mark.parametrize("revision_kind", ["ins", "del", "replacement"])

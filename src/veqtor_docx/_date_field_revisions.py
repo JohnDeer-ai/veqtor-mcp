@@ -26,7 +26,7 @@ def validation_context(root, nodes):
     Actual patches retain every field control, property and package setting.
     """
     from . import revision_decisions as d
-    from .counter_revisions import _closed_attributes
+    from .counter_revisions import _RUN_PROPERTIES, _closed_attributes
 
     parent = nodes[0].getparent()
     markers = [node for node in parent.iter() if node.tag in _FIELD_MARKUP]
@@ -56,6 +56,14 @@ def validation_context(root, nodes):
         children = list(run)
         if children and children[0].tag == w("rPr"):
             props = children.pop(0)
+            # Attribute validation alone also admits wrapper/container tags.
+            # A control run must have only unrevised, leaf run properties before
+            # it can disappear from the detached context proof.
+            if any(
+                child.tag not in _RUN_PROPERTIES | {d._LIGATURES} or len(child)
+                for child in props
+            ):
+                refuse()
             _closed_attributes(props)
             if any(
                 (node.text or "").strip() or (node.tail or "").strip()
