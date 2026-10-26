@@ -336,8 +336,8 @@ def _needs_full_context(root):
     complete paragraph cannot prove that field's grammar in isolation. Nested
     table histories may also affect an outer table's style dependency outcome.
     Keep the existing bounded whole-context path for these selections.
-    Text and paragraph-property owners touching a field already refuse under
-    the source-global guard; no fallback grants a previously unsafe operation.
+    Cached DATE/TIME text decisions also require the full source-global proof;
+    the local batch guard never removes or ignores field controls.
     """
     nodes = _nodes(root)
     if any(any(ancestor.tag in _REVISION_TAGS for ancestor in node.iterancestors()) for node in nodes):
@@ -346,8 +346,7 @@ def _needs_full_context(root):
     if any(next(table.iterancestors(w("tbl")), None) is not None
            or any(item is not table for item in table.iter(w("tbl"))) for table in tables):
         return True
-    paragraphs = {next(node.iterancestors(w("p")), None) for node in nodes
-                  if node.tag == w("rPrChange")}
+    paragraphs = {next(node.iterancestors(w("p")), None) for node in nodes}
     return any(node.tag in {w("fldChar"), w("instrText"), w("fldSimple"), w("permStart"), w("permEnd")}
                or node.tag in _REVISION_TAGS and "Range" in etree.QName(node).localname
                for paragraph in paragraphs if paragraph is not None for node in paragraph.iter())
