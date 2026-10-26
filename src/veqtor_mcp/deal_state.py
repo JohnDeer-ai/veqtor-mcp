@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Role links to exact snapshots; no legal decisions or transmission inference."""
+"""Exact document roles, working-copy links and explicitly asserted legal decisions."""
 from copy import deepcopy
 import hashlib
 import json
@@ -9,6 +9,7 @@ import jsonschema
 
 from veqtor_docx import round_snapshots as snapshots
 from . import positions as p
+from . import _deal_workflow as w
 from . import _deal_state_contract as c
 
 STORE_NAME = "deal-rounds.json"
@@ -16,7 +17,8 @@ DOCUMENTS = "round-documents"
 MAX_DOCUMENT_BYTES = 100 * 1024 * 1024
 LIMITATIONS = [
     "roles_and_actual_send_are_client_assertions_not_transmission_evidence",
-    "no_working_document_issue_or_outgoing_package_manager_yet",
+    "outgoing_packages_and_finalization_remain_unfinished",
+    "journal_and_working_file_observations_are_current_not_legal_authorization",
     "positions_remain_in_the_original_store_and_history",
     "snapshot_publication_and_state_commit_are_separate_recoverable_steps",
     "no_legal_agreement_or_finalization_inferred",
@@ -86,9 +88,11 @@ def _load(side):
                     p._fail("storage_corrupt")
             starts.add(rid)
             start_order.append(rid)
-        elif key not in sent or sent[key][0] != rid or rid not in starts:
+        elif rid not in starts:
             p._fail("storage_corrupt")
-        else:
+        elif request["action"] == "record_sent" and (key not in sent or sent[key][0] != rid):
+            p._fail("storage_corrupt")
+        elif request["action"] == "record_sent":
             send_history[rid] = key
         requests[key] = request
     if starts != set(rounds) or set(sent) != {r["request_id"] for r in value["requests"]
@@ -101,6 +105,7 @@ def _load(side):
                     if r["round_id"] == rid and r["action"] == "record_sent"]
         if expected != [entry["request_id"] for entry in row["sent_documents"]]:
             p._fail("storage_corrupt")
+    w.validate(value)
     return value, stamp
 
 
@@ -135,8 +140,9 @@ def _store_snapshot(folder, side, snapshot, recheck):
 
 
 def _hashes(store):
-    return {digest for row in store["rounds"] for digest in
-            [row["incoming_sha256"], *[entry["file_sha256"] for entry in row["sent_documents"]]]}
+    return ({digest for row in store["rounds"] for digest in
+             [row["incoming_sha256"], *[entry["file_sha256"] for entry in row["sent_documents"]]]}
+            | {r["file_sha256"] for r in store.get("working_documents", [])})
 
 
 def _positions_observation(basis, current):
@@ -157,7 +163,7 @@ def _positions_observation(basis, current):
     return "current" if current["revision"] == basis["revision"] else "historical_available"
 
 
-def _result(folder, store, positions_store, request_id=None, *, pending_snapshot=None):
+def _result(folder, store, positions_store, request_id=None, *, pending_snapshot=None, observation_offset=0):
     documents = []
     total = 0
     for digest in sorted(_hashes(store)) if store else []:
@@ -170,7 +176,7 @@ def _result(folder, store, positions_store, request_id=None, *, pending_snapshot
         if total > MAX_DOCUMENT_BYTES:
             p._fail("resource_limit_exceeded")
         documents.append({"file_sha256": digest, "path": os.path.join(destination, "source.docx")})
-    return {"schema_version": "deal_state_result.v1", "status": "ok",
+    return {"schema_version": "deal_state_result.v2", "status": "ok",
             "revision": store["revision"] if store else None,
             "rounds": deepcopy(store["rounds"]) if store else [],
             "requests": deepcopy(store["requests"]) if store else [],
@@ -179,17 +185,20 @@ def _result(folder, store, positions_store, request_id=None, *, pending_snapshot
             "positions_basis_observations": [{"round_id": row["round_id"],
                 "status": _positions_observation(row["positions_basis"], positions_store)}
                 for row in store["rounds"]] if store else [],
+            **w.observations(folder, store, positions_store, observation_offset),
             "limitations": list(LIMITATIONS)}
 
 
-def read_deal_state(folder):
+def read_deal_state(folder, observation_offset=0):
+    if type(observation_offset) is not int or not 0 <= observation_offset <= 100:
+        p._fail("invalid_request")
     with p._storage(folder, write=False, load_store=_load) as storage:
         if storage is None:
-            return _result(folder, None, None)
+            return _result(folder, None, None, observation_offset=observation_offset)
         _, side, recheck = storage
         store, _ = _load(side)
         positions_store, _ = p._load(side)
-        result = _result(folder, store, positions_store)
+        result = _result(folder, store, positions_store, observation_offset=observation_offset)
         recheck()
         return result
 
@@ -198,7 +207,8 @@ def mutate_deal_state(folder, expected_revision, request_id, command, *, validat
     _validate(c.nullable(c.SHA), expected_revision)
     _validate(c.UUID, request_id)
     _validate(c.COMMAND, command)
-    # Path is captured only for this request hash, never copied to the role store.
+    # Original incoming/sent paths stay out of the store. Workflow source paths
+    # are explicit durable journal locators, distinct from document-role evidence.
     command_sha = hashlib.sha256(p._json_bytes(command)).hexdigest()
     with p._storage(folder, write=True, load_store=_load) as storage:
         _, side, recheck = storage
@@ -216,6 +226,9 @@ def mutate_deal_state(folder, expected_revision, request_id, command, *, validat
         candidate = deepcopy(store) if store else {
             "schema_version": "deal_rounds_store.v1", "revision": "0" * 64,
             "rounds": [], "requests": []}
+        if command["action"] in c.WORKFLOW_ACTIONS:
+            candidate = w.upgrade(candidate)
+        snapshot = None
         rid = command["round_id"]
         by_id = {row["round_id"]: row for row in candidate["rounds"]}
         if command["action"] == "start_round":
@@ -237,23 +250,28 @@ def mutate_deal_state(folder, expected_revision, request_id, command, *, validat
             candidate["rounds"].append({"round_id": rid,
                 "incoming_sha256": command["file_sha256"], "previous_round_id": previous,
                 "sent_basis": basis, "positions_basis": positions_basis, "sent_documents": []})
-        else:
+        elif command["action"] == "record_sent":
             if rid not in by_id:
                 p._fail("round_missing")
             by_id[rid]["sent_documents"].append({"request_id": request_id,
                 "file_sha256": command["file_sha256"], "statement": command["statement"],
                 "basis": "client_asserted_actual_sent_file"})
+        else:
+            snapshot = w.change(folder, candidate, positions_store, request_id, command, _snapshot_path)
         candidate["requests"].append({"request_id": request_id, "command_sha256": command_sha,
                                       "round_id": rid, "action": command["action"]})
         candidate["revision"] = p._revision(candidate)
         _validate(c.STORE, candidate)
-        snapshot = snapshots.capture_document_snapshot(command["path"], command["file_sha256"])
+        w.validate(candidate)
+        if command["action"] in {"start_round", "record_sent"}:
+            snapshot = snapshots.capture_document_snapshot(command["path"], command["file_sha256"])
         # Validate the aggregate budget and transport result with captured bytes
         # before publishing another snapshot. The publisher still verifies an
         # existing same-hash snapshot, including orphan reuse, before role commit.
         result = _result(folder, candidate, positions_store, request_id, pending_snapshot=snapshot)
         if validate_result:
             result = validate_result(result)
-        _store_snapshot(folder, side, snapshot, recheck)
+        if snapshot is not None:
+            _store_snapshot(folder, side, snapshot, recheck)
         p._publish(side, candidate, stamp, recheck, store_name=STORE_NAME, load_store=_load)
         return result

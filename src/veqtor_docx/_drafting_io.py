@@ -59,6 +59,12 @@ def _path(value: str) -> str:
         raise _error(exc.code, exc.detail) from exc
 
 
+def require_editable_path(value: str) -> None:
+    """Keep role snapshots/backups read-only, including normalized parent aliases."""
+    if any(part.casefold() in {".veqtor", ".veqtor-backups"} for part in _path(value).split(os.path.sep)):
+        raise _error("protected_storage_path", "restore an exact separate copy outside private storage before editing")
+
+
 def _identity(info: os.stat_result) -> tuple[int, int]:
     return info.st_dev, info.st_ino
 
@@ -282,6 +288,7 @@ def _writer_lock(directory: int, path: str, basename: str) -> Iterator[None]:
     older writers. Only a well-formed, owned sidecar with a provably dead PID
     can be reclaimed under flock; malformed or unverifiable files remain intact.
     """
+    require_editable_path(os.path.join(path, basename))
     _directory_current(directory, path)
     try:
         fcntl.flock(directory, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -901,6 +908,8 @@ def publish_document(source_path: str, output_path: str | None, source_payload: 
         raise _error("invalid_request", "source and candidate payloads must be bytes")
     source = _path(source_path)
     output = source if output_path is None else _path(output_path)
+    require_editable_path(source)
+    require_editable_path(output)
     in_place = output == source
     source_parent, basename = os.path.split(source)
     output_parent, output_name = os.path.split(output)

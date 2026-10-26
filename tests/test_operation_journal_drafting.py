@@ -24,6 +24,40 @@ def arguments(tmp_path, demo_dir):
                         "old_text": "Supply", "new_text": "Services"}]}
 
 
+@pytest.mark.parametrize('private', ['.veqtor', '.veqtor-backups', '.VEQTOR', '.Veqtor-Backups'])
+@pytest.mark.parametrize('target', ['source', 'output', 'aliased_source', 'aliased_output'])
+def test_private_storage_refused_before_any_publication_or_journal(tmp_path, demo_dir, monkeypatch, private, target):
+    from veqtor_docx import _drafting_io as io
+    path, args = arguments(tmp_path, demo_dir)
+    directory = tmp_path / private
+    directory.mkdir()
+    frozen = directory / 'frozen.docx'
+    frozen.write_bytes(path.read_bytes())
+    selected = directory
+    if target.startswith('aliased'):
+        selected = tmp_path / 'alias'
+        selected.symlink_to(directory, target_is_directory=True)
+    if target.endswith('source'):
+        args['source_path'] = str(selected / frozen.name)
+        args['output_path'] = str(tmp_path / 'output.docx')
+    else:
+        args['output_path'] = str(selected / 'output.docx')
+    original = frozen.read_bytes()
+    # The guard applies to both preflight and the lower-level publisher, even
+    # without journals. No lock acquisition/recovery may modify private storage.
+    dry = drafting.preflight_document_edits(**args, **PROFILE, journal=True)
+    assert not dry['batch_applicable'] and dry['refusal_code'] == 'protected_storage_path'
+    monkeypatch.setattr(io, '_writer_lock', lambda *a: pytest.fail('private storage lock acquired'))
+    with pytest.raises(ApplyError, match='protected_storage_path'):
+        io.publish_document(args['source_path'], args['output_path'], original, original)
+    with pytest.raises(ApplyError, match='protected_storage_path'):
+        with operation_journal._storage(str(frozen), '0' * 36, create=True):
+            pytest.fail('private journal created')
+    assert sorted(p.name for p in directory.iterdir()) == [frozen.name]
+    assert frozen.read_bytes() == original
+    assert not (tmp_path / 'output.docx').exists()
+
+
 def test_v2_proof_id_bound_journal_and_candidate_bytes_unchanged(tmp_path, demo_dir):
     path, args = arguments(tmp_path, demo_dir)
     dry = drafting.preflight_document_edits(**args, **PROFILE, journal=True)

@@ -1497,6 +1497,8 @@ def _prepare_candidate(
         source = resolve_user_path(source_path)
     except UserPathError as exc:
         raise ApplyError(exc.code, exc.detail, failure_phase="validation") from exc
+    from ._drafting_io import require_editable_path
+    require_editable_path(source)
     # The MCP schema already types `edits` as an array, but this is a public
     # Python API too — a non-list must fail closed, not TypeError.
     if not isinstance(edits, list):
@@ -2156,6 +2158,8 @@ def apply_edits(
         output = resolve_user_path(output_path)
     except UserPathError as exc:
         raise ApplyError(exc.code, exc.detail, failure_phase="validation") from exc
+    from ._drafting_io import require_editable_path
+    require_editable_path(output)
     if os.path.exists(output):
         raise ApplyError(
             "output_exists",
