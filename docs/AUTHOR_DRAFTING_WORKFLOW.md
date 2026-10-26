@@ -8,6 +8,16 @@ connect. It governs document edits, not software development on Veqtor.
 
 ## 1. Read and identify the requested work
 
+For a saved negotiation, first read the matter's `read_deal_state` and original
+positions/history. A first round has no predecessor; a later round uses its
+frozen sent basis and incoming snapshots, consuming the complete comparison.
+Do not reconstruct which file was sent from names, timestamps or chat memory.
+Use a separate working copy. An already edited separate human file can be
+selected with `import_working_document` and the user's explicit exact-file
+assertion; Veqtor does not invent its prior editing history. Register later
+manual saves with `record_working_version`. Follow observation pages and recover
+unresolved original journals before treating an action as completed.
+
 Inspect the actual current file. Read the relevant paragraphs, comments and
 thread status, including complete pagination when needed. Use current hashes,
 paragraph references, revision references and comment IDs. For accept/reject,
@@ -105,3 +115,34 @@ ownership merely because the visible author string matches.
 Thread-state changes preserve the original comment authors. Word's thread
 metadata does not record a separate actor for resolving or reopening a thread;
 do not describe that status change as a new authored comment.
+
+## 6. Prepare an outgoing copy and continue the round
+
+Register the verified working result and its original operation before export;
+record issue decisions separately from model proposals and action receipts.
+Use `mutate_deal_state` with `prepare_outgoing_package` for a selected redline
+and/or supported clean draft in one new relative folder. Show the complete saved
+report, filenames and exact preserve-all comment/property policies. Choosing
+a clean draft means accept-all in that separate copy. Refusal of any selected
+member blocks the entire kit; do not silently drop it or delete unknown parts.
+
+After the user confirms that concrete plan, call `publish_outgoing_package`
+with the saved preparation request and plan hash. The working bytes, issue
+state and positions must still match. The internal report remains in private
+deal state, outside the selected outgoing files. Readiness is still
+`prepared_unreviewed`: native Word review, confidential-data review and legal
+agreement are separate. Selected comment/property removal is not implemented
+by this preserve-all slice; disclose that before publication.
+
+After an uncertain outcome read saved state and verify the same frozen plan
+with `record_outgoing_verification`. Never retry into another folder merely
+because a response was lost. Historical receipts are not current file checks.
+If Word changes a file after publication, verify and identify its new bytes;
+do not claim it still matches the prepared kit. Only when the user identifies
+the file actually sent, record that exact file through `record_sent`. A later
+round uses that sent snapshot, including external changes, in its frozen basis.
+Reopen the saved state and original positions/history in a new session.
+
+This development sequence extends the older selected-issue recipe; it does not
+relabel its earlier acceptance as full-round acceptance. Full first/next-round
+native Word, real-corpus and finalization checks remain separate gates.

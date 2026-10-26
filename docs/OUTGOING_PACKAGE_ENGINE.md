@@ -40,8 +40,10 @@ membership and bytes, rejects aliases and extra/changed files, and performs no
 repair or deletion. Its `matched` result is an observed match, not a durability
 receipt, new publication, readiness decision or evidence of sending.
 
-Still required for F8: an explicit user-facing preview/confirmation contract,
-selected full comment-thread and property cleanup, durable internal reports,
-prepared-package links in deal state, and the unified first/next-round recipe.
+The development deal-state workflow now persists the complete report, binds
+the preview to the selected working/issue/positions basis and exposes explicit
+publication/verification commands through `mutate_deal_state`; see DEAL_STATE.md.
+Still required for complete F8: selected full comment-thread and property
+cleanup, disagreements-table output and complete first/next-round acceptance.
 Final lawyer-approved DOCX remains F10. The present tests use fictional packages
 and publication faults; real acceptance and native Word checks remain distinct.

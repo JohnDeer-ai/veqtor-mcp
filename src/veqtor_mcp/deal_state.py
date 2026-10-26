@@ -11,18 +11,21 @@ from veqtor_docx import round_snapshots as snapshots
 from . import positions as p
 from . import _deal_workflow as w
 from . import _deal_state_contract as c
+from . import _deal_outgoing as outgoing
 
 STORE_NAME = "deal-rounds.json"
 DOCUMENTS = "round-documents"
 MAX_DOCUMENT_BYTES = 100 * 1024 * 1024
 LIMITATIONS = [
     "roles_and_actual_send_are_client_assertions_not_transmission_evidence",
-    "outgoing_packages_and_finalization_remain_unfinished",
+    "outgoing_cleanup_and_finalization_remain_unfinished",
     "journal_and_working_file_observations_are_current_not_legal_authorization",
     "positions_remain_in_the_original_store_and_history",
     "snapshot_publication_and_state_commit_are_separate_recoverable_steps",
     "no_legal_agreement_or_finalization_inferred",
     "manual_working_import_is_a_client_assertion_not_a_reconstructed_edit_history",
+    "outgoing_receipts_are_historical_observations_not_current_file_checks",
+    "outgoing_publication_and_state_commit_are_separate_recoverable_steps",
 ]
 
 
@@ -107,6 +110,7 @@ def _load(side):
         if expected != [entry["request_id"] for entry in row["sent_documents"]]:
             p._fail("storage_corrupt")
     w.validate(value)
+    outgoing.validate(value)
     return value, stamp
 
 
@@ -177,7 +181,7 @@ def _result(folder, store, positions_store, request_id=None, *, pending_snapshot
         if total > MAX_DOCUMENT_BYTES:
             p._fail("resource_limit_exceeded")
         documents.append({"file_sha256": digest, "path": os.path.join(destination, "source.docx")})
-    return {"schema_version": "deal_state_result.v3", "status": "ok",
+    return {"schema_version": "deal_state_result.v4", "status": "ok",
             "revision": store["revision"] if store else None,
             "rounds": deepcopy(store["rounds"]) if store else [],
             "requests": deepcopy(store["requests"]) if store else [],
@@ -187,6 +191,7 @@ def _result(folder, store, positions_store, request_id=None, *, pending_snapshot
                 "status": _positions_observation(row["positions_basis"], positions_store)}
                 for row in store["rounds"]] if store else [],
             **w.observations(folder, store, positions_store, observation_offset),
+            **outgoing.result(store),
             "limitations": list(LIMITATIONS)}
 
 
@@ -229,7 +234,10 @@ def mutate_deal_state(folder, expected_revision, request_id, command, *, validat
             "rounds": [], "requests": []}
         if command["action"] in c.WORKFLOW_ACTIONS:
             candidate = w.upgrade(candidate, imported=command["action"] == "import_working_document")
+        if command["action"] in c.OUTGOING_ACTIONS:
+            candidate = outgoing.upgrade(candidate)
         snapshot = None
+        effect = None
         rid = command["round_id"]
         by_id = {row["round_id"]: row for row in candidate["rounds"]}
         if command["action"] == "start_round":
@@ -257,6 +265,8 @@ def mutate_deal_state(folder, expected_revision, request_id, command, *, validat
             by_id[rid]["sent_documents"].append({"request_id": request_id,
                 "file_sha256": command["file_sha256"], "statement": command["statement"],
                 "basis": "client_asserted_actual_sent_file"})
+        elif command["action"] in c.OUTGOING_ACTIONS:
+            effect = outgoing.change(folder, candidate, positions_store, request_id, command, _snapshot_path)
         else:
             snapshot = w.change(folder, candidate, positions_store, request_id, command, _snapshot_path)
         candidate["requests"].append({"request_id": request_id, "command_sha256": command_sha,
@@ -264,6 +274,7 @@ def mutate_deal_state(folder, expected_revision, request_id, command, *, validat
         candidate["revision"] = p._revision(candidate)
         _validate(c.STORE, candidate)
         w.validate(candidate)
+        outgoing.validate(candidate)
         if command["action"] in {"start_round", "record_sent"}:
             snapshot = snapshots.capture_document_snapshot(command["path"], command["file_sha256"])
         # Validate the aggregate budget and transport result with captured bytes
@@ -274,5 +285,23 @@ def mutate_deal_state(folder, expected_revision, request_id, command, *, validat
             result = validate_result(result)
         if snapshot is not None:
             _store_snapshot(folder, side, snapshot, recheck)
-        p._publish(side, candidate, stamp, recheck, store_name=STORE_NAME, load_store=_load)
+        if effect is not None:
+            recheck()
+            _, observed_stamp = _load(side)
+            if observed_stamp != stamp:
+                p._fail("workspace_changed")
+            current_positions, _ = p._load(side)
+            if (current_positions["revision"] if current_positions else None) != (
+                    positions_store["revision"] if positions_store else None):
+                p._fail("outgoing_basis_changed")
+            effect()
+        try:
+            p._publish(side, candidate, stamp, recheck, store_name=STORE_NAME, load_store=_load)
+        except Exception as exc:
+            if effect is not None and command["action"] == "publish_outgoing_package":
+                raise snapshots.SnapshotError("outgoing_state_commit_uncertain",
+                    "kit published; reread state and verify the frozen plan before any retry",
+                    publication_completed=True, output_path_verified=False,
+                    package_request_id=command["package_request_id"]) from exc
+            raise
         return result
