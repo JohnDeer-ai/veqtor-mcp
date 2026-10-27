@@ -2109,7 +2109,7 @@ No DOCX is modified and a saved position itself grants no edit authority.
 ## `read_deal_state`
 
 Development `0.6.0.dev1` only. Read an explicitly selected matter `folder`.
-Returns closed `deal_state_result.v6`: state `revision`, rounds, idempotency
+Returns closed `deal_state_result.v7`: state `revision`, rounds, idempotency
 requests, verified private document paths/hashes, current position-store revision
 and explicit limitations. An absent store creates nothing. A round's
 `sent_basis` is frozen at round creation; use its hash and the incoming hash
@@ -2149,9 +2149,11 @@ an approval of its contents.
 
 The dataset includes private assessments, concession terms, decision statements
 and local paths. Do not send it as a table or copy all fields into an external
-file. Explicit external field selection, rendering, pagination checks, review
-and outgoing-kit inclusion are separate remaining F9 steps. No complete contract
-review, legal agreement, finalization or sending is inferred.
+file. The bounded external selection and outgoing-kit command below projects only
+selected quote/proposal fields. Other F9 fields and related-comment recording
+remain separate work. Review exact quotations and all rendered pages before
+approval. No complete contract review, legal agreement, finalization or sending
+is inferred.
 
 ## `mutate_deal_state`
 
@@ -2187,7 +2189,8 @@ committed action even with an old expected revision or unavailable original.
 A different command with the same ID refuses. State and snapshot publication are
 separate: after an uncertain commit, read state and retry only the same request.
 v1–v4 stores are read without mutation; initial-copy preparation upgrades to v5
-without discarding existing records. Later commands retain v5, or v6 after cleanup preparation. Initial copies
+without discarding existing records. Later commands retain v5, v6 after cleanup
+preparation, or v7 after table preparation. Initial copies
 do not fabricate a manual save, approve outgoing publication or finalize a deal.
 Outgoing policies default to `preserve_all`; optional comment policies are
 `{"mode":"remove_all"}` and `{"mode":"remove_threads","threads":[{"root_id":"0","member_ids":["0","1"]}]}`.
@@ -2200,10 +2203,63 @@ Cleanup transforms only the outgoing candidate, requires complete supported
 package coverage, and refuses ambiguous property dependencies. Independent DATE/TIME
 and pagination retain their settings; property-consuming/unknown fields refuse.
 New cleanup preparation upgrades to v6 without changing prior records; older
-preserve-all plans reproduce unchanged. All later commands retain v6.
+preserve-all plans reproduce unchanged. All later commands retain v6, or v7 once
+table preparation has upgraded the store.
 Publication still requires the exact saved plan's explicit confirmation and
 never marks a file sent or agreed. Unknown data are preserved by refusal.
 See [deal state](docs/DEAL_STATE.md) for limits and remaining integration.
+
+### Selected disagreement table
+
+The `prepare_outgoing_package_with_table` action takes the existing preparation
+fields (`round_id`, `expected_working_request_id`, `file_sha256`, relative new
+folder `path`, nullable `redline_name`/`clean_draft_name`, `comments_policy`, and
+`properties_policy`) plus a required closed `table_selection`:
+
+| Field | Value |
+|---|---|
+| `expected_dataset_sha256` | Exact digest returned by `read_round_issue_brief` |
+| `issue_ids` | 1–20 unique IDs from the selected round, in output order |
+| `columns` | 1–3 unique values from `sent_quote`, `incoming_quote`, `proposed_wording`, in output order |
+| `name` | Portable `.docx` filename, at most 120 characters, distinct from other selected filenames |
+| `title` | Nonempty plain text, at most 200 characters |
+| `language` | `ru` or `en` for headings and missing-value labels; clause text is not translated |
+
+Read the brief first using current deal and position revisions. Preparation
+rechecks its complete dataset under the state lock and refuses a changed digest.
+Only the selected quotes' text and stored proposal wording enter the table.
+Private assessments, concession conditions, decision statements, paths and journal
+records are excluded. Missing selected fields become `Не записано`/`Not recorded`;
+a proposal is never inferred to be applied, agreed or final wording. Cells are
+plain strings of at most 8,000 characters; carriage returns and illegal XML
+characters refuse instead of silently changing quotations.
+
+Preparation saves every selected cell, the renderer identity and exact file
+hashes in the v3 internal report before publication. It upgrades the private
+store to v7 without discarding existing rows; reads do not rewrite v1–v7 stores.
+The old preparation action and no-table v1/v2 reports retain their behavior.
+The table can accompany the redline and/or clean draft (up to three files), or
+stand alone with both contract names null. A selected working version is still
+required. A bad filename, unsupported clean member or invalid selection refuses
+the entire requested kit; an independent table does not make a contract export
+supported.
+
+`publish_outgoing_package` retains the existing exact `package_request_id` and
+`plan_sha256`, `user_confirmed: true` and lawyer `statement`. Review all selected
+cells, pages, filenames and cleanup choices before that confirmation. The current
+working bytes, issue basis and position revision must still match. Publication
+creates one new folder with exactly the selected files. After an uncertain
+result, use `record_outgoing_verification` with the saved plan before retrying.
+Historical verification regenerates the frozen table after later issue edits;
+it never substitutes newer wording. Unknown or changed files are preserved by
+refusal. No publication or verification marks a document sent or final.
+
+The generated DOCX has deterministic bytes, repeated table headings and rows
+that can continue across pages, with no inherited comments, fields or properties.
+Word may repaginate it and add properties when saving a separate copy; the saved
+copy is different from the bytes bound by the outgoing receipt and needs its own
+review. This selected view does not complete all F9 fields, related-comment
+recording, real first/next-round acceptance or F10 finalization.
 
 ## `compare_incoming_version`
 
