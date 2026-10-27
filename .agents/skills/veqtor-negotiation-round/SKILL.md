@@ -2,7 +2,7 @@
 name: veqtor-negotiation-round
 description: Run a first or later contract negotiation round with local Veqtor MCP, saved deal state, checked edits and a selected outgoing file set. Use when preparing or continuing a contract response; does not send files or certify final agreement.
 metadata:
-  version: mvp-negotiation-round.v2
+  version: mvp-negotiation-round.v3
 ---
 
 # Veqtor negotiation round

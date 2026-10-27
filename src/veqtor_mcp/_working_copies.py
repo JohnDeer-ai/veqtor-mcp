@@ -18,7 +18,7 @@ SELECTION_ACTIONS = {"publish_working_copy", "record_working_copy_verification"}
 
 def upgrade(store):
     result = outgoing.upgrade(store)
-    result["schema_version"] = "deal_rounds_store.v5"
+    result["schema_version"] = "deal_rounds_store.v6" if store["schema_version"] == "deal_rounds_store.v6" else "deal_rounds_store.v5"
     result.setdefault(COLLECTION, [])
     return result
 
@@ -80,7 +80,7 @@ def _verify_copy(destination, snapshot):
 
 
 def validate(store):
-    if store["schema_version"] != "deal_rounds_store.v5":
+    if store["schema_version"] not in {"deal_rounds_store.v5", "deal_rounds_store.v6"}:
         return
     plans = {r["request_id"]: r for r in store[COLLECTION]}
     works = {r["request_id"]: r for r in store["working_documents"]}

@@ -2109,7 +2109,7 @@ No DOCX is modified and a saved position itself grants no edit authority.
 ## `read_deal_state`
 
 Development `0.6.0.dev1` only. Read an explicitly selected matter `folder`.
-Returns closed `deal_state_result.v5`: state `revision`, rounds, idempotency
+Returns closed `deal_state_result.v6`: state `revision`, rounds, idempotency
 requests, verified private document paths/hashes, current position-store revision
 and explicit limitations. An absent store creates nothing. A round's
 `sent_basis` is frozen at round creation; use its hash and the incoming hash
@@ -2153,8 +2153,22 @@ committed action even with an old expected revision or unavailable original.
 A different command with the same ID refuses. State and snapshot publication are
 separate: after an uncertain commit, read state and retry only the same request.
 v1–v4 stores are read without mutation; initial-copy preparation upgrades to v5
-without discarding existing records. Later commands retain v5. Initial copies
+without discarding existing records. Later commands retain v5, or v6 after cleanup preparation. Initial copies
 do not fabricate a manual save, approve outgoing publication or finalize a deal.
+Outgoing policies default to `preserve_all`; optional comment policies are
+`{"mode":"remove_all"}` and `{"mode":"remove_threads","threads":[{"root_id":"0","member_ids":["0","1"]}]}`.
+Property cleanup uses `{"mode":"remove_selected","fields":[{"part":"core","name":"creator"}]}`,
+where part is `core`, `app` or `custom`. Limits: 100 selected comment messages,
+50 exact scalar properties. Supported app properties are Company, Manager, Application,
+AppVersion and TotalTime; behavior-bearing fields such as HyperlinkBase refuse. The complete preview includes selected foreign replies
+and actual property values; no prefix/author/resolved heuristic selects them.
+Cleanup transforms only the outgoing candidate, requires complete supported
+package coverage, and refuses ambiguous property dependencies. Independent DATE/TIME
+and pagination retain their settings; property-consuming/unknown fields refuse.
+New cleanup preparation upgrades to v6 without changing prior records; older
+preserve-all plans reproduce unchanged. All later commands retain v6.
+Publication still requires the exact saved plan's explicit confirmation and
+never marks a file sent or agreed. Unknown data are preserved by refusal.
 See [deal state](docs/DEAL_STATE.md) for limits and remaining integration.
 
 ## `compare_incoming_version`

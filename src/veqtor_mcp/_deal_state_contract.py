@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Closed contracts for explicitly selected negotiation document roles."""
+from copy import deepcopy
 from typing import Annotated, Any, ClassVar
 
 from pydantic import WithJsonSchema
@@ -94,7 +95,18 @@ STORE_V5 = obj(schema_version={"const": "deal_rounds_store.v5"}, revision=SHA,
     working_documents=array(WORKING_RESULT_V5, 100), issue_events=array(ISSUE, 100),
     outgoing_packages=array(OUTGOING, 20), outgoing_events=array(OUTGOING_EVENT, 20),
     working_copy_plans=array(WORKING_COPY_PLAN, 20))
-STORE = {"oneOf": [STORE_V1, STORE_V2, STORE_V3, STORE_V4, STORE_V5]}
+COMMENT_ID = {"type": "string", "pattern": r"^(?:0|[1-9][0-9]{0,9})(?![\s\S])"}
+COMMENTS_POLICY = {"oneOf": [{"const": "preserve_all"}, obj(mode={"const": "remove_all"}),
+    obj(mode={"const": "remove_threads"}, threads={**array(obj(root_id=COMMENT_ID,
+        member_ids={**array(COMMENT_ID, 100), "minItems": 1, "uniqueItems": True}), 100), "minItems": 1})]}
+PROPERTIES_POLICY = {"oneOf": [{"const": "preserve_all"}, obj(mode={"const": "remove_selected"},
+    fields={**array(obj(part={"enum": ["core", "app", "custom"]}, name=text(255)), 50),
+            "minItems": 1, "uniqueItems": True})]}
+OUTGOING_V6 = deepcopy(OUTGOING)
+OUTGOING_V6["properties"].update(comments_policy=COMMENTS_POLICY, properties_policy=PROPERTIES_POLICY)
+STORE_V6 = deepcopy(STORE_V5)
+STORE_V6["properties"].update(schema_version={"const": "deal_rounds_store.v6"}, outgoing_packages=array(OUTGOING_V6, 20))
+STORE = {"oneOf": [STORE_V1, STORE_V2, STORE_V3, STORE_V4, STORE_V5, STORE_V6]}
 COMMAND = {"oneOf": [
     obj(action={"const": "prepare_working_copy"}, round_id=ROUND_ID,
         incoming_basis_sha256=SHA, path=RELATIVE_PATH),
@@ -105,7 +117,7 @@ COMMAND = {"oneOf": [
     obj(action={"const": "prepare_outgoing_package"}, round_id=ROUND_ID,
         expected_working_request_id=UUID, file_sha256=SHA, path=RELATIVE_PATH,
         redline_name=nullable(text(120)), clean_draft_name=nullable(text(120)),
-        comments_policy={"const": "preserve_all"}, properties_policy={"const": "preserve_all"}),
+        comments_policy=COMMENTS_POLICY, properties_policy=PROPERTIES_POLICY),
     obj(action={"const": "publish_outgoing_package"}, round_id=ROUND_ID,
         package_request_id=UUID, plan_sha256=SHA, user_confirmed={"type": "boolean", "const": True},
         statement=text(2000)),
@@ -136,7 +148,7 @@ COMMAND[MCP_CONTRACT_SCHEMA_EXTENSION] = MCP_CONTRACT_SCHEMA_VERSION
 CommandInput = Annotated[dict[str, Any], WithJsonSchema(COMMAND)]
 RequestIdInput = Annotated[str, WithJsonSchema(UUID)]
 RESULT = obj(
-    schema_version={"const": "deal_state_result.v5"}, status={"const": "ok"},
+    schema_version={"const": "deal_state_result.v6"}, status={"const": "ok"},
     revision=nullable(SHA), rounds=array(ROUND, 50), requests=array(REQUEST_V5, 150),
     documents=array(obj(file_sha256=SHA, path=text(4096)), 150),
     positions_current_revision=nullable(SHA), applied_request_id=nullable(UUID),
@@ -144,7 +156,7 @@ RESULT = obj(
         status={"enum": ["not_recorded", "current", "historical_available", "unavailable"]}), 50),
     operations=array(OPERATION, 100), working_documents=array(WORKING_RESULT_V5, 100),
     issues=array(ISSUE, 100), issue_events=array(ISSUE, 100),
-    outgoing_packages=array(OUTGOING, 20), outgoing_events=array(OUTGOING_EVENT, 20),
+    outgoing_packages=array(OUTGOING_V6, 20), outgoing_events=array(OUTGOING_EVENT, 20),
     working_copy_plans=array(WORKING_COPY_PLAN, 20),
     operation_observations=array(obj(operation_id=JOURNAL_ID,
         status={"enum": ["completed", "prepared_only", "unavailable", "intent_changed", "not_checked"]},

@@ -18,10 +18,13 @@ from . import positions as p, _deal_workflow as w
 COLLECTIONS = ("outgoing_packages", "outgoing_events")
 
 
-def upgrade(store):
+def upgrade(store, *, cleanup=False):
     result = w.upgrade(store)
-    result["schema_version"] = ("deal_rounds_store.v5" if store["schema_version"] == "deal_rounds_store.v5"
+    result["schema_version"] = ("deal_rounds_store.v6" if cleanup or store["schema_version"] == "deal_rounds_store.v6"
+                                else "deal_rounds_store.v5" if store["schema_version"] == "deal_rounds_store.v5"
                                 else "deal_rounds_store.v4")
+    if result["schema_version"] == "deal_rounds_store.v6":
+        result.setdefault("working_copy_plans", [])
     for name in COLLECTIONS:
         result.setdefault(name, [])
     return result
@@ -48,11 +51,12 @@ def _report(row):
         p._fail("storage_corrupt")
     report = json.loads(raw, object_pairs_hook=p._pairs,
                         parse_constant=lambda _: p._fail("storage_corrupt"))
-    if (report["schema_version"] != "outgoing_preparation.v1"
+    if (report["schema_version"] != ("outgoing_preparation.v1" if row["comments_policy"] == row["properties_policy"] == "preserve_all" else "outgoing_preparation.v2")
             or report["source_sha256"] != row["source_sha256"]
             or [{k: f[k] for k in ("kind", "name", "sha256")} for f in report["files"]] != row["files"]
             or any(report[key] != row[key] for key in ("readiness", "comments_policy", "properties_policy"))):
         p._fail("storage_corrupt")
+    engine.policies(row["comments_policy"], row["properties_policy"])
     selected = [(kind, row[key]) for kind, key in
                 [("cumulative_redline", "redline_name"), ("clean_draft", "clean_draft_name")]
                 if row[key] is not None]
@@ -64,7 +68,7 @@ def _report(row):
 
 
 def validate(store):
-    if store["schema_version"] not in {"deal_rounds_store.v4", "deal_rounds_store.v5"}:
+    if store["schema_version"] not in {"deal_rounds_store.v4", "deal_rounds_store.v5", "deal_rounds_store.v6"}:
         return
     packages = {r["request_id"]: r for r in store["outgoing_packages"]}
     events = {r["request_id"]: r for r in store["outgoing_events"]}
@@ -88,6 +92,12 @@ def validate(store):
                         or row["source_sha256"] != work["file_sha256"]
                         or row["basis_sha256"] != basis(prefix, rid, row["positions_revision"])):
                     p._fail("storage_corrupt")
+                if store["schema_version"] == "deal_rounds_store.v6":
+                    command = dict(action=action, round_id=rid, expected_working_request_id=row["working_request_id"],
+                        file_sha256=row["source_sha256"], path=row["path"], redline_name=row["redline_name"],
+                        clean_draft_name=row["clean_draft_name"], comments_policy=row["comments_policy"], properties_policy=row["properties_policy"])
+                    if request["command_sha256"] != hashlib.sha256(p._json_bytes(command)).hexdigest():
+                        p._fail("storage_corrupt")
                 seen[key] = row
                 package_order.append(row)
             elif action in {"publish_outgoing_package", "record_outgoing_verification"}:
@@ -114,7 +124,8 @@ def validate(store):
 def _plan(folder, row, snapshot_path):
     snap = snapshots.load_snapshot(snapshot_path(folder, row["source_sha256"]))
     plan = engine.prepare_outgoing_package(snap, _destination(folder, row),
-        redline_name=row["redline_name"], clean_draft_name=row["clean_draft_name"])
+        redline_name=row["redline_name"], clean_draft_name=row["clean_draft_name"],
+        comments_policy=row["comments_policy"], properties_policy=row["properties_policy"])
     if plan.report.decode("utf-8") != row["report_utf8"] or plan.plan_sha256 != row["plan_sha256"]:
         p._fail("outgoing_plan_mismatch")
     return plan
@@ -143,12 +154,13 @@ def change(folder, store, positions_store, request_id, command, snapshot_path):
             source_sha256=command["file_sha256"], path=w.relative(command["path"]),
             positions_revision=positions_store["revision"] if positions_store else None,
             redline_name=command["redline_name"], clean_draft_name=command["clean_draft_name"],
-            readiness="prepared_unreviewed", comments_policy="preserve_all", properties_policy="preserve_all")
+            readiness="prepared_unreviewed", comments_policy=deepcopy(command["comments_policy"]), properties_policy=deepcopy(command["properties_policy"]))
         row["basis_sha256"] = basis(store, rid, row["positions_revision"])
         _current(folder, store, positions_store, row)
         snap = snapshots.load_snapshot(snapshot_path(folder, row["source_sha256"]))
         plan = engine.prepare_outgoing_package(snap, _destination(folder, row),
-            redline_name=row["redline_name"], clean_draft_name=row["clean_draft_name"])
+            redline_name=row["redline_name"], clean_draft_name=row["clean_draft_name"],
+        comments_policy=row["comments_policy"], properties_policy=row["properties_policy"])
         report = json.loads(plan.report)
         row.update(plan_sha256=plan.plan_sha256, report_utf8=plan.report.decode("utf-8"),
                    files=[{k: f[k] for k in ("kind", "name", "sha256")} for f in report["files"]])

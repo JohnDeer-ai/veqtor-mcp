@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Internal F8 foundation: exact redline/checked clean candidates, one new folder.
 
-All comments and properties are preserved. No ready-to-send, actual-send,
-legal-finalization or metadata-cleanup claim is made. The caller must persist
+Comments/properties default to preservation; explicit bounded policies transform
+only the outgoing copy. No ready-to-send, actual-send or legal-finalization claim
+is made. The caller must persist
 report bytes outside the outgoing folder and implement the user-facing policy.
 """
 from __future__ import annotations
@@ -22,6 +23,7 @@ from ._drafting_io import (
 from ._ooxml import DocxError, MAX_DOCX_INPUT_BYTES
 from .clean_copy import prepare_clean_copy
 from .revision_inventory import inventory_package_revisions
+from .outgoing_cleanup import prepare_cleanup, policies
 
 MAX_REPORT_BYTES = 2 * 1024 * 1024
 
@@ -39,6 +41,8 @@ class PreparedOutgoing:
     files: tuple[OutgoingFile, ...]
     report: bytes
     plan_sha256: str
+    comments_policy: object = "preserve_all"
+    properties_policy: object = "preserve_all"
 
 
 def _fail(code, detail, **metadata):
@@ -60,6 +64,7 @@ def _name(value):
 def prepare_outgoing_package(
     source: s.DocumentSnapshot, destination: str, *, redline_name: str | None = None,
     clean_draft_name: str | None = None,
+    comments_policy="preserve_all", properties_policy="preserve_all",
 ) -> PreparedOutgoing:
     """Prepare the whole selected kit in memory; an unsupported member refuses all.
 
@@ -77,26 +82,29 @@ def prepare_outgoing_package(
     s._validate(source.payload)
     files = []
     inventory = inventory_package_revisions(source.payload)
+    comments_policy, properties_policy = policies(comments_policy, properties_policy)
+    cleaned, cleanup = prepare_cleanup(source.payload, comments_policy=comments_policy, properties_policy=properties_policy)
     clean = None
     if redline_name is not None:
-        files.append(OutgoingFile('cumulative_redline', redline_name, source.payload))
+        files.append(OutgoingFile('cumulative_redline', redline_name, cleaned))
     if clean_draft_name is not None:
-        result = prepare_clean_copy(source.payload, expected_source_sha256=source.sha256)
+        result = prepare_clean_copy(cleaned, expected_source_sha256=s._sha(cleaned))
         files.append(OutgoingFile('clean_draft', clean_draft_name, result.payload))
         clean = dict(accepted_revision_count=result.accepted_revision_count,
                      decisions=list(result.decisions), inventory_after=result.inventory_after)
     report = json.dumps(dict(
-        schema_version='outgoing_preparation.v1', source_sha256=source.sha256, output_path=output,
+        schema_version='outgoing_preparation.v2' if cleanup is not None else 'outgoing_preparation.v1', source_sha256=source.sha256, output_path=output,
         source_size_bytes=source.size_bytes, readiness='prepared_unreviewed',
-        comments_policy='preserve_all', properties_policy='preserve_all',
+        comments_policy=comments_policy, properties_policy=properties_policy,
         files=[dict(kind=f.kind, name=f.name, sha256=s._sha(f.payload), size_bytes=len(f.payload)) for f in files],
         inventory_before=inventory, clean_draft=clean,
+        **({'cleanup': cleanup} if cleanup is not None else {}),
         limitations=['not_a_sent_record', 'not_legal_finalization', 'not_confidentiality_clearance',
-                     'comment_and_property_cleanup_not_implemented', 'word_visual_acceptance_not_performed'],
+                     *(['comment_and_property_cleanup_not_implemented'] if cleanup is None else ['selected_cleanup_only']), 'word_visual_acceptance_not_performed'],
     ), ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
     if len(report) > MAX_REPORT_BYTES:
         _fail('resource_limit_exceeded', 'outgoing internal report exceeds its bound')
-    return PreparedOutgoing(source, tuple(files), report, hashlib.sha256(report).hexdigest())
+    return PreparedOutgoing(source, tuple(files), report, hashlib.sha256(report).hexdigest(), comments_policy, properties_policy)
 
 
 def _validated(plan, destination, expected_plan_sha256):
@@ -110,7 +118,8 @@ def _validated(plan, destination, expected_plan_sha256):
     if len(names) != len(plan.files) or not names.keys() <= {'cumulative_redline', 'clean_draft'}:
         _fail('invalid_outgoing_plan', 'unsupported output kinds')
     checked = prepare_outgoing_package(plan.source, destination, redline_name=names.get('cumulative_redline'),
-                                       clean_draft_name=names.get('clean_draft'))
+                                       clean_draft_name=names.get('clean_draft'), comments_policy=plan.comments_policy,
+                                       properties_policy=plan.properties_policy)
     if plan != checked or checked.plan_sha256 != expected_plan_sha256:
         _fail('outgoing_plan_mismatch', 'review the exact current outgoing plan before publication')
     return checked

@@ -113,14 +113,14 @@ not relabelled as acceptance of the complete MVP round.
 
 ## Working copies, operations and legal issues
 
-The advertised result is now `deal_state_result.v5`. Existing closed v1 role
+The advertised result is now `deal_state_result.v6`. Existing closed v1 role
 stores are validated and read without rewriting their bytes or revision. The
 first workflow mutation atomically upgrades only `deal-rounds.json` to the closed
 v2 format, retaining all prior roles/requests. An explicit initial manual import
 upgrades v1/v2 to the closed v3 format. The first outgoing preparation upgrades
 to at least v4, retaining previous records and any newer store version.
 The first initial-copy preparation upgrades to v5, adding bounded copy plans and
-a distinct `verified_snapshot_copy` origin. Later commands retain v5.
+a distinct `verified_snapshot_copy` origin. Later commands retain v5, or v6 after cleanup preparation.
 Existing v1/v2/v3/v4 stores remain unchanged when read. Position and journal formats stay
 unchanged. Older development builds cannot open newer store versions;
 no downgrade or lossy rewrite is attempted. The live installed client is not
@@ -242,7 +242,35 @@ checked files; a generic asserted “prepared” flag is not accepted.
 The existing mutation tool adds three commands; the tool count remains 21.
 `prepare_outgoing_package` selects the latest registered working request/hash,
 a relative destination and one redline and/or clean-draft filename. Both
-`comments_policy` and `properties_policy` must explicitly be `preserve_all`.
+policies are explicit. `preserve_all` remains the compatible default for each.
+`comments_policy` may instead be `{"mode":"remove_all"}` or
+`{"mode":"remove_threads","threads":[{"root_id":"0","member_ids":["0","1"]}]}`.
+Each selected thread must include its complete current membership, including
+foreign replies. No author, resolved status or internal prefix silently selects
+anything. The limit is 100 selected messages. The full removed messages, authors,
+thread links and dates are in the saved report.
+
+`properties_policy` may be `{"mode":"remove_selected","fields":[{"part":"core","name":"creator"}]}`,
+with up to 50 exact fields from canonical `core`, `app` or `custom` parts.
+Preview values and types are in the private report. The initial app-property profile is Company, Manager, Application, AppVersion and
+TotalTime; fields such as HyperlinkBase remain unsupported because their consumers
+need separate checks. Only selected scalar properties are removed; other properties and authors on retained revisions or
+comments remain. Unknown package coverage, opaque user storage, ambiguous
+bindings or property identities refuse cleanup without changing any file.
+Property cleanup also refuses DOCPROPERTY, AUTHOR, TITLE and other property-linked
+or unknown fields, nested/malformed fields and data bindings. It currently permits
+only independent DATE/TIME and pagination fields, retaining their settings.
+It does not replace dates with literal text.
+
+Cleanup runs on a separate in-memory candidate before any selected clean-draft
+conversion. If one transformation refuses, the complete kit refuses. Working-file
+comment ownership restrictions remain unchanged. Remove-all verifies package-wide
+comment bodies, anchors and supported metadata; empty supported containers and
+people identities may remain. This is not removal of all confidential metadata.
+New cleanup plans use `outgoing_preparation.v2` and upgrade storage to closed v6.
+Old v1–v5 stores remain unchanged on read; old preserve-all reports remain v1 and
+reproduce exactly. Subsequent working-copy, workflow and role commands retain v6.
+The saved request hash binds the exact cleanup policy as well as the output plan.
 The whole selected plan is checked before committing anything. An unsupported
 clean draft refuses the entire selection, even if redline alone would work.
 
@@ -287,6 +315,6 @@ check current outgoing bytes; obtain a fresh verification before relying on
 them. A valid old receipt does not prove that a mutable file is still present.
 `record_sent` remains a separate assertion about the exact file actually sent,
 including a version changed in Word after preparation. No outgoing command
-creates a sent role, legal decision or approval. Comment/property cleanup,
+creates a sent role, legal decision or approval. Automatic marker-based selection,
 disagreements-table output, a complete ready-to-send review and F10 finalization
 remain separate work. These commands do not update an existing installed client.

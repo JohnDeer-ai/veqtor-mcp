@@ -667,6 +667,11 @@ def _thread_target(parts: dict[str, bytes], comment_id: str, author: str):
         raise ApplyError("comment_not_found", "the requested comment does not exist", comment_id=comment_id)
     metadata = _thread_metadata(parts, comments)
     root_id = metadata.summaries[comment_id]["thread_root_id"]
+    _validate_thread_write_metadata(parts, metadata)
+    return comments, target, metadata, root_id
+
+
+def _validate_thread_write_metadata(parts, metadata):
     types = parse_xml(parts[_TYPES])
     for kind, path in metadata.paths.items():
         names = {"extended": "commentsExtended", "ids": "commentsIds", "extensible": "commentsExtensible"}
@@ -695,7 +700,6 @@ def _thread_target(parts: dict[str, bytes], comment_id: str, author: str):
         durable = _hex_identity(identity, f"{{{_W16CID}}}durableId")
         if not 0 < int(durable, 16) < _MAX_ID:
             raise _unsupported("durable comment identifiers are outside the Word range")
-    return comments, target, metadata, root_id
 
 
 def _next_hex_identity(used: set[str]) -> str:
@@ -1067,14 +1071,14 @@ def _deletion_xml_parts(parts: dict[str, bytes]):
 
 def _delete_selected_messages(parts: dict[str, bytes], document: etree._Element,
                               comments: etree._Element, metadata: _ThreadMetadata,
-                              selected: set[str], author: str) -> list[dict]:
+                              selected: set[str], author: str | None, *, export_copy: bool = False) -> list[dict]:
     """Validate the complete graph and all anchors before publishing a deletion."""
     if not 1 <= len(selected) <= 100:
         raise ApplyError("resource_limit_exceeded", "select at most 100 comment messages")
     chosen = [node for node in comments if node.get(w("id")) in selected]
     if len(chosen) != len(selected):
         raise ApplyError("comment_not_found", "a selected comment message is missing")
-    if any(node.get(w("author")) != author for node in chosen):
+    if not export_copy and any(node.get(w("author")) != author for node in chosen):
         raise ApplyError("comment_author_mismatch", "every deleted message must belong to the selected own profile")
     if any(info["parent_comment_id"] in selected and ident not in selected
            for ident, info in metadata.summaries.items()):
@@ -1141,7 +1145,8 @@ def _delete_selected_messages(parts: dict[str, bytes], document: etree._Element,
     def supported_container(container):
         return container in body_paragraphs or (
             container is not None and container.tag == w("ins")
-            and container.getparent() in body_paragraphs and container.get(w("author")) == author
+            and container.getparent() in body_paragraphs
+            and (export_copy or container.get(w("author")) == author)
         )
 
     def boundary_position(marker):
