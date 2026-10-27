@@ -488,7 +488,8 @@ def test_unambiguous_leading_zero_property_id_is_preserved(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "variant", ["custom_prefix", "custom_value_tail", "custom_tail", "core_tail", "app_tail"]
+    "variant",
+    ["custom_prefix", "custom_value_tail", "custom_tail", "core_tail", "app_tail"],
 )
 def test_unknown_mixed_property_text_refuses_without_losing_data(tmp_path, variant):
     parts = fictional_parts(comments=False)
@@ -517,6 +518,82 @@ def test_property_indentation_is_allowed_without_changing_retained_values(tmp_pa
     after = parse_xml(unpack(plan.files[0].payload)["docProps/custom.xml"])
     assert len(after) == 1 and after[0].get("name") == "PublicCode"
     assert after[0][0].text == "42"
+
+
+@pytest.mark.parametrize(
+    "target,slot",
+    [
+        ("comment", "text"),
+        ("comment", "tail"),
+        ("paragraph", "text"),
+        ("paragraph", "tail"),
+        ("run", "text"),
+        ("run", "tail"),
+        ("value", "tail"),
+        ("commentRangeStart", "text"),
+        ("commentRangeStart", "tail"),
+        ("commentRangeEnd", "text"),
+        ("commentRangeEnd", "tail"),
+        ("commentReference", "text"),
+        ("commentReference", "tail"),
+        ("reference_run", "text"),
+        ("reference_run", "tail"),
+        ("metadata", "text"),
+        ("metadata", "tail"),
+    ],
+)
+def test_unpreviewed_comment_and_marker_text_refuses(tmp_path, target, slot):
+    parts = fictional_parts()
+    comments = parse_xml(parts[c._COMMENTS])
+    document = parse_xml(parts["word/document.xml"])
+    metadata = parse_xml(parts["word/commentsExtended.xml"])
+    nodes = {
+        "comment": comments[0],
+        "paragraph": comments[0][0],
+        "run": comments[0].find(f".//{w('r')}"),
+        "value": comments[0].find(f".//{w('t')}"),
+        "metadata": metadata[0],
+    }
+    for tag in ("commentRangeStart", "commentRangeEnd", "commentReference"):
+        nodes[tag] = next(n for n in document.iter(w(tag)) if n.get(w("id")) == "0")
+    nodes["reference_run"] = nodes["commentReference"].getparent()
+    setattr(nodes[target], slot, "Unpreviewed payload must survive")
+    parts[c._COMMENTS] = c._xml(comments)
+    parts["word/document.xml"] = c._xml(document)
+    parts["word/commentsExtended.xml"] = c._xml(metadata)
+    original = deepcopy(parts)
+    with pytest.raises(ApplyError, match="outgoing_cleanup_unsupported"):
+        prepare(parts, tmp_path, comments_policy=REMOVE_THREAD)
+    assert parts == original and not (tmp_path / "out").exists()
+
+
+def test_comment_indentation_remains_supported(tmp_path):
+    parts = fictional_parts()
+    for path in (c._COMMENTS, "word/document.xml", "word/commentsExtended.xml"):
+        root = parse_xml(parts[path])
+        etree.indent(root, space="  ")
+        parts[path] = c._xml(root)
+    plan = prepare(parts, tmp_path, comments_policy=REMOVE_THREAD)
+    report = json.loads(plan.report)["cleanup"]
+    assert len(report["removed_comments"]) == 2
+    output = unpack(plan.files[0].payload)
+    assert [
+        r["id"] for r in c.read_comments(output, parse_xml(output["word/document.xml"]))
+    ] == ["2"]
+
+
+@pytest.mark.parametrize("leaf", ["t", "tab", "br", "cr", "annotationRef"])
+def test_nested_comment_text_leaf_is_not_treated_as_ordinary_text(tmp_path, leaf):
+    parts = fictional_parts()
+    root = parse_xml(parts[c._COMMENTS])
+    run = root[0].find(f".//{w('r')}")
+    node = run.find(w("t")) if leaf == "t" else etree.SubElement(run, w(leaf))
+    etree.SubElement(node, w("t")).text = "Unknown nested payload"
+    parts[c._COMMENTS] = c._xml(root)
+    original = deepcopy(parts)
+    with pytest.raises(ApplyError, match="outgoing_cleanup_unsupported"):
+        prepare(parts, tmp_path, comments_policy=REMOVE_THREAD)
+    assert parts == original and not (tmp_path / "out").exists()
 
 
 def test_original_property_field_cannot_be_hidden_by_deleting_its_comment(tmp_path):

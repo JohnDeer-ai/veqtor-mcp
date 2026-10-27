@@ -173,6 +173,25 @@ def policies(comments="preserve_all", properties="preserve_all"):
     return deepcopy(comments), deepcopy(properties)
 
 
+def _require_comment_text_coverage(root):
+    """Only ordinary w:t text is covered by the plain-comment preview.
+
+    Removing an element also removes its tail in lxml. Non-whitespace mixed
+    content outside text leaves must therefore refuse before any removal.
+    """
+    leaves = {w(tag) for tag in ("t", "tab", "br", "cr", "annotationRef")}
+    if any(
+        (node.tag != w("t") and (node.text or "").strip())
+        or (node.tail or "").strip()
+        or (node.tag in leaves and len(node))
+        for node in root.iter()
+    ):
+        _fail(
+            "outgoing_cleanup_unsupported",
+            "unexpected comment or marker content must be preserved",
+        )
+
+
 def _comment_cleanup(parts, document, policy):
     comments = c._comment_root(parts)
     c._require_existing_binding(parts)
@@ -181,6 +200,7 @@ def _comment_cleanup(parts, document, policy):
     # The export can remove other authors' messages, so require a closed
     # metadata profile instead of assuming unrecognized attributes are disposable.
     for kind, tree in metadata.trees.items():
+        _require_comment_text_coverage(tree)
         namespace, allowed = {
             "extended": (c._W15, {"paraId", "paraIdParent", "done"}),
             "ids": (c._W16CID, {"paraId", "durableId"}),
@@ -252,6 +272,15 @@ def _comment_cleanup(parts, document, policy):
             "outgoing_cleanup_unsupported",
             "unknown selected comment attributes must be preserved",
         )
+    for comment in comments:
+        if comment.get(w("id")) in selected:
+            _require_comment_text_coverage(comment)
+    for marker in document.iter():
+        if marker.tag in c._ANCHOR_TAGS and marker.get(w("id")) in selected:
+            _require_comment_text_coverage(marker)
+            if marker.tag == w("commentReference"):
+                # The shared deletion routine can also remove its empty run.
+                _require_comment_text_coverage(marker.getparent())
     # The shared deletion proof retains its ownership checks for all working-file
     # callers. Only this outgoing-copy path permits explicitly selected foreign messages.
     removed = (
@@ -376,8 +405,7 @@ def _property_cleanup(parts, policy):
             names = [n.get("name", "").casefold() for n in root]
             raw_pids = [n.get("pid", "") for n in root]
             if any(
-                not re.fullmatch(r"[0-9]{1,10}", pid)
-                or not 2 <= int(pid) <= 2147483647
+                not re.fullmatch(r"[0-9]{1,10}", pid) or not 2 <= int(pid) <= 2147483647
                 for pid in raw_pids
             ):
                 _fail(
