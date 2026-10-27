@@ -6,7 +6,7 @@ This file defines the public tool surface. Output examples are part of the API
 because models use them to decide how to call tools and how to cite results.
 
 The current source defines the unreleased package candidate `0.6.0.dev1` and advertises the
-twenty-one-tool development MCP contract `veqtor.mcp.v0.6.0`. The drafting tools
+twenty-two-tool development MCP contract `veqtor.mcp.v0.6.0`. The drafting tools
 are documented in [AUTHOR_DRAFTING.md](docs/AUTHOR_DRAFTING.md):
 `read_document_comments`, `read_document_revisions`, `preflight_document_edits`, `apply_document_edits`, `recover_document_operation`.
 Drafting uses `document_drafting.v1` and, by default, `drafting_preflight.v2`;
@@ -51,7 +51,7 @@ transport teardown separately reaps the stdio server process.
 
 Every successful live tool response includes the same bounded `producer`
 object with `name`, package `version`, and the process-start Python source
-snapshot `build`. This applies to all twenty-one tools, including read-only results
+snapshot `build`. This applies to all twenty-two tools, including read-only results
 and decision-record export. Error envelopes are not successful tool results.
 `producer`, `record_id`, `record_status`, and `record_error` are server-owned;
 core tool results cannot supply them. `record_error` is present only with
@@ -2118,6 +2118,40 @@ basis. It also returns working selections, linked operations, issue history,
 outgoing plans/events and `working_copy_plans`. Current working/journal
 observations are paginated; saved outgoing receipts are historical. Role and
 send assertions remain distinct from verified file-byte observations.
+
+## `read_round_issue_brief`
+
+Read one checked, complete ordered selection of saved questions for internal
+review and subsequent document preparation. This is not an external document or
+an approval of its contents.
+
+- Inputs: `folder`, exact `expected_revision` from deal state,
+  `expected_positions_revision` (null only for absent positions), `round_id`,
+  and 1–20 unique `issue_ids` in desired order.
+- Returns closed `round_issue_brief.v1`, `audience="internal_review"`, `data`,
+  and `dataset_sha256`, the SHA-256 of canonical JSON for **data only** (sorted
+  keys, compact separators, UTF-8, non-ASCII retained, no NaN).
+- `data` contains selected/omitted issue IDs and round issue count; frozen
+  sent/incoming/current working basis; latest selected issue records with
+  rechecked snapshot quotes; separate proposal, lawyer decision and current
+  decision/position observations; the exact historical position version including
+  full concession conditions; linked operation records and current observations.
+- Missing quotes stay null with `missing` status. Working quotes identify a
+  current or historical **saved snapshot**; live working status is separate.
+  They do not become inferred final wording. Comment relationships are explicitly
+  `not_recorded_in_issue_state`; journal links do not establish that relationship.
+- Missing/foreign-round IDs, duplicates, stale deal/position revisions or a bad
+  quote fail the whole call. No truncated selection is returned. Limits: 20
+  linked operations across the selection, 20 distinct snapshots, 100 MiB total
+  stored snapshot bytes, and the existing bounded JSON result.
+- Reads create/upgrade no stores, publish no files and write no optional
+  provenance. Live observations can change without a state revision change.
+
+The dataset includes private assessments, concession terms, decision statements
+and local paths. Do not send it as a table or copy all fields into an external
+file. Explicit external field selection, rendering, pagination checks, review
+and outgoing-kit inclusion are separate remaining F9 steps. No complete contract
+review, legal agreement, finalization or sending is inferred.
 
 ## `mutate_deal_state`
 
