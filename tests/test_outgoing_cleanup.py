@@ -5,7 +5,7 @@ import json
 from copy import deepcopy
 from hashlib import sha256
 from io import BytesIO
-from zipfile import ZIP_DEFLATED, ZipFile
+from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 import pytest
 from lxml import etree
@@ -38,8 +38,22 @@ def pack(parts):
     out = BytesIO()
     with ZipFile(out, "w", ZIP_DEFLATED) as z:
         for name, value in parts.items():
-            z.writestr(name, value)
+            # Fixture bytes must not depend on crossing ZIP's two-second clock
+            # boundary during a preservation check.
+            info = ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
+            info.compress_type = ZIP_DEFLATED
+            z.writestr(info, value)
     return out.getvalue()
+
+
+def test_fixture_pack_is_independent_of_wall_clock(monkeypatch):
+    import zipfile
+    parts = fictional_parts()
+    monkeypatch.setattr(zipfile.time, "localtime", lambda *args: (2026, 1, 1, 0, 0, 0, 0, 1, -1))
+    before = pack(parts)
+    monkeypatch.setattr(zipfile.time, "localtime", lambda *args: (2026, 1, 1, 0, 0, 4, 0, 1, -1))
+    assert pack(parts) == before
+    assert unpack(before) == parts
 
 
 def unpack(payload):
