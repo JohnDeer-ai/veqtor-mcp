@@ -372,3 +372,31 @@ characters are refused rather than silently normalizing quotations. All selected
 quotes and rendered pages still require review. This bounded external view does
 not complete all F9 fields, related-comment recording, full-round acceptance or
 F10 legal finalization. The installed connector is not upgraded by a checkout.
+
+### Review before finalization (development)
+
+`read_finalization_review` binds both current store revisions, a selected round
+and its exact latest working/incoming snapshot. It includes all saved rounds in
+the matter, every latest issue and linked operation, plus complete issue and
+position histories. Replacing a question or removing its position link cannot
+hide a previously conditional concession from this review. Snapshot quotations
+are checked, and live working bytes remain a separate observation. A recorded
+operation outcome is not proof of agreement or the selected final wording.
+
+The read reports unresolved/deferred questions, remaining questions even after
+an issue decision, stale decision/position bases, changed/missing working bytes,
+unknown operation results, remaining revisions and package coverage limits.
+Only fully covered revision-free bytes enter a detached clean-engine probe;
+zero accepted revisions and identical bytes are required. No cleanup or implicit
+accept-all is performed. More than 20 operations, 20 snapshots, 100 MiB of snapshot
+bytes or 2 MiB of review JSON refuses the whole read without truncated success.
+
+The report is private and always `incomplete`, even with no automatic blockers.
+The lawyer must still reconcile all issues/conditions, confirm the agreed exact
+basis and checks of requisites, annexes, blanks and uncovered areas, choose the
+outgoing cleanup policy, and review the checked final export in Word before
+confirming its final saved bytes. Those mutations/confirmations remain future
+F10 work. The review digest is not an approval token, and current observations
+are not frozen by the store revision. Empty saved history means no issues were
+recorded, not that no questions remain. Reads do not migrate v1–v7 stores,
+create provenance, recover operations or publish files.

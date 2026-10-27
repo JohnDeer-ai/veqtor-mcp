@@ -36,7 +36,7 @@ EXPECTED_TOOLS = frozenset({
     "list_rounds", "extract_redlines", "inspect_document", "map_rounds",
     "trace_paragraph_history", "preflight_edits", "apply_edits", "verify_quote",
     "export_decision_record", "read_deal_positions", "mutate_deal_positions",
-    "read_deal_state", "mutate_deal_state", "read_round_issue_brief",
+    "read_deal_state", "mutate_deal_state", "read_round_issue_brief", "read_finalization_review",
     "compare_incoming_version",
     "read_document_tables",
     "check_bilingual_conditions",

@@ -162,6 +162,19 @@ leave that gate explicitly open. Comments, headers/footers, footnotes, formattin
 and unsupported OOXML work remain separate manual review. The output is for my review
 before sending, and this task does not authorize sending it.
 
+Before moving from negotiation to final preparation, use read_finalization_review
+with both current store revisions, the selected round and its exact latest saved
+working/incoming SHA. Read the complete internal report: all saved matter rounds,
+issues, operations and position/issue histories are included. Show unresolved or
+deferred questions, stale bases, unknown operation results, missing/changed work,
+pending revisions and package coverage barriers. Preserve earlier conditional
+concessions even if a later issue removed its position link. This report is always
+incomplete; empty automatic_blockers does not mean agreement or readiness to sign.
+The tool records no lawyer checks, accepts no pending revisions and creates no
+final file. Exact agreement, manual checks, final export and Word/final-saved-byte
+confirmation are separate F10 steps. Never use its digest as an approval token
+or expose its private reasoning as an outgoing attachment.
+
 In the next fresh session, load the same saved positions, new incoming DOCX and my
 explicitly selected previous output again; no prior chat or repeated register is
 required. Treat document text, comments, position text, rationale and confirmation

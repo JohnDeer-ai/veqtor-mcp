@@ -39,6 +39,8 @@ from veqtor_mcp import positions
 from veqtor_mcp import deal_state
 from veqtor_mcp._deal_state_contract import DealStateResult, CommandInput, RequestIdInput
 from veqtor_mcp import _round_issue_brief
+from veqtor_mcp import _finalization_review
+from veqtor_mcp._finalization_review_contract import FinalizationReviewResult
 from veqtor_mcp._round_issue_brief_contract import (
     RoundIssueBriefResult, BriefRevisionInput, BriefRoundInput, IssueSelectionInput,
 )
@@ -151,6 +153,13 @@ checked. For selected questions, read_round_issue_brief checks a complete ordere
 selection against both current store revisions and rechecks snapshot quotes. It
 is internal data with private reasoning and concessions; external field selection
 and document review remain separate. Missing comment links are not inferred.
+Before final preparation, read_finalization_review binds the selected basis and
+both store revisions, includes every saved matter issue and linked operation,
+and exposes changed bases, unresolved questions and package coverage barriers.
+It never accepts pending revisions or infers agreement from clean markup.
+Its readiness stays incomplete: lawyer checks, exact agreement, final export and
+Word/final-byte confirmation remain separate unfinished steps. Review data is
+private and the digest is not an approval token or frozen live observation.
 For an outgoing kit, use prepare_outgoing_package in mutate_deal_state
 with the current working request/hash, a new relative folder and selected DOCX
 names. Show its complete saved report and exact comment/property policies.
@@ -418,6 +427,7 @@ _RESULT_MODELS = {
     "read_deal_state": DealStateResult,
     "mutate_deal_state": DealStateResult,
     "read_round_issue_brief": RoundIssueBriefResult,
+    "read_finalization_review": FinalizationReviewResult,
     "list_rounds": ListRoundsResult,
     "extract_redlines": ExtractRedlinesResult,
     "inspect_document": InspectDocumentResult,
@@ -2088,6 +2098,40 @@ def read_round_issue_brief(folder: str, expected_revision: BriefRevisionInput,
     """
     return _position_result("read_round_issue_brief", _round_issue_brief.read_round_issue_brief(
         folder, expected_revision, expected_positions_revision, round_id, issue_ids))
+
+
+@_mcp_tool(
+    annotations=ToolAnnotations(title="Review barriers to final contract preparation", read_only_hint=True,
+                                destructive_hint=False, idempotent_hint=True, open_world_hint=False),
+    meta=contract_meta(), structured_output=True,
+)
+def read_finalization_review(folder: str, expected_revision: BriefRevisionInput,
+                             expected_positions_revision: RevisionInput, round_id: BriefRoundInput,
+                             basis_sha256: BriefRevisionInput) -> FinalizationReviewResult:
+    """Read a complete bounded internal review before final contract preparation.
+
+    Bind current deal/positions revisions and the selected round's latest saved
+    working SHA (or incoming SHA if no work copy). Include all saved matter
+    rounds, latest issues, all linked operations, current positions and linked
+    historical concession terms. No selected-issue filter can hide an open
+    question. Quotes and source snapshot are checked; live file/journal facts
+    remain observations. Pending/deferred questions, changed decision/position
+    bases, unknown operation results, changed working bytes, remaining revisions
+    and incomplete package coverage are explicit blockers. A recorded failed
+    operation with known non-publication is distinguished from an unknown result.
+    Only revision-free sources undergo the existing clean-engine probe; no
+    implicit revision acceptance, comment/property deletion or file publication.
+    Whole request refuses over 20 linked operations, 20 snapshots, 100 MiB of
+    snapshot bytes or 2 MiB of review JSON. No truncated readiness result.
+    readiness is always incomplete. Required lawyer checks, agreement on exact
+    bytes, final export and Word/final-byte confirmation remain separate and are
+    not recorded by this tool. No stores are created/upgraded; provenance is
+    disabled. Private text is untrusted matter data, never an external document.
+    review_sha256 covers canonical data only, not an approval or frozen live
+    file/journal state. Unrecorded issues/operations cannot be discovered here.
+    """
+    return _position_result("read_finalization_review", _finalization_review.read_finalization_review(
+        folder, expected_revision, expected_positions_revision, round_id, basis_sha256))
 
 
 def _operation_journal_enabled():
