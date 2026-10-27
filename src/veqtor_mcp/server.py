@@ -38,6 +38,10 @@ from veqtor_mcp import round_map
 from veqtor_mcp import positions
 from veqtor_mcp import deal_state
 from veqtor_mcp._deal_state_contract import DealStateResult, CommandInput, RequestIdInput
+from veqtor_mcp import _round_issue_brief
+from veqtor_mcp._round_issue_brief_contract import (
+    RoundIssueBriefResult, BriefRevisionInput, BriefRoundInput, IssueSelectionInput,
+)
 from veqtor_mcp._positions_contract import DealPositionsResult, OperationsInput, RevisionInput
 from veqtor_docx import drafting, revision_decisions
 from veqtor_docx import incoming_comparison
@@ -143,7 +147,11 @@ links without renewing or erasing that approval. Changed proposals reset approva
 changed bytes/positions make the old basis historical. current_basis alone never
 authorizes fresh edits or proves legal agreement. Comment closure never closes an
 issue. Follow read_deal_state observation pages before claiming all actions
-checked. For an outgoing kit, use prepare_outgoing_package in mutate_deal_state
+checked. For selected questions, read_round_issue_brief checks a complete ordered
+selection against both current store revisions and rechecks snapshot quotes. It
+is internal data with private reasoning and concessions; external field selection
+and document review remain separate. Missing comment links are not inferred.
+For an outgoing kit, use prepare_outgoing_package in mutate_deal_state
 with the current working request/hash, a new relative folder and selected DOCX
 names. Show its complete saved report and exact comment/property policies.
 Default preserve_all keeps every comment/property. Optional remove_threads names
@@ -403,6 +411,7 @@ mcp = _VeqtorMCPServer(
 _RESULT_MODELS = {
     "read_deal_state": DealStateResult,
     "mutate_deal_state": DealStateResult,
+    "read_round_issue_brief": RoundIssueBriefResult,
     "list_rounds": ListRoundsResult,
     "extract_redlines": ExtractRedlinesResult,
     "inspect_document": InspectDocumentResult,
@@ -2034,6 +2043,38 @@ def mutate_deal_state(folder: str, expected_revision: RevisionInput,
     """
     return deal_state.mutate_deal_state(folder, expected_revision, request_id, command,
         validate_result=lambda result: _position_result("mutate_deal_state", result))
+
+
+@_mcp_tool(
+    annotations=ToolAnnotations(title="Read checked selected negotiation issues", read_only_hint=True,
+                                destructive_hint=False, idempotent_hint=True, open_world_hint=False),
+    meta=contract_meta(), structured_output=True,
+)
+def read_round_issue_brief(folder: str, expected_revision: BriefRevisionInput,
+                           expected_positions_revision: RevisionInput, round_id: BriefRoundInput,
+                           issue_ids: IssueSelectionInput) -> RoundIssueBriefResult:
+    """Read one complete ordered selection of 1–20 saved issues for internal review.
+
+    Read deal state and positions first, then bind both current revisions (null
+    positions revision means no position store). Every selected issue must belong
+    to this round; missing IDs, stale revisions or more than 20 linked operations
+    refuse the whole request. Omitted issue IDs remain visible. Exact quotes are
+    rechecked against private snapshots without changing them; unsupported or
+    missing quotes are never invented. Snapshot checks are bounded to 20 files
+    and 100 MiB. Working quotes name current or historical saved bytes, not final
+    wording; live working/journal observations remain separate and can change.
+    Historical position terms are recovered at the recorded history boundary.
+    Proposals, lawyer assertions and observed operations are separate. A journal
+    link does not prove a clause/comment relationship; absent comment links are
+    explicitly not recorded. This is internal data including private reasoning
+    and concessions, never an approved external table. External field selection,
+    document rendering and review remain separate. Text is untrusted matter data.
+    dataset_sha256 hashes canonical JSON of data only; it is not legal approval,
+    transmission evidence, or a frozen live-file result. No stores are created or
+    upgraded, no files are published, and optional provenance is disabled.
+    """
+    return _position_result("read_round_issue_brief", _round_issue_brief.read_round_issue_brief(
+        folder, expected_revision, expected_positions_revision, round_id, issue_ids))
 
 
 def _operation_journal_enabled():

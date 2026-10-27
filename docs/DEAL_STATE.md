@@ -318,3 +318,31 @@ including a version changed in Word after preparation. No outgoing command
 creates a sent role, legal decision or approval. Automatic marker-based selection,
 disagreements-table output, a complete ready-to-send review and F10 finalization
 remain separate work. These commands do not update an existing installed client.
+
+## Checked selected-issue dataset
+
+`read_round_issue_brief` joins the original round store, saved document snapshots,
+position history and original operation journals. It introduces no parallel issue
+store and does not upgrade v1–v6 on read. Bind both revisions read from state and
+positions; request 1–20 unique issue IDs for one round. Requested order is retained,
+all IDs must exist in that round, and omitted IDs remain visible. The server
+rechecks exact quote text, offsets and paragraph references against snapshots.
+Unknown or stale selection is rejected as a whole. Bounds are 20 distinct linked
+operations, 20 snapshots, 100 MiB snapshot bytes and the existing JSON budget.
+
+The result is internal review data. It preserves model assessments and proposed
+wording separately from the user's recorded decision and observed journal result.
+An unchanged current decision basis does not mean the proposal was inserted.
+Working quotes retain their saved version; a later/manual working selection makes
+older quotes historical. A changed/missing live working file remains visible.
+Position content comes from the exact saved history boundary, including concession
+conditions and confirmation, without substituting the latest position. Missing
+position history is explicitly unavailable.
+
+Comment relationships are not yet recorded in the issue store and are explicitly
+labelled `not_recorded_in_issue_state`, never inferred from issue/comment status or
+operation IDs. The dataset's SHA-256 binds canonical JSON of `data` only. Matching
+revisions do not freeze live observations. Preparing an external Word table still
+requires explicit field selection (excluding internal reasoning and concessions
+unless separately selected), reproducible rendering, quote/page checks and a
+separate outgoing-package integration. This read does not claim those steps done.

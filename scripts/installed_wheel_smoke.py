@@ -66,7 +66,7 @@ EXPECTED_TOOL_NAMES_BY_VERSION = {
                     "preflight_document_edits", "apply_document_edits"),
     "0.5.0.dev3": (*NR02_TOOL_NAMES, "read_document_comments",
                     "preflight_document_edits", "apply_document_edits"),
-    "0.6.0.dev1": (*NR02_TOOL_NAMES, "read_deal_state", "mutate_deal_state", "compare_incoming_version", "read_document_tables", "check_bilingual_conditions", "read_document_comments", "read_document_revisions",
+    "0.6.0.dev1": (*NR02_TOOL_NAMES, "read_deal_state", "mutate_deal_state", "read_round_issue_brief", "compare_incoming_version", "read_document_tables", "check_bilingual_conditions", "read_document_comments", "read_document_revisions",
                    "preflight_document_edits", "apply_document_edits", "recover_document_operation"),
     "0.5.0": (*NR02_TOOL_NAMES, "read_document_comments",
                     "preflight_document_edits", "apply_document_edits"),

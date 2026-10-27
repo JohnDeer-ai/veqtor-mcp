@@ -61,6 +61,7 @@ EXPECTED_TOOL_NAMES = (
     "mutate_deal_positions",
     "read_deal_state",
     "mutate_deal_state",
+    "read_round_issue_brief",
     "compare_incoming_version",
     "read_document_tables",
     "check_bilingual_conditions",
@@ -1265,7 +1266,7 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
         tools = {tool.name: tool for tool in (await session.list_tools()).tools}
 
     drafting_names = {"read_document_revisions", "read_document_comments", "preflight_document_edits", "apply_document_edits", "compare_incoming_version", "read_document_tables", "check_bilingual_conditions", "recover_document_operation"}
-    assert set(tools) == records.WRITABLE_TOOL_NAMES | {"read_deal_positions", "mutate_deal_positions", "read_deal_state", "mutate_deal_state"} | drafting_names
+    assert set(tools) == records.WRITABLE_TOOL_NAMES | {"read_deal_positions", "mutate_deal_positions", "read_deal_state", "mutate_deal_state", "read_round_issue_brief"} | drafting_names
     expected_output_core.update({
         "read_document_tables": {"file_sha256", "items", "coverage", "reference_report", "counts"},
         "check_bilingual_conditions": {"file_sha256", "pairs", "coverage", "obligation_equivalence"},
@@ -1280,6 +1281,7 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
         expected_output_core[name] = {"state", "revision", "positions", "history", "source_observations", "server_session_id"}
     for name in ("read_deal_state", "mutate_deal_state"):
         expected_output_core[name] = {"revision", "rounds", "requests", "documents", "applied_request_id", "positions_current_revision", "limitations"}
+    expected_output_core["read_round_issue_brief"] = {"dataset_sha256", "data", "audience"}
     assert set(server._RESULT_MODELS) == set(tools)
     assert all(callable(getattr(server, name)) for name in tools)
     for name, tool in tools.items():
@@ -1343,13 +1345,13 @@ async def test_tool_contracts_are_versioned_typed_and_honestly_annotated() -> No
             assert tool.annotations.destructive_hint is (name == "apply_document_edits")
             assert tool.annotations.open_world_hint is False
             continue
-        if name in {"read_deal_positions", "mutate_deal_positions", "read_deal_state", "mutate_deal_state"}:
+        if name in {"read_deal_positions", "mutate_deal_positions", "read_deal_state", "mutate_deal_state", "read_round_issue_brief"}:
             assert tool.output_schema["additionalProperties"] is False
             assert tool.output_schema["properties"]["record_id"] == {"type": "null"}
             assert tool.output_schema["properties"]["record_status"] == {"const": "disabled"}
             assert "record_error" not in tool.output_schema["properties"]
-            assert tool.annotations.read_only_hint is (name in {"read_deal_positions", "read_deal_state"})
-            assert tool.annotations.idempotent_hint is (name in {"read_deal_positions", "read_deal_state", "mutate_deal_state"})
+            assert tool.annotations.read_only_hint is (name in {"read_deal_positions", "read_deal_state", "read_round_issue_brief"})
+            assert tool.annotations.idempotent_hint is (name in {"read_deal_positions", "read_deal_state", "mutate_deal_state", "read_round_issue_brief"})
             assert tool.annotations.destructive_hint is False
             assert tool.annotations.open_world_hint is False
             continue
@@ -2478,7 +2480,7 @@ async def test_tools_are_exposed_and_callable(demo_dir: Path) -> None:
             )
         )
         assert runtime_tools == records.WRITABLE_TOOL_NAMES | {
-            "read_deal_state", "mutate_deal_state",
+            "read_deal_state", "mutate_deal_state", "read_round_issue_brief",
             "read_deal_positions", "mutate_deal_positions", "read_document_comments",
             "preflight_document_edits", "apply_document_edits", "compare_incoming_version", "read_document_revisions", "read_document_tables", "check_bilingual_conditions", "recover_document_operation",
         }
