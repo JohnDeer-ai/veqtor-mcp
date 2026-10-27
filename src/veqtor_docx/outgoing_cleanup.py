@@ -405,10 +405,17 @@ def _property_cleanup(parts, policy):
                 "selected property must occur exactly once",
             )
         node = candidates[0]
+        if (node.tail or "").strip():
+            _fail(
+                "outgoing_cleanup_unsupported",
+                "unexpected text outside the selected property must be preserved",
+            )
         if kind == "custom":
             if (
                 node.tag != f"{{{CUSTOM}}}property"
                 or len(node) != 1
+                or (node.text or "").strip()
+                or (node[0].tail or "").strip()
                 or etree.QName(node[0]).namespace != VT
                 or etree.QName(node[0]).localname not in SCALARS
                 or len(node[0])

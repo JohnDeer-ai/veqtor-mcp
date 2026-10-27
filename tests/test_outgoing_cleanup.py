@@ -487,6 +487,38 @@ def test_unambiguous_leading_zero_property_id_is_preserved(tmp_path):
     assert after[0].get("pid") == "0000000003"
 
 
+@pytest.mark.parametrize(
+    "variant", ["custom_prefix", "custom_value_tail", "custom_tail", "core_tail", "app_tail"]
+)
+def test_unknown_mixed_property_text_refuses_without_losing_data(tmp_path, variant):
+    parts = fictional_parts(comments=False)
+    kind = variant.split("_")[0]
+    path = cleanup.PROPS[kind][0]
+    root = parse_xml(parts[path])
+    if variant == "custom_prefix":
+        root[0].text = "Unknown payload before value"
+    elif variant == "custom_value_tail":
+        root[0][0].tail = "Unknown payload after value"
+    else:
+        root[0].tail = "Unknown payload between properties"
+    parts[path] = c._xml(root)
+    original = deepcopy(parts)
+    with pytest.raises(ApplyError, match="outgoing_cleanup_unsupported"):
+        prepare(parts, tmp_path, properties_policy=REMOVE_PROPS)
+    assert parts == original and not (tmp_path / "out").exists()
+
+
+def test_property_indentation_is_allowed_without_changing_retained_values(tmp_path):
+    parts = fictional_parts(comments=False)
+    root = parse_xml(parts["docProps/custom.xml"])
+    root[0].text, root[0][0].tail, root[0].tail = "\n  ", "\n", "\n  "
+    parts["docProps/custom.xml"] = c._xml(root)
+    plan = prepare(parts, tmp_path, properties_policy=REMOVE_PROPS)
+    after = parse_xml(unpack(plan.files[0].payload)["docProps/custom.xml"])
+    assert len(after) == 1 and after[0].get("name") == "PublicCode"
+    assert after[0][0].text == "42"
+
+
 def test_original_property_field_cannot_be_hidden_by_deleting_its_comment(tmp_path):
     parts = fictional_parts()
     comments = parse_xml(parts[c._COMMENTS])
