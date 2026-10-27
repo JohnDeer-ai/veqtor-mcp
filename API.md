@@ -2109,13 +2109,16 @@ No DOCX is modified and a saved position itself grants no edit authority.
 ## `read_deal_state`
 
 Development `0.6.0.dev1` only. Read an explicitly selected matter `folder`.
-Returns closed `deal_state_result.v7`: state `revision`, rounds, idempotency
+Returns closed `deal_state_result.v8`: state `revision`, rounds, idempotency
 requests, verified private document paths/hashes, current position-store revision
 and explicit limitations. An absent store creates nothing. A round's
 `sent_basis` is frozen at round creation; use its hash and the incoming hash
 to select `documents` for `compare_incoming_version`. A first round has no sent
 basis. It also returns working selections, linked operations, issue history,
-outgoing plans/events and `working_copy_plans`. Current working/journal
+outgoing plans/events, `working_copy_plans`, `final_basis_agreements`,
+`final_documents`, `final_document_events` and `final_basis_observations`.
+Final agreement observations only compare saved context; a matching observation
+still explicitly requires live checks. Current working/journal
 observations are paginated; saved outgoing receipts are historical. Role and
 send assertions remain distinct from verified file-byte observations.
 
@@ -2151,13 +2154,16 @@ The result is `finalization_review.v1`, `audience=internal_review`, and **always
 basis, questions and concession conditions, requisites, annexes, blanks, areas
 outside automatic coverage, explicit comment/property policy, checked final
 export and Word review/confirmation of the final saved bytes. These steps remain
-separate and are not recorded or approved by this tool. No finalization mutation
-is supplied in this slice. Clean markup and prior issue/position confirmations
+separate and are not recorded or approved by this read tool. The four agreement/
+candidate mutations below record only their stated stage. Raw historical issue
+blockers remain in this review after a separate agreement; read deal state for
+the lawyer's new-basis resolutions. Final Word-saved-byte confirmation is still
+unimplemented. Clean markup and prior issue/position confirmations
 never establish mutual agreement.
 
 The whole read refuses above 20 linked operations, 20 checked snapshots, 100 MiB
 of snapshot bytes or 2 MiB of canonical review data; it returns no partial success.
-Store versions v1–v7 are read without migration. There are no writes, exports,
+Store versions v1–v8 are read without migration. There are no writes, exports,
 recovery attempts or optional provenance records. `review_sha256` hashes canonical
 JSON of `data` only and is **not an approval token**; live files/journals can change
 without a state revision. This report contains private assessments and terms.
@@ -2235,7 +2241,8 @@ A different command with the same ID refuses. State and snapshot publication are
 separate: after an uncertain commit, read state and retry only the same request.
 v1–v4 stores are read without mutation; initial-copy preparation upgrades to v5
 without discarding existing records. Later commands retain v5, v6 after cleanup
-preparation, or v7 after table preparation. Initial copies
+preparation, v7 after table preparation, or v8 after final-basis agreement.
+Initial copies
 do not fabricate a manual save, approve outgoing publication or finalize a deal.
 Outgoing policies default to `preserve_all`; optional comment policies are
 `{"mode":"remove_all"}` and `{"mode":"remove_threads","threads":[{"root_id":"0","member_ids":["0","1"]}]}`.
@@ -2248,8 +2255,8 @@ Cleanup transforms only the outgoing candidate, requires complete supported
 package coverage, and refuses ambiguous property dependencies. Independent DATE/TIME
 and pagination retain their settings; property-consuming/unknown fields refuse.
 New cleanup preparation upgrades to v6 without changing prior records; older
-preserve-all plans reproduce unchanged. All later commands retain v6, or v7 once
-table preparation has upgraded the store.
+preserve-all plans reproduce unchanged. All later commands retain the newest
+store version, including v8 agreements/candidates after older outgoing commands.
 Publication still requires the exact saved plan's explicit confirmation and
 never marks a file sent or agreed. Unknown data are preserved by refusal.
 See [deal state](docs/DEAL_STATE.md) for limits and remaining integration.
@@ -2281,7 +2288,7 @@ characters refuse instead of silently changing quotations.
 
 Preparation saves every selected cell, the renderer identity and exact file
 hashes in the v3 internal report before publication. It upgrades the private
-store to v7 without discarding existing rows; reads do not rewrite v1–v7 stores.
+store to at least v7 without discarding existing rows, retaining v8 when present; reads do not rewrite older stores.
 The old preparation action and no-table v1/v2 reports retain their behavior.
 The table can accompany the redline and/or clean draft (up to three files), or
 stand alone with both contract names null. A selected working version is still
@@ -2367,3 +2374,64 @@ input shape and extraction boundary. This tool writes neither DOCX nor journal;
 `record_status` is `disabled` and `record_id` is null. The existing atomic
 `preflight_document_edits` / `apply_document_edits` batch handles authorized
 text edits to both columns; this check does not add another write engine.
+
+
+### Agreed basis and checked final candidate
+
+Four `mutate_deal_state` commands extend the same 23-tool interface. All use the
+outer current `expected_revision`, retained request ID and selected `round_id`.
+The first such mutation upgrades the closed store to v8; reads do not migrate
+earlier stores and every later command preserves new records.
+
+- `record_final_basis_agreement`: exact `file_sha256`, current nullable
+  `expected_positions_revision`, fresh `expected_review_sha256` from the complete
+  finalization review, `user_confirmed: true`, and `statement`. Required arrays
+  `issue_resolutions` (`issue_id`, `version`, `statement`) and
+  `position_resolutions` (`position_id`, `version`, `statement`) must each name
+  every latest saved matter issue and every active position exactly once. Required
+  `manual_checks` has six statements: `known_questions`, `historical_conditions`,
+  `requisites`, `annexes`, `unfilled_places`, `uncovered_areas`. Every statement is
+  nonempty and at most 2,000 characters. These are completed lawyer checks and
+  explicit agreed outcomes on this exact basis, not inferred approvals or future
+  Word-review assertions. Prior issue decisions/history remain unchanged.
+- `prepare_final_document`: `agreement_request_id`, new relative folder `path`,
+  portable DOCX `name`, explicit `comments_policy={"mode":"remove_all"}`, and
+  existing `properties_policy` (`preserve_all` or exact `remove_selected`). Saves
+  one checked candidate's full cleanup report and plan digest; creates no output.
+- `publish_final_document`: `document_request_id`, exact `plan_sha256`,
+  `user_confirmed: true` and `statement` after reviewing that saved report.
+  Creates only that DOCX in one new folder, without overwrite or transmission.
+- `record_final_document_verification`: `document_request_id` and exact
+  `plan_sha256`. Observes the existing frozen candidate without repair or writes
+  to output, including recovery after uncertain publication/state commit.
+
+Agreement requires a fully covered revision-free source, passing clean probe,
+available historical position evidence, known operation outcomes and unchanged
+selected working bytes. Pending revisions and coverage barriers cannot be waived
+by declarations. The new agreement may explicitly reconcile old/deferred issues
+on a later basis, preserving their original history. A round with a successor
+cannot be selected as the final basis.
+
+Preparation and publication recheck all saved rounds/sent records, working
+history, issues, linked operations, current positions revision and the full live
+review. Changed context requires fresh agreement. Their own finalization
+records do not themselves invalidate agreement. Preparing other outputs without
+changing these negotiation facts does not renew or change it. The original snapshot is authoritative
+when no working file is selected. The report includes every removed comment and
+property value and stays private; the new external folder contains one DOCX.
+No revisions are accepted implicitly, and no ordinary comment messages/anchors
+may survive the checked export. Existing unknown-content and field-dependency
+guards remain. DATE/TIME behavior is preserved.
+
+After `final_document_state_commit_uncertain` or publication uncertainty, reread
+state and verify the same plan/path. Never change the destination as a retry.
+Replayed requests and historical verification do not renew agreement or establish
+live readiness. `observed_match` records an observation, not authorship or legal
+consent. Limits are 10 agreements, 10 document plans and 20 events, subject to the
+existing aggregate byte/request limits; oversize evidence refuses without truncation.
+
+The document stage is always `candidate_for_word_review`. Review all pages in
+Word; a manual save may change text, fields and properties and must be rechecked.
+This slice does not confirm or snapshot the final Word-saved bytes as approved by
+the lawyer, and does not mark a document signature-ready or sent. See
+[deal state](docs/DEAL_STATE.md#explicit-agreed-basis-and-checked-final-candidate-development).
