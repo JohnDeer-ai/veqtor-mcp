@@ -20,7 +20,8 @@ COLLECTIONS = ("outgoing_packages", "outgoing_events")
 
 def upgrade(store):
     result = w.upgrade(store)
-    result["schema_version"] = "deal_rounds_store.v4"
+    result["schema_version"] = ("deal_rounds_store.v5" if store["schema_version"] == "deal_rounds_store.v5"
+                                else "deal_rounds_store.v4")
     for name in COLLECTIONS:
         result.setdefault(name, [])
     return result
@@ -63,7 +64,7 @@ def _report(row):
 
 
 def validate(store):
-    if store["schema_version"] != "deal_rounds_store.v4":
+    if store["schema_version"] not in {"deal_rounds_store.v4", "deal_rounds_store.v5"}:
         return
     packages = {r["request_id"]: r for r in store["outgoing_packages"]}
     events = {r["request_id"]: r for r in store["outgoing_events"]}

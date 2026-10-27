@@ -79,8 +79,29 @@ STORE_V4 = obj(schema_version={"const": "deal_rounds_store.v4"}, revision=SHA,
     rounds=array(ROUND, 50), requests=array(REQUEST_V4, 150), operations=array(OPERATION, 100),
     working_documents=array(WORKING_RESULT, 100), issue_events=array(ISSUE, 100),
     outgoing_packages=array(OUTGOING, 20), outgoing_events=array(OUTGOING_EVENT, 20))
-STORE = {"oneOf": [STORE_V1, STORE_V2, STORE_V3, STORE_V4]}
+WORKING_COPY_ACTIONS = ["prepare_working_copy", "publish_working_copy", "record_working_copy_verification"]
+WORKING_COPY_PLAN = obj(request_id=UUID, round_id=ROUND_ID, source_sha256=SHA,
+    path=RELATIVE_PATH, plan_sha256=SHA)
+COPIED_WORKING = obj(request_id=UUID, round_id=ROUND_ID, operation_id={"type": "null"},
+    path=RELATIVE_PATH, file_sha256=SHA, previous_request_id={"type": "null"},
+    origin={"const": "verified_snapshot_copy"}, statement={"type": "null"},
+    copy_plan_request_id=UUID, publication_status={"enum": ["published", "observed_match"]})
+WORKING_RESULT_V5 = {"oneOf": [WORKING, IMPORTED_WORKING, COPIED_WORKING]}
+REQUEST_V5 = obj(request_id=UUID, command_sha256=SHA, round_id=ROUND_ID,
+    action={"enum": ["start_round", "record_sent", *WORKFLOW_ACTIONS, *OUTGOING_ACTIONS, *WORKING_COPY_ACTIONS]})
+STORE_V5 = obj(schema_version={"const": "deal_rounds_store.v5"}, revision=SHA,
+    rounds=array(ROUND, 50), requests=array(REQUEST_V5, 150), operations=array(OPERATION, 100),
+    working_documents=array(WORKING_RESULT_V5, 100), issue_events=array(ISSUE, 100),
+    outgoing_packages=array(OUTGOING, 20), outgoing_events=array(OUTGOING_EVENT, 20),
+    working_copy_plans=array(WORKING_COPY_PLAN, 20))
+STORE = {"oneOf": [STORE_V1, STORE_V2, STORE_V3, STORE_V4, STORE_V5]}
 COMMAND = {"oneOf": [
+    obj(action={"const": "prepare_working_copy"}, round_id=ROUND_ID,
+        incoming_basis_sha256=SHA, path=RELATIVE_PATH),
+    obj(action={"const": "publish_working_copy"}, round_id=ROUND_ID,
+        copy_plan_request_id=UUID, plan_sha256=SHA),
+    obj(action={"const": "record_working_copy_verification"}, round_id=ROUND_ID,
+        copy_plan_request_id=UUID, plan_sha256=SHA),
     obj(action={"const": "prepare_outgoing_package"}, round_id=ROUND_ID,
         expected_working_request_id=UUID, file_sha256=SHA, path=RELATIVE_PATH,
         redline_name=nullable(text(120)), clean_draft_name=nullable(text(120)),
@@ -115,15 +136,16 @@ COMMAND[MCP_CONTRACT_SCHEMA_EXTENSION] = MCP_CONTRACT_SCHEMA_VERSION
 CommandInput = Annotated[dict[str, Any], WithJsonSchema(COMMAND)]
 RequestIdInput = Annotated[str, WithJsonSchema(UUID)]
 RESULT = obj(
-    schema_version={"const": "deal_state_result.v4"}, status={"const": "ok"},
-    revision=nullable(SHA), rounds=array(ROUND, 50), requests=array(REQUEST_V4, 150),
+    schema_version={"const": "deal_state_result.v5"}, status={"const": "ok"},
+    revision=nullable(SHA), rounds=array(ROUND, 50), requests=array(REQUEST_V5, 150),
     documents=array(obj(file_sha256=SHA, path=text(4096)), 150),
     positions_current_revision=nullable(SHA), applied_request_id=nullable(UUID),
     positions_basis_observations=array(obj(round_id=ROUND_ID,
         status={"enum": ["not_recorded", "current", "historical_available", "unavailable"]}), 50),
-    operations=array(OPERATION, 100), working_documents=array(WORKING_RESULT, 100),
+    operations=array(OPERATION, 100), working_documents=array(WORKING_RESULT_V5, 100),
     issues=array(ISSUE, 100), issue_events=array(ISSUE, 100),
     outgoing_packages=array(OUTGOING, 20), outgoing_events=array(OUTGOING_EVENT, 20),
+    working_copy_plans=array(WORKING_COPY_PLAN, 20),
     operation_observations=array(obj(operation_id=JOURNAL_ID,
         status={"enum": ["completed", "prepared_only", "unavailable", "intent_changed", "not_checked"]},
         publication_status=nullable({"enum": ["published", "not_published", "uncertain"]}),

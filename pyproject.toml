@@ -111,6 +111,7 @@ include = [
   "/src/veqtor_mcp/_deal_state_contract.py",
   "/src/veqtor_mcp/_deal_workflow.py",
   "/src/veqtor_mcp/_deal_outgoing.py",
+  "/src/veqtor_mcp/_working_copies.py",
   "/src/veqtor_mcp/deal_state.py",
   "/src/veqtor_mcp/server.py",
 ]
@@ -216,6 +217,7 @@ include = [
   "/src/veqtor_mcp/_deal_state_contract.py",
   "/src/veqtor_mcp/_deal_workflow.py",
   "/src/veqtor_mcp/_deal_outgoing.py",
+  "/src/veqtor_mcp/_working_copies.py",
   "/src/veqtor_mcp/deal_state.py",
   "/src/veqtor_mcp/server.py",
 ]

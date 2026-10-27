@@ -12,6 +12,7 @@ from . import positions as p
 from . import _deal_workflow as w
 from . import _deal_state_contract as c
 from . import _deal_outgoing as outgoing
+from . import _working_copies as copies
 
 STORE_NAME = "deal-rounds.json"
 DOCUMENTS = "round-documents"
@@ -111,6 +112,7 @@ def _load(side):
             p._fail("storage_corrupt")
     w.validate(value)
     outgoing.validate(value)
+    copies.validate(value)
     return value, stamp
 
 
@@ -181,7 +183,7 @@ def _result(folder, store, positions_store, request_id=None, *, pending_snapshot
         if total > MAX_DOCUMENT_BYTES:
             p._fail("resource_limit_exceeded")
         documents.append({"file_sha256": digest, "path": os.path.join(destination, "source.docx")})
-    return {"schema_version": "deal_state_result.v4", "status": "ok",
+    return {"schema_version": "deal_state_result.v5", "status": "ok",
             "revision": store["revision"] if store else None,
             "rounds": deepcopy(store["rounds"]) if store else [],
             "requests": deepcopy(store["requests"]) if store else [],
@@ -192,6 +194,7 @@ def _result(folder, store, positions_store, request_id=None, *, pending_snapshot
                 for row in store["rounds"]] if store else [],
             **w.observations(folder, store, positions_store, observation_offset),
             **outgoing.result(store),
+            **copies.result(store),
             "limitations": list(LIMITATIONS)}
 
 
@@ -236,6 +239,8 @@ def mutate_deal_state(folder, expected_revision, request_id, command, *, validat
             candidate = w.upgrade(candidate, imported=command["action"] == "import_working_document")
         if command["action"] in c.OUTGOING_ACTIONS:
             candidate = outgoing.upgrade(candidate)
+        if command["action"] in c.WORKING_COPY_ACTIONS:
+            candidate = copies.upgrade(candidate)
         snapshot = None
         effect = None
         rid = command["round_id"]
@@ -267,6 +272,8 @@ def mutate_deal_state(folder, expected_revision, request_id, command, *, validat
                 "basis": "client_asserted_actual_sent_file"})
         elif command["action"] in c.OUTGOING_ACTIONS:
             effect = outgoing.change(folder, candidate, positions_store, request_id, command, _snapshot_path)
+        elif command["action"] in c.WORKING_COPY_ACTIONS:
+            effect = copies.change(folder, candidate, request_id, command, _snapshot_path)
         else:
             snapshot = w.change(folder, candidate, positions_store, request_id, command, _snapshot_path)
         candidate["requests"].append({"request_id": request_id, "command_sha256": command_sha,
@@ -275,6 +282,7 @@ def mutate_deal_state(folder, expected_revision, request_id, command, *, validat
         _validate(c.STORE, candidate)
         w.validate(candidate)
         outgoing.validate(candidate)
+        copies.validate(candidate)
         if command["action"] in {"start_round", "record_sent"}:
             snapshot = snapshots.capture_document_snapshot(command["path"], command["file_sha256"])
         # Validate the aggregate budget and transport result with captured bytes
@@ -296,8 +304,17 @@ def mutate_deal_state(folder, expected_revision, request_id, command, *, validat
                 p._fail("outgoing_basis_changed")
             effect()
         try:
+            if effect is not None and command["action"] in copies.SELECTION_ACTIONS:
+                result = _result(folder, candidate, positions_store, request_id)
+                if validate_result:
+                    result = validate_result(result)
             p._publish(side, candidate, stamp, recheck, store_name=STORE_NAME, load_store=_load)
         except Exception as exc:
+            if effect is not None and command["action"] == "publish_working_copy":
+                raise snapshots.SnapshotError("working_copy_state_commit_uncertain",
+                    "copy published; reread state and verify this saved copy plan before retrying",
+                    publication_completed=True, output_path_verified=False,
+                    copy_plan_request_id=command["copy_plan_request_id"]) from exc
             if effect is not None and command["action"] == "publish_outgoing_package":
                 raise snapshots.SnapshotError("outgoing_state_commit_uncertain",
                     "kit published; reread state and verify the frozen plan before any retry",

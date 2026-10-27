@@ -2109,32 +2109,53 @@ No DOCX is modified and a saved position itself grants no edit authority.
 ## `read_deal_state`
 
 Development `0.6.0.dev1` only. Read an explicitly selected matter `folder`.
-Returns closed `deal_state_result.v1`: state `revision`, rounds, idempotency
+Returns closed `deal_state_result.v5`: state `revision`, rounds, idempotency
 requests, verified private document paths/hashes, current position-store revision
 and explicit limitations. An absent store creates nothing. A round's
 `sent_basis` is frozen at round creation; use its hash and the incoming hash
 to select `documents` for `compare_incoming_version`. A first round has no sent
-basis. Role selection and recorded send statements are client assertions.
+basis. It also returns working selections, linked operations, issue history,
+outgoing plans/events and `working_copy_plans`. Current working/journal
+observations are paginated; saved outgoing receipts are historical. Role and
+send assertions remain distinct from verified file-byte observations.
 
 ## `mutate_deal_state`
 
 Development `0.6.0.dev1` only. Inputs: `folder`, `expected_revision` (null for
-an absent store), a retained 32-hex `request_id`, and one closed `command`:
+an absent store), a retained 32-hex `request_id`, and one closed `command`.
+The complete working/issue/outgoing commands are described in
+[deal state](docs/DEAL_STATE.md). Core roles and initial-copy commands include:
 
 - `start_round`: `round_id` (`round_` plus 32 hex digits),
   `previous_round_id` (or null), exact source `path` and `file_sha256`.
 - `record_sent`: existing `round_id`, actual sent `path` and `file_sha256`,
   `user_confirmed: true` and the user's `statement` identifying the sent bytes.
+- `prepare_working_copy`: `round_id`, exact `incoming_basis_sha256`, new relative
+  DOCX `path`. Persist a plan before any file is created; requires no previous
+  working selection or linked operation in that round.
+- `publish_working_copy`: `round_id`, saved `copy_plan_request_id` and
+  `plan_sha256`. Create the exact incoming bytes at the planned path, then select
+  the ordinary copy with origin `verified_snapshot_copy`, null operation ID and
+  `publication_status: published`.
+- `record_working_copy_verification`: the same plan fields. Verify an existing
+  safe file against the immutable source and select it with `observed_match`.
+  This does not write the document or assert that Veqtor created it.
 
-The second command must follow an explicit user assertion; preparing a file does
-not imply it was sent. No network transmission or DOCX mutation occurs. Exact
+`record_sent` must follow an explicit user assertion; preparing a file does
+not imply it was sent. These role commands never transmit files. Copy publication
+creates only a new ordinary file; snapshots and existing destinations are never
+overwritten. After a lost copy result, reread state and verify the same saved
+plan before any retry. Preserve mismatches and unknown data. Exact
 snapshots are create-only and checked on every state read. Start captures a
 reference to the original position store's current revision/history boundary;
 positions are not duplicated. Identical request retries recover an already
 committed action even with an old expected revision or unavailable original.
 A different command with the same ID refuses. State and snapshot publication are
 separate: after an uncertain commit, read state and retry only the same request.
-See [deal state](docs/DEAL_STATE.md) for limits and unfinished integration.
+v1–v4 stores are read without mutation; initial-copy preparation upgrades to v5
+without discarding existing records. Later commands retain v5. Initial copies
+do not fabricate a manual save, approve outgoing publication or finalize a deal.
+See [deal state](docs/DEAL_STATE.md) for limits and remaining integration.
 
 ## `compare_incoming_version`
 

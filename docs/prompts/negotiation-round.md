@@ -2,7 +2,7 @@
 
 # Run a first or later negotiation round
 
-Workflow version: `mvp-negotiation-round.v1` (development).
+Workflow version: `mvp-negotiation-round.v2` (development).
 Use a verified compatible development installation with the 21-tool drafting,
 deal-state and outgoing-package surface described in [DEAL_STATE.md](../DEAL_STATE.md).
 Version text or a source checkout alone does not establish installed capability.
@@ -109,8 +109,8 @@ do not silently omit it or label the whole task completed.
 
 Follow [AUTHOR_DRAFTING_WORKFLOW.md](../AUTHOR_DRAFTING_WORKFLOW.md) for edits,
 author profiles and comment actions. Preserve original contracts and private
-snapshots. For the first Veqtor edit, use an ordinary selected source whose
-bytes match this round's incoming version and a new working
+snapshots. If no working file has been selected, the first actual edit may use
+an ordinary source whose bytes match this round's incoming version and a new
 `output_path` inside the matter folder, outside private storage. Preflight and
 apply use `preflight_document_edits` / `apply_document_edits`, not the legacy
 selected-issue writer. Never draft from `.veqtor` snapshots: it would place locks
@@ -119,12 +119,24 @@ Using an ordinary copy of the frozen sent basis instead requires the user's
 explicit choice and an account of how incoming counterparty changes will be
 handled; do not silently discard them by selecting the earlier basis.
 
-If the only surviving source is a snapshot, the local restore helper is not an
-MCP tool. Under an MCP-only boundary, request an authorized ordinary copy or
-report that restoration step unavailable; continue independent analysis. Do not
-invent a restore command or use an undeclared shell/Word/OOXML rewrite fallback.
-If no edits are needed and no working selection exists, report the unchanged
-result; do not invent an edit or a human-edit assertion just to enable export.
+If no working selection or linked operation exists, use `prepare_working_copy`
+with the round's exact `incoming_basis_sha256` and a new relative DOCX `path`.
+Read the saved plan, then `publish_working_copy` with its `copy_plan_request_id`
+and `plan_sha256`. This creates and selects an unchanged ordinary copy, even if
+the original incoming path is gone. It requires no invented edit, operation ID
+or assertion of human editing. It does not approve publication to a counterparty.
+Use this route when no text edits are needed, or before the first actual edit;
+then freshly inspect/preflight/apply to this selected ordinary working path.
+
+After an uncertain copy result, reread state first. If the original request is
+already recorded, replay it without creating another file. Otherwise use
+`record_working_copy_verification` on the same saved plan; `observed_match` proves
+the current matching bytes, not who created them or an earlier successful save.
+Never overwrite mismatches, delete unknown data, or silently choose a different
+destination. A later import or linked operation invalidates an unused initial
+copy plan. Restoring other historical/working/sent snapshots is not exposed by
+this initial-copy route; report that missing capability without an undeclared
+shell/Word/XML rewrite fallback.
 
 An already edited human version requires a separate authorized ordinary copy
 in the matter folder. Select it with `import_working_document`, its exact hash,
