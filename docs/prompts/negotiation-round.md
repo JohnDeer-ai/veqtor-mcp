@@ -224,6 +224,25 @@ agreement distinct; the current commands cannot mark legal finalization complete
 
 ## Actual sending and continuation
 
+For finalization, first read `read_finalization_review` for the exact basis and
+both current revisions. Show every saved matter question and historical
+condition. Obtain the lawyer's explicit agreed outcome for each latest issue
+and active position, plus the six completed manual checks, before
+`record_final_basis_agreement`. A clean-looking document never supplies consent.
+Unknown operations, missing history, remaining revisions and unsupported
+coverage cannot be waived by that assertion. Historical questions stay recorded;
+the separate agreement records their reconciled outcome on the selected bytes.
+
+Then `prepare_final_document` saves a full cleanup preview for one new DOCX,
+requiring explicit removal of all comments and the chosen property policy.
+Show the complete preview before `publish_final_document` on that exact plan.
+Both steps recheck the full agreement context and live evidence. After any
+uncertain result, reread state and use `record_final_document_verification` on
+the same plan/path. Never infer fresh approval from request replay or historical
+verification. Open the candidate in Word and inspect all pages; preserve and
+recheck a changed manual save. The current stage does not yet record final
+approval of Word-saved bytes and cannot mark F10 complete or signature-ready.
+
 This workflow does not transmit files. Use `record_sent` only when the user
 identifies the exact file actually sent, with its current hash and assertion.
 If prepared A was changed in Word and B was sent, record B; never substitute A.

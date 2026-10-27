@@ -23,7 +23,7 @@ LIMITATIONS = [
     "observations_can_change_without_state_revision_and_are_not_approval_tokens",
     "revision_inventory_is_not_complete_content_or_hidden_data_review",
     "clean_probe_preserves_comments_properties_and_other_parts_without_publication",
-    "finalization_approval_export_and_final_byte_confirmation_remain_unimplemented",
+    "basis_agreements_and_candidates_are_separate_state_final_byte_confirmation_unimplemented",
 ]
 
 PAYLOAD = obj(

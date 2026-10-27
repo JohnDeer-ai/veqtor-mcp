@@ -113,7 +113,7 @@ not relabelled as acceptance of the complete MVP round.
 
 ## Working copies, operations and legal issues
 
-The advertised result is now `deal_state_result.v6`. Existing closed v1 role
+The advertised result is now `deal_state_result.v8`. Existing closed v1 role
 stores are validated and read without rewriting their bytes or revision. The
 first workflow mutation atomically upgrades only `deal-rounds.json` to the closed
 v2 format, retaining all prior roles/requests. An explicit initial manual import
@@ -395,8 +395,74 @@ The report is private and always `incomplete`, even with no automatic blockers.
 The lawyer must still reconcile all issues/conditions, confirm the agreed exact
 basis and checks of requisites, annexes, blanks and uncovered areas, choose the
 outgoing cleanup policy, and review the checked final export in Word before
-confirming its final saved bytes. Those mutations/confirmations remain future
-F10 work. The review digest is not an approval token, and current observations
+confirming its final saved bytes. The agreement/candidate mutations below are a
+separate F10 stage; final saved-byte confirmation remains future work.
+The review digest is not an approval token, and current observations
 are not frozen by the store revision. Empty saved history means no issues were
 recorded, not that no questions remain. Reads do not migrate v1–v7 stores,
 create provenance, recover operations or publish files.
+
+### Explicit agreed basis and checked final candidate (development)
+
+The first finalization mutation upgrades only `deal-rounds.json` to closed v8.
+Existing v1–v7 stores are read without rewriting them. Subsequent older commands
+preserve all v8 records. Position and operation stores keep their original formats.
+The same 23 public tools remain; four actions extend `mutate_deal_state`:
+
+| Action | Required evidence and result |
+| --- | --- |
+| `record_final_basis_agreement` | Fresh whole-review digest, exact source SHA, positions revision, explicit lawyer confirmation/statement, exact ID/version resolutions for every latest saved issue and active position, and six completed manual checks. Saves the full private review and assertions without changing issue history. |
+| `prepare_final_document` | Saved agreement ID, new relative folder, DOCX name, explicit `comments_policy={"mode":"remove_all"}` and existing properties policy. Rechecks all evidence and saves the complete cleanup report/hash before any output. |
+| `publish_final_document` | Saved document request ID/plan hash and explicit approval after reviewing the report. Rechecks the agreement and creates only that DOCX in a new folder. |
+| `record_final_document_verification` | Same document ID/plan hash. Verifies an existing candidate without repair, including after uncertain publication/state commit. |
+
+Agreement is a client assertion on the selected exact revision-free snapshot,
+not software proof of mutual legal consent. Each `issue_resolutions` entry names
+`issue_id`, `version` and a specific agreed-outcome `statement`; each
+`position_resolutions` entry names `position_id`, `version` and the reconciliation
+statement. Every latest saved issue across all matter rounds and every active
+position must appear exactly once. Prior deferred decisions and conditional
+concessions stay in their original history. The separate agreement can record
+their explicit outcome on a new basis without manufacturing earlier decisions.
+
+`manual_checks` requires six nonempty statements: `known_questions`,
+`historical_conditions`, `requisites`, `annexes`, `unfilled_places`,
+`uncovered_areas`. These concern checks already completed by the lawyer; they do
+not assert a future export or Word review. Missing historical evidence, unknown
+operations, changed/unavailable selected work, remaining revisions, incomplete
+package coverage or a failed clean probe still block agreement. A selected round
+with a saved successor cannot become the final basis. Resolve revisions through
+explicit decisions first; this route never performs implicit accept-all.
+
+Agreement binds all saved rounds (including sent records), working selections,
+issue history, linked operations and current positions revision. Preparation
+and publication also recheck the complete live review. Changes require a new
+review/agreement. The incoming snapshot remains authoritative when no working
+file is selected; later changes to its external original cannot replace it.
+The raw `read_finalization_review` remains `incomplete` and retains historical
+issue blockers even after agreement; use the separate agreement records to read
+the lawyer's reconciliations. `final_basis_observations` only compares saved
+context and explicitly still requires live checks.
+
+The candidate uses existing checked cleanup/export with complete coverage,
+zero input/accepted revisions and no surviving ordinary comment messages or
+anchors. The complete internal cleanup report includes removed messages and
+property values; it is not copied into the external folder. Unknown content,
+field dependencies and original source/working-file protections stay intact.
+Only the selected property policy applies; fields such as DATE/TIME retain their
+existing behavior. At most 10 agreements, 10 plans and 20 final-document events
+fit inside existing aggregate state/request budgets; oversize work refuses as
+a whole, without truncating evidence.
+
+Publication and state commit remain separate. For an uncertain result, reread
+state and verify the same frozen plan/path. Never select another destination as
+a retry. Existing recorded requests replay historical results; they do not
+renew agreement or verify live files. Historical verification may succeed after
+negotiation context changes, but does not restore a stale agreement. Changed or
+extra output bytes are refused and left untouched.
+
+Every saved document remains `candidate_for_word_review`. Open it in Word, check
+all pages, preserve a separately saved copy and recheck any changed content/fields.
+This stage does not implement confirmation/snapshotting of the lawyer's final
+Word-saved bytes. It cannot mark a document ready for signature, send it, or
+silently treat a changed Word save as the original checked candidate.
