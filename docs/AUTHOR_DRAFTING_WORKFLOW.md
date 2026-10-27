@@ -6,6 +6,10 @@ This protocol applies to Veqtor's `read_document_comments`, `read_document_revis
 delivered in MCP initialization instructions so clients receive it when they
 connect. It governs document edits, not software development on Veqtor.
 
+For the first or a later round, use the encompassing
+[negotiation-round workflow](prompts/negotiation-round.md). This document governs
+the concrete editing and outgoing steps within that workflow.
+
 ## 1. Read and identify the requested work
 
 For a saved negotiation, first read the matter's `read_deal_state` and original

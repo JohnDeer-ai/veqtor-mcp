@@ -113,7 +113,35 @@ does not prove that Codex used the MCP tools. A client check must show actual
 Veqtor tool calls and the resulting file. The synthetic example also does not
 establish suitability for every real contract or independent-user acceptance.
 
-## Use saved positions for the next round (NR-03 development)
+## First and later rounds with saved deal state (MVP development)
+
+The [negotiation-round workflow](prompts/negotiation-round.md) connects saved
+incoming/sent roles, working copies, issue decisions, drafting recovery and
+outgoing preparation. Its thin
+[veqtor-negotiation-round skill](../.agents/skills/veqtor-negotiation-round/SKILL.md)
+is included with the workflow in the checkout and source archive. Keep their
+relative layout. Invoke `$veqtor-negotiation-round` from that checkout or provide
+the skill path; no permanent client configuration change is needed for the skill.
+The connected Veqtor installation must independently provide the required
+development commands; merely opening this checkout does not install them.
+
+For example, provide the exact matter and incoming paths and say:
+
+> Review this contract and prepare our first response. Use the saved positions
+> and show me the concrete wording for decisions that are still missing.
+
+In a new chat, provide the same matter folder and new incoming path:
+
+> The counterparty replied. Continue our round from the recorded file we sent,
+> account for all changes and prepare the selected outgoing files after my decisions.
+
+Prepared files, actually sent bytes and legal finalization remain separate.
+The current outgoing policies preserve comments/properties; selected cleanup,
+disagreement-table output and F10 are not supplied by this instruction. Full
+native-client/real-document acceptance remains open. The selected-issue workflow
+below retains its own version and historical acceptance evidence.
+
+## Use saved positions for selected issues (NR-03 development)
 
 Use an installed, verified release exposing the eleven document/position tools,
 including `read_deal_positions` and `mutate_deal_positions`. The public `0.4.0`

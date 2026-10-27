@@ -406,6 +406,26 @@ def _filesystem_spelled_workspace(
     return fallback if observed is None else observed
 
 
+def _private_storage(workspace: Path) -> bool:
+    """Private snapshots/backups are never optional provenance workspaces."""
+    return any(
+        part.casefold() in {SIDECAR_DIR, ".veqtor-backups"}
+        for part in workspace.parts
+    )
+
+
+def _require_recording_workspace_fd(
+    fd: int, root: Path, identity: tuple[int, int]
+) -> None:
+    # Recheck the opened directory before creating or modifying a sidecar. A
+    # directory moved into private storage after resolution must stay untouched.
+    observed = _filesystem_spelled_workspace(fd, root, identity)
+    if _private_storage(root) or _private_storage(observed):
+        raise DecisionRecordError(
+            "workspace_changed", "optional provenance cannot write in private storage"
+        )
+
+
 def _canonical_workspace(workspace: str | Path) -> tuple[Path, tuple[int, int]]:
     root = workspace_for_folder(workspace)
     try:
@@ -670,6 +690,7 @@ def _journal_for_write(
     try:
         try:
             with _bounded_journal_lock(root_fd, fcntl.LOCK_EX, deadline=deadline):
+                _require_recording_workspace_fd(root_fd, root, expected_identity)
                 root_lock_acquired_at = _journal_lock_handoff_moment()
                 try:
                     os.mkdir(SIDECAR_DIR, mode=0o700, dir_fd=root_fd)
@@ -963,6 +984,7 @@ def _sidecar_for_existing_write(
     deadline = _journal_lock_deadline() if lock_deadline is None else lock_deadline
     try:
         with _bounded_journal_lock(root_fd, fcntl.LOCK_EX, deadline=deadline):
+            _require_recording_workspace_fd(root_fd, root, expected_identity)
             sidecar_fd = _open_sidecar_fd(root_fd, sidecar, missing_ok=True)
             if sidecar_fd is None:
                 raise DecisionRecordError(
@@ -2213,6 +2235,7 @@ def _append_path_bound_record(
     rolled_back = False
     try:
         with _bounded_journal_lock(root_fd, fcntl.LOCK_EX, deadline=lock_deadline):
+            _require_recording_workspace_fd(root_fd, root, expected_workspace_identity)
             (
                 snapshot,
                 sidecar_fd,
@@ -3021,6 +3044,8 @@ def _write_record(
             raise DecisionRecordError(
                 "workspace_changed", "workspace identity changed before publication"
             )
+        if _private_storage(root):
+            return {"record_id": None, "record_status": "disabled"}
         expected_identity = (
             resolved_identity
             if expected_workspace_identity is None
@@ -4802,7 +4827,7 @@ def export_records_with_access_event(
     limit, before_record_number = _read_options(max_records, before_record_id, False)
     root, expected_identity = _canonical_workspace(workspace)
     _require_existing_export_workspace(root, expected_identity)
-    if disabled():
+    if disabled() or _private_storage(root):
         return (
             _read_records_for_existing_identity(
                 root,
