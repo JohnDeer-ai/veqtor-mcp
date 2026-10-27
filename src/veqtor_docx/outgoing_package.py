@@ -15,7 +15,7 @@ import os
 import unicodedata
 import uuid
 
-from . import round_snapshots as s
+from . import round_snapshots as s, disagreement_table as table
 from ._drafting_io import (
     _identity, _rename_noreplace, _supported_filesystem, _version, _write_all,
     require_editable_path,
@@ -43,6 +43,7 @@ class PreparedOutgoing:
     plan_sha256: str
     comments_policy: object = "preserve_all"
     properties_policy: object = "preserve_all"
+    disagreement_table: object = None
 
 
 def _fail(code, detail, **metadata):
@@ -65,6 +66,7 @@ def prepare_outgoing_package(
     source: s.DocumentSnapshot, destination: str, *, redline_name: str | None = None,
     clean_draft_name: str | None = None,
     comments_policy="preserve_all", properties_policy="preserve_all",
+    disagreement_table=None,
 ) -> PreparedOutgoing:
     """Prepare the whole selected kit in memory; an unsupported member refuses all.
 
@@ -74,7 +76,8 @@ def prepare_outgoing_package(
     if not isinstance(source, s.DocumentSnapshot):
         _fail('invalid_snapshot', 'capture an exact source snapshot first')
     s.DocumentSnapshot(source.payload, source.sha256, source.size_bytes)
-    names = [n for n in (redline_name, clean_draft_name) if n is not None]
+    view = table.validate(disagreement_table) if disagreement_table is not None else None
+    names = [n for n in (redline_name, clean_draft_name, view["name"] if view else None) if n is not None]
     if not names or len({_name(n).casefold() for n in names}) != len(names):
         _fail('invalid_outgoing_plan', 'select distinct filenames for at least one output')
     output = s._path(destination)
@@ -92,34 +95,38 @@ def prepare_outgoing_package(
         files.append(OutgoingFile('clean_draft', clean_draft_name, result.payload))
         clean = dict(accepted_revision_count=result.accepted_revision_count,
                      decisions=list(result.decisions), inventory_after=result.inventory_after)
+    if view is not None:
+        files.append(OutgoingFile("disagreement_table", view["name"], table.render(view)))
     report = json.dumps(dict(
-        schema_version='outgoing_preparation.v2' if cleanup is not None else 'outgoing_preparation.v1', source_sha256=source.sha256, output_path=output,
+        schema_version='outgoing_preparation.v3' if view is not None else 'outgoing_preparation.v2' if cleanup is not None else 'outgoing_preparation.v1', source_sha256=source.sha256, output_path=output,
         source_size_bytes=source.size_bytes, readiness='prepared_unreviewed',
         comments_policy=comments_policy, properties_policy=properties_policy,
         files=[dict(kind=f.kind, name=f.name, sha256=s._sha(f.payload), size_bytes=len(f.payload)) for f in files],
         inventory_before=inventory, clean_draft=clean,
         **({'cleanup': cleanup} if cleanup is not None else {}),
+        **({'disagreement_table': {'renderer': 'disagreement_table.v1', 'view': view,
+            'limitations': ['selected_issues_only', 'proposal_not_agreed_wording', 'missing_fields_not_inferred']}} if view is not None else {}),
         limitations=['not_a_sent_record', 'not_legal_finalization', 'not_confidentiality_clearance',
                      *(['comment_and_property_cleanup_not_implemented'] if cleanup is None else ['selected_cleanup_only']), 'word_visual_acceptance_not_performed'],
     ), ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
     if len(report) > MAX_REPORT_BYTES:
         _fail('resource_limit_exceeded', 'outgoing internal report exceeds its bound')
-    return PreparedOutgoing(source, tuple(files), report, hashlib.sha256(report).hexdigest(), comments_policy, properties_policy)
+    return PreparedOutgoing(source, tuple(files), report, hashlib.sha256(report).hexdigest(), comments_policy, properties_policy, view)
 
 
 def _validated(plan, destination, expected_plan_sha256):
     if (not isinstance(plan, PreparedOutgoing) or not s._digest(expected_plan_sha256)
-            or type(plan.files) is not tuple or not 1 <= len(plan.files) <= 2
+            or type(plan.files) is not tuple or not 1 <= len(plan.files) <= 3
             or any(not isinstance(f, OutgoingFile) for f in plan.files)):
         _fail('invalid_outgoing_plan', 'a complete prepared outgoing plan is required')
     # Public dataclass construction/replacement cannot turn arbitrary bytes into
     # a checked clean candidate or weaken the selected preservation policy.
     names = {f.kind: f.name for f in plan.files}
-    if len(names) != len(plan.files) or not names.keys() <= {'cumulative_redline', 'clean_draft'}:
+    if len(names) != len(plan.files) or not names.keys() <= {'cumulative_redline', 'clean_draft', 'disagreement_table'}:
         _fail('invalid_outgoing_plan', 'unsupported output kinds')
     checked = prepare_outgoing_package(plan.source, destination, redline_name=names.get('cumulative_redline'),
                                        clean_draft_name=names.get('clean_draft'), comments_policy=plan.comments_policy,
-                                       properties_policy=plan.properties_policy)
+                                       properties_policy=plan.properties_policy, disagreement_table=plan.disagreement_table)
     if plan != checked or checked.plan_sha256 != expected_plan_sha256:
         _fail('outgoing_plan_mismatch', 'review the exact current outgoing plan before publication')
     return checked

@@ -86,52 +86,59 @@ def read_round_issue_brief(folder, expected_revision, expected_positions_revisio
         positions_revision = positions["revision"] if positions else None
         if positions_revision != expected_positions_revision:
             p._fail("positions_revision_conflict")
-        round_row = next((r for r in store["rounds"] if r["round_id"] == round_id), None)
-        if round_row is None:
-            p._fail("round_missing")
-        available = {i["issue_id"]: i for i in w.issues(store) if i["round_id"] == round_id}
-        if not set(issue_ids) <= set(available):
-            p._fail("issue_missing")
-        selected = [available[key] for key in issue_ids]
-        operation_ids = {oid for i in selected for oid in i["content"]["operation_ids"]}
-        if len(operation_ids) > w.MAX_OPERATION_OBSERVATIONS:
-            p._fail("resource_limit_exceeded")
-        operations = [o for o in store.get("operations", []) if o["operation_id"] in operation_ids]
-        works = w.working(store, round_id)[-1:]
-        observed = w.observations(folder, {"rounds": [round_row], "issue_events": selected,
-            "operations": operations, "working_documents": works}, positions, 0)
-        basis = w.basis(store, round_row)
-        quotes = _Quotes(folder)
-        quotes.load(round_row["incoming_sha256"])
-        quotes.load(basis)
-        if round_row["sent_basis"]:
-            quotes.load(round_row["sent_basis"]["file_sha256"])
-        rows = []
-        for issue, observation in zip(selected, observed["issue_observations"]):
-            content = issue["content"]
-            for key in ("sent_quote", "incoming_quote", "working_quote"):
-                quotes.verify(content[key])
-            working_quote = content["working_quote"]
-            rows.append({"issue": deepcopy(issue), "observation": observation,
-                "quote_status": {
-                    "sent": "verified_snapshot" if content["sent_quote"] else "missing",
-                    "incoming": "verified_snapshot" if content["incoming_quote"] else "missing",
-                    "working": ("missing" if working_quote is None else "verified_current_snapshot"
-                        if working_quote["file_sha256"] == basis else "verified_historical_snapshot")},
-                "position_version": _position_version(content["position"], positions, observation["position_status"]),
-                "related_comments": "not_recorded_in_issue_state"})
-        data = {"revision": store["revision"], "positions_revision": positions_revision,
-            "round_id": round_id, "selected_issue_ids": list(issue_ids),
-            "omitted_issue_ids": [key for key in available if key not in issue_ids],
-            "round_issue_count": len(available),
-            "basis": {"incoming_sha256": round_row["incoming_sha256"], "sent_basis": deepcopy(round_row["sent_basis"]),
-                "current_sha256": basis, "working_document": deepcopy(works[0]) if works else None,
-                "working_status": observed["working_observations"][0]["status"] if works else "not_selected"},
-            "issues": rows, "operations": [{"link": deepcopy(op), "observation": obs}
-                for op, obs in zip(operations, observed["operation_observations"])],
-            "limitations": list(LIMITATIONS)}
-        # The dataset digest covers data only, including observations and order.
-        payload = p._json_bytes(data)
+        result = read_locked(folder, store, positions, round_id, issue_ids)
         recheck()
-        return {"schema_version": "round_issue_brief.v1", "status": "ok", "audience": "internal_review",
-                "dataset_sha256": hashlib.sha256(payload).hexdigest(), "data": data}
+        return result
+
+
+def read_locked(folder, store, positions, round_id, issue_ids):
+    """Internal projection while the caller holds the original state lock."""
+    positions_revision = positions["revision"] if positions else None
+    round_row = next((r for r in store["rounds"] if r["round_id"] == round_id), None)
+    if round_row is None:
+        p._fail("round_missing")
+    available = {i["issue_id"]: i for i in w.issues(store) if i["round_id"] == round_id}
+    if not set(issue_ids) <= set(available):
+        p._fail("issue_missing")
+    selected = [available[key] for key in issue_ids]
+    operation_ids = {oid for i in selected for oid in i["content"]["operation_ids"]}
+    if len(operation_ids) > w.MAX_OPERATION_OBSERVATIONS:
+        p._fail("resource_limit_exceeded")
+    operations = [o for o in store.get("operations", []) if o["operation_id"] in operation_ids]
+    works = w.working(store, round_id)[-1:]
+    observed = w.observations(folder, {"rounds": [round_row], "issue_events": selected,
+        "operations": operations, "working_documents": works}, positions, 0)
+    basis = w.basis(store, round_row)
+    quotes = _Quotes(folder)
+    quotes.load(round_row["incoming_sha256"])
+    quotes.load(basis)
+    if round_row["sent_basis"]:
+        quotes.load(round_row["sent_basis"]["file_sha256"])
+    rows = []
+    for issue, observation in zip(selected, observed["issue_observations"]):
+        content = issue["content"]
+        for key in ("sent_quote", "incoming_quote", "working_quote"):
+            quotes.verify(content[key])
+        working_quote = content["working_quote"]
+        rows.append({"issue": deepcopy(issue), "observation": observation,
+            "quote_status": {
+                "sent": "verified_snapshot" if content["sent_quote"] else "missing",
+                "incoming": "verified_snapshot" if content["incoming_quote"] else "missing",
+                "working": ("missing" if working_quote is None else "verified_current_snapshot"
+                    if working_quote["file_sha256"] == basis else "verified_historical_snapshot")},
+            "position_version": _position_version(content["position"], positions, observation["position_status"]),
+            "related_comments": "not_recorded_in_issue_state"})
+    data = {"revision": store["revision"], "positions_revision": positions_revision,
+        "round_id": round_id, "selected_issue_ids": list(issue_ids),
+        "omitted_issue_ids": [key for key in available if key not in issue_ids],
+        "round_issue_count": len(available),
+        "basis": {"incoming_sha256": round_row["incoming_sha256"], "sent_basis": deepcopy(round_row["sent_basis"]),
+            "current_sha256": basis, "working_document": deepcopy(works[0]) if works else None,
+            "working_status": observed["working_observations"][0]["status"] if works else "not_selected"},
+        "issues": rows, "operations": [{"link": deepcopy(op), "observation": obs}
+            for op, obs in zip(operations, observed["operation_observations"])],
+        "limitations": list(LIMITATIONS)}
+    # The dataset digest covers data only, including observations and order.
+    payload = p._json_bytes(data)
+    return {"schema_version": "round_issue_brief.v1", "status": "ok", "audience": "internal_review",
+            "dataset_sha256": hashlib.sha256(payload).hexdigest(), "data": data}
