@@ -12,6 +12,7 @@ import json
 
 from veqtor_docx import incoming_comparison, outgoing_cleanup, round_snapshots
 from veqtor_docx._ooxml import load_validated_docx, parse_xml, w
+from veqtor_docx.revision_inventory import inventory_package_revisions
 
 from . import positions as p
 from ._finalization_review import _document
@@ -20,14 +21,41 @@ MAX_REPORT_BYTES = 1024 * 1024
 MAX_CHANGED_PARTS = 200
 
 
-def _properties(parts):
-    # Retain full XML, including non-scalar properties and attributes. This is
-    # an internal review, not a scalar-only confidentiality clearance.
+def _xml_roots(package, payload):
+    # Use the inventory's content-type-aware discovery, not filename suffixes.
     return {
-        path: etree.tostring(parse_xml(parts[path]), encoding="unicode")
-        for path, _, _ in outgoing_cleanup.PROPS.values()
-        if path in parts
+        row["part_name"]: parse_xml(package.parts[row["part_name"]])
+        for row in inventory_package_revisions(payload)["parts"]
+        if row["inspection"] in {"xml", "opaque_user_storage"}
     }
+
+
+def _properties(roots):
+    tags = {tag for _, tag, _ in outgoing_cleanup.PROPS.values()}
+    return {
+        name: etree.tostring(root, encoding="unicode")
+        for name, root in roots.items()
+        if root.tag in tags
+    }
+
+
+def _canonical_properties(roots):
+    relationships = roots.get("_rels/.rels")
+    if relationships is None:
+        return False
+    for path, tag, relation in outgoing_cleanup.PROPS.values():
+        names = [name for name, root in roots.items() if root.tag == tag]
+        links = [node for node in relationships if node.get("Type") == relation]
+        if not names and not links:
+            continue
+        if (
+            names != [path]
+            or len(links) != 1
+            or links[0].get("Target") not in {path, "/" + path}
+            or links[0].get("TargetMode", "Internal") != "Internal"
+        ):
+            return False
+    return True
 
 
 def build(candidate, saved, *, candidate_properties_policy="preserve_all"):
@@ -40,16 +68,15 @@ def build(candidate, saved, *, candidate_properties_policy="preserve_all"):
     )
     before = load_validated_docx(candidate.payload, capture=None)
     after = load_validated_docx(saved.payload, capture=None)
+    before_roots = _xml_roots(before, candidate.payload)
+    after_roots = _xml_roots(after, saved.payload)
     document = _document(saved.payload, saved.sha256)
     forbidden = {
         w(n)
         for n in ("comment", "commentReference", "commentRangeStart", "commentRangeEnd")
     }
     comments = sum(
-        n.tag in forbidden
-        for name, raw in after.parts.items()
-        if name.endswith(".xml")
-        for n in parse_xml(raw).iter()
+        n.tag in forbidden for root in after_roots.values() for n in root.iter()
     )
     comparison = incoming_comparison.build_incoming_comparison(candidate, saved)
     metadata = json.loads(comparison.metadata)
@@ -82,16 +109,22 @@ def build(candidate, saved, *, candidate_properties_policy="preserve_all"):
     _, properties_policy = outgoing_cleanup.policies(
         properties=candidate_properties_policy
     )
+    if not _canonical_properties(before_roots) or not _canonical_properties(
+        after_roots
+    ):
+        blockers.append("metadata_layout_unsupported")
     reappeared = []
     if properties_policy != "preserve_all":
         for field in properties_policy["fields"]:
-            path, _, _ = outgoing_cleanup.PROPS[field["part"]]
-            if path in after.parts:
-                root = parse_xml(after.parts[path])
+            _, tag, _ = outgoing_cleanup.PROPS[field["part"]]
+            for path, root in after_roots.items():
+                if root.tag != tag:
+                    continue
                 matches = [
                     n
                     for n in root
-                    if (
+                    if isinstance(n.tag, str)
+                    and (
                         n.get("name") == field["name"]
                         if field["part"] == "custom"
                         else etree.QName(n).localname == field["name"]
@@ -101,6 +134,7 @@ def build(candidate, saved, *, candidate_properties_policy="preserve_all"):
                     reappeared.append(
                         {
                             **field,
+                            "part_name": path,
                             "xml_values": [
                                 etree.tostring(n, encoding="unicode") for n in matches
                             ],
@@ -119,8 +153,8 @@ def build(candidate, saved, *, candidate_properties_policy="preserve_all"):
         "reappeared_selected_properties": reappeared,
         "automatic_blockers": blockers,
         "changed_parts": changed,
-        "properties_before": _properties(before.parts),
-        "properties_after": _properties(after.parts),
+        "properties_before": _properties(before_roots),
+        "properties_after": _properties(after_roots),
         "comparison": {
             "metadata": metadata,
             "items": [json.loads(i) for i in comparison.items],

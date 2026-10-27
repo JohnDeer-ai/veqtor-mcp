@@ -430,3 +430,64 @@ def test_historical_confirmation_replay_does_not_approve_changed_bytes(saved_cas
         resumed["final_confirmation_observations"][0]["selected_file_status"]
         == "changed"
     )
+
+
+@pytest.mark.parametrize(
+    "kind,field", [("core", "creator"), ("app", "Company"), ("custom", "InternalNote")]
+)
+@pytest.mark.parametrize("suffix", ["xml", "dat"])
+def test_relocated_metadata_is_disclosed_and_confirmation_refuses(
+    saved_case, kind, field, suffix
+):
+    from veqtor_docx import outgoing_cleanup as cleanup
+
+    folder, _, saved, state = saved_case
+    parts = unpack(saved.read_bytes())
+    old, tag, _ = cleanup.PROPS[kind]
+    new = "docProps/relocated-" + kind + "." + suffix
+    root = etree.fromstring(parts.pop(old))
+    marker = "FICTIONAL_PRIVATE_RELOCATED_" + kind.upper()
+    if kind == "core":
+        etree.SubElement(root, "{" + cleanup.DC + "}creator").text = marker
+    elif kind == "app":
+        etree.SubElement(root, "{" + cleanup.APP + "}Company").text = marker
+    else:
+        node = etree.SubElement(
+            root,
+            "{" + cleanup.CUSTOM + "}property",
+            fmtid="{D5CDD505-2E9C-101B-9397-08002B2CF9AE}",
+            pid="2",
+            name="InternalNote",
+        )
+        etree.SubElement(node, "{" + cleanup.VT + "}lpwstr").text = marker
+    assert root.tag == tag
+    parts[new] = etree.tostring(root)
+    for name, attribute in [
+        ("[Content_Types].xml", "PartName"),
+        ("_rels/.rels", "Target"),
+    ]:
+        tree = etree.fromstring(parts[name])
+        for node in tree:
+            if node.get(attribute) in {old, "/" + old}:
+                node.set(
+                    attribute,
+                    ("/" if node.get(attribute).startswith("/") else "") + new,
+                )
+        parts[name] = etree.tostring(tree)
+    saved.write_bytes(pack(parts))
+    original = saved.read_bytes()
+    state = prepare_saved(folder, saved, state)
+    report = json.loads(state["final_saved_reviews"][-1]["report_utf8"])
+    assert marker in report["properties_after"][new]
+    assert any(
+        row["name"] == field
+        and row["part_name"] == new
+        and marker in "".join(row["xml_values"])
+        for row in report["reappeared_selected_properties"]
+    )
+    assert "metadata_layout_unsupported" in report["automatic_blockers"]
+    before = (folder / ".veqtor/deal-rounds.json").read_bytes()
+    with pytest.raises(p.PositionError, match="final_saved_document_blocked"):
+        change(folder, state, "confirm_final_saved_document", **confirmation(state))
+    assert saved.read_bytes() == original
+    assert (folder / ".veqtor/deal-rounds.json").read_bytes() == before

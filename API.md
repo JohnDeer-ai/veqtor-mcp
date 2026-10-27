@@ -2287,7 +2287,7 @@ characters refuse instead of silently changing quotations.
 
 Preparation saves every selected cell, the renderer identity and exact file
 hashes in the v3 internal report before publication. It upgrades the private
-store to at least v7 without discarding existing rows, retaining v8 when present; reads do not rewrite older stores.
+store to at least v7 without discarding existing rows, retaining v8 or v9 when present; reads do not rewrite older stores.
 The old preparation action and no-table v1/v2 reports retain their behavior.
 The table can accompany the redline and/or clean draft (up to three files), or
 stand alone with both contract names null. A selected working version is still
@@ -2379,8 +2379,9 @@ text edits to both columns; this check does not add another write engine.
 
 Four `mutate_deal_state` commands extend the same 23-tool interface. All use the
 outer current `expected_revision`, retained request ID and selected `round_id`.
-The first such mutation upgrades the closed store to v8; reads do not migrate
-earlier stores and every later command preserves new records.
+The first such mutation upgrades an older store to v8 and retains v9 when
+already present; reads do not migrate earlier stores and every later command
+preserves new records.
 
 - `record_final_basis_agreement`: exact `file_sha256`, current nullable
   `expected_positions_revision`, fresh `expected_review_sha256` from the complete
@@ -2431,8 +2432,9 @@ existing aggregate byte/request limits; oversize evidence refuses without trunca
 
 The document stage is always `candidate_for_word_review`. Review all pages in
 Word; a manual save may change text, fields and properties and must be rechecked.
-This slice does not confirm or snapshot the final Word-saved bytes as approved by
-the lawyer, and does not mark a document signature-ready or sent. See
+These four candidate-stage commands do not themselves confirm or snapshot
+Word-saved bytes as approved. Use the separate v9 saved-version workflow below;
+neither stage marks a document signature-ready or sent. See
 [deal state](docs/DEAL_STATE.md#explicit-agreed-basis-and-checked-final-candidate-development).
 
 
@@ -2460,8 +2462,10 @@ remain readable; older mutations preserve both new collections. Results are
   check. Model-generated assertions must not replace the lawyer's decision.
 
 The private report contains every changed part's old/new hash, the complete
-supported text/structure comparison, canonical metadata XML before/after and
-selected properties recreated by Word. It makes no universal DOCX-equivalence
+supported text/structure comparison, all recognized core/app/custom metadata XML before/after and
+selected properties recreated by Word, including their actual part paths.
+Noncanonical or ambiguous metadata layout blocks confirmation; its recognized
+property values still appear in the private report. It makes no universal DOCX-equivalence
 claim. Changed text and field/property behavior require explicit reconciliation;
 this route never edits or freezes dates. Properties the earlier cleanup removed
 but Word recreated require an explicit decision in the metadata review. No

@@ -113,7 +113,7 @@ not relabelled as acceptance of the complete MVP round.
 
 ## Working copies, operations and legal issues
 
-The advertised result is now `deal_state_result.v8`. Existing closed v1 role
+The advertised result is now `deal_state_result.v9`. Existing closed v1 role
 stores are validated and read without rewriting their bytes or revision. The
 first workflow mutation atomically upgrades only `deal-rounds.json` to the closed
 v2 format, retaining all prior roles/requests. An explicit initial manual import
@@ -404,9 +404,9 @@ create provenance, recover operations or publish files.
 
 ### Explicit agreed basis and checked final candidate (development)
 
-The first finalization mutation upgrades only `deal-rounds.json` to closed v8.
-Existing v1–v7 stores are read without rewriting them. Subsequent older commands
-preserve all v8 records. Position and operation stores keep their original formats.
+The first candidate-stage finalization mutation upgrades an older
+`deal-rounds.json` to closed v8, retaining v9 if already present. Existing stores
+are read without rewriting them. Subsequent older commands preserve all v8/v9 records. Position and operation stores keep their original formats.
 The same 23 public tools remain; four actions extend `mutate_deal_state`:
 
 | Action | Required evidence and result |
@@ -492,8 +492,10 @@ remain readable; older mutations preserve both new collections. Results are
   check. Model-generated assertions must not replace the lawyer's decision.
 
 The private report contains every changed part's old/new hash, the complete
-supported text/structure comparison, canonical metadata XML before/after and
-selected properties recreated by Word. It makes no universal DOCX-equivalence
+supported text/structure comparison, all recognized core/app/custom metadata XML before/after and
+selected properties recreated by Word, including their actual part paths.
+Noncanonical or ambiguous metadata layout blocks confirmation; its recognized
+property values still appear in the private report. It makes no universal DOCX-equivalence
 claim. Changed text and field/property behavior require explicit reconciliation;
 this route never edits or freezes dates. Properties the earlier cleanup removed
 but Word recreated require an explicit decision in the metadata review. No
