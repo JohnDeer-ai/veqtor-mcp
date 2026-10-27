@@ -6,7 +6,7 @@ This file defines the public tool surface. Output examples are part of the API
 because models use them to decide how to call tools and how to cite results.
 
 The current source defines the unreleased package candidate `0.6.0.dev1` and advertises the
-twenty-two-tool development MCP contract `veqtor.mcp.v0.6.0`. The drafting tools
+twenty-three-tool development MCP contract `veqtor.mcp.v0.6.0`. The drafting tools
 are documented in [AUTHOR_DRAFTING.md](docs/AUTHOR_DRAFTING.md):
 `read_document_comments`, `read_document_revisions`, `preflight_document_edits`, `apply_document_edits`, `recover_document_operation`.
 Drafting uses `document_drafting.v1` and, by default, `drafting_preflight.v2`;
@@ -51,7 +51,7 @@ transport teardown separately reaps the stdio server process.
 
 Every successful live tool response includes the same bounded `producer`
 object with `name`, package `version`, and the process-start Python source
-snapshot `build`. This applies to all twenty-two tools, including read-only results
+snapshot `build`. This applies to all twenty-three tools, including read-only results
 and decision-record export. Error envelopes are not successful tool results.
 `producer`, `record_id`, `record_status`, and `record_error` are server-owned;
 core tool results cannot supply them. `record_error` is present only with
@@ -2118,6 +2118,51 @@ basis. It also returns working selections, linked operations, issue history,
 outgoing plans/events and `working_copy_plans`. Current working/journal
 observations are paginated; saved outgoing receipts are historical. Role and
 send assertions remain distinct from verified file-byte observations.
+
+## `read_finalization_review`
+
+Read one complete bounded **internal** review before preparing a final contract.
+Inputs are `folder`, current `expected_revision`, `expected_positions_revision`
+(null only without a position store), `round_id`, and exact `basis_sha256` of the
+round's latest saved working document, or its incoming snapshot if none exists.
+An old state, wrong basis or incomplete evidence refuses the whole request.
+
+The report includes **all saved rounds in this matter**, their latest issues,
+the complete issue/position histories and every linked operation, including
+operations without issue links. There is no issue selection or pagination that
+can omit an open question. Historical concession conditions remain available even
+after an issue removes its position link. Snapshot quotations are rechecked.
+Live working bytes are observed separately from the verified immutable snapshot.
+Unknown/unavailable operation results remain blockers; a recorded failure with
+known non-publication is distinguished from an unknown outcome. Historical success
+does not prove that the desired wording was adopted in the selected final basis.
+
+`data.automatic_blockers` reports changed/unavailable work, a selected round with
+a successor, unresolved/deferred questions, changed decision/position bases,
+remaining revisions, incomplete package coverage and a refused clean probe.
+The package inventory covers every part; findings are grouped by code/part with
+exact counts. Only a revision-free package with complete supported inventory is
+passed to the existing clean engine. That probe must accept zero revisions and
+retain identical bytes; it preserves comments/properties and publishes nothing.
+Pending revisions are never implicitly accepted to obtain a passing result.
+
+The result is `finalization_review.v1`, `audience=internal_review`, and **always
+`readiness=incomplete`**. `required_manual_checks` lists agreement on the exact
+basis, questions and concession conditions, requisites, annexes, blanks, areas
+outside automatic coverage, explicit comment/property policy, checked final
+export and Word review/confirmation of the final saved bytes. These steps remain
+separate and are not recorded or approved by this tool. No finalization mutation
+is supplied in this slice. Clean markup and prior issue/position confirmations
+never establish mutual agreement.
+
+The whole read refuses above 20 linked operations, 20 checked snapshots, 100 MiB
+of snapshot bytes or 2 MiB of canonical review data; it returns no partial success.
+Store versions v1–v7 are read without migration. There are no writes, exports,
+recovery attempts or optional provenance records. `review_sha256` hashes canonical
+JSON of `data` only and is **not an approval token**; live files/journals can change
+without a state revision. This report contains private assessments and terms.
+Unrecorded questions/actions cannot be discovered from saved state, and inventory
+is not complete content/hidden-data review. Do not use it as an external attachment.
 
 ## `read_round_issue_brief`
 

@@ -17,7 +17,7 @@ DEVELOPMENT_TOOLS = (
     "list_rounds", "extract_redlines", "inspect_document", "map_rounds",
     "trace_paragraph_history", "preflight_edits", "apply_edits", "verify_quote",
     "export_decision_record", "read_deal_positions", "mutate_deal_positions",
-    "read_deal_state", "mutate_deal_state", "read_round_issue_brief",
+    "read_deal_state", "mutate_deal_state", "read_round_issue_brief", "read_finalization_review",
     "compare_incoming_version", "read_document_tables", "check_bilingual_conditions", "read_document_comments", "read_document_revisions", "preflight_document_edits", "apply_document_edits", "recover_document_operation",
 )
 FROZEN_TOOLS = (
@@ -42,7 +42,7 @@ def inventory(names):
     return SimpleNamespace(tools=[SimpleNamespace(name=name) for name in names])
 
 
-def test_explicit_twenty_two_tool_development_inventory_passes(smoke):
+def test_explicit_twenty_three_tool_development_inventory_passes(smoke):
     assert smoke.__version__ == "0.6.0.dev1"
     assert smoke._assert_tool_inventory(inventory(DEVELOPMENT_TOOLS)) == DEVELOPMENT_TOOLS
 
@@ -102,7 +102,7 @@ def test_complete_smoke_validates_inventory_in_both_stdio_eras_and_inmemory(smok
     monkeypatch.setattr(smoke, "_assert_tool_inventory", observe)
     result = asyncio.run(smoke.smoke())
     assert observed == [DEVELOPMENT_TOOLS, DEVELOPMENT_TOOLS, DEVELOPMENT_TOOLS]
-    assert result["tool_count"] == 22
+    assert result["tool_count"] == 23
     assert result["incoming_comparison"]["pages"] > 1
     assert result["incoming_comparison"]["partition_complete"] is True
     assert result["incoming_comparison"]["sources_unchanged"] is True
@@ -121,6 +121,6 @@ def test_drafting_smoke_retains_exact_inventory_and_completes_saves(tmp_path, mo
     result = asyncio.run(module.smoke(tmp_path, interpreter=sys.executable,
                                       author="Synthetic Drafting Reviewer", initials="DR"))
     assert result["tools"] == sorted(DEVELOPMENT_TOOLS)
-    assert result["tool_count"] == 22
+    assert result["tool_count"] == 23
     assert result["save_count"] == result["exact_backup_count"] == 7
     assert result["existing_revisions_preserved"] is True
