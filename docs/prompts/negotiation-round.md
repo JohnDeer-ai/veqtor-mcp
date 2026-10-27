@@ -2,7 +2,7 @@
 
 # Run a first or later negotiation round
 
-Workflow version: `mvp-negotiation-round.v2` (development).
+Workflow version: `mvp-negotiation-round.v3` (development).
 Use a verified compatible development installation with the 21-tool drafting,
 deal-state and outgoing-package surface described in [DEAL_STATE.md](../DEAL_STATE.md).
 Version text or a source checkout alone does not establish installed capability.
@@ -181,15 +181,22 @@ entire saved `report_utf8`, selected files and `plan_sha256`; metadata or a
 clipped result is not the complete report. Preparation persists this internal
 report outside the outgoing folder before publication.
 
-The available policies are explicitly `comments_policy=preserve_all` and
-`properties_policy=preserve_all`. The redline contains accumulated history, not
-only the last round. A clean draft accepts supported revisions in a separate
-copy and still preserves all comments/properties; disclose this and obtain the
-concrete authorization. It is not a final file or agreement. Requested selective
-cleanup, a disagreement table or unsupported clean output remain open work;
-never remove unknown data or weaken validation. If one selected member refuses,
-the whole kit is refused. A different composition requires an explicit scope
-choice and fresh preparation.
+Preserve all comments/properties by default. If the user requests cleanup, show
+whole selected threads including every foreign reply, and choose either explicit
+`remove_threads` root/member IDs or `remove_all`. Never infer internal status from
+author, resolved status or a prefix; automatic marker selection is not implemented.
+Select exact `core`/`app`/`custom` property names with `remove_selected`, show their
+actual values, and disclose refusal for unknown coverage or property dependencies.
+DATE/TIME and supported pagination retain their settings. These permissions apply
+only to the outgoing copy; working-file ownership rules remain unchanged.
+
+Read the complete cleanup report before publication, including all removed messages,
+properties and remaining limitations. The redline retains accumulated history;
+a clean draft additionally accepts supported remaining revisions. Neither is a
+final agreed file or confidentiality clearance. A disagreement table, unsupported
+cleanup or clean output remains open work; never remove unknown data or weaken
+validation. If one selected member refuses, the whole kit refuses. A different
+composition requires an explicit scope choice and fresh preparation.
 
 Present the exact composition, preservation policy, expected changes and
 coverage limits. `publish_outgoing_package` needs the saved preparation ID,

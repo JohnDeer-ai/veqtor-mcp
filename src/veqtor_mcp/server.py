@@ -145,14 +145,20 @@ authorizes fresh edits or proves legal agreement. Comment closure never closes a
 issue. Follow read_deal_state observation pages before claiming all actions
 checked. For an outgoing kit, use prepare_outgoing_package in mutate_deal_state
 with the current working request/hash, a new relative folder and selected DOCX
-names. Show its complete saved report and preserve-all comment/property policies.
+names. Show its complete saved report and exact comment/property policies.
+Default preserve_all keeps every comment/property. Optional remove_threads names
+each complete root/member set; remove_all requires complete package coverage.
+Show all selected messages including foreign replies. remove_selected properties
+names exact core/app/custom fields and previews their values. Unknown content or
+property-consuming/unknown fields refuse cleanup; DATE/TIME settings remain intact.
+Cleanup acts only in outgoing copies, never expands working-file author rights.
 Publication requires explicit confirmation of that exact plan; never infer it
 from a stored issue decision. publish_outgoing_package writes selected files only.
 After any uncertain result reread state and use record_outgoing_verification on
 the same plan, never blindly publish another folder. Receipts are historical;
 fresh verification is needed before relying on mutable outgoing files. Keep
 prepared_unreviewed distinct from readiness, actual sending and final agreement.
-Selected cleanup, full round acceptance and legal finalization remain unfinished.
+Marker-based automatic selection, full round acceptance and legal finalization remain unfinished.
 """
 
 
@@ -2003,9 +2009,13 @@ def mutate_deal_state(folder: str, expected_revision: RevisionInput,
     link without changing the proposal version or its historical decision.
     prepare_outgoing_package binds the current working snapshot, issues and
     positions revision to exact output names/path and persists its full internal
-    report in private state before publication. The current supported policies
-    preserve every comment and property; show the report, including unknown-area
-    blockers and automatic-field limitations, before seeking publication approval.
+    report in private state before publication. Policies default to preserve_all.
+    comments_policy can instead select remove_threads with exact root_id/member_ids
+    or remove_all; properties_policy remove_selected lists exact part/name fields.
+    Show every selected message including foreign replies and every property value.
+    Cleanup requires complete package coverage and refuses unknown/dependent fields;
+    it does not change the working file or relax its author restrictions.
+    Show the full report and limits before seeking exact-plan publication approval.
     Selecting a clean draft explicitly means accepting all supported revisions
     in a separate candidate, never declaring legal agreement. Unsupported clean
     preparation refuses the whole selected kit. publish_outgoing_package requires
