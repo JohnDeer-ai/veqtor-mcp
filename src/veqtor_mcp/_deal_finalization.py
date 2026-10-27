@@ -31,7 +31,7 @@ def _hash(value):
 
 def upgrade(store):
     candidate = outgoing.upgrade(store, table=True)
-    candidate["schema_version"] = "deal_rounds_store.v8"
+    candidate["schema_version"] = "deal_rounds_store.v9" if store["schema_version"] == "deal_rounds_store.v9" else "deal_rounds_store.v8"
     for name in COLLECTIONS:
         candidate.setdefault(name, [])
     return candidate
@@ -184,7 +184,7 @@ def _report(row):
 
 
 def validate(store):
-    if store["schema_version"] != "deal_rounds_store.v8":
+    if store["schema_version"] not in {"deal_rounds_store.v8", "deal_rounds_store.v9"}:
         return
     groups = {name: {r["request_id"]: r for r in store[name]} for name in COLLECTIONS}
     order = {name: [] for name in COLLECTIONS}

@@ -463,6 +463,58 @@ extra output bytes are refused and left untouched.
 
 Every saved document remains `candidate_for_word_review`. Open it in Word, check
 all pages, preserve a separately saved copy and recheck any changed content/fields.
-This stage does not implement confirmation/snapshotting of the lawyer's final
-Word-saved bytes. It cannot mark a document ready for signature, send it, or
+These candidate records do not themselves confirm Word-saved bytes; use the
+separate v9 saved-version workflow below. It cannot mark a document ready for signature, send it, or
 silently treat a changed Word save as the original checked candidate.
+
+
+### Exact Word-saved version confirmation (development)
+
+Two further `mutate_deal_state` actions use closed store v9. Older v1-v8 stores
+remain readable; older mutations preserve both new collections. Results are
+`deal_state_result.v9`, still through the same 23 tools.
+
+- `prepare_final_saved_review`: `round_id`, `document_request_id`, `plan_sha256`,
+  relative `path` inside the matter, and exact `file_sha256`. The prior candidate
+  must have a publication/verification record and its original folder must still
+  match. The agreement's complete live context is rechecked. Captures the selected
+  Word-saved copy as a private immutable snapshot and stores the full report in
+  `final_saved_reviews`; this is not approval and does not modify any DOCX.
+- `confirm_final_saved_document`: `round_id`, `saved_review_request_id`,
+  `report_sha256`, `file_sha256`, `user_confirmed: true`, nonempty `statement`,
+  `changed_part_resolutions`, `issue_resolutions`, `position_resolutions` and
+  `manual_checks`. Every changed package part needs exactly one
+  `{part_name, statement}`. Every latest issue and active position needs the exact
+  ID/version and a fresh specific reconciliation statement. Manual checks require
+  `word_reopened`, `all_pages_and_layout`, `date_and_field_behavior`,
+  `properties_and_confidentiality`, `requisites`, `annexes`, `unfilled_places` and
+  `final_agreed_text`, each a nonempty statement about the lawyer's completed
+  check. Model-generated assertions must not replace the lawyer's decision.
+
+The private report contains every changed part's old/new hash, the complete
+supported text/structure comparison, canonical metadata XML before/after and
+selected properties recreated by Word. It makes no universal DOCX-equivalence
+claim. Changed text and field/property behavior require explicit reconciliation;
+this route never edits or freezes dates. Properties the earlier cleanup removed
+but Word recreated require an explicit decision in the metadata review. No
+confidentiality clearance is inferred from a comparison or an empty value.
+
+Remaining revisions, ordinary comment nodes, incomplete package/comparison
+coverage and failed clean probes block confirmation regardless of declarations.
+Confirmation rechecks the entire saved report, exact live copy and immutable
+snapshot. A changed negotiation context also refuses. The candidate, original
+files, prior decisions and all historical records are preserved.
+
+`final_confirmations` records a `client_asserted_final_saved_version`, not proof
+of mutual agreement. Its hash resolves to the immutable file in `documents`.
+`final_confirmation_observations` separately reports current context and whether
+the selected live file still has those bytes; these are observations made during
+the read, not a lock against future changes. Later drift cannot approve new bytes.
+A replay returns the historical assertion and fresh observations without renewing
+it. Snapshot and state persistence remain separate: after any uncertain failure,
+reread state and retry only the identical request; an orphan is not approval.
+
+Each report is limited to 1 MiB and 200 changed parts, with at most 10 saved
+reviews and 10 confirmations under the existing 2 MiB state, request and snapshot
+budgets. Oversize reads refuse whole; they never silently truncate review data.
+There is no automatic send, signature-ready assertion or real-corpus acceptance.
