@@ -121,7 +121,32 @@ REQUEST_V7["properties"]["action"]["enum"].append("prepare_outgoing_package_with
 STORE_V7 = deepcopy(STORE_V6)
 STORE_V7["properties"].update(schema_version={"const": "deal_rounds_store.v7"},
     requests=array(REQUEST_V7, 150), outgoing_packages=array(OUTGOING_V7, 20))
-STORE = {"oneOf": [STORE_V1, STORE_V2, STORE_V3, STORE_V4, STORE_V5, STORE_V6, STORE_V7]}
+FINALIZATION_ACTIONS = ["record_final_basis_agreement", "prepare_final_document",
+                        "publish_final_document", "record_final_document_verification"]
+FINAL_CHECKS = obj(known_questions=text(2000), historical_conditions=text(2000),
+    requisites=text(2000), annexes=text(2000), unfilled_places=text(2000), uncovered_areas=text(2000))
+ISSUE_RESOLUTIONS = array(obj(issue_id=ISSUE_ID, version=VERSION, statement=text(2000)), 100)
+POSITION_RESOLUTIONS = array(obj(position_id=ID, version=VERSION, statement=text(2000)), 50)
+FINAL_AGREEMENT = obj(request_id=UUID, round_id=ROUND_ID, file_sha256=SHA,
+    positions_revision=nullable(SHA), scope_sha256=SHA, review_sha256=SHA, review_basis_sha256=SHA,
+    review_utf8=text(2 * 1024 * 1024), statement=text(2000),
+    issue_resolutions=ISSUE_RESOLUTIONS, position_resolutions=POSITION_RESOLUTIONS,
+    manual_checks=FINAL_CHECKS, assurance={"const": "client_asserted_agreement_on_exact_basis"})
+FINAL_DOCUMENT = obj(request_id=UUID, round_id=ROUND_ID, agreement_request_id=UUID,
+    source_sha256=SHA, path=RELATIVE_PATH, name=text(120), file_sha256=SHA,
+    properties_policy=PROPERTIES_POLICY, comments_policy=obj(mode={"const": "remove_all"}),
+    plan_sha256=SHA, report_utf8=text(2 * 1024 * 1024),
+    stage={"const": "candidate_for_word_review"})
+FINAL_EVENT = obj(request_id=UUID, round_id=ROUND_ID, document_request_id=UUID, plan_sha256=SHA,
+    status={"enum": ["published", "observed_match"]}, statement=nullable(text(2000)))
+REQUEST_V8 = deepcopy(REQUEST_V7)
+REQUEST_V8["properties"]["action"]["enum"].extend(FINALIZATION_ACTIONS)
+STORE_V8 = deepcopy(STORE_V7)
+STORE_V8["properties"].update(schema_version={"const": "deal_rounds_store.v8"},
+    requests=array(REQUEST_V8, 150), final_basis_agreements=array(FINAL_AGREEMENT, 10),
+    final_documents=array(FINAL_DOCUMENT, 10), final_document_events=array(FINAL_EVENT, 20))
+STORE_V8["required"].extend(["final_basis_agreements", "final_documents", "final_document_events"])
+STORE = {"oneOf": [STORE_V1, STORE_V2, STORE_V3, STORE_V4, STORE_V5, STORE_V6, STORE_V7, STORE_V8]}
 COMMAND = {"oneOf": [
     obj(action={"const": "prepare_working_copy"}, round_id=ROUND_ID,
         incoming_basis_sha256=SHA, path=RELATIVE_PATH),
@@ -163,12 +188,25 @@ TABLE_COMMAND = deepcopy(next(item for item in COMMAND["oneOf"] if item["propert
 TABLE_COMMAND["properties"].update(action={"const": "prepare_outgoing_package_with_table"}, table_selection=TABLE_SELECTION)
 TABLE_COMMAND["required"].append("table_selection")
 COMMAND["oneOf"].append(TABLE_COMMAND)
+COMMAND["oneOf"].extend([
+    obj(action={"const": "record_final_basis_agreement"}, round_id=ROUND_ID, file_sha256=SHA,
+        expected_positions_revision=nullable(SHA), expected_review_sha256=SHA,
+        user_confirmed={"const": True, "type": "boolean"}, statement=text(2000),
+        issue_resolutions=ISSUE_RESOLUTIONS, position_resolutions=POSITION_RESOLUTIONS, manual_checks=FINAL_CHECKS),
+    obj(action={"const": "prepare_final_document"}, round_id=ROUND_ID, agreement_request_id=UUID,
+        path=RELATIVE_PATH, name=text(120), comments_policy=obj(mode={"const": "remove_all"}),
+        properties_policy=PROPERTIES_POLICY),
+    obj(action={"const": "publish_final_document"}, round_id=ROUND_ID, document_request_id=UUID,
+        plan_sha256=SHA, user_confirmed={"const": True, "type": "boolean"}, statement=text(2000)),
+    obj(action={"const": "record_final_document_verification"}, round_id=ROUND_ID,
+        document_request_id=UUID, plan_sha256=SHA),
+])
 COMMAND[MCP_CONTRACT_SCHEMA_EXTENSION] = MCP_CONTRACT_SCHEMA_VERSION
 CommandInput = Annotated[dict[str, Any], WithJsonSchema(COMMAND)]
 RequestIdInput = Annotated[str, WithJsonSchema(UUID)]
 RESULT = obj(
-    schema_version={"const": "deal_state_result.v7"}, status={"const": "ok"},
-    revision=nullable(SHA), rounds=array(ROUND, 50), requests=array(REQUEST_V7, 150),
+    schema_version={"const": "deal_state_result.v8"}, status={"const": "ok"},
+    revision=nullable(SHA), rounds=array(ROUND, 50), requests=array(REQUEST_V8, 150),
     documents=array(obj(file_sha256=SHA, path=text(4096)), 150),
     positions_current_revision=nullable(SHA), applied_request_id=nullable(UUID),
     positions_basis_observations=array(obj(round_id=ROUND_ID,
@@ -177,6 +215,10 @@ RESULT = obj(
     issues=array(ISSUE, 100), issue_events=array(ISSUE, 100),
     outgoing_packages=array(OUTGOING_V7, 20), outgoing_events=array(OUTGOING_EVENT, 20),
     working_copy_plans=array(WORKING_COPY_PLAN, 20),
+    final_basis_agreements=array(FINAL_AGREEMENT, 10), final_documents=array(FINAL_DOCUMENT, 10),
+    final_document_events=array(FINAL_EVENT, 20),
+    final_basis_observations=array(obj(agreement_request_id=UUID,
+        status={"enum": ["saved_context_matches_live_checks_required", "saved_context_changed"]}), 10),
     operation_observations=array(obj(operation_id=JOURNAL_ID,
         status={"enum": ["completed", "prepared_only", "unavailable", "intent_changed", "not_checked"]},
         publication_status=nullable({"enum": ["published", "not_published", "uncertain"]}),

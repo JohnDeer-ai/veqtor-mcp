@@ -55,98 +55,105 @@ def read_finalization_review(folder, expected_revision, expected_positions_revis
             p._fail("revision_conflict")
         if (positions["revision"] if positions else None) != expected_positions_revision:
             p._fail("positions_revision_conflict")
-        row = next((r for r in store["rounds"] if r["round_id"] == round_id), None)
-        if row is None:
-            p._fail("round_missing")
-        if w.basis(store, row) != basis_sha256:
-            p._fail("working_basis_mismatch")
-        # No selection or pagination can hide an open issue or operation,
-        # including older rounds or another saved continuation of this matter.
-        operations = store.get("operations", [])
-        if len(operations) > MAX_REVIEW_OPERATIONS:
-            p._fail("resource_limit_exceeded")
-        quotes = _Quotes(folder)
-        snapshot = quotes.load(basis_sha256)
-        works = w.working(store, round_id)
-        work = works[-1] if works else None
-        working_status = "not_selected"
-        if work:
-            with w._sources(folder) as sources:
-                try:
-                    payload = sources.payload(work["path"])
-                except p.PositionError as exc:
-                    if exc.code == "resource_limit_exceeded":
-                        raise
-                    working_status = "unavailable"
-                else:
-                    working_status = "same_bytes" if hashlib.sha256(payload).hexdigest() == basis_sha256 else "changed"
-        blockers = []
-        if working_status in {"changed", "unavailable"}:
-            blockers.append("working_file_" + working_status)
-        if any(r["previous_round_id"] == round_id for r in store["rounds"]):
-            blockers.append("selected_round_has_successor")
-        # Replacing an issue can remove its old quote or position link. Keep
-        # and verify the whole history rather than erasing conditional terms
-        # from this review merely because the latest issue no longer links them.
-        issue_history = []
-        for event in store.get("issue_events", []):
-            for name in ("incoming_quote", "sent_quote", "working_quote"):
-                quotes.verify(event["content"][name])
-            link = event["content"]["position"]
-            status = w._position_status(link, positions)
-            issue_history.append({"event": deepcopy(event), "position_status": status,
-                "position_version": _position_version(link, positions, status)})
-        issues = []
-        for issue in w.issues(store):
-            content, decision = issue["content"], issue["decision"]
-            status = w._position_status(content["position"], positions)
-            reasons = []
-            if decision is None:
-                reasons.append("undecided")
-            else:
-                if decision["choice"] == "defer":
-                    reasons.append("deferred")
-                if decision["basis_sha256"] != basis_sha256:
-                    reasons.append("decision_basis_changed")
-            if content["remaining_question"] is not None:
-                reasons.append("remaining_question")
-            if status in {"historical_available", "unavailable"}:
-                reasons.append("position_basis_changed")
-            issues.append({"issue": deepcopy(issue), "position_status": status,
-                "position_version": _position_version(content["position"], positions, status),
-                "blockers": reasons})
-        if any(i["blockers"] for i in issues):
-            blockers.append("unresolved_issues")
-        observed = []
-        for op in operations:
-            obs = w.operation_observation(op, folder)
-            outcome = "unresolved"
-            if obs["status"] == "completed":
-                if obs["publication_status"] == "not_published":
-                    outcome = "recorded_no_publication"
-                elif (obs["publication_status"] == "published" and obs["verification"] == "matched"
-                      and obs["operation_error"] is None):
-                    outcome = "recorded_success"
-            observed.append({"link": deepcopy(op), "observation": obs, "outcome": outcome})
-        if any(o["outcome"] == "unresolved" for o in observed):
-            blockers.append("unresolved_operations")
-        document = _document(snapshot.payload, basis_sha256)
-        if document["revision_count"]:
-            blockers.append("pending_revisions")
-        if not document["inventory_complete"] or document["coverage_blockers"]:
-            blockers.append("package_coverage_blocked")
-        if document["clean_probe"] == "refused":
-            blockers.append("clean_probe_refused")
-        data = {"revision": store["revision"], "positions_revision": expected_positions_revision,
-            "selected_round_id": round_id, "included_round_ids": [r["round_id"] for r in store["rounds"]],
-            "scope": "all_saved_matter_rounds", "basis": {"file_sha256": basis_sha256,
-                "snapshot_verified": True, "working_document": deepcopy(work), "working_status": working_status},
-            "issues": issues, "issue_history": issue_history,
-            "positions": deepcopy(positions["positions"]) if positions else [],
-            "position_history": deepcopy(positions["history"]) if positions else [],
-            "operations": observed, "document": document, "automatic_blockers": blockers,
-            "required_manual_checks": list(c.MANUAL_CHECKS), "limitations": list(c.LIMITATIONS)}
-        payload = p._json_bytes(data)
+        result = read_locked(folder, store, positions, round_id, basis_sha256)
         recheck()
-        return {"schema_version": "finalization_review.v1", "status": "ok", "audience": "internal_review",
-            "readiness": "incomplete", "review_sha256": hashlib.sha256(payload).hexdigest(), "data": data}
+        return result
+
+
+def read_locked(folder, store, positions, round_id, basis_sha256):
+    """Internal complete review while the caller holds the original state lock."""
+    expected_positions_revision = positions["revision"] if positions else None
+    row = next((r for r in store["rounds"] if r["round_id"] == round_id), None)
+    if row is None:
+        p._fail("round_missing")
+    if w.basis(store, row) != basis_sha256:
+        p._fail("working_basis_mismatch")
+    # No selection or pagination can hide an open issue or operation,
+    # including older rounds or another saved continuation of this matter.
+    operations = store.get("operations", [])
+    if len(operations) > MAX_REVIEW_OPERATIONS:
+        p._fail("resource_limit_exceeded")
+    quotes = _Quotes(folder)
+    snapshot = quotes.load(basis_sha256)
+    works = w.working(store, round_id)
+    work = works[-1] if works else None
+    working_status = "not_selected"
+    if work:
+        with w._sources(folder) as sources:
+            try:
+                payload = sources.payload(work["path"])
+            except p.PositionError as exc:
+                if exc.code == "resource_limit_exceeded":
+                    raise
+                working_status = "unavailable"
+            else:
+                working_status = "same_bytes" if hashlib.sha256(payload).hexdigest() == basis_sha256 else "changed"
+    blockers = []
+    if working_status in {"changed", "unavailable"}:
+        blockers.append("working_file_" + working_status)
+    if any(r["previous_round_id"] == round_id for r in store["rounds"]):
+        blockers.append("selected_round_has_successor")
+    # Replacing an issue can remove its old quote or position link. Keep
+    # and verify the whole history rather than erasing conditional terms
+    # from this review merely because the latest issue no longer links them.
+    issue_history = []
+    for event in store.get("issue_events", []):
+        for name in ("incoming_quote", "sent_quote", "working_quote"):
+            quotes.verify(event["content"][name])
+        link = event["content"]["position"]
+        status = w._position_status(link, positions)
+        issue_history.append({"event": deepcopy(event), "position_status": status,
+            "position_version": _position_version(link, positions, status)})
+    issues = []
+    for issue in w.issues(store):
+        content, decision = issue["content"], issue["decision"]
+        status = w._position_status(content["position"], positions)
+        reasons = []
+        if decision is None:
+            reasons.append("undecided")
+        else:
+            if decision["choice"] == "defer":
+                reasons.append("deferred")
+            if decision["basis_sha256"] != basis_sha256:
+                reasons.append("decision_basis_changed")
+        if content["remaining_question"] is not None:
+            reasons.append("remaining_question")
+        if status in {"historical_available", "unavailable"}:
+            reasons.append("position_basis_changed")
+        issues.append({"issue": deepcopy(issue), "position_status": status,
+            "position_version": _position_version(content["position"], positions, status),
+            "blockers": reasons})
+    if any(i["blockers"] for i in issues):
+        blockers.append("unresolved_issues")
+    observed = []
+    for op in operations:
+        obs = w.operation_observation(op, folder)
+        outcome = "unresolved"
+        if obs["status"] == "completed":
+            if obs["publication_status"] == "not_published":
+                outcome = "recorded_no_publication"
+            elif (obs["publication_status"] == "published" and obs["verification"] == "matched"
+                  and obs["operation_error"] is None):
+                outcome = "recorded_success"
+        observed.append({"link": deepcopy(op), "observation": obs, "outcome": outcome})
+    if any(o["outcome"] == "unresolved" for o in observed):
+        blockers.append("unresolved_operations")
+    document = _document(snapshot.payload, basis_sha256)
+    if document["revision_count"]:
+        blockers.append("pending_revisions")
+    if not document["inventory_complete"] or document["coverage_blockers"]:
+        blockers.append("package_coverage_blocked")
+    if document["clean_probe"] == "refused":
+        blockers.append("clean_probe_refused")
+    data = {"revision": store["revision"], "positions_revision": expected_positions_revision,
+        "selected_round_id": round_id, "included_round_ids": [r["round_id"] for r in store["rounds"]],
+        "scope": "all_saved_matter_rounds", "basis": {"file_sha256": basis_sha256,
+            "snapshot_verified": True, "working_document": deepcopy(work), "working_status": working_status},
+        "issues": issues, "issue_history": issue_history,
+        "positions": deepcopy(positions["positions"]) if positions else [],
+        "position_history": deepcopy(positions["history"]) if positions else [],
+        "operations": observed, "document": document, "automatic_blockers": blockers,
+        "required_manual_checks": list(c.MANUAL_CHECKS), "limitations": list(c.LIMITATIONS)}
+    payload = p._json_bytes(data)
+    return {"schema_version": "finalization_review.v1", "status": "ok", "audience": "internal_review",
+        "readiness": "incomplete", "review_sha256": hashlib.sha256(payload).hexdigest(), "data": data}

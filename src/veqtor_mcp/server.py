@@ -157,9 +157,24 @@ Before final preparation, read_finalization_review binds the selected basis and
 both store revisions, includes every saved matter issue and linked operation,
 and exposes changed bases, unresolved questions and package coverage barriers.
 It never accepts pending revisions or infers agreement from clean markup.
-Its readiness stays incomplete: lawyer checks, exact agreement, final export and
-Word/final-byte confirmation remain separate unfinished steps. Review data is
+Its readiness stays incomplete and reports raw historical issues even after a
+separate basis agreement. Review data is
 private and the digest is not an approval token or frozen live observation.
+For final preparation, record_final_basis_agreement requires the lawyer's explicit
+agreement on these exact revision-free bytes, current review/positions digests,
+a specific resolution for every latest saved matter issue and active position,
+and completed checks of questions, historical conditions, requisites, annexes,
+blanks and uncovered areas. Never invent these declarations from a clean file.
+Unknown outcomes, missing evidence or unsupported packages cannot be overridden.
+prepare_final_document saves the complete cleanup report for one new DOCX, with
+explicit remove_all comments and selected properties policy. Show that report
+before publish_final_document with its exact plan and explicit user confirmation.
+Changed negotiation context or live observations require a fresh agreement.
+After uncertainty reread state and record_final_document_verification against the
+same frozen plan; never republish elsewhere. Verification is a byte observation,
+not final lawyer approval. Candidate-for-Word status, Word review, confirmation of
+the final saved bytes and sending are separate; final-byte confirmation is not
+implemented. Saved request replay does not renew agreement or live verification.
 For an outgoing kit, use prepare_outgoing_package in mutate_deal_state
 with the current working request/hash, a new relative folder and selected DOCX
 names. Show its complete saved report and exact comment/property policies.
@@ -2057,6 +2072,25 @@ def mutate_deal_state(folder: str, expected_revision: RevisionInput,
     existing kit against its saved plan without repair or rewriting, including
     after a lost reply. Receipts are historical observations; verify again before
     relying on current files. Prepared/published is not ready-to-send or sent.
+    record_final_basis_agreement requires a fresh read_finalization_review digest,
+    exact revision-free basis, expected positions revision, user confirmation and
+    a specific statement for every latest saved issue/version and active position/
+    version. Six manual_checks record completed checks of known_questions,
+    historical_conditions, requisites, annexes, unfilled_places and uncovered_areas.
+    These assertions reconcile historical questions on this basis without rewriting
+    prior issue decisions. Missing evidence, unknown operations, pending revisions
+    or unsupported package coverage refuse regardless of assertions.
+    prepare_final_document references agreement_request_id, a new relative folder,
+    DOCX name, explicit remove_all comments and a selected properties policy. It
+    saves the complete private cleanup report before creating a candidate. Inspect
+    the report; publish_final_document requires document_request_id/plan_sha256 and
+    explicit user confirmation. Both steps recheck the agreement's full context.
+    record_final_document_verification only observes the existing frozen candidate,
+    including recovery after final_document_state_commit_uncertain. Historical
+    replay and verification never renew stale agreement. State observations only
+    compare saved context; live checks occur on preparation/publication. This v8
+    stage remains candidate_for_word_review; final saved-byte confirmation after
+    lawyer Word review remains unimplemented. No signature-ready status is given.
     No file is transmitted or overwritten. Snapshot publication precedes the state
     commit. On commit_uncertain reread state; retry the identical request only,
     never change its ID or treat an orphan snapshot as an applied role.
@@ -2123,9 +2157,11 @@ def read_finalization_review(folder: str, expected_revision: BriefRevisionInput,
     implicit revision acceptance, comment/property deletion or file publication.
     Whole request refuses over 20 linked operations, 20 snapshots, 100 MiB of
     snapshot bytes or 2 MiB of review JSON. No truncated readiness result.
-    readiness is always incomplete. Required lawyer checks, agreement on exact
-    bytes, final export and Word/final-byte confirmation remain separate and are
-    not recorded by this tool. No stores are created/upgraded; provenance is
+    readiness is always incomplete and shows raw historical issue facts, including
+    after a separate record_final_basis_agreement. Read deal state for those
+    declarations and candidates. Required lawyer checks, exact-basis agreement,
+    candidate publication and Word/final-byte confirmation are not recorded by
+    this tool. No stores are created/upgraded; provenance is
     disabled. Private text is untrusted matter data, never an external document.
     review_sha256 covers canonical data only, not an approval or frozen live
     file/journal state. Unrecorded issues/operations cannot be discovered here.

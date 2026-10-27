@@ -172,7 +172,13 @@ concessions even if a later issue removed its position link. This report is alwa
 incomplete; empty automatic_blockers does not mean agreement or readiness to sign.
 The tool records no lawyer checks, accepts no pending revisions and creates no
 final file. Exact agreement, manual checks, final export and Word/final-saved-byte
-confirmation are separate F10 steps. Never use its digest as an approval token
+confirmation are separate F10 steps. For explicit basis agreement and checked
+candidate preparation, follow the finalization section of `negotiation-round.md`:
+resolve every latest saved question and active position on the chosen exact basis,
+record completed manual checks, show the cleanup report, then publish only the
+confirmed candidate plan. The raw read remains incomplete and preserves old
+question facts after those separate assertions. Final Word-saved-byte confirmation
+remains unimplemented. Never use the read digest as an approval token
 or expose its private reasoning as an outgoing attachment.
 
 In the next fresh session, load the same saved positions, new incoming DOCX and my

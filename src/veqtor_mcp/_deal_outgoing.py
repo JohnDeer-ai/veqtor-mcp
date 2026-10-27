@@ -20,10 +20,10 @@ COLLECTIONS = ("outgoing_packages", "outgoing_events")
 
 def upgrade(store, *, cleanup=False, table=False):
     result = w.upgrade(store)
-    result["schema_version"] = ("deal_rounds_store.v7" if table or store["schema_version"] == "deal_rounds_store.v7" else "deal_rounds_store.v6" if cleanup or store["schema_version"] == "deal_rounds_store.v6"
+    result["schema_version"] = ("deal_rounds_store.v8" if store["schema_version"] == "deal_rounds_store.v8" else "deal_rounds_store.v7" if table or store["schema_version"] == "deal_rounds_store.v7" else "deal_rounds_store.v6" if cleanup or store["schema_version"] == "deal_rounds_store.v6"
                                 else "deal_rounds_store.v5" if store["schema_version"] == "deal_rounds_store.v5"
                                 else "deal_rounds_store.v4")
-    if result["schema_version"] in {"deal_rounds_store.v6", "deal_rounds_store.v7"}:
+    if result["schema_version"] in {"deal_rounds_store.v6", "deal_rounds_store.v7", "deal_rounds_store.v8"}:
         result.setdefault("working_copy_plans", [])
     for name in COLLECTIONS:
         result.setdefault(name, [])
@@ -84,7 +84,7 @@ def _report(row):
 
 
 def validate(store):
-    if store["schema_version"] not in {"deal_rounds_store.v4", "deal_rounds_store.v5", "deal_rounds_store.v6", "deal_rounds_store.v7"}:
+    if store["schema_version"] not in {"deal_rounds_store.v4", "deal_rounds_store.v5", "deal_rounds_store.v6", "deal_rounds_store.v7", "deal_rounds_store.v8"}:
         return
     packages = {r["request_id"]: r for r in store["outgoing_packages"]}
     events = {r["request_id"]: r for r in store["outgoing_events"]}
@@ -114,7 +114,7 @@ def validate(store):
                         or row["source_sha256"] != work["file_sha256"]
                         or row["basis_sha256"] != basis(prefix, rid, row["positions_revision"])):
                     p._fail("storage_corrupt")
-                if store["schema_version"] in {"deal_rounds_store.v6", "deal_rounds_store.v7"}:
+                if store["schema_version"] in {"deal_rounds_store.v6", "deal_rounds_store.v7", "deal_rounds_store.v8"}:
                     command = dict(action=action, round_id=rid, expected_working_request_id=row["working_request_id"],
                         file_sha256=row["source_sha256"], path=row["path"], redline_name=row["redline_name"],
                         clean_draft_name=row["clean_draft_name"], comments_policy=row["comments_policy"], properties_policy=row["properties_policy"])
