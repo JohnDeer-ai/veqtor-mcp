@@ -211,6 +211,7 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
         "/src/veqtor_docx/_sharepoint_values.py",
         "/src/veqtor_docx/clean_copy.py",
         "/src/veqtor_docx/outgoing_package.py",
+  "/src/veqtor_docx/disagreement_table.py",
         "/src/veqtor_docx/outgoing_cleanup.py",
         "/src/veqtor_docx/round_snapshots.py",
         "/src/veqtor_docx/table_map.py",

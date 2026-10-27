@@ -323,7 +323,7 @@ remain separate work. These commands do not update an existing installed client.
 
 `read_round_issue_brief` joins the original round store, saved document snapshots,
 position history and original operation journals. It introduces no parallel issue
-store and does not upgrade v1–v6 on read. Bind both revisions read from state and
+store and does not upgrade v1–v7 on read. Bind both revisions read from state and
 positions; request 1–20 unique issue IDs for one round. Requested order is retained,
 all IDs must exist in that round, and omitted IDs remain visible. The server
 rechecks exact quote text, offsets and paragraph references against snapshots.
@@ -342,7 +342,33 @@ position history is explicitly unavailable.
 Comment relationships are not yet recorded in the issue store and are explicitly
 labelled `not_recorded_in_issue_state`, never inferred from issue/comment status or
 operation IDs. The dataset's SHA-256 binds canonical JSON of `data` only. Matching
-revisions do not freeze live observations. Preparing an external Word table still
-requires explicit field selection (excluding internal reasoning and concessions
-unless separately selected), reproducible rendering, quote/page checks and a
-separate outgoing-package integration. This read does not claim those steps done.
+revisions do not freeze live observations.
+
+### Selected disagreement table in an outgoing kit (development)
+
+`prepare_outgoing_package_with_table` extends the existing preparation command
+with a required closed `table_selection`: `expected_dataset_sha256`, 1–20 ordered
+unique `issue_ids`, 1–3 ordered unique `columns` (`sent_quote`, `incoming_quote`,
+`proposed_wording`), portable DOCX `name`, `title` (200 characters), and `language`
+(`ru` or `en`). Read `read_round_issue_brief` first. Preparation rechecks the
+complete dataset under the state lock and requires its exact digest. No arbitrary
+cell content, private assessment, concession, decision statement, journal or path
+is projected. Missing selected fields are explicit; proposal is not final wording.
+
+The saved v3 outgoing report includes every selected cell and the renderer
+identity. Store v7 accepts old rows unchanged and binds selection to the original
+prepare command and issue history; reads never migrate disk bytes. The old
+preparation command and v1/v2 reports retain their byte-for-byte behavior.
+Publication uses the existing plan hash and explicit lawyer confirmation. Current
+working bytes, issue basis and position revision must still match. Historical
+verification regenerates the frozen view after later edits, without rewriting it.
+The existing atomic new-folder publication also covers the third file. A table
+alone is possible with both contract names null. No extra files enter the kit.
+
+The new minimal DOCX has deterministic bytes, plain text cells, explicit missing
+values, repeated headers and rows that may continue across pages. It contains no
+inherited source metadata, comments or fields. Carriage returns and illegal XML
+characters are refused rather than silently normalizing quotations. All selected
+quotes and rendered pages still require review. This bounded external view does
+not complete all F9 fields, related-comment recording, full-round acceptance or
+F10 legal finalization. The installed connector is not upgraded by a checkout.

@@ -160,6 +160,12 @@ Show all selected messages including foreign replies. remove_selected properties
 names exact core/app/custom fields and previews their values. Unknown content or
 property-consuming/unknown fields refuse cleanup; DATE/TIME settings remain intact.
 Cleanup acts only in outgoing copies, never expands working-file author rights.
+For a selected table, prepare_outgoing_package_with_table requires the exact
+read_round_issue_brief dataset digest, ordered issue IDs and explicit columns
+(sent_quote, incoming_quote, proposed_wording), name, title and ru/en language.
+Show every projected cell and review all rendered pages. Private assessments,
+concessions and decision statements are excluded; missing text stays missing.
+The optional new table joins the same atomic kit, including table-only selection.
 Publication requires explicit confirmation of that exact plan; never infer it
 from a stored issue decision. publish_outgoing_package writes selected files only.
 After any uncertain result reread state and use record_outgoing_verification on
@@ -2024,6 +2030,13 @@ def mutate_deal_state(folder: str, expected_revision: RevisionInput,
     Show every selected message including foreign replies and every property value.
     Cleanup requires complete package coverage and refuses unknown/dependent fields;
     it does not change the working file or relax its author restrictions.
+    prepare_outgoing_package_with_table adds table_selection: expected_dataset_sha256
+    from read_round_issue_brief, ordered issue_ids and columns (sent_quote,
+    incoming_quote, proposed_wording), name, title and language (ru/en). The exact
+    dataset is rechecked; its private fields are excluded. The full table view is
+    frozen in the report. Review every cell and rendered page, including missing
+    values. Proposal is not agreed wording. Both contract names may be null for a
+    table-only kit. The table has no inherited source comments or properties.
     Show the full report and limits before seeking exact-plan publication approval.
     Selecting a clean draft explicitly means accepting all supported revisions
     in a separate candidate, never declaring legal agreement. Unsupported clean

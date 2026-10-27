@@ -183,7 +183,7 @@ def _result(folder, store, positions_store, request_id=None, *, pending_snapshot
         if total > MAX_DOCUMENT_BYTES:
             p._fail("resource_limit_exceeded")
         documents.append({"file_sha256": digest, "path": os.path.join(destination, "source.docx")})
-    return {"schema_version": "deal_state_result.v6", "status": "ok",
+    return {"schema_version": "deal_state_result.v7", "status": "ok",
             "revision": store["revision"] if store else None,
             "rounds": deepcopy(store["rounds"]) if store else [],
             "requests": deepcopy(store["requests"]) if store else [],
@@ -238,7 +238,8 @@ def mutate_deal_state(folder, expected_revision, request_id, command, *, validat
         if command["action"] in c.WORKFLOW_ACTIONS:
             candidate = w.upgrade(candidate, imported=command["action"] == "import_working_document")
         if command["action"] in c.OUTGOING_ACTIONS:
-            candidate = outgoing.upgrade(candidate, cleanup=command["action"] == "prepare_outgoing_package"
+            candidate = outgoing.upgrade(candidate, table=command["action"] == "prepare_outgoing_package_with_table",
+                cleanup=command["action"] in {"prepare_outgoing_package", "prepare_outgoing_package_with_table"}
                 and (command["comments_policy"] != "preserve_all" or command["properties_policy"] != "preserve_all"))
         if command["action"] in c.WORKING_COPY_ACTIONS:
             candidate = copies.upgrade(candidate)

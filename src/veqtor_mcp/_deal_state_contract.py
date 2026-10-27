@@ -106,7 +106,22 @@ OUTGOING_V6 = deepcopy(OUTGOING)
 OUTGOING_V6["properties"].update(comments_policy=COMMENTS_POLICY, properties_policy=PROPERTIES_POLICY)
 STORE_V6 = deepcopy(STORE_V5)
 STORE_V6["properties"].update(schema_version={"const": "deal_rounds_store.v6"}, outgoing_packages=array(OUTGOING_V6, 20))
-STORE = {"oneOf": [STORE_V1, STORE_V2, STORE_V3, STORE_V4, STORE_V5, STORE_V6]}
+TABLE_SELECTION = obj(expected_dataset_sha256=SHA,
+    issue_ids={**array(ISSUE_ID, 20), "minItems": 1, "uniqueItems": True},
+    columns={**array({"enum": ["sent_quote", "incoming_quote", "proposed_wording"]}, 3), "minItems": 1, "uniqueItems": True},
+    name=text(120), title=text(200), language={"enum": ["ru", "en"]})
+OUTGOING_TABLE = deepcopy(OUTGOING_V6)
+OUTGOING_TABLE["properties"].update(table_selection=TABLE_SELECTION,
+    files=array(obj(kind={"enum": ["cumulative_redline", "clean_draft", "disagreement_table"]}, name=text(120), sha256=SHA), 3))
+OUTGOING_TABLE["required"].append("table_selection")
+OUTGOING_V7 = {"oneOf": [OUTGOING_V6, OUTGOING_TABLE]}
+OUTGOING_ACTIONS = [*OUTGOING_ACTIONS, "prepare_outgoing_package_with_table"]
+REQUEST_V7 = deepcopy(REQUEST_V5)
+REQUEST_V7["properties"]["action"]["enum"].append("prepare_outgoing_package_with_table")
+STORE_V7 = deepcopy(STORE_V6)
+STORE_V7["properties"].update(schema_version={"const": "deal_rounds_store.v7"},
+    requests=array(REQUEST_V7, 150), outgoing_packages=array(OUTGOING_V7, 20))
+STORE = {"oneOf": [STORE_V1, STORE_V2, STORE_V3, STORE_V4, STORE_V5, STORE_V6, STORE_V7]}
 COMMAND = {"oneOf": [
     obj(action={"const": "prepare_working_copy"}, round_id=ROUND_ID,
         incoming_basis_sha256=SHA, path=RELATIVE_PATH),
@@ -144,19 +159,23 @@ COMMAND = {"oneOf": [
         expected_version=VERSION, choice={"enum": ["approve", "reject", "defer"]},
         basis_sha256=SHA, user_confirmed={"type": "boolean", "const": True}, statement=text(2000)),
 ]}
+TABLE_COMMAND = deepcopy(next(item for item in COMMAND["oneOf"] if item["properties"]["action"].get("const") == "prepare_outgoing_package"))
+TABLE_COMMAND["properties"].update(action={"const": "prepare_outgoing_package_with_table"}, table_selection=TABLE_SELECTION)
+TABLE_COMMAND["required"].append("table_selection")
+COMMAND["oneOf"].append(TABLE_COMMAND)
 COMMAND[MCP_CONTRACT_SCHEMA_EXTENSION] = MCP_CONTRACT_SCHEMA_VERSION
 CommandInput = Annotated[dict[str, Any], WithJsonSchema(COMMAND)]
 RequestIdInput = Annotated[str, WithJsonSchema(UUID)]
 RESULT = obj(
-    schema_version={"const": "deal_state_result.v6"}, status={"const": "ok"},
-    revision=nullable(SHA), rounds=array(ROUND, 50), requests=array(REQUEST_V5, 150),
+    schema_version={"const": "deal_state_result.v7"}, status={"const": "ok"},
+    revision=nullable(SHA), rounds=array(ROUND, 50), requests=array(REQUEST_V7, 150),
     documents=array(obj(file_sha256=SHA, path=text(4096)), 150),
     positions_current_revision=nullable(SHA), applied_request_id=nullable(UUID),
     positions_basis_observations=array(obj(round_id=ROUND_ID,
         status={"enum": ["not_recorded", "current", "historical_available", "unavailable"]}), 50),
     operations=array(OPERATION, 100), working_documents=array(WORKING_RESULT_V5, 100),
     issues=array(ISSUE, 100), issue_events=array(ISSUE, 100),
-    outgoing_packages=array(OUTGOING_V6, 20), outgoing_events=array(OUTGOING_EVENT, 20),
+    outgoing_packages=array(OUTGOING_V7, 20), outgoing_events=array(OUTGOING_EVENT, 20),
     working_copy_plans=array(WORKING_COPY_PLAN, 20),
     operation_observations=array(obj(operation_id=JOURNAL_ID,
         status={"enum": ["completed", "prepared_only", "unavailable", "intent_changed", "not_checked"]},

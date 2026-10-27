@@ -47,3 +47,17 @@ Still required for complete F8: selected full comment-thread and property
 cleanup, disagreements-table output and complete first/next-round acceptance.
 Final lawyer-approved DOCX remains F10. The present tests use fictional packages
 and publication faults; real acceptance and native Word checks remain distinct.
+
+## Optional selected disagreement table
+
+`disagreement_table` is an optional closed view (`name`, `title`, `language`,
+`columns`, `rows`). The engine accepts only sent/incoming quote and proposed-wording
+columns, 1–20 rows, and plain strings up to 8,000 characters or explicit nulls.
+The MCP layer derives this view from checked original issue state; direct engine
+input is only a rendering contract, not proof of quotation provenance.
+
+The new DOCX is reproduced deterministically and included in the same atomic
+folder (up to three files, or table only). A v3 internal report freezes the full
+view. Without a table, v1/v2 report bytes and behavior remain unchanged. Exact name
+collisions, invalid characters and unsupported selected contract copies refuse
+the whole kit. Existing publish/recovery verification covers every member.

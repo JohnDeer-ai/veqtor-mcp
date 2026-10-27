@@ -2,7 +2,7 @@
 
 # Run a first or later negotiation round
 
-Workflow version: `mvp-negotiation-round.v4` (development).
+Workflow version: `mvp-negotiation-round.v5` (development).
 Use a verified compatible development installation with the 22-tool drafting,
 deal-state and outgoing-package surface described in [DEAL_STATE.md](../DEAL_STATE.md).
 Version text or a source checkout alone does not establish installed capability.
@@ -252,6 +252,24 @@ and observed actions distinct; use "Incoming version" without proved attribution
 
 The returned dataset is for internal review: it includes private assessments,
 concession terms, decision statements and paths. Do not dump it into an external
-table. External field approval, reproducible Word generation, layout review and
-optional inclusion in the outgoing package remain separate F9 work. This dataset
-alone is not an outgoing document, agreement or proof of sending.
+table. If the lawyer selects a table, agree the ordered issues, columns, title,
+language and filename. Only `sent_quote`, `incoming_quote`, `proposed_wording`
+are supported external columns. Proposed wording is a proposal, not a claim of
+insertion or agreement. Do not choose internal reasoning or concessions.
+
+Call `prepare_outgoing_package_with_table` with the usual outgoing choices and
+`table_selection`: the read dataset's `expected_dataset_sha256`, ordered
+`issue_ids`, ordered `columns`, `name`, `title`, `language` (`ru` or `en`). Any
+changed dataset requires a fresh read and review. The saved report includes the
+full projected view and hashes of every output. Missing fields say "Not recorded"
+or "Не записано"; the renderer never invents wording. The table is a new DOCX,
+without inherited contract metadata. Contract cleanup policies apply to the
+contract copies, not to the source files.
+
+Review every selected cell and every rendered page, including long clauses and
+repeated headers. Obtain confirmation of the exact outgoing plan before the
+existing `publish_outgoing_package` step. The selected files are created as one
+new folder; verification can resume after an uncertain result. A table-only kit
+is supported when both contract filenames are null. The internal report stays
+outside the folder. This does not record sending, legal agreement, final wording,
+comment linkage or completeness of the entire contract review.
