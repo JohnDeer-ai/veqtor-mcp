@@ -432,6 +432,8 @@ def test_selected_foreign_insertion_anchors_removed_without_relabeling(tmp_path)
         "missing",
         "duplicate",
         "alias",
+        "numeric_pid_alias",
+        "invalid_unselected_pid",
         "noncanonical",
         "vector",
         "linked",
@@ -450,6 +452,10 @@ def test_selected_property_ambiguity_and_dependencies_refuse(tmp_path, variant):
         root.append(node)
     elif variant == "alias":
         root[1].set("name", "internalnote")
+    elif variant == "numeric_pid_alias":
+        root[1].set("pid", "02")
+    elif variant == "invalid_unselected_pid":
+        root[1].set("pid", "not-an-integer")
     elif variant == "noncanonical":
         rels = parse_xml(parts["_rels/.rels"])
         next(n for n in rels if n.get("Id") == "custom").set(
@@ -467,6 +473,18 @@ def test_selected_property_ambiguity_and_dependencies_refuse(tmp_path, variant):
     with pytest.raises(ApplyError):
         prepare(parts, tmp_path, properties_policy=REMOVE_PROPS)
     assert pack(parts) == before and not (tmp_path / "out").exists()
+
+
+def test_unambiguous_leading_zero_property_id_is_preserved(tmp_path):
+    parts = fictional_parts(comments=False)
+    root = parse_xml(parts["docProps/custom.xml"])
+    root[1].set("pid", "0000000003")
+    parts["docProps/custom.xml"] = c._xml(root)
+    plan = prepare(parts, tmp_path, properties_policy=REMOVE_PROPS)
+    after = parse_xml(unpack(plan.files[0].payload)["docProps/custom.xml"])
+    assert len(after) == 1
+    assert after[0].get("name") == "PublicCode"
+    assert after[0].get("pid") == "0000000003"
 
 
 def test_original_property_field_cannot_be_hidden_by_deleting_its_comment(tmp_path):

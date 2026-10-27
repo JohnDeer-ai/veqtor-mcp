@@ -374,7 +374,18 @@ def _property_cleanup(parts, policy):
             _fail("outgoing_cleanup_unsupported", "unexpected property part")
         if kind == "custom":
             names = [n.get("name", "").casefold() for n in root]
-            pids = [n.get("pid") for n in root]
+            raw_pids = [n.get("pid", "") for n in root]
+            if any(
+                not re.fullmatch(r"[0-9]{1,10}", pid)
+                or not 2 <= int(pid) <= 2147483647
+                for pid in raw_pids
+            ):
+                _fail(
+                    "outgoing_cleanup_unsupported", "invalid custom property identity"
+                )
+            # PID is an integer identity: lexical aliases such as 2 and 02
+            # cannot identify two distinct properties safely.
+            pids = [int(pid) for pid in raw_pids]
             if len(names) != len(set(names)) or len(pids) != len(set(pids)):
                 _fail(
                     "outgoing_cleanup_unsupported", "ambiguous custom property identity"
