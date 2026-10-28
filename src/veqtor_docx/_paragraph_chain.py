@@ -100,6 +100,22 @@ _PARAGRAPH_ATTRIBUTES = {
     w(n) for n in ("rsidR", "rsidRPr", "rsidP", "rsidDel", "rsidRDefault")
 }
 _PARAGRAPH_ATTRIBUTES |= {"{" + d._W14 + "}" + n for n in ("paraId", "textId")}
+# A removed paragraph's mark properties do not survive the exact patch. Unlike
+# retained runs they need a per-property grammar, not the union of attributes
+# known somewhere in character formatting. Keep this family limited to the
+# mandatory document and native controls.
+_MARK_RPR_ATTRIBUTES = {
+    "rStyle": "val",
+    "rFonts": "ascii hAnsi eastAsia cs asciiTheme hAnsiTheme eastAsiaTheme cstheme hint",
+    "color": "val themeColor themeTint themeShade",
+    "lang": "val eastAsia bidi",
+    "spacing": "val",
+    "kern": "val",
+    "sz": "val",
+    "szCs": "val",
+    "u": "val color themeColor themeTint themeShade",
+    "bCs": "val",
+}
 
 
 def _closed_paragraph(paragraph, marks):
@@ -117,11 +133,30 @@ def _closed_paragraph(paragraph, marks):
             )
         for prop in props:
             if prop.tag == w("rPr"):
-                clean = copy.deepcopy(prop)
-                for m in list(clean):
+                if prop.attrib:
+                    d._fail(
+                        "paragraph_chain_unsupported",
+                        "unknown mark property attributes",
+                    )
+                for m in prop:
                     if m.tag in {w("ins"), w("del")}:
-                        clean.remove(m)
-                _closed_attributes(clean)
+                        continue
+                    allowed = (
+                        _MARK_RPR_ATTRIBUTES.get(etree.QName(m).localname)
+                        if isinstance(m.tag, str)
+                        else None
+                    )
+                    if (
+                        allowed is None
+                        or m.tag != w(etree.QName(m).localname)
+                        or len(m)
+                        or set(m.attrib) - {w(n) for n in allowed.split()}
+                    ):
+                        d._fail(
+                            "paragraph_chain_unsupported",
+                            "unsupported paragraph-mark formatting",
+                        )
+                    d._property_tree(m)
             else:
                 allowed = (
                     _P_ATTRIBUTES.get(etree.QName(prop).localname)

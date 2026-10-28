@@ -336,3 +336,74 @@ def test_collateral_mutation_fails_exact_patch_proof(tmp_path, demo_dir, monkeyp
         str(path), sha(path), [op(path)], **PROFILE, journal=False
     )
     assert result["refusal_code"] == "round_trip_failed" and path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "action,pattern", [("accept", ["D", "D", ""]), ("reject", ["I", "I", ""])]
+)
+@pytest.mark.parametrize(
+    "tag,attribute",
+    [
+        ("rFonts", "val"),
+        ("color", "ascii"),
+        ("lang", "themeColor"),
+        ("rStyle", "hint"),
+        ("u", "ascii"),
+        ("sz", "color"),
+    ],
+)
+def test_non_surviving_mark_properties_refuse_cross_domain_attributes(
+    tmp_path, demo_dir, action, pattern, tag, attribute
+):
+    path = fixture(tmp_path, demo_dir, pattern)
+    root = main(path)
+    rp = next(root.iter(w("pPr"))).find(w("rPr"))
+    prop = rp.find(w(tag))
+    if prop is None:
+        prop = etree.Element(
+            w(tag),
+            {
+                w("val"): "123456"
+                if tag == "color"
+                else "20"
+                if tag == "sz"
+                else "single"
+                if tag == "u"
+                else "DefaultParagraphFont"
+            },
+        )
+        rp.insert(0, prop)
+    prop.set(w(attribute), "PRIVATE_ONLY_UNSUPPORTED")
+    path.write_bytes(_package(demo_dir, root))
+    before = path.read_bytes()
+    result = drafting.preflight_document_edits(
+        str(path), sha(path), [op(path, action)], **PROFILE, journal=False
+    )
+    assert result["refusal_code"] == "paragraph_chain_unsupported"
+    assert result["preflight_proof"] is None and path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "action,pattern", [("accept", ["D", "D", ""]), ("reject", ["I", "I", ""])]
+)
+def test_required_mark_formatting_family_retains_rightmost_values(
+    tmp_path, demo_dir, action, pattern
+):
+    path = fixture(tmp_path, demo_dir, pattern)
+    root = main(path)
+    for i, p in enumerate(next(root.iter(w("tc")))):
+        rp = p.find(f"{w('pPr')}/{w('rPr')}")
+        for tag, value in [
+            ("color", "123456"),
+            ("spacing", str(i)),
+            ("kern", "2"),
+            ("sz", "22"),
+            ("szCs", "22"),
+            ("u", "single"),
+            ("bCs", "1"),
+        ]:
+            rp.insert(0, etree.Element(w(tag), {w("val"): value}))
+    expected = semantic(next(root.iter(w("tc")))[-1].find(w("pPr")))
+    path.write_bytes(_package(demo_dir, root))
+    save(path, [op(path, action)])
+    assert semantic(next(main(path).iter(w("tc")))[0].find(w("pPr"))) == expected
