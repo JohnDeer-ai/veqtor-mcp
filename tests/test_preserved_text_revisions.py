@@ -117,3 +117,35 @@ def test_stale_ref_and_two_targets_cannot_retarget_after_mutation(tmp_path, demo
     result = drafting.preflight_document_edits(str(path), sha(path), [op], **PROFILE, journal=False)
     assert result["refusal_code"] == "revision_reference_mismatch"
     assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("problem", ["tab_text", "break_text", "props_text", "leaf_text", "wrapper_attr", "run_attr", "props_attr", "atom_attr", "duplicate_property", "late_properties"])
+@pytest.mark.parametrize("decision", ["accept", "reject"])
+def test_hidden_payload_and_unknown_attributes_refuse_before_delete(tmp_path, demo_dir, problem, decision):
+    path, _ = ordinary(tmp_path, demo_dir, kind="ins")
+    root = main(path)
+    wrapper = next(n for n in root.iter(w("ins")) if n.get(w("id")) == "801")
+    run = wrapper[0]
+    props = run.find(w("rPr"))
+    if problem in {"tab_text", "break_text"}:
+        E = etree.SubElement(run, w("tab" if problem == "tab_text" else "br"))
+        E.text = "PRIVATE_ONLY"
+    elif problem == "props_text":
+        props.text = "PRIVATE_ONLY"
+    elif problem == "leaf_text":
+        props[0].text = "PRIVATE_ONLY"
+    elif problem == "duplicate_property":
+        props.append(copy.deepcopy(props[0]))
+    elif problem == "late_properties":
+        run.remove(props)
+        run.append(props)
+    else:
+        selected = {"wrapper_attr": wrapper, "run_attr": run, "props_attr": props,
+                    "atom_attr": run.find(w("t"))}[problem]
+        selected.set("unknown", "PRIVATE_ONLY")
+    path.write_bytes(_package(demo_dir, root))
+    target = {"kind": "text_preserve_paragraphs", "revision_refs": [reference(root, wrapper, sha(path))]}
+    before = path.read_bytes()
+    pre = drafting.preflight_document_edits(str(path), sha(path), [{"kind": "decide_revision", "decision": decision, "target": target}], **PROFILE, journal=False)
+    assert not pre["batch_applicable"] and pre["preflight_proof"] is None
+    assert path.read_bytes() == before
