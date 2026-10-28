@@ -120,7 +120,16 @@ def target(root, nodes, sha):
             "counter_insertion_ref": d.reference(root, nodes[2], sha) if len(nodes) == 3 else None}
 
 
-def validate(root, nodes):
+def validate(root, nodes, *, preserve_boundaries=False):
+    if preserve_boundaries:
+        from ._preserved_paragraph_boundaries import validation_view
+        clone, selected, boundary_context = validation_view(root, nodes)
+        _, _, field_context, _ = validate(clone, selected)
+        # Determine the exact original text span, never the detached view.
+        parent = nodes[0].getparent()
+        old = list(parent)[parent.index(nodes[0]):parent.index(nodes[-1] if len(nodes) == 3 else nodes[0]) + 1]
+        return parent, old, field_context, boundary_context
+
     if not is_unit(nodes):
         d._fail("counter_unit_unsupported", "select the original insertion and its exact counter deletion")
     original, deletion = nodes[:2]
@@ -179,7 +188,7 @@ def validate(root, nodes):
     field_context = d._validate_text(clone, checked)
     start_index = parent.index(original)
     old = list(parent)[start_index:parent.index(end) + 1]
-    return parent, old, field_context
+    return parent, old, field_context, None
 
 
 def _restored(children):
@@ -212,10 +221,10 @@ def _reading(nodes):
     return d._context_text(paragraph)
 
 
-def evaluate(root, nodes, parts):
+def evaluate(root, nodes, parts, *, preserve_boundaries=False):
     if len(d._xml(root)) * 4 > d.MAX_FINGERPRINT_BYTES:
         d._fail("resource_limit_exceeded", "counter outcome validation exceeds the fixed work budget")
-    parent, old, field_context = validate(root, nodes)
+    parent, old, field_context, boundary_context = validate(root, nodes, preserve_boundaries=preserve_boundaries)
     outcomes = {}
     entries = []
     for original_decision in ("accept", "reject"):
@@ -246,13 +255,15 @@ def evaluate(root, nodes, parts):
              "table_group_members": [], "counter_outcomes": entries, "counter_decision": "accept"}
     if field_context is not None:
         facts["field_result_context"] = field_context
+    if boundary_context is not None:
+        facts["paragraph_boundary_context"] = boundary_context
     return old, outcomes, facts
 
 
-def plan(root, nodes, original_decision, counter_decision, parts):
+def plan(root, nodes, original_decision, counter_decision, parts, *, preserve_boundaries=False):
     if original_decision not in {"accept", "reject"} or counter_decision not in {"accept", "reject"}:
         d._fail("invalid_edit", "both original and counter decisions must be explicit")
-    old, outcomes, facts = evaluate(root, nodes, parts)
+    old, outcomes, facts = evaluate(root, nodes, parts, preserve_boundaries=preserve_boundaries)
     selected = next(entry for entry in facts["counter_outcomes"]
                     if entry["original_decision"] == original_decision and entry["counter_decision"] == counter_decision)
     if selected["refusal_code"] is not None:
