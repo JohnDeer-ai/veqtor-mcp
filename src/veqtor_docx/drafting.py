@@ -191,7 +191,7 @@ def _validate_operations(operations: object) -> list[dict]:
             decisions.validate_target(op["target"])
             if op["decision"] not in ("accept", "reject"):
                 raise ApplyError("invalid_edit", "decision must be accept or reject")
-            if op["target"]["kind"] == "counter_insertion":
+            if op["target"]["kind"] in {"counter_insertion", "counter_text_preserve_paragraphs"}:
                 if op.get("counter_decision") not in ("accept", "reject"):
                     raise ApplyError("invalid_edit", "select both original and counter decisions explicitly")
             elif "counter_decision" in op:
@@ -868,6 +868,8 @@ def _prepare(
             elif kind == "decide_revision":
                 before_decision = copy.deepcopy(document)
                 counter_options = {"counter_decision": op["counter_decision"]} if "counter_decision" in op else {}
+                if op["target"]["kind"] == "counter_text_preserve_paragraphs":
+                    counter_options["preserve_boundaries"] = True
                 expected_patch, _, expected_facts = decisions.plan_decision(
                     document, decision_nodes[index], op["decision"], parts, True,
                     table_groups.get(index), **counter_options)

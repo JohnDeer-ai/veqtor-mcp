@@ -110,6 +110,10 @@ same-profile preflight/apply. A counter_insertion target requires two explicit
 choices: decision for the original insertion and counter_decision for the
 selected counter deletion/replacement. Show all four outcomes; never infer
 either choice from authorship or from a proposed final wording.
+A counter_text_preserve_paragraphs target makes the same two text choices while
+explicitly retaining all pending paragraph boundaries and paragraph properties.
+Show paragraph_boundary_context: structural_status remains pending. It does not
+accept a paragraph merge or make the document ready for clean/final export.
 When field_result_context is present, explain that the decision resolves only
 cached DATE/TIME display text. Word may recalculate an unlocked field on update.
 Field instructions, locks and update settings are preserved; do not promise a
@@ -2375,6 +2379,11 @@ def preflight_document_edits(source_path: str, file_sha256: DraftingShaInput,
     decision (original) and counter_decision; each is accept or reject. The
     reader previews all four combinations. Only complete suffix/whole counters
     are supported; arbitrary nesting still refuses.
+    The explicit counter_text_preserve_paragraphs target uses the same references
+    and two choices, but keeps every paragraph boundary/property unchanged in a
+    bounded connected component inside one cell. Its paragraph_boundary_context
+    reports pending structure. It never resolves separator revisions or overrides
+    clean-copy/final-document gates. Ordinary counter_insertion retains its refusal.
     A field_result_context qualifies DATE/TIME outcomes as cached display text
     only. Controls and update/lock settings survive; Word may recalculate an
     unlocked field. This does not authorize or implement changing field settings.

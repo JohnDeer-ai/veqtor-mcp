@@ -254,7 +254,7 @@ def validate_target(target):
             _fail("invalid_revision_target", "select every ordered content revision with the row mark")
         for ref in refs:
             validate_ref(ref)
-    elif target.get("kind") == "counter_insertion" and set(target) == {
+    elif target.get("kind") in {"counter_insertion", "counter_text_preserve_paragraphs"} and set(target) == {
         "kind", "original_insertion_ref", "counter_deletion_ref", "counter_insertion_ref"
     }:
         validate_ref(target["original_insertion_ref"])
@@ -300,13 +300,13 @@ def resolve(root, sha, ref):
 
 def resolve_target(root, sha, target):
     validate_target(target)
-    if target["kind"] == "counter_insertion":
+    if target["kind"] in {"counter_insertion", "counter_text_preserve_paragraphs"}:
         from .counter_revisions import validate
         nodes = [resolve(root, sha, target[key]) for key in
                  ("original_insertion_ref", "counter_deletion_ref")]
         if target["counter_insertion_ref"] is not None:
             nodes.append(resolve(root, sha, target["counter_insertion_ref"]))
-        validate(root, nodes)
+        validate(root, nodes, preserve_boundaries=target["kind"] == "counter_text_preserve_paragraphs")
         return nodes
     if target["kind"] == "single":
         node = resolve(root, sha, target["revision_ref"])
@@ -1380,7 +1380,7 @@ def _plan_outcomes(root, nodes, parts, defer_fixed_widths=False, table_group=Non
     return old_nodes, outcomes, facts
 
 
-def plan_decision(root, nodes, decision, parts, defer_fixed_widths=False, table_group=None, *, counter_decision=None):
+def plan_decision(root, nodes, decision, parts, defer_fixed_widths=False, table_group=None, *, counter_decision=None, preserve_boundaries=False):
     """Describe both outcomes and select only a validated write operation."""
     if decision not in ("accept", "reject"):
         _fail("invalid_edit", "decision must be accept or reject")
@@ -1388,7 +1388,9 @@ def plan_decision(root, nodes, decision, parts, defer_fixed_widths=False, table_
     if counter_revisions.is_unit(nodes):
         if table_group is not None:
             _fail("counter_unit_unsupported", "counter units cannot use a table-property validation group")
-        return counter_revisions.plan(root, nodes, decision, counter_decision, parts)
+        return counter_revisions.plan(root, nodes, decision, counter_decision, parts, preserve_boundaries=preserve_boundaries)
+    if preserve_boundaries:
+        _fail("invalid_edit", "preserving paragraph boundaries requires an explicit counter target")
     if counter_decision is not None:
         _fail("invalid_edit", "a counter decision requires an explicit counter target")
     if isinstance(table_group, RowDecisionGroup):
@@ -1414,8 +1416,10 @@ def plan_decision(root, nodes, decision, parts, defer_fixed_widths=False, table_
     )
 
 
-def apply_decision(root, nodes, decision, parts, defer_fixed_widths=False, table_group=None, *, counter_decision=None):
+def apply_decision(root, nodes, decision, parts, defer_fixed_widths=False, table_group=None, *, counter_decision=None, preserve_boundaries=False):
     counter_options = {"counter_decision": counter_decision} if counter_decision is not None else {}
+    if preserve_boundaries:
+        counter_options["preserve_boundaries"] = True
     patch, chosen, facts = plan_decision(
         root, nodes, decision, parts, defer_fixed_widths, table_group, **counter_options
     )
@@ -1496,7 +1500,19 @@ def read_document_revisions(path, file_sha256=None, *, offset=0, max_items=100):
                 if max(planning_bytes, fingerprint_bytes) > MAX_FINGERPRINT_BYTES:
                     _fail("resource_limit_exceeded", "reduce revision page size to bound counter validation")
                 counter_target = counter_revisions.target(root, selected, snapshot.sha256)
-            _, _, preview = _plan_outcomes(root, selected, package.parts)
+            try:
+                _, _, preview = _plan_outcomes(root, selected, package.parts)
+            except DocxError as exc:
+                if counter_target is None or getattr(exc, "code", "") != "paragraph_unit_unsupported":
+                    raise
+                from ._preserved_paragraph_boundaries import MAX_PARAGRAPHS
+                # Charge the worst allowed component before cloning/scanning,
+                # cumulatively across the page, not once per returned group.
+                planning_bytes += (MAX_PARAGRAPHS + 6) * document_bytes
+                if planning_bytes > MAX_FINGERPRINT_BYTES:
+                    _fail("resource_limit_exceeded", "reduce revision page size for preserved separator validation")
+                _, _, preview = counter_revisions.evaluate(root, selected, package.parts, preserve_boundaries=True)
+                counter_target["kind"] = "counter_text_preserve_paragraphs"
             # A readable revision can allow only one of the two decisions.
             # Preserve both refusal codes even when neither outcome is safe.
             preview["decision"] = (

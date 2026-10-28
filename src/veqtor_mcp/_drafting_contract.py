@@ -55,11 +55,15 @@ DECISION_TARGET = {"oneOf": [
     obj(kind={"const": "counter_insertion"}, original_insertion_ref=REVISION_REF,
         counter_deletion_ref=REVISION_REF, counter_insertion_ref=nullable(REVISION_REF)),
 ]}
+DECISION_TARGET["oneOf"].append(obj(
+    kind={"const": "counter_text_preserve_paragraphs"}, original_insertion_ref=REVISION_REF,
+    counter_deletion_ref=REVISION_REF, counter_insertion_ref=nullable(REVISION_REF),
+))
 DECISION_INPUT = obj(kind={"const": "decide_revision"},
                      decision={"enum": ["accept", "reject"]}, target=DECISION_TARGET)
 DECISION_INPUT["properties"]["counter_decision"] = {"enum": ["accept", "reject"]}
 DECISION_INPUT["allOf"] = [{
-    "if": {"properties": {"target": {"properties": {"kind": {"const": "counter_insertion"}}}}},
+    "if": {"properties": {"target": {"properties": {"kind": {"enum": ["counter_insertion", "counter_text_preserve_paragraphs"]}}}}},
     "then": {"required": ["counter_decision"]},
     "else": {"properties": {"counter_decision": False}},
 }]
@@ -108,6 +112,11 @@ DECISION_PREVIEW["allOf"].append({
     "if": {"required": ["field_result_context"]},
     "then": {"properties": {"revision_kind": {"enum": ["ins", "del", "replacement", "counter_insertion"]}}},
 })
+DECISION_PREVIEW["properties"]["paragraph_boundary_context"] = obj(
+    decision_scope={"const": "counter_text_only"}, boundary_policy={"const": "preserve"},
+    structural_status={"const": "pending"}, paragraph_count={"type": "integer", "minimum": 2, "maximum": 64},
+    boundary_revision_count={"type": "integer", "minimum": 1, "maximum": 128}, component_sha256=SHA,
+)
 DECISION_PREVIEW["properties"]["counter_decision"] = {"enum": ["accept", "reject"]}
 DECISION_PREVIEW["properties"]["counter_outcomes"] = {
     "type": "array", "minItems": 4, "maxItems": 4,
@@ -339,11 +348,11 @@ _REPLACE_PARAGRAPH = obj(
            "items": _PARAGRAPH_STEP},
 )
 _DECISION_APPLIED = obj(**{k: v for k, v in DECISION_PREVIEW["properties"].items()
-                         if k not in {"paragraph_numbering", "row_numbering", "counter_decision", "counter_outcomes", "field_result_context"}}, index=_INDEX,
+                         if k not in {"paragraph_numbering", "row_numbering", "counter_decision", "counter_outcomes", "field_result_context", "paragraph_boundary_context"}}, index=_INDEX,
                         target=DECISION_TARGET, actor_profile=AUTHOR_PROFILE)
 _DECISION_APPLIED["properties"]["paragraph_numbering"] = PARAGRAPH_NUMBERING
 _DECISION_APPLIED["properties"]["row_numbering"] = PARAGRAPH_NUMBERING
-for field in ("counter_decision", "counter_outcomes", "field_result_context"):
+for field in ("counter_decision", "counter_outcomes", "field_result_context", "paragraph_boundary_context"):
     _DECISION_APPLIED["properties"][field] = DECISION_PREVIEW["properties"][field]
 _DECISION_APPLIED["allOf"] = DECISION_PREVIEW["allOf"]
 _APPLIED = {"type": "array", "maxItems": 100,
@@ -367,7 +376,7 @@ REVISIONS_RESULT = obj(
 REVISIONS_RESULT["properties"]["revisions"]["items"]["properties"]["structural_target"] = {
     "oneOf": DECISION_TARGET["oneOf"][2:4],
 }
-REVISIONS_RESULT["properties"]["revisions"]["items"]["properties"]["counter_target"] = DECISION_TARGET["oneOf"][4]
+REVISIONS_RESULT["properties"]["revisions"]["items"]["properties"]["counter_target"] = {"oneOf": DECISION_TARGET["oneOf"][4:]}
 PREFLIGHT_RESULT = obj(**_COMMON, batch_applicable={"type": "boolean"}, source_sha256=SHA,
                        tracked_change_author=TEXT, comment_initials=TEXT, operations=_APPLIED,
                        preflight_proof=nullable(PROOF), refusal_code=nullable(TEXT),
