@@ -240,8 +240,18 @@ Both steps recheck the full agreement context and live evidence. After any
 uncertain result, reread state and use `record_final_document_verification` on
 the same plan/path. Never infer fresh approval from request replay or historical
 verification. Open the candidate in Word and inspect all pages; preserve and
-recheck a changed manual save. The current stage does not yet record final
-approval of Word-saved bytes and cannot mark F10 complete or signature-ready.
+recheck a changed manual save. Keep the published candidate unchanged and save
+Word's result separately inside the matter folder. Run
+`prepare_final_saved_review` with its exact path/hash and the candidate plan.
+Show the entire saved comparison, changed parts, metadata and any recreated
+properties. Technical blockers must be resolved, never waived. Obtain the
+lawyer's explicit confirmation of this exact final version, a reconciliation for
+every changed part and every latest issue/active position, and all eight manual
+checks before `confirm_final_saved_document`. Never supply those assertions on
+the lawyer's behalf. This step preserves an immutable snapshot and does not edit
+fields, dates or properties. Read both the confirmation and current observations;
+changed/unavailable source bytes or context require a new review. The immutable
+snapshot is available through `documents`; no signing or sending is inferred.
 
 This workflow does not transmit files. Use `record_sent` only when the user
 identifies the exact file actually sent, with its current hash and assertion.

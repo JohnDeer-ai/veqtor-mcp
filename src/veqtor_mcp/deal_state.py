@@ -14,13 +14,14 @@ from . import _deal_state_contract as c
 from . import _deal_outgoing as outgoing
 from . import _working_copies as copies
 from . import _deal_finalization as finalization
+from . import _final_saved_document as saved_final
 
 STORE_NAME = "deal-rounds.json"
 DOCUMENTS = "round-documents"
 MAX_DOCUMENT_BYTES = 100 * 1024 * 1024
 LIMITATIONS = [
     "roles_and_actual_send_are_client_assertions_not_transmission_evidence",
-    "final_saved_word_bytes_confirmation_remains_unfinished",
+    "final_confirmation_is_a_client_assertion_on_exact_bytes_not_signature_readiness",
     "journal_and_working_file_observations_are_current_not_legal_authorization",
     "positions_remain_in_the_original_store_and_history",
     "snapshot_publication_and_state_commit_are_separate_recoverable_steps",
@@ -115,6 +116,7 @@ def _load(side):
     outgoing.validate(value)
     copies.validate(value)
     finalization.validate(value)
+    saved_final.validate(value)
     return value, stamp
 
 
@@ -151,7 +153,8 @@ def _store_snapshot(folder, side, snapshot, recheck):
 def _hashes(store):
     return ({digest for row in store["rounds"] for digest in
              [row["incoming_sha256"], *[entry["file_sha256"] for entry in row["sent_documents"]]]}
-            | {r["file_sha256"] for r in store.get("working_documents", [])})
+            | {r["file_sha256"] for r in store.get("working_documents", [])}
+            | {r["file_sha256"] for r in store.get("final_saved_reviews", [])})
 
 
 def _positions_observation(basis, current):
@@ -185,7 +188,7 @@ def _result(folder, store, positions_store, request_id=None, *, pending_snapshot
         if total > MAX_DOCUMENT_BYTES:
             p._fail("resource_limit_exceeded")
         documents.append({"file_sha256": digest, "path": os.path.join(destination, "source.docx")})
-    return {"schema_version": "deal_state_result.v8", "status": "ok",
+    return {"schema_version": "deal_state_result.v9", "status": "ok",
             "revision": store["revision"] if store else None,
             "rounds": deepcopy(store["rounds"]) if store else [],
             "requests": deepcopy(store["requests"]) if store else [],
@@ -198,6 +201,7 @@ def _result(folder, store, positions_store, request_id=None, *, pending_snapshot
             **outgoing.result(store),
             **copies.result(store),
             **finalization.result(store, positions_store),
+            **saved_final.result(folder, store, positions_store),
             "limitations": list(LIMITATIONS)}
 
 
@@ -248,6 +252,8 @@ def mutate_deal_state(folder, expected_revision, request_id, command, *, validat
             candidate = copies.upgrade(candidate)
         if command["action"] in c.FINALIZATION_ACTIONS:
             candidate = finalization.upgrade(candidate)
+        if command["action"] in c.FINAL_SAVED_ACTIONS:
+            candidate = saved_final.upgrade(candidate)
         snapshot = None
         effect = None
         rid = command["round_id"]
@@ -281,6 +287,8 @@ def mutate_deal_state(folder, expected_revision, request_id, command, *, validat
             effect = outgoing.change(folder, candidate, positions_store, request_id, command, _snapshot_path)
         elif command["action"] in c.WORKING_COPY_ACTIONS:
             effect = copies.change(folder, candidate, request_id, command, _snapshot_path)
+        elif command["action"] in c.FINAL_SAVED_ACTIONS:
+            snapshot, effect = saved_final.change(folder, candidate, positions_store, request_id, command, _snapshot_path)
         elif command["action"] in c.FINALIZATION_ACTIONS:
             effect = finalization.change(folder, candidate, positions_store, request_id, command, _snapshot_path)
         else:
@@ -293,6 +301,7 @@ def mutate_deal_state(folder, expected_revision, request_id, command, *, validat
         outgoing.validate(candidate)
         copies.validate(candidate)
         finalization.validate(candidate)
+        saved_final.validate(candidate)
         if command["action"] in {"start_round", "record_sent"}:
             snapshot = snapshots.capture_document_snapshot(command["path"], command["file_sha256"])
         # Validate the aggregate budget and transport result with captured bytes

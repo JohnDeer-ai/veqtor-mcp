@@ -177,8 +177,9 @@ candidate preparation, follow the finalization section of `negotiation-round.md`
 resolve every latest saved question and active position on the chosen exact basis,
 record completed manual checks, show the cleanup report, then publish only the
 confirmed candidate plan. The raw read remains incomplete and preserves old
-question facts after those separate assertions. Final Word-saved-byte confirmation
-remains unimplemented. Never use the read digest as an approval token
+question facts after those separate assertions. For final Word-saved-byte confirmation use the separate saved-review and
+confirmation actions in the canonical workflow after the lawyer completes every
+required review. Never use the read digest as an approval token
 or expose its private reasoning as an outgoing attachment.
 
 In the next fresh session, load the same saved positions, new incoming DOCX and my

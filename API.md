@@ -2109,7 +2109,7 @@ No DOCX is modified and a saved position itself grants no edit authority.
 ## `read_deal_state`
 
 Development `0.6.0.dev1` only. Read an explicitly selected matter `folder`.
-Returns closed `deal_state_result.v8`: state `revision`, rounds, idempotency
+Returns closed `deal_state_result.v9`: state `revision`, rounds, idempotency
 requests, verified private document paths/hashes, current position-store revision
 and explicit limitations. An absent store creates nothing. A round's
 `sent_basis` is frozen at round creation; use its hash and the incoming hash
@@ -2157,13 +2157,12 @@ export and Word review/confirmation of the final saved bytes. These steps remain
 separate and are not recorded or approved by this read tool. The four agreement/
 candidate mutations below record only their stated stage. Raw historical issue
 blockers remain in this review after a separate agreement; read deal state for
-the lawyer's new-basis resolutions. Final Word-saved-byte confirmation is still
-unimplemented. Clean markup and prior issue/position confirmations
+the lawyer's new-basis resolutions. Final Word-saved-byte confirmation uses the separate v9 actions below. Clean markup and prior issue/position confirmations
 never establish mutual agreement.
 
 The whole read refuses above 20 linked operations, 20 checked snapshots, 100 MiB
 of snapshot bytes or 2 MiB of canonical review data; it returns no partial success.
-Store versions v1–v8 are read without migration. There are no writes, exports,
+Store versions v1–v9 are read without migration. There are no writes, exports,
 recovery attempts or optional provenance records. `review_sha256` hashes canonical
 JSON of `data` only and is **not an approval token**; live files/journals can change
 without a state revision. This report contains private assessments and terms.
@@ -2288,7 +2287,7 @@ characters refuse instead of silently changing quotations.
 
 Preparation saves every selected cell, the renderer identity and exact file
 hashes in the v3 internal report before publication. It upgrades the private
-store to at least v7 without discarding existing rows, retaining v8 when present; reads do not rewrite older stores.
+store to at least v7 without discarding existing rows, retaining v8 or v9 when present; reads do not rewrite older stores.
 The old preparation action and no-table v1/v2 reports retain their behavior.
 The table can accompany the redline and/or clean draft (up to three files), or
 stand alone with both contract names null. A selected working version is still
@@ -2380,8 +2379,9 @@ text edits to both columns; this check does not add another write engine.
 
 Four `mutate_deal_state` commands extend the same 23-tool interface. All use the
 outer current `expected_revision`, retained request ID and selected `round_id`.
-The first such mutation upgrades the closed store to v8; reads do not migrate
-earlier stores and every later command preserves new records.
+The first such mutation upgrades an older store to v8 and retains v9 when
+already present; reads do not migrate earlier stores and every later command
+preserves new records.
 
 - `record_final_basis_agreement`: exact `file_sha256`, current nullable
   `expected_positions_revision`, fresh `expected_review_sha256` from the complete
@@ -2432,6 +2432,61 @@ existing aggregate byte/request limits; oversize evidence refuses without trunca
 
 The document stage is always `candidate_for_word_review`. Review all pages in
 Word; a manual save may change text, fields and properties and must be rechecked.
-This slice does not confirm or snapshot the final Word-saved bytes as approved by
-the lawyer, and does not mark a document signature-ready or sent. See
+These four candidate-stage commands do not themselves confirm or snapshot
+Word-saved bytes as approved. Use the separate v9 saved-version workflow below;
+neither stage marks a document signature-ready or sent. See
 [deal state](docs/DEAL_STATE.md#explicit-agreed-basis-and-checked-final-candidate-development).
+
+
+### Exact Word-saved version confirmation (development)
+
+Two further `mutate_deal_state` actions use closed store v9. Older v1-v8 stores
+remain readable; older mutations preserve both new collections. Results are
+`deal_state_result.v9`, still through the same 23 tools.
+
+- `prepare_final_saved_review`: `round_id`, `document_request_id`, `plan_sha256`,
+  relative `path` inside the matter, and exact `file_sha256`. The prior candidate
+  must have a publication/verification record and its original folder must still
+  match. The agreement's complete live context is rechecked. Captures the selected
+  Word-saved copy as a private immutable snapshot and stores the full report in
+  `final_saved_reviews`; this is not approval and does not modify any DOCX.
+- `confirm_final_saved_document`: `round_id`, `saved_review_request_id`,
+  `report_sha256`, `file_sha256`, `user_confirmed: true`, nonempty `statement`,
+  `changed_part_resolutions`, `issue_resolutions`, `position_resolutions` and
+  `manual_checks`. Every changed package part needs exactly one
+  `{part_name, statement}`. Every latest issue and active position needs the exact
+  ID/version and a fresh specific reconciliation statement. Manual checks require
+  `word_reopened`, `all_pages_and_layout`, `date_and_field_behavior`,
+  `properties_and_confidentiality`, `requisites`, `annexes`, `unfilled_places` and
+  `final_agreed_text`, each a nonempty statement about the lawyer's completed
+  check. Model-generated assertions must not replace the lawyer's decision.
+
+The private report contains every changed part's old/new hash, the complete
+supported text/structure comparison, all recognized core/app/custom metadata XML before/after and
+selected properties recreated by Word, including their actual part paths.
+Noncanonical or ambiguous metadata layout blocks confirmation; its recognized
+property values still appear in the private report. It makes no universal DOCX-equivalence
+claim. Changed text and field/property behavior require explicit reconciliation;
+this route never edits or freezes dates. Properties the earlier cleanup removed
+but Word recreated require an explicit decision in the metadata review. No
+confidentiality clearance is inferred from a comparison or an empty value.
+
+Remaining revisions, ordinary comment nodes, incomplete package/comparison
+coverage and failed clean probes block confirmation regardless of declarations.
+Confirmation rechecks the entire saved report, exact live copy and immutable
+snapshot. A changed negotiation context also refuses. The candidate, original
+files, prior decisions and all historical records are preserved.
+
+`final_confirmations` records a `client_asserted_final_saved_version`, not proof
+of mutual agreement. Its hash resolves to the immutable file in `documents`.
+`final_confirmation_observations` separately reports current context and whether
+the selected live file still has those bytes; these are observations made during
+the read, not a lock against future changes. Later drift cannot approve new bytes.
+A replay returns the historical assertion and fresh observations without renewing
+it. Snapshot and state persistence remain separate: after any uncertain failure,
+reread state and retry only the identical request; an orphan is not approval.
+
+Each report is limited to 1 MiB and 200 changed parts, with at most 10 saved
+reviews and 10 confirmations under the existing 2 MiB state, request and snapshot
+budgets. Oversize reads refuse whole; they never silently truncate review data.
+There is no automatic send, signature-ready assertion or real-corpus acceptance.

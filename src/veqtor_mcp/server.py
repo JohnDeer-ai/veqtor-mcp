@@ -173,8 +173,16 @@ Changed negotiation context or live observations require a fresh agreement.
 After uncertainty reread state and record_final_document_verification against the
 same frozen plan; never republish elsewhere. Verification is a byte observation,
 not final lawyer approval. Candidate-for-Word status, Word review, confirmation of
-the final saved bytes and sending are separate; final-byte confirmation is not
-implemented. Saved request replay does not renew agreement or live verification.
+the final saved bytes and sending are separate. prepare_final_saved_review captures
+an exact selected Word-saved copy and stores the full private change/metadata
+review. Then confirm_final_saved_document requires the lawyer's explicit
+confirmation of those exact bytes, every changed part, all issue/position
+resolutions and completed Word/layout/date/property/requisite/annex/blank checks.
+Never invent these assertions. Technical blockers cannot be waived. Changed
+properties must be deliberately reviewed, including properties recreated by Word.
+No bytes, date settings or properties are modified. The approved snapshot remains
+immutable; later live-file/context changes do not approve another version.
+Saved request replay does not renew agreement or live verification.
 For an outgoing kit, use prepare_outgoing_package in mutate_deal_state
 with the current working request/hash, a new relative folder and selected DOCX
 names. Show its complete saved report and exact comment/property policies.
@@ -2088,9 +2096,24 @@ def mutate_deal_state(folder: str, expected_revision: RevisionInput,
     record_final_document_verification only observes the existing frozen candidate,
     including recovery after final_document_state_commit_uncertain. Historical
     replay and verification never renew stale agreement. State observations only
-    compare saved context; live checks occur on preparation/publication. This v8
-    stage remains candidate_for_word_review; final saved-byte confirmation after
-    lawyer Word review remains unimplemented. No signature-ready status is given.
+    compare saved context; live checks occur on preparation/publication.
+    prepare_final_saved_review upgrades to v9, takes the document_request_id and
+    plan_sha256, relative path and exact file_sha256 of a separately saved Word
+    copy, rechecks the full context and preserves an immutable private snapshot
+    with the complete private comparison/report. It is not approval. Then
+    confirm_final_saved_document requires saved_review_request_id, report_sha256,
+    file_sha256, user_confirmed true and statement, exact changed_part_resolutions
+    (part_name/statement), every issue/position ID/version resolution, and eight
+    completed manual_checks: word_reopened, all_pages_and_layout,
+    date_and_field_behavior, properties_and_confidentiality, requisites, annexes,
+    unfilled_places and final_agreed_text. All assertions must come from the
+    lawyer. Coverage/revision/comment/probe failures still block confirmation.
+    The source snapshot, unchanged candidate and current saved copy are checked;
+    the exact approved snapshot is listed in documents. Read confirmations and
+    final_confirmation_observations separately: later path/context drift never
+    approves new bytes, and historical replays do not renew the assertion.
+    Properties recreated by Word remain explicit review data; no field, property
+    or document bytes are changed here. No signature-ready status is given.
     No file is transmitted or overwritten. Snapshot publication precedes the state
     commit. On commit_uncertain reread state; retry the identical request only,
     never change its ID or treat an orphan snapshot as an applied role.

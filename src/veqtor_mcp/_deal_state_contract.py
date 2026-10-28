@@ -146,7 +146,29 @@ STORE_V8["properties"].update(schema_version={"const": "deal_rounds_store.v8"},
     requests=array(REQUEST_V8, 150), final_basis_agreements=array(FINAL_AGREEMENT, 10),
     final_documents=array(FINAL_DOCUMENT, 10), final_document_events=array(FINAL_EVENT, 20))
 STORE_V8["required"].extend(["final_basis_agreements", "final_documents", "final_document_events"])
-STORE = {"oneOf": [STORE_V1, STORE_V2, STORE_V3, STORE_V4, STORE_V5, STORE_V6, STORE_V7, STORE_V8]}
+FINAL_SAVED_ACTIONS = ["prepare_final_saved_review", "confirm_final_saved_document"]
+FINAL_SAVED_REVIEW = obj(request_id=UUID, round_id=ROUND_ID, document_request_id=UUID,
+    plan_sha256=SHA, path=RELATIVE_PATH, file_sha256=SHA, candidate_sha256=SHA,
+    positions_revision=nullable(SHA), scope_sha256=SHA, report_sha256=SHA,
+    report_utf8=text(1024 * 1024), stage={"const": "saved_version_requires_confirmation"})
+FINAL_SAVED_CHECKS = obj(word_reopened=text(2000), all_pages_and_layout=text(2000),
+    date_and_field_behavior=text(2000), properties_and_confidentiality=text(2000),
+    requisites=text(2000), annexes=text(2000), unfilled_places=text(2000),
+    final_agreed_text=text(2000))
+PART_RESOLUTIONS = array(obj(part_name=text(500), statement=text(2000)), 200)
+FINAL_CONFIRMATION = obj(request_id=UUID, round_id=ROUND_ID, saved_review_request_id=UUID,
+    report_sha256=SHA, file_sha256=SHA, statement=text(2000), manual_checks=FINAL_SAVED_CHECKS,
+    changed_part_resolutions=PART_RESOLUTIONS, issue_resolutions=ISSUE_RESOLUTIONS,
+    position_resolutions=POSITION_RESOLUTIONS,
+    assurance={"const": "client_asserted_final_saved_version"})
+REQUEST_V9 = deepcopy(REQUEST_V8)
+REQUEST_V9["properties"]["action"]["enum"].extend(FINAL_SAVED_ACTIONS)
+STORE_V9 = deepcopy(STORE_V8)
+STORE_V9["properties"].update(schema_version={"const": "deal_rounds_store.v9"},
+    requests=array(REQUEST_V9, 150), final_saved_reviews=array(FINAL_SAVED_REVIEW, 10),
+    final_confirmations=array(FINAL_CONFIRMATION, 10))
+STORE_V9["required"].extend(["final_saved_reviews", "final_confirmations"])
+STORE = {"oneOf": [STORE_V1, STORE_V2, STORE_V3, STORE_V4, STORE_V5, STORE_V6, STORE_V7, STORE_V8, STORE_V9]}
 COMMAND = {"oneOf": [
     obj(action={"const": "prepare_working_copy"}, round_id=ROUND_ID,
         incoming_basis_sha256=SHA, path=RELATIVE_PATH),
@@ -201,12 +223,21 @@ COMMAND["oneOf"].extend([
     obj(action={"const": "record_final_document_verification"}, round_id=ROUND_ID,
         document_request_id=UUID, plan_sha256=SHA),
 ])
+COMMAND["oneOf"].extend([
+    obj(action={"const": "prepare_final_saved_review"}, round_id=ROUND_ID,
+        document_request_id=UUID, plan_sha256=SHA, path=RELATIVE_PATH, file_sha256=SHA),
+    obj(action={"const": "confirm_final_saved_document"}, round_id=ROUND_ID,
+        saved_review_request_id=UUID, report_sha256=SHA, file_sha256=SHA,
+        user_confirmed={"const": True, "type": "boolean"}, statement=text(2000),
+        manual_checks=FINAL_SAVED_CHECKS, changed_part_resolutions=PART_RESOLUTIONS,
+        issue_resolutions=ISSUE_RESOLUTIONS, position_resolutions=POSITION_RESOLUTIONS),
+])
 COMMAND[MCP_CONTRACT_SCHEMA_EXTENSION] = MCP_CONTRACT_SCHEMA_VERSION
 CommandInput = Annotated[dict[str, Any], WithJsonSchema(COMMAND)]
 RequestIdInput = Annotated[str, WithJsonSchema(UUID)]
 RESULT = obj(
-    schema_version={"const": "deal_state_result.v8"}, status={"const": "ok"},
-    revision=nullable(SHA), rounds=array(ROUND, 50), requests=array(REQUEST_V8, 150),
+    schema_version={"const": "deal_state_result.v9"}, status={"const": "ok"},
+    revision=nullable(SHA), rounds=array(ROUND, 50), requests=array(REQUEST_V9, 150),
     documents=array(obj(file_sha256=SHA, path=text(4096)), 150),
     positions_current_revision=nullable(SHA), applied_request_id=nullable(UUID),
     positions_basis_observations=array(obj(round_id=ROUND_ID,
@@ -217,6 +248,10 @@ RESULT = obj(
     working_copy_plans=array(WORKING_COPY_PLAN, 20),
     final_basis_agreements=array(FINAL_AGREEMENT, 10), final_documents=array(FINAL_DOCUMENT, 10),
     final_document_events=array(FINAL_EVENT, 20),
+    final_saved_reviews=array(FINAL_SAVED_REVIEW, 10), final_confirmations=array(FINAL_CONFIRMATION, 10),
+    final_confirmation_observations=array(obj(confirmation_request_id=UUID,
+        snapshot_sha256=SHA, context_status={"enum": ["current_checked", "changed_or_unavailable"]},
+        selected_file_status={"enum": ["same_bytes", "changed", "unavailable"]}), 10),
     final_basis_observations=array(obj(agreement_request_id=UUID,
         status={"enum": ["saved_context_matches_live_checks_required", "saved_context_changed"]}), 10),
     operation_observations=array(obj(operation_id=JOURNAL_ID,

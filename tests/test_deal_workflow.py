@@ -589,7 +589,7 @@ def test_explicit_initial_manual_import_is_not_a_fabricated_journal_or_send(roun
     work = human_copy(folder, source)
     command = import_command(state, work)
     state = mutate(folder, state, 2, command)
-    assert state['schema_version'] == 'deal_state_result.v8'
+    assert state['schema_version'] == 'deal_state_result.v9'
     assert json.loads(store_bytes(folder))['schema_version'] == 'deal_rounds_store.v3'
     selected = state['working_documents'][0]
     assert selected['origin'] == 'client_asserted_working_import'

@@ -222,6 +222,7 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
         "/src/veqtor_mcp/_round_issue_brief_contract.py",
         "/src/veqtor_mcp/_finalization_review.py",
         "/src/veqtor_mcp/_deal_finalization.py",
+        "/src/veqtor_mcp/_final_saved_document.py",
         "/src/veqtor_mcp/_finalization_review_contract.py",
         "/src/veqtor_mcp/_deal_workflow.py",
         "/src/veqtor_mcp/_deal_outgoing.py",
