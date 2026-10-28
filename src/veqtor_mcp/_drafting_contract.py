@@ -59,6 +59,10 @@ DECISION_TARGET["oneOf"].append(obj(
     kind={"const": "counter_text_preserve_paragraphs"}, original_insertion_ref=REVISION_REF,
     counter_deletion_ref=REVISION_REF, counter_insertion_ref=nullable(REVISION_REF),
 ))
+DECISION_TARGET["oneOf"].append(obj(
+    kind={"const": "text_preserve_paragraphs"},
+    revision_refs={"type": "array", "minItems": 1, "maxItems": 2, "items": REVISION_REF},
+))
 DECISION_INPUT = obj(kind={"const": "decide_revision"},
                      decision={"enum": ["accept", "reject"]}, target=DECISION_TARGET)
 DECISION_INPUT["properties"]["counter_decision"] = {"enum": ["accept", "reject"]}
@@ -113,7 +117,7 @@ DECISION_PREVIEW["allOf"].append({
     "then": {"properties": {"revision_kind": {"enum": ["ins", "del", "replacement", "counter_insertion"]}}},
 })
 DECISION_PREVIEW["properties"]["paragraph_boundary_context"] = obj(
-    decision_scope={"const": "counter_text_only"}, boundary_policy={"const": "preserve"},
+    decision_scope={"enum": ["counter_text_only", "text_only"]}, boundary_policy={"const": "preserve"},
     structural_status={"const": "pending"}, paragraph_count={"type": "integer", "minimum": 2, "maximum": 64},
     boundary_revision_count={"type": "integer", "minimum": 1, "maximum": 128}, component_sha256=SHA,
 )
@@ -376,7 +380,8 @@ REVISIONS_RESULT = obj(
 REVISIONS_RESULT["properties"]["revisions"]["items"]["properties"]["structural_target"] = {
     "oneOf": DECISION_TARGET["oneOf"][2:4],
 }
-REVISIONS_RESULT["properties"]["revisions"]["items"]["properties"]["counter_target"] = {"oneOf": DECISION_TARGET["oneOf"][4:]}
+REVISIONS_RESULT["properties"]["revisions"]["items"]["properties"]["counter_target"] = {"oneOf": DECISION_TARGET["oneOf"][4:6]}
+REVISIONS_RESULT["properties"]["revisions"]["items"]["properties"]["text_target"] = DECISION_TARGET["oneOf"][6]
 PREFLIGHT_RESULT = obj(**_COMMON, batch_applicable={"type": "boolean"}, source_sha256=SHA,
                        tracked_change_author=TEXT, comment_initials=TEXT, operations=_APPLIED,
                        preflight_proof=nullable(PROOF), refusal_code=nullable(TEXT),
