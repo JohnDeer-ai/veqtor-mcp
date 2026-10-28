@@ -227,7 +227,13 @@ def validate_ref(ref):
 def validate_target(target):
     if type(target) is not dict:
         _fail("invalid_revision_target", "supply an explicit revision target")
-    if target.get("kind") == "single" and set(target) == {"kind", "revision_ref"}:
+    if target.get("kind") == "text_preserve_paragraphs" and set(target) == {"kind", "revision_refs"}:
+        refs = target["revision_refs"]
+        if type(refs) is not list or not 1 <= len(refs) <= 2:
+            _fail("invalid_revision_target", "select one text revision or an explicit replacement pair")
+        for ref in refs:
+            validate_ref(ref)
+    elif target.get("kind") == "single" and set(target) == {"kind", "revision_ref"}:
         validate_ref(target["revision_ref"])
     elif target.get("kind") == "replacement" and set(target) == {
         "kind",
@@ -300,6 +306,12 @@ def resolve(root, sha, ref):
 
 def resolve_target(root, sha, target):
     validate_target(target)
+    if target["kind"] == "text_preserve_paragraphs":
+        from ._preserved_paragraph_boundaries import PreservedText
+        nodes = PreservedText(resolve(root, sha, ref) for ref in target["revision_refs"])
+        if any(n.tag not in {w("ins"), w("del")} or n.getparent().tag != w("p") for n in nodes):
+            _fail("revision_type_unsupported", "preserved text requires direct paragraph revisions")
+        return nodes
     if target["kind"] in {"counter_insertion", "counter_text_preserve_paragraphs"}:
         from .counter_revisions import validate
         nodes = [resolve(root, sha, target[key]) for key in
@@ -1253,6 +1265,11 @@ def _row_outcomes(root, nodes, parts, group=None):
 
 def _plan_outcomes(root, nodes, parts, defer_fixed_widths=False, table_group=None):
     """Describe and validate each outcome without choosing a write operation."""
+    from ._preserved_paragraph_boundaries import PreservedText, text_outcomes
+    if isinstance(nodes, PreservedText):
+        if table_group is not None:
+            _fail("revision_dependency_unsupported", "preserved text cannot share a table-property group")
+        return text_outcomes(root, nodes, parts)
     from . import counter_revisions
     if counter_revisions.is_unit(nodes):
         old, outcomes, facts = counter_revisions.evaluate(root, nodes, parts)
@@ -1465,6 +1482,7 @@ def read_document_revisions(path, file_sha256=None, *, offset=0, max_items=100):
         preview = None
         structural_target = None
         counter_target = None
+        text_target = None
         try:
             planning_bytes += 2 * document_bytes
             if planning_bytes > MAX_FINGERPRINT_BYTES:
@@ -1503,7 +1521,8 @@ def read_document_revisions(path, file_sha256=None, *, offset=0, max_items=100):
             try:
                 _, _, preview = _plan_outcomes(root, selected, package.parts)
             except DocxError as exc:
-                if counter_target is None or getattr(exc, "code", "") != "paragraph_unit_unsupported":
+                direct_text = node.tag in {w("ins"), w("del")} and node.getparent().tag == w("p")
+                if (counter_target is None and not direct_text) or getattr(exc, "code", "") != "paragraph_unit_unsupported":
                     raise
                 from ._preserved_paragraph_boundaries import MAX_PARAGRAPHS
                 # Charge the worst allowed component before cloning/scanning,
@@ -1511,8 +1530,13 @@ def read_document_revisions(path, file_sha256=None, *, offset=0, max_items=100):
                 planning_bytes += (MAX_PARAGRAPHS + 6) * document_bytes
                 if planning_bytes > MAX_FINGERPRINT_BYTES:
                     _fail("resource_limit_exceeded", "reduce revision page size for preserved separator validation")
-                _, _, preview = counter_revisions.evaluate(root, selected, package.parts, preserve_boundaries=True)
-                counter_target["kind"] = "counter_text_preserve_paragraphs"
+                if counter_target is not None:
+                    _, _, preview = counter_revisions.evaluate(root, selected, package.parts, preserve_boundaries=True)
+                    counter_target["kind"] = "counter_text_preserve_paragraphs"
+                else:
+                    from ._preserved_paragraph_boundaries import PreservedText
+                    _, _, preview = _plan_outcomes(root, PreservedText([node]), package.parts)
+                    text_target = {"kind": "text_preserve_paragraphs", "revision_refs": [ref]}
             # A readable revision can allow only one of the two decisions.
             # Preserve both refusal codes even when neither outcome is safe.
             preview["decision"] = (
@@ -1547,6 +1571,7 @@ def read_document_revisions(path, file_sha256=None, *, offset=0, max_items=100):
                 "preview": preview,
                 **({"structural_target": structural_target} if structural_target is not None else {}),
                 **({"counter_target": counter_target} if counter_target is not None else {}),
+                **({"text_target": text_target} if text_target is not None else {}),
             }
         )
     result = {
