@@ -145,6 +145,40 @@ def test_complete_component_budget(tmp_path, demo_dir, monkeypatch):
     assert not result["batch_applicable"] and result["refusal_code"] == "resource_limit_exceeded"
 
 
+@pytest.mark.parametrize("gap", ["none", "comment", "processing_instruction", "bookmark_pair"])
+def test_inert_sibling_cannot_hide_overlong_left_component(tmp_path, demo_dir, gap):
+    path = chain(tmp_path, demo_dir, count=66)
+    root = main(path)
+    cell = next(root.iter(w("tc")))
+    # Move only the counter text to paragraph 65; all 65 separators stay pending.
+    for child in list(cell[0]):
+        if child.tag != w("pPr"):
+            cell[64].append(child)
+    if gap == "bookmark_pair":
+        cell.insert(64, etree.Element(w("bookmarkStart"), {w("id"): "1001", w("name"): "Gap"}))
+        cell.insert(65, etree.Element(w("bookmarkEnd"), {w("id"): "1001"}))
+    elif gap != "none":
+        sibling = etree.Comment("inert") if gap == "comment" else etree.ProcessingInstruction("inert", "control")
+        cell.insert(64, sibling)
+    path.write_bytes(_package(demo_dir, root))
+    op = operation(path)
+    op["target"]["kind"] = "counter_text_preserve_paragraphs"
+    before = path.read_bytes()
+    result = drafting.preflight_document_edits(str(path), sha(path), [op], **PROFILE, journal=False)
+    assert not result["batch_applicable"]
+    assert result["refusal_code"] == ("resource_limit_exceeded" if gap == "none" else "paragraph_context_unsupported")
+    assert path.read_bytes() == before
+
+
+def test_first_cell_properties_are_a_proven_left_boundary(tmp_path, demo_dir):
+    path = chain(tmp_path, demo_dir)
+    root = main(path)
+    next(root.iter(w("tc"))).insert(0, etree.Element(w("tcPr")))
+    path.write_bytes(_package(demo_dir, root))
+    result = save(path, [operation(path)])
+    assert result["operations"][0]["paragraph_boundary_context"]["paragraph_count"] == 3
+
+
 def test_changed_neighbor_requires_fresh_file_and_references(tmp_path, demo_dir):
     path = chain(tmp_path, demo_dir)
     op, old_sha = operation(path), sha(path)

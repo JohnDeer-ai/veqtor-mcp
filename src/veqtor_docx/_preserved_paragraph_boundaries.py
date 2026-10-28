@@ -37,6 +37,11 @@ def validation_view(root, selected):
         count += 1
         if count > MAX_PARAGRAPHS:
             d._fail("resource_limit_exceeded", "separator component exceeds its paragraph limit")
+    previous = first.getprevious()
+    if previous is not None and previous.tag != w("p") and not (
+        previous.tag == w("tcPr") and previous.getprevious() is None
+    ):
+        d._fail("paragraph_context_unsupported", "separator component has an unproven left boundary")
     component = [first]
     while _marks(component[-1]):
         following = component[-1].getnext()
