@@ -114,6 +114,11 @@ A counter_text_preserve_paragraphs target makes the same two text choices while
 explicitly retaining all pending paragraph boundaries and paragraph properties.
 Show paragraph_boundary_context: structural_status remains pending. It does not
 accept a paragraph merge or make the document ready for clean/final export.
+A paragraph_chain target explicitly selects every ordered boundary_ref in one
+complete cell component after its text revisions are resolved. Show both segment
+layouts and explain that the last paragraph supplies each segment's formatting.
+The selected accept/reject choice applies to ALL its boundaries; never infer it
+from the earlier text choices. Numbered chains and unsupported ranges refuse.
 When field_result_context is present, explain that the decision resolves only
 cached DATE/TIME display text. Word may recalculate an unlocked field on update.
 Field instructions, locks and update settings are preserved; do not promise a
@@ -2384,6 +2389,12 @@ def preflight_document_edits(source_path: str, file_sha256: DraftingShaInput,
     bounded connected component inside one cell. Its paragraph_boundary_context
     reports pending structure. It never resolves separator revisions or overrides
     clean-copy/final-document gates. Ordinary counter_insertion retains its refusal.
+    A paragraph_chain target supplies all ordered boundary_refs of one complete
+    cell component with resolved text. One explicit decision applies uniformly
+    to all its boundary marks, preserving every run and supported internal
+    bookmark; each surviving segment uses its last paragraph's properties.
+    Preview paragraph_chain_context before approval. Mixed per-mark choices,
+    numbered chains, unresolved text and unsupported markup still refuse.
     A field_result_context qualifies DATE/TIME outcomes as cached display text
     only. Controls and update/lock settings survive; Word may recalculate an
     unlocked field. This does not authorize or implement changing field settings.

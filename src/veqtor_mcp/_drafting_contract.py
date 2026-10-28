@@ -63,6 +63,10 @@ DECISION_TARGET["oneOf"].append(obj(
     kind={"const": "text_preserve_paragraphs"},
     revision_refs={"type": "array", "minItems": 1, "maxItems": 2, "items": REVISION_REF},
 ))
+DECISION_TARGET["oneOf"].append(obj(
+    kind={"const": "paragraph_chain"},
+    boundary_refs={"type": "array", "minItems": 1, "maxItems": 128, "items": REVISION_REF},
+))
 DECISION_INPUT = obj(kind={"const": "decide_revision"},
                      decision={"enum": ["accept", "reject"]}, target=DECISION_TARGET)
 DECISION_INPUT["properties"]["counter_decision"] = {"enum": ["accept", "reject"]}
@@ -73,7 +77,7 @@ DECISION_INPUT["allOf"] = [{
 }]
 DECISION_PREVIEW = obj(
     operation={"const": "decide_revision"}, decision={"enum": ["accept", "reject"]},
-    revision_kind={"enum": ["ins", "del", "replacement", "counter_insertion", "rPrChange", "pPrChange", "tcPrChange", "trPrChange", "tblPrChange", "tblGridChange", "tblPrExChange", "paragraph_insertion", "paragraph_deletion", "row_insertion", "row_deletion"]},
+    revision_kind={"enum": ["ins", "del", "replacement", "counter_insertion", "rPrChange", "pPrChange", "tcPrChange", "trPrChange", "tblPrChange", "tblGridChange", "tblPrExChange", "paragraph_insertion", "paragraph_deletion", "paragraph_chain", "row_insertion", "row_deletion"]},
     members={"type": "array", "minItems": 1, "maxItems": 129,
              "items": obj(kind=TEXT, id=nullable(TEXT), author=nullable(TEXT), date=nullable(TEXT))},
     current_text=NEW_TEXT, accepted_text=nullable(NEW_TEXT), rejected_text=nullable(NEW_TEXT),
@@ -115,6 +119,21 @@ DECISION_PREVIEW["properties"]["field_result_context"] = obj(
 DECISION_PREVIEW["allOf"].append({
     "if": {"required": ["field_result_context"]},
     "then": {"properties": {"revision_kind": {"enum": ["ins", "del", "replacement", "counter_insertion"]}}},
+})
+_CHAIN_SEGMENTS = {"type": "array", "minItems": 1, "maxItems": 64,
+                   "items": {"type": "array", "minItems": 1, "maxItems": 64,
+                             "items": {"type": "integer", "minimum": 0, "maximum": 63}}}
+DECISION_PREVIEW["properties"]["paragraph_chain_context"] = obj(
+    paragraph_count={"type": "integer", "minimum": 2, "maximum": 64},
+    boundary_revision_count={"type": "integer", "minimum": 1, "maximum": 128},
+    bookmark_count={"type": "integer", "minimum": 0},
+    accepted_segments=_CHAIN_SEGMENTS, rejected_segments=_CHAIN_SEGMENTS,
+    formatting_policy={"const": "rightmost_paragraph"}, decision_scope={"const": "all_boundary_marks"},
+)
+DECISION_PREVIEW["allOf"].append({
+    "if": {"properties": {"revision_kind": {"const": "paragraph_chain"}}},
+    "then": {"required": ["paragraph_chain_context"]},
+    "else": {"properties": {"paragraph_chain_context": False}},
 })
 DECISION_PREVIEW["properties"]["paragraph_boundary_context"] = obj(
     decision_scope={"enum": ["counter_text_only", "text_only"]}, boundary_policy={"const": "preserve"},
@@ -352,11 +371,11 @@ _REPLACE_PARAGRAPH = obj(
            "items": _PARAGRAPH_STEP},
 )
 _DECISION_APPLIED = obj(**{k: v for k, v in DECISION_PREVIEW["properties"].items()
-                         if k not in {"paragraph_numbering", "row_numbering", "counter_decision", "counter_outcomes", "field_result_context", "paragraph_boundary_context"}}, index=_INDEX,
+                         if k not in {"paragraph_numbering", "row_numbering", "counter_decision", "counter_outcomes", "field_result_context", "paragraph_boundary_context", "paragraph_chain_context"}}, index=_INDEX,
                         target=DECISION_TARGET, actor_profile=AUTHOR_PROFILE)
 _DECISION_APPLIED["properties"]["paragraph_numbering"] = PARAGRAPH_NUMBERING
 _DECISION_APPLIED["properties"]["row_numbering"] = PARAGRAPH_NUMBERING
-for field in ("counter_decision", "counter_outcomes", "field_result_context", "paragraph_boundary_context"):
+for field in ("counter_decision", "counter_outcomes", "field_result_context", "paragraph_boundary_context", "paragraph_chain_context"):
     _DECISION_APPLIED["properties"][field] = DECISION_PREVIEW["properties"][field]
 _DECISION_APPLIED["allOf"] = DECISION_PREVIEW["allOf"]
 _APPLIED = {"type": "array", "maxItems": 100,
@@ -378,7 +397,7 @@ REVISIONS_RESULT = obj(
     coverage={"const": "main_document_only"}, uninspected_parts={"type": "array", "items": TEXT},
 )
 REVISIONS_RESULT["properties"]["revisions"]["items"]["properties"]["structural_target"] = {
-    "oneOf": DECISION_TARGET["oneOf"][2:4],
+    "oneOf": DECISION_TARGET["oneOf"][2:4] + [DECISION_TARGET["oneOf"][7]],
 }
 REVISIONS_RESULT["properties"]["revisions"]["items"]["properties"]["counter_target"] = {"oneOf": DECISION_TARGET["oneOf"][4:6]}
 REVISIONS_RESULT["properties"]["revisions"]["items"]["properties"]["text_target"] = DECISION_TARGET["oneOf"][6]
