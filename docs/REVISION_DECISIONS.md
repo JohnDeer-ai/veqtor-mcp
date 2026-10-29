@@ -388,3 +388,9 @@ marks and formatting remain pending and unchanged. This is not a clean-export
 exception or an implicit decision about paragraph boundaries.
 
 This narrow profile validates every package part as XML, regardless of its filename; unverified binary parts refuse. Character properties inside the selected insertion are limited to the required style and tested bold/italic/color family.
+
+Complete `paragraph_chain` decisions retain direct Word spelling and grammar
+hints (`proofErr` with exactly one recognized `type`, no children or payload) in
+the same content order as the original runs. The detached validation view omits
+only these proven hints; the published result never strips them. Unknown or
+nested hint markup still refuses. This does not expand automatic clean export.

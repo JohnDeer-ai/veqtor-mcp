@@ -121,6 +121,7 @@ _MARK_RPR_ATTRIBUTES = {
 def _closed_paragraph(paragraph, marks):
     from .counter_revisions import _closed_attributes
     from ._drafting_paragraphs import _structure_paragraph
+    from ._drafting_text import _proof_hint
 
     if set(paragraph.attrib) - _PARAGRAPH_ATTRIBUTES:
         d._fail("paragraph_chain_unsupported", "unknown paragraph attributes")
@@ -174,7 +175,9 @@ def _closed_paragraph(paragraph, marks):
                     )
                 d._property_tree(prop)
     # Validate ordinary runs separately; do not remove unknown children on the
-    # real tree. The detached paragraph used below only omits proven bookmarks.
+    # real tree. The detached validation paragraph only omits proven bookmarks
+    # and closed, direct spelling hints. Outcomes retain these exact nodes in
+    # their original content order; nested or malformed hints still refuse.
     clone = copy.deepcopy(paragraph)
     for node in paragraph:
         if node.tag == w("r"):
@@ -196,7 +199,7 @@ def _closed_paragraph(paragraph, marks):
         ):
             d._fail("paragraph_chain_unsupported", "ambiguous character formatting")
     for node in list(clone):
-        if node.tag in {w("bookmarkStart"), w("bookmarkEnd")}:
+        if node.tag in {w("bookmarkStart"), w("bookmarkEnd")} or _proof_hint(node):
             clone.remove(node)
     _structure_paragraph(clone, _marks(clone))
     for mark in marks:
