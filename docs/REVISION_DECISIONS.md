@@ -357,3 +357,20 @@ including height, are preserved, and the backup retains the exact original bytes
 Separate native Word accept/reject, pending-save/reread and final save/reopen checks are
 required for each claimed supported positive form. XML-only checks do not
 establish that acceptance, real-corpus coverage or a published release.
+
+### Complete text-resolved paragraph chains
+
+`paragraph_chain` uses `boundary_refs` containing every boundary revision in
+exact document order for a complete connected component inside one table cell.
+The reader offers this `structural_target` on its first mark. A single explicit
+accept/reject choice applies to **all** selected marks, independently of prior
+text decisions. Partial selections and mixed per-mark actions are not admitted.
+
+Text revisions must already be resolved. The supported profile retains every
+run and internal bookmark endpoint, using the rightmost paragraph's complete
+properties for each surviving segment. `paragraph_chain_context` previews both
+segment layouts and the formatting policy. Source-global context validation,
+closed local grammar, exact reversible patches and unchanged non-main parts
+remain required. Numbered chains, fields, pending text/property changes,
+external ranges and unknown markup refuse. Existing paragraph/text targets and
+clean-copy gates do not silently opt into this operation.

@@ -89,7 +89,12 @@ def test_four_text_outcomes_keep_all_paragraphs_marks_ranges_and_other_parts(
     assert context["paragraph_count"] == 3 and context["boundary_revision_count"] == 2
     inventory = read_document_revisions(str(path))
     remaining = [r for r in inventory["revisions"] if r["author"] == "Boundary Author"]
-    assert len(remaining) == 2 and all(not r["supported"] for r in remaining)
+    assert len(remaining) == 2
+    # Text decisions still leave both marks pending. The new explicit complete
+    # chain decision is offered only on its first mark, never applied here.
+    assert remaining[0]["supported"]
+    assert remaining[0]["structural_target"]["kind"] == "paragraph_chain"
+    assert not remaining[1]["supported"]
     with pytest.raises(ApplyError):
         prepare_clean_copy(path.read_bytes(), expected_source_sha256=sha(path))
 

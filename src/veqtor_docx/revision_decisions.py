@@ -227,7 +227,13 @@ def validate_ref(ref):
 def validate_target(target):
     if type(target) is not dict:
         _fail("invalid_revision_target", "supply an explicit revision target")
-    if target.get("kind") == "text_preserve_paragraphs" and set(target) == {"kind", "revision_refs"}:
+    if target.get("kind") == "paragraph_chain" and set(target) == {"kind", "boundary_refs"}:
+        refs = target["boundary_refs"]
+        if type(refs) is not list or not 1 <= len(refs) <= 128:
+            _fail("invalid_revision_target", "select every ordered boundary in the component")
+        for ref in refs:
+            validate_ref(ref)
+    elif target.get("kind") == "text_preserve_paragraphs" and set(target) == {"kind", "revision_refs"}:
         refs = target["revision_refs"]
         if type(refs) is not list or not 1 <= len(refs) <= 2:
             _fail("invalid_revision_target", "select one text revision or an explicit replacement pair")
@@ -306,6 +312,11 @@ def resolve(root, sha, ref):
 
 def resolve_target(root, sha, target):
     validate_target(target)
+    if target["kind"] == "paragraph_chain":
+        from ._paragraph_chain import ParagraphChain, component
+        nodes = ParagraphChain(resolve(root, sha, ref) for ref in target["boundary_refs"])
+        component(nodes)
+        return nodes
     if target["kind"] == "text_preserve_paragraphs":
         from ._preserved_paragraph_boundaries import PreservedText
         nodes = PreservedText(resolve(root, sha, ref) for ref in target["revision_refs"])
@@ -378,6 +389,9 @@ def is_paragraph_unit(nodes):
 
 
 def decision_domains(nodes):
+    from ._paragraph_chain import ParagraphChain, component
+    if isinstance(nodes, ParagraphChain):
+        return component(nodes)
     if is_row_unit(nodes):
         from .table_rows import row_structure_unit
         return [row_structure_unit(nodes[0].getroottree().getroot(), nodes)["row"]]
@@ -1265,6 +1279,11 @@ def _row_outcomes(root, nodes, parts, group=None):
 
 def _plan_outcomes(root, nodes, parts, defer_fixed_widths=False, table_group=None):
     """Describe and validate each outcome without choosing a write operation."""
+    from ._paragraph_chain import ParagraphChain, outcomes
+    if isinstance(nodes, ParagraphChain):
+        if table_group is not None:
+            _fail("revision_dependency_unsupported", "paragraph chains require a separate structural decision")
+        return outcomes(root, nodes, parts)
     from ._preserved_paragraph_boundaries import PreservedText, text_outcomes
     if isinstance(nodes, PreservedText):
         if table_group is not None:
@@ -1504,6 +1523,16 @@ def read_document_revisions(path, file_sha256=None, *, offset=0, max_items=100):
                 if len(selected) > 1:
                     structural_target = {"kind": "paragraph_structure", "paragraph_mark_ref": ref,
                                          "text_revision_refs": [reference(root, n, snapshot.sha256) for n in selected[1:]]}
+                else:
+                    from ._paragraph_chain import candidates as chain_candidates, MAX_PARAGRAPHS
+                    chain = chain_candidates(node)
+                    if chain is not None:
+                        planning_bytes += (3 * MAX_PARAGRAPHS + 12) * document_bytes
+                        fingerprint_bytes += sum(len(_xml(n)) + len(_xml(n.getparent())) for n in chain)
+                        if max(planning_bytes, fingerprint_bytes) > MAX_FINGERPRINT_BYTES:
+                            _fail("resource_limit_exceeded", "reduce revision page size for paragraph chain validation")
+                        selected = chain
+                        structural_target = {"kind": "paragraph_chain", "boundary_refs": [reference(root, n, snapshot.sha256) for n in chain]}
             from . import counter_revisions
             if node.tag == w("rPrChange") and counter_revisions.formatting_candidates(node) is not None:
                 planning_bytes += 2 * document_bytes

@@ -207,6 +207,7 @@ def test_hatch_source_selection_is_scoped_by_package_version() -> None:
         "/src/veqtor_docx/counter_revisions.py",
         "/src/veqtor_docx/_date_field_revisions.py",
         "/src/veqtor_docx/_preserved_paragraph_boundaries.py",
+        "/src/veqtor_docx/_paragraph_chain.py",
         "/src/veqtor_docx/revision_inventory.py",
         "/src/veqtor_docx/_sharepoint_metadata.py",
         "/src/veqtor_docx/_sharepoint_values.py",
