@@ -114,6 +114,10 @@ A counter_text_preserve_paragraphs target makes the same two text choices while
 explicitly retaining all pending paragraph boundaries and paragraph properties.
 Show paragraph_boundary_context: structural_status remains pending. It does not
 accept a paragraph merge or make the document ready for clean/final export.
+For text_preserve_paragraphs, bookmark_context may disclose an isolated _GoBack
+navigation point inside the selected insertion. Accept preserves it; reject
+removes it with the insertion. Explain that Word may remove this navigation
+bookmark on save. Other internal bookmarks or references remain unsupported.
 A paragraph_chain target explicitly selects every ordered boundary_ref in one
 complete cell component after its text revisions are resolved. Show both segment
 layouts and explain that the last paragraph supplies each segment's formatting.

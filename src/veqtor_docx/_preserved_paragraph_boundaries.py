@@ -8,6 +8,8 @@ under the drafting engine's exact reversible-patch collateral proof.
 import copy
 import hashlib
 
+from lxml import etree
+
 from ._ooxml import w
 from . import revision_decisions as d
 
@@ -23,6 +25,9 @@ def text_outcomes(root, nodes, parts):
     if len(nodes) not in {1, 2} or (len(nodes) == 2 and
             [n.tag for n in nodes] != [w("del"), w("ins")]):
         d._fail("invalid_revision_target", "select one text revision or an ordered deletion/insertion pair")
+    bookmarked = _point_bookmark_outcomes(root, nodes, parts)
+    if bookmarked is not None:
+        return bookmarked
     from .counter_revisions import _closed_attributes
     for wrapper in nodes:
         _closed_attributes(wrapper)
@@ -47,6 +52,81 @@ def text_outcomes(root, nodes, parts):
     preview["paragraph_boundary_context"] = facts
     return list(nodes), outcomes, preview
 
+
+
+def _point_bookmark_outcomes(root, nodes, parts):
+    """Only the required isolated _GoBack point inside one inserted text span.
+
+    Validate ordinary text on a detached view, then publish the original runs
+    and point unchanged on accept. Reject explicitly removes the complete span.
+    Nothing outside that selected insertion is normalized or deleted.
+    """
+    endpoints = [n for wrapper in nodes for n in wrapper.iter()
+                 if n.tag in {w("bookmarkStart"), w("bookmarkEnd")}]
+    if not endpoints:
+        return None
+    def refuse():
+        d._fail("revision_dependency_unsupported", "only an unreferenced internal _GoBack point is supported")
+    if len(nodes) != 1 or nodes[0].tag != w("ins") or len(endpoints) != 2:
+        refuse()
+    if 6 * len(d._xml(root)) > d.MAX_FINGERPRINT_BYTES:
+        d._fail("resource_limit_exceeded", "bookmark validation exceeds its fixed work budget")
+    wrapper = nodes[0]
+    start, end = endpoints
+    value = start.get(w("id"), "")
+    if (start.tag != w("bookmarkStart") or end.tag != w("bookmarkEnd")
+            or start.getparent() is not wrapper or end.getparent() is not wrapper
+            or start.getnext() is not end
+            or set(start.attrib) != {w("id"), w("name")}
+            or set(end.attrib) != {w("id")}
+            or start.get(w("name")) != "_GoBack"
+            or not value.isascii() or not value.isdecimal() or len(value) > 10
+            or end.get(w("id")) != value
+            or any(len(n) or (n.text or "").strip() or (n.tail or "").strip() for n in endpoints)):
+        refuse()
+    for node in root.iter():
+        if node in endpoints or node.tag not in {w("bookmarkStart"), w("bookmarkEnd")}:
+            continue
+        other = node.get(w("id"), "")
+        if (other.isascii() and other.isdecimal() and len(other) <= 10
+                and int(other) == int(value)):
+            refuse()
+    # Reject references, duplicate names and cross-part consumers conservatively.
+    # Serialized XML also catches field instructions, hyperlinks and unknown
+    # attributes; no parsing or deletion of unrelated package data is needed.
+    clone = copy.deepcopy(root)
+    mapping = dict(zip(root.iter(), clone.iter(), strict=True))
+    for endpoint in endpoints:
+        mapping[endpoint].getparent().remove(mapping[endpoint])
+    def mentions_point(tree):
+        return ("_GoBack" in "".join(tree.itertext())
+                or any("_GoBack" in value for n in tree.iter() for value in n.attrib.values()))
+    if mentions_point(clone):
+        refuse()
+    for name, data in parts.items():
+        if name == "word/document.xml":
+            continue
+        if b"_GoBack" in data:
+            refuse()
+        if name.endswith((".xml", ".rels")):
+            try:
+                parsed = etree.fromstring(data, etree.XMLParser(resolve_entities=False, no_network=True))
+            except etree.XMLSyntaxError:
+                refuse()
+            if parsed.getroottree().docinfo.doctype or mentions_point(parsed):
+                refuse()
+    _, _, preview = text_outcomes(clone, [mapping[wrapper]], parts)
+    preview["bookmark_context"] = {
+        "name": "_GoBack", "shape": "internal_point",
+        "accept_policy": "preserve", "reject_policy": "remove_with_insertion",
+        "word_save_policy": "may_remove_navigation_bookmark",
+    }
+    # Bind the disclosed component to the real source including the endpoints.
+    _, _, facts = validation_view(root, nodes)
+    facts["decision_scope"] = "text_only"
+    preview["paragraph_boundary_context"] = facts
+    return list(nodes), {action: d._outcome(nodes, action, "ins")
+                         for action in ("accept", "reject")}, preview
 
 def _marks(paragraph):
     if paragraph is None or paragraph.tag != w("p"):
