@@ -386,3 +386,5 @@ Other bookmark names, nonempty ranges, malformed endpoints, consumers, replaceme
 pairs and the ordinary `single` target remain outside this profile. Paragraph
 marks and formatting remain pending and unchanged. This is not a clean-export
 exception or an implicit decision about paragraph boundaries.
+
+This narrow profile validates every package part as XML, regardless of its filename; unverified binary parts refuse. Character properties inside the selected insertion are limited to the required style and tested bold/italic/color family.

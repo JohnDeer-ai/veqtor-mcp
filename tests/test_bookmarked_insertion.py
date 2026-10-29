@@ -59,7 +59,7 @@ def test_disclosed_point_follows_selected_insertion_only(tmp_path, demo_dir, dec
 
 
 @pytest.mark.parametrize("decision", ["accept", "reject"])
-@pytest.mark.parametrize("problem", ["named", "range", "unclosed", "outside", "duplicate_id", "alias_id", "duplicate_name", "field_consumer", "hyperlink_consumer", "cross_part_consumer", "encoded_consumer", "split_consumer", "attrs", "scalar", "tail", "child", "reversed", "nested", "id_long", "id_negative", "id_nonascii", "normal_target", "unknown_run", "pending_properties"])
+@pytest.mark.parametrize("problem", ["named", "range", "unclosed", "outside", "duplicate_id", "alias_id", "duplicate_name", "field_consumer", "hyperlink_consumer", "cross_part_consumer", "encoded_consumer", "upper_consumer", "bin_consumer", "binary_part", "property_foreign_attr", "split_consumer", "attrs", "scalar", "tail", "child", "reversed", "nested", "id_long", "id_negative", "id_nonascii", "normal_target", "unknown_run", "pending_properties"])
 def test_unsupported_anchor_or_consumer_refuses_without_write(tmp_path, demo_dir, decision, problem):
     path, root, wrapper, start, end = fixture(tmp_path, demo_dir)
     extra = None
@@ -77,6 +77,11 @@ def test_unsupported_anchor_or_consumer_refuses_without_write(tmp_path, demo_dir
     elif problem == "hyperlink_consumer": etree.SubElement(wrapper.getparent(), w("hyperlink"), {w("anchor"): "_GoBack"})
     elif problem == "cross_part_consumer": extra = {"customXml/consumer.xml": b'<consumer target="_GoBack"/>'}
     elif problem == "encoded_consumer": extra = {"customXml/consumer.xml": '<consumer target="_Go&#66;ack"/>'.encode("utf-16")}
+    elif problem in {"upper_consumer", "bin_consumer"}:
+        name = "word/header1.XML" if problem == "upper_consumer" else "word/header1.bin"
+        extra = {name: '<consumer target="_Go&#66;ack"/>'.encode("utf-16")}
+    elif problem == "binary_part": extra = {"word/media/image.png": b"\x89PNG\r\n\x1a\n"}
+    elif problem == "property_foreign_attr": wrapper[0].find(w("rPr"))[0].set(w("ascii"), "PRIVATE")
     elif problem == "split_consumer":
         for text in ("REF _Go", "Back"):
             etree.SubElement(etree.SubElement(wrapper.getparent(), w("r")), w("instrText")).text = text

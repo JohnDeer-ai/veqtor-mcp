@@ -84,6 +84,15 @@ def _point_bookmark_outcomes(root, nodes, parts):
             or end.get(w("id")) != value
             or any(len(n) or (n.text or "").strip() or (n.tail or "").strip() for n in endpoints)):
         refuse()
+    property_attributes = {
+        w("rStyle"): {w("val")}, w("b"): {w("val")}, w("i"): {w("val")},
+        w("color"): {w(n) for n in ("val", "themeColor", "themeTint", "themeShade")},
+    }
+    for props in wrapper.iter(w("rPr")):
+        for prop in props:
+            allowed = property_attributes.get(prop.tag)
+            if allowed is None or set(prop.attrib) - allowed or len(prop):
+                refuse()
     for node in root.iter():
         if node in endpoints or node.tag not in {w("bookmarkStart"), w("bookmarkEnd")}:
             continue
@@ -108,13 +117,14 @@ def _point_bookmark_outcomes(root, nodes, parts):
             continue
         if b"_GoBack" in data:
             refuse()
-        if name.endswith((".xml", ".rels")):
-            try:
-                parsed = etree.fromstring(data, etree.XMLParser(resolve_entities=False, no_network=True))
-            except etree.XMLSyntaxError:
-                refuse()
-            if parsed.getroottree().docinfo.doctype or mentions_point(parsed):
-                refuse()
+        # The required package has only XML parts. Until another part family
+        # is proven, refuse it rather than infer content from its filename.
+        try:
+            parsed = etree.fromstring(data, etree.XMLParser(resolve_entities=False, no_network=True))
+        except etree.XMLSyntaxError:
+            refuse()
+        if parsed.getroottree().docinfo.doctype or mentions_point(parsed):
+            refuse()
     _, _, preview = text_outcomes(clone, [mapping[wrapper]], parts)
     preview["bookmark_context"] = {
         "name": "_GoBack", "shape": "internal_point",
