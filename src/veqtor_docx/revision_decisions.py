@@ -1556,7 +1556,7 @@ def read_document_revisions(path, file_sha256=None, *, offset=0, max_items=100):
                 from ._preserved_paragraph_boundaries import MAX_PARAGRAPHS
                 # Charge the worst allowed component before cloning/scanning,
                 # cumulatively across the page, not once per returned group.
-                planning_bytes += (MAX_PARAGRAPHS + 6) * document_bytes
+                planning_bytes += (MAX_PARAGRAPHS + 12) * document_bytes
                 if planning_bytes > MAX_FINGERPRINT_BYTES:
                     _fail("resource_limit_exceeded", "reduce revision page size for preserved separator validation")
                 if counter_target is not None:
