@@ -233,7 +233,11 @@ def test_workspace_docs_are_separate_from_versioned_mcp_instructions() -> None:
     assert 'href="/veqtor-mcp"' in setup
     assert "fourteen-tool Veqtor MCP 0.5 contract is a different product" in docs
     assert "not a required save gate" in docs
-    assert "A public Workspace installer is not available yet" in setup
+    assert "A public Workspace installer is not available yet" not in setup
+    assert 'href={WORKSPACE_DOWNLOAD_URL}' in setup
+    assert 'href={WORKSPACE_SOURCE_URL}' in setup
+    assert "Download for Claude Desktop" in setup
+    assert "manual setup for local chats in the desktop app" in setup
     assert "PUBLIC_MCPB_URL" not in setup
     assert "veqtor-mcp@" not in setup
     assert "veqtor-workspace --author" in setup

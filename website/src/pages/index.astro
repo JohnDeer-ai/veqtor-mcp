@@ -1,7 +1,8 @@
 ---
 import Layout from '../layouts/WorkspaceLayout.astro'
 import { GUIDES, TOPICS } from '../lib/guides'
-const software = { '@type': 'SoftwareApplication', '@id': 'https://veqtor.pro/#software', name: 'Veqtor Workspace', applicationCategory: 'ProductivityApplication', operatingSystem: 'macOS', url: 'https://veqtor.pro/', installUrl: 'https://veqtor.pro/setup', description: 'Read, edit and save Word files with your AI assistant. Changes go into your document, ready to review.' }
+import { WORKSPACE_VERSION, WORKSPACE_DOWNLOAD_URL } from '../lib/workspace-release.mjs'
+const software = { '@type': 'SoftwareApplication', '@id': 'https://veqtor.pro/#software', name: 'Veqtor Workspace', applicationCategory: 'ProductivityApplication', operatingSystem: 'macOS', url: 'https://veqtor.pro/', installUrl: 'https://veqtor.pro/setup', downloadUrl: WORKSPACE_DOWNLOAD_URL, softwareVersion: WORKSPACE_VERSION, description: 'Read, edit and save Word files with your AI assistant. Changes go into your document, ready to review.' }
 ---
 <Layout canonicalPath="/" structuredData={software} title="Veqtor Workspace — Ask AI. Get the changes in Word." description="Read, edit and save Word files with your AI assistant. Veqtor Workspace puts the changes into your document, ready to review. For macOS.">
   <section class="shell concept-hero" aria-labelledby="home-title">
@@ -10,7 +11,7 @@ const software = { '@type': 'SoftwareApplication', '@id': 'https://veqtor.pro/#s
       <h1 id="home-title">Ask AI. Get the changes in Word.</h1>
       <p class="hero-description">Veqtor Workspace lets your AI assistant read, edit and save Word files on your Mac. Describe what you need. The changes go into your document, ready to review.</p>
       <p class="hero-benefit">No copying text back and forth.</p>
-      <div class="concept-actions"><a class="concept-button primary" href="/setup">Get started <span aria-hidden="true">↗</span></a><a class="concept-button" href="#examples">See examples <span aria-hidden="true">↓</span></a></div>
+      <div class="concept-actions"><a class="concept-button primary" href="/setup">Download for Mac <span aria-hidden="true">↗</span></a><a class="concept-button" href="#examples">See examples <span aria-hidden="true">↓</span></a></div>
       <div class="concept-availability"><span class="availability-dot">For macOS</span><span>Claude Desktop &amp; ChatGPT Desktop</span></div>
     </div>
     <figure class="hero-example">
