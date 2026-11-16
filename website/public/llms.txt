@@ -7,8 +7,9 @@
 - [Overview](https://veqtor.pro/): the current Workspace product and visual examples.
 - [What it does](https://veqtor.pro/product): document reading, editing, comments and saving.
 - [How it works](https://veqtor.pro/how-it-works): identify files, describe the task, save and review.
-- [Installation](https://veqtor.pro/setup): Workspace 0.1.1 for macOS on Apple Silicon. Download the Claude Desktop extension; it manages Python and dependencies. ChatGPT Desktop and Codex use a manual local connection.
-- [Mac extension](https://github.com/JohnDeer-ai/veqtor-workspace/releases/download/v0.1.1/veqtor-workspace-0.1.1-macos-arm64.mcpb): installer for Claude Desktop on Apple Silicon Macs (M1 or newer); this installer does not support Intel Macs.
+- [Installation](https://veqtor.pro/setup): Workspace 0.1.2 for macOS on Apple Silicon. Download the Claude Desktop extension; it manages Python and dependencies. The ChatGPT Desktop installer prepares the local connection automatically; it is unsigned and requires an extra macOS permission. Codex CLI and IDE can use the manual connection.
+- [ChatGPT Desktop installer](https://github.com/JohnDeer-ai/veqtor-workspace/releases/download/v0.1.2/veqtor-workspace-0.1.2-chatgpt-macos-arm64.dmg): Mac M1 or newer, macOS 13+. Not signed with Developer ID or notarized by Apple. See the installation guide for the macOS permission step.
+- [Mac extension](https://github.com/JohnDeer-ai/veqtor-workspace/releases/download/v0.1.2/veqtor-workspace-0.1.2-macos-arm64.mcpb): installer for Claude Desktop on Apple Silicon Macs (M1 or newer); this installer does not support Intel Macs.
 - [Source code](https://github.com/JohnDeer-ai/veqtor-workspace): public repository, Apache-2.0 license, release notes and issue tracker.
 - [Documentation](https://veqtor.pro/docs): four MCP tools: workspace_info, document_task, run_python and check_docx.
 - [Security](https://veqtor.pro/security): local task copies, model-provider processing and saving boundaries.
