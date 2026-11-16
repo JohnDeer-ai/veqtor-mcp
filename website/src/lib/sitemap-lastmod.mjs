@@ -1,6 +1,7 @@
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 export const LINK_ARCHITECTURE_LASTMOD = '2026-07-23'
+export const WORKSPACE_SITE_LASTMOD = '2026-11-16'
 
 function assertIsoDate(value) {
   const parsed = new Date(`${value}T00:00:00Z`)

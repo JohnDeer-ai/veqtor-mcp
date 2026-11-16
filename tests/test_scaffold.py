@@ -130,13 +130,13 @@ def test_changelog_keeps_timeless_release_copy() -> None:
     assert "`published_at` timestamp" in releasing
 
 
-def test_release_copy_is_state_neutral_and_site_uses_public_v050() -> None:
+def test_release_copy_is_state_neutral_and_legacy_page_uses_public_v050() -> None:
     readme = (ROOT / "README.md").read_text()
     immutable_docs = "\n".join(
         (ROOT / name).read_text()
         for name in ("README.md", "API.md", "KNOWN_LIMITATIONS.md", "ROADMAP.md")
     )
-    setup = (ROOT / "website" / "src" / "pages" / "setup.astro").read_text()
+    legacy = (ROOT / "website" / "src" / "pages" / "veqtor-mcp.astro").read_text()
     release_config = (
         ROOT / "website" / "src" / "lib" / "public-release.ts"
     ).read_text()
@@ -157,12 +157,12 @@ def test_release_copy_is_state_neutral_and_site_uses_public_v050() -> None:
     assert (
         "8e29e12cc272ac168441e6affdeedd51199294db94ec6c2f206a0a810d587075"
     ) in release_config
-    assert "PUBLIC_MCPB_URL" in setup
-    assert "PUBLIC_RELEASE_URL" in setup
-    assert "PUBLIC_CHECKSUMS_URL" in setup
-    assert "PUBLIC_MCPB_SHA256" in setup
-    assert "veqtor-mcp@0.1.2" not in setup
-    assert "veqtor-mcp==0.1.2" not in setup
+    assert "href={PUBLIC_MCPB_URL}" in legacy
+    assert "href={PUBLIC_RELEASE_URL}" in legacy
+    assert "href={PUBLIC_CHECKSUMS_URL}" in legacy
+    assert "<code>{PUBLIC_MCPB_SHA256}</code>" in legacy
+    assert "veqtor-mcp@0.1.2" not in legacy
+    assert "veqtor-mcp==0.1.2" not in legacy
     assert "https://pypi.org/project/veqtor-mcp/" in readme
     assert "Both sources expose `0.5.0`" in readme
     assert "Otherwise, both sources expose verified `0.4.2`" in readme
@@ -179,11 +179,11 @@ def test_release_copy_is_state_neutral_and_site_uses_public_v050() -> None:
         assert "release-candidate source `0.4.0`" not in current
     development = (ROOT / "CHANGELOG.md").read_text().split("## 0.4.2.dev0\n", 1)[1].split("\n## ", 1)[0]
     assert "Unreleased development build" in development
-    assert "v0.3.0 is not public yet" not in setup
-    assert "Download Veqtor v{PUBLIC_RELEASE_VERSION} (.mcpb)" in setup
-    assert "This is the first public MCPB" not in setup
-    assert "immutable v0.4.2 release" in setup
-    assert "does not establish compatibility with v0.5.0 journals" in setup
+    assert "v0.3.0 is not public yet" not in legacy
+    assert "Download Veqtor MCP for Mac" in legacy
+    assert "This is the first public MCPB" not in legacy
+    assert "immutable v0.4.2 release" in legacy
+    assert "does not establish compatibility with v0.5.0 journals" in legacy
     for forbidden in ("releases/tag/v0.4.0", "releases/download/v0.4.0"):
         assert forbidden not in readme
     for stale_site_copy in (
@@ -210,7 +210,7 @@ def test_release_copy_is_state_neutral_and_site_uses_public_v050() -> None:
         assert stale_site_copy not in public_pages.lower()
     assert "Recorded with Veqtor v0.1.2" in public_pages
     assert "Public v0.3.0" not in public_pages
-    assert "Public v{PUBLIC_RELEASE_VERSION}" in public_pages
+    assert "Published version {PUBLIC_RELEASE_VERSION}" in legacy
     assert "state-neutral version-selection" in releasing
     assert re.search(
         r"must activate the public v0\.5\.0 links.*deploy them, and\s+smoke the live setup page",
@@ -219,43 +219,37 @@ def test_release_copy_is_state_neutral_and_site_uses_public_v050() -> None:
     )
 
 
-def test_public_site_v050_tool_and_history_instructions_match_the_release() -> None:
-    from veqtor_mcp._verification_v2 import PARAGRAPH_PROJECTION_MODES
-    from veqtor_mcp.records import WRITABLE_TOOL_NAMES
-
+def test_workspace_docs_are_separate_from_versioned_mcp_instructions() -> None:
     pages = ROOT / "website" / "src" / "pages"
     docs = (pages / "docs.astro").read_text()
     setup = (pages / "setup.astro").read_text()
-    tool_cards = re.findall(r"<article><code>(\w+)</code><h3>", docs)
-    assert len(tool_cards) == len(set(tool_cards)) == 14
-    assert set(tool_cards) == set(WRITABLE_TOOL_NAMES) | {
-        "read_deal_positions", "mutate_deal_positions",
-        "read_document_comments", "preflight_document_edits", "apply_document_edits",
+    legacy = (pages / "veqtor-mcp.astro").read_text()
+    tool_names = re.findall(r"\{name:'(\w+)'", docs)
+    assert len(tool_names) == len(set(tool_names)) == 4
+    assert set(tool_names) == {
+        "workspace_info", "document_task", "run_python", "check_docx",
     }
-    for marker in (
-        "veqtor.mcp.v0.5.0",  # Public site follows the verified published release.
-        "filename_lexicographic_v1",
-        "explicit_filename_sequence_v1",
-        *PARAGRAPH_PROJECTION_MODES,
-        "paragraph_projection",
-        "checked_projection",
-        "authorship_verified",
-        "time_verified",
+    assert 'href="/veqtor-mcp"' in docs
+    assert 'href="/veqtor-mcp"' in setup
+    assert "fourteen-tool Veqtor MCP 0.5 contract is a different product" in docs
+    assert "not a required save gate" in docs
+    assert "A public Workspace installer is not available yet" in setup
+    assert "PUBLIC_MCPB_URL" not in setup
+    assert "veqtor-mcp@" not in setup
+    assert "veqtor-workspace --author" in setup
+    assert "Keep the document text unchanged. Save the result as a new file" in setup
+
+    # Earlier tool, history, backup and first-task instructions now live in
+    # immutable release documentation, rather than the Workspace docs page.
+    for path in (
+        "README.md", "API.md", "docs/AUTHOR_DRAFTING.md",
+        "packaging/mcpb/demo/FIRST_PROMPT.txt",
     ):
-        assert marker in docs
-    assert "rejected_pending_v1" not in docs
-    prompt = (ROOT / "packaging/mcpb/demo/FIRST_PROMPT.txt").read_text().strip()
-    assert f"<blockquote>{prompt}</blockquote>" in setup
-    assert "${PUBLIC_MCPB_FILENAME}" in setup
-    assert "fourteen tools" in setup
-    assert "veqtor.mcp.v0.5.0" in setup
-    assert "read_deal_positions" in setup
-    assert "mutate_deal_positions" in setup
-    for tool in ("read_document_comments", "preflight_document_edits", "apply_document_edits"):
-        assert tool in setup
-    assert "record_status=disabled" in docs
-    assert ".veqtor-backups" in docs
-    assert "not a full acceptance test" in setup
+        assert f'href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/v0.5.0/{path}"' in legacy
+    assert "/blob/main/" not in legacy
+    assert "fourteen tools" in legacy
+    assert "not a full acceptance test" in legacy
+    assert "This download installs Veqtor MCP, not Veqtor Workspace" in legacy
 
 
 def test_pypi_long_description_has_no_repository_relative_links() -> None:

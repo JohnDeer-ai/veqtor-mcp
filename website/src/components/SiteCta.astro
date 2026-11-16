@@ -9,19 +9,19 @@ interface Props {
 }
 
 const {
-  title = 'See how Veqtor works before using it with your own contracts.',
+  title = 'Put your next edit into the document.',
   body,
-  primaryHref = '/demo',
-  primaryLabel = 'Watch the demo',
-  secondaryHref = '/setup',
-  secondaryLabel = 'Connect Veqtor',
+  primaryHref = '/setup',
+  primaryLabel = 'Get started',
+  secondaryHref = '/#examples',
+  secondaryLabel = 'See examples',
 } = Astro.props
 ---
 
 <section class="site-cta">
   <div class="shell site-cta__inner">
     <div>
-      <p class="eyebrow">Start with sample documents</p>
+      <p class="eyebrow">Veqtor Workspace</p>
       <h2>{title}</h2>
       {body && <p>{body}</p>}
     </div>

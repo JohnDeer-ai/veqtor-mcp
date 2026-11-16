@@ -8,6 +8,9 @@ through its `published_at` timestamp.
 
 ## 0.6.0.dev1
 
+- Raise the OpenTelemetry API security floor to 1.45.2 for CVE-2026-126360,
+  including the locked runtime and exact-minimum artifact smoke environment.
+
 - Retain one closed root-namespace schema association and a validated root-only
   Word `Ignorable` annotation for standard user XML storage after Word saves.
   Preserve storage and package bindings exactly while accepting body revisions;

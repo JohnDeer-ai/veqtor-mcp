@@ -1,40 +1,25 @@
 ---
 import Logo from './Logo.astro'
-
-interface Props {
-  currentPath: string
-}
-
+interface Props { currentPath: string }
 const { currentPath } = Astro.props
 const pathname = currentPath.replace(/\/+$/, '') || '/'
 const navItems = [
-  { href: '/product', label: 'Product' },
-  { href: '/demo', label: 'Demo' },
-  { href: '/setup', label: 'Connect' },
+  { href: '/#examples', label: 'Examples' },
   { href: '/guides', label: 'Guides' },
+  { href: '/setup', label: 'Get started' },
 ]
-
 const currentValue = (href: string) => {
   if (pathname === href) return 'page'
   if (href === '/guides' && pathname.startsWith('/guides/')) return 'location'
   return undefined
 }
 ---
-
-<header class="site-header" data-site-header>
-  <div class="shell site-header__inner">
-    <a class="brand" href="/" aria-label="Veqtor home">
-      <Logo />
-    </a>
-    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" data-nav-toggle>
-      <span class="sr-only">Open navigation</span>
-      <span></span><span></span>
-    </button>
-    <nav class="site-nav" id="site-navigation" aria-label="Main navigation" data-site-nav>
-      {navItems.map((item) => (
-        <a href={item.href} aria-current={currentValue(item.href)}>{item.label}</a>
-      ))}
-      <a class="site-nav__github" href="https://github.com/JohnDeer-ai/veqtor-mcp">GitHub <span aria-hidden="true">↗</span></a>
+<header class="concept-header">
+  <div class="shell concept-nav">
+    <a class="brand" href="/" aria-label="Veqtor Workspace home"><Logo compact /><span class="concept-wordmark">Veqtor <span>Workspace</span></span></a>
+    <button class="concept-menu" aria-expanded="false" aria-controls="concept-navigation" type="button">Menu <span aria-hidden="true">＋</span></button>
+    <nav id="concept-navigation" aria-label="Main navigation">
+      {navItems.map((item) => <a href={item.href} aria-current={currentValue(item.href)} class:list={[item.href === '/setup' && 'concept-nav-cta']}>{item.label}{item.href === '/setup' && <span aria-hidden="true"> ↗</span>}</a>)}
     </nav>
   </div>
 </header>

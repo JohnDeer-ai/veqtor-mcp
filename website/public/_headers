@@ -13,6 +13,9 @@
 /setup
   Cache-Control: public, max-age=0, must-revalidate, no-transform
 
+/veqtor-mcp
+  Cache-Control: public, max-age=0, must-revalidate, no-transform
+
 /og.png
   Cache-Control: public, max-age=86400, must-revalidate
 

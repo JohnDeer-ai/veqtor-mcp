@@ -1,93 +1,74 @@
 ---
 import NarrativePage from '../components/NarrativePage.astro'
-import { PUBLIC_RELEASE_URL, PUBLIC_RELEASE_VERSION } from '../lib/public-release'
-
-const sections = [
-  {
-    id: 'connect',
-    title: '1. Connect Veqtor to Claude',
-    body: [
-      `Veqtor runs on your computer and connects to Claude using a standard called MCP. You do not need to understand MCP to use it. On a Mac, install the public v${PUBLIC_RELEASE_VERSION} extension directly in Claude Desktop. For Claude Code on Mac or Linux, register the exact public v${PUBLIC_RELEASE_VERSION} package after installing uv.`,
-      'You only need to do this once for each Claude app you use. The setup guide shows both paths separately.',
-    ],
-  },
-  {
-    id: 'order-drafts',
-    title: '2. Put the drafts in a clear order',
-    body: [
-      'Keep the negotiation drafts in one folder and begin their file names with 01, 02, 03 and so on. Veqtor can trace a paragraph in that file-name order, or you can provide a complete explicit file order. Neither option reconstructs chronology from document metadata or proves which version came first.',
-      'Tell Claude where the folder is and what you want to understand. You can start with a normal question such as “What changed in the limitation of liability across these drafts?”',
-    ],
-    links: [
+const page = {
+  "title": "How Veqtor Workspace works with your documents",
+  "description": "Connect your assistant, identify the Word file and supporting documents, describe the task, then save and review the result.",
+  "eyebrow": "How it works",
+  "heading": "From your request to a saved Word file.",
+  "lede": "Use your assistant’s chat to describe what to read, change or save. The result goes into the document.",
+  "sections": [
+    {
+      "id": "connect",
+      "title": "Connect your assistant",
+      "body": [
+        "Install Veqtor Workspace on your Mac and connect it to Claude Desktop or ChatGPT Desktop. The current connection options are described in the installation guide."
+      ],
+      "links": [
+        {
+          "href": "/setup",
+          "title": "Installation guide"
+        }
+      ]
+    },
+    {
+      "id": "context",
+      "title": "Point to the documents",
+      "body": [
+        "Save your Word file. Give the assistant its location and identify any documents it should use for context: contracts, reports, certificates or other records. For text-based PDFs, it can read the text as supporting material."
+      ]
+    },
+    {
+      "id": "request",
+      "title": "Say what you want done",
+      "body": [
+        "Ask for a clearer paragraph, revised terms, comments or a summary. Request tracked changes when you want to review each edit. The assistant chooses the method; Veqtor does not decide the wording or legal position."
+      ]
+    },
+    {
+      "id": "save",
+      "title": "Save and review",
+      "body": [
+        "Ask to update the working file or save a new version. Avoid editing the same file while the assistant saves. Open the saved result in Word and check the text, formatting, changes and comments."
+      ]
+    }
+  ],
+  "path": "/how-it-works",
+  "linkSection": {
+    "eyebrow": "Related",
+    "title": "More about working with documents",
+    "links": [
       {
-        href: '/contract-redline-analysis',
-        title: 'See how Veqtor handles several negotiation drafts',
-        description: 'Learn what Veqtor can show about wording across rounds—and what still needs your judgment.',
-      },
-    ],
-  },
-  {
-    id: 'inspect-and-check',
-    title: '3. Veqtor reads and checks the Word files',
-    body: [
-      'Claude chooses when it needs Veqtor. Veqtor can select a paragraph in the last draft and follow exact matches backward through the declared order. It also returns the supported tracked changes in each selected paragraph. When the next step is unclear, it stops rather than guessing.',
-      'Before relying on a quote, ask Claude to check it against its specific paragraph or tracked change. A paragraph can be read as current text or with supported pending text revisions mechanically reversed; that second reading is not proof of a previous draft. You still review Claude’s interpretation.',
-    ],
-    links: [
-      {
-        href: '/ai-contract-review',
-        title: 'See the boundary between Claude’s analysis and Veqtor’s document work',
-        description: 'Understand which parts of the review come from Claude, Veqtor, and you.',
-      },
-    ],
-  },
-  {
-    id: 'test-and-write',
-    title: '4. Test the full proposal, then create a new file',
-    body: [
-      'Before writing, Veqtor runs the entire proposed set of edits through the same document process it uses for the final operation. If one edit cannot be completed, the whole set is refused and no final Word document is created.',
-      'In this counterproposal workflow, if the test succeeds and Claude proceeds, Veqtor creates a separate Word document. This path never overwrites the source or an existing output with the same name.',
-      'Author drafting is a separate option for supported edits and ordinary comments in one working document. Saving to that file requires an exact backup. Close the file in Word before saving and reopen it afterwards.',
-    ],
-    links: [
-      {
-        href: '/docx-track-changes-review',
-        title: 'See how Veqtor works with supported Word Track Changes',
-        description: 'Learn which changes it can read and create, and which parts of Word remain outside the Alpha.',
+        "href": "/product",
+        "title": "What Workspace does"
       },
       {
-        href: `${PUBLIC_RELEASE_URL.replace('/releases/tag/', '/blob/')}/docs/AUTHOR_DRAFTING.md`,
-        title: 'Read the author-drafting and saving guide',
-        description: 'Check supported own-author edits, ordinary comments, exact backups and local storage requirements.',
+        "href": "/ai-contract-review",
+        "title": "AI contract review"
       },
-    ],
-  },
-  {
-    id: 'review',
-    title: '5. Review the result in Word',
-    body: [
-      'Open the new document in Word and review the tracked changes before using or sending it. Veqtor can re-read supported changes in the output and show a summary in Claude of what its local history recorded, but neither Veqtor nor Claude replaces your legal and factual review.',
-    ],
-  },
-  {
-    id: 'next-round',
-    title: '6. Carry your positions into the next round',
-    body: [
-      'Ask Claude to show the positions you want to retain, including the wording you want, any conditional fallback and questions still awaiting a business decision. Confirm the exact version before it is recorded as approved.',
-      'When the next draft arrives, restore those positions and check them against the new wording. Ask for a short brief, decide the remaining issues, and create a separate Word counterproposal. Previous approval does not authorize new edits automatically.',
-    ],
-  },
-]
+      {
+        "href": "/contract-redline-analysis",
+        "title": "Reading contract redlines"
+      },
+      {
+        "href": "/docx-track-changes-review",
+        "title": "Tracked changes in Word"
+      },
+      {
+        "href": "/security",
+        "title": "Local files and data handling"
+      }
+    ]
+  }
+}
 ---
-
-<NarrativePage
-  title="How Veqtor MCP Works — From Word Drafts to Counterproposal"
-  description="Connect Veqtor to Claude, order your Word negotiation drafts, ask normal questions, test proposed edits, and review a separate counterproposal in Word."
-  path="/how-it-works"
-  eyebrow="The workflow"
-  heading="From negotiation drafts to a counterproposal you can review."
-  lede="This counterproposal workflow lets Claude read, check, and make supported Word changes in a separate file while keeping the source documents unchanged."
-  meta="Connect → read → check → test → write → review"
-  breadcrumbs={[{ label: 'Product', href: '/product' }, { label: 'How it works' }]}
-  sections={sections}
-/>
+<NarrativePage {...page} />

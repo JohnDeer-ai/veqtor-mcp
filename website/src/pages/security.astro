@@ -1,71 +1,72 @@
 ---
 import NarrativePage from '../components/NarrativePage.astro'
-
-const sections = [
-  {
-    id: 'local-process',
-    title: 'Veqtor runs on your computer',
-    body: [
-      'Veqtor is not a hosted document service. It runs on your computer, does not contain its own AI model, and does not upload whole Word documents in the background.',
-      'This does not mean every piece of contract text remains on your computer. Text that Veqtor returns to Claude enters the Claude conversation and may be processed by your AI provider under that provider’s terms. Check the settings and policies of the Claude product and account you use.',
-    ],
-  },
-  {
-    id: 'source-files',
-    title: 'Choose a new copy or a backed-up working file',
-    body: [
-      'The counterproposal workflow creates a new Word document and refuses to replace the source or an existing output. Author drafting can instead save to the working file, with an exact backup of its previous bytes required before replacement.',
-      'Before writing, Veqtor tests the complete requested edit set in memory. If any requested edit cannot be completed, it refuses the whole set. Close the file in Word before an author-drafting save and reopen it afterwards; Veqtor cannot coordinate its save with Word or cloud-sync software.',
-    ],
-  },
-  {
-    id: 'activity-history',
-    title: 'The local activity history is useful, but not independent proof',
-    body: [
-      'The legacy review and counterproposal tools normally try to save a private activity history inside the matter folder. It can help you review which tool ran, what was checked, and what was written. The raw history may contain contract wording, so it should be treated as confidential.',
-      'The three author-drafting tools do not add entries to that history. Their results and exact backups support recovery, but do not form a complete negotiation history.',
-      'The history is an ordinary file on your computer. Someone with access to the computer could change it, and some actions may be missing if saving failed. Use it to review the work—not as independent proof of what happened.',
-    ],
-    note: 'The legacy local journal is stored under <matter>/.veqtor/decision-records.jsonl unless VEQTOR_DISABLE_DECISION_RECORD=1. Legacy read-only calls normally append provenance too. read_document_comments, preflight_document_edits and apply_document_edits return record_status=disabled.',
-  },
-  {
-    id: 'saved-positions',
-    title: 'Saved positions are confidential matter data',
-    body: [
-      'Saved negotiation wording, fallbacks and open questions stay in the selected matter folder. They are separate from the activity history and can be restored in a later conversation. Treat them as confidential and do not attach them to a public support request.',
-      'Saved wording returned to Claude may be processed by your AI provider. Confirming a position records approval of that specific version; it does not establish corporate authority or permission for later edits.',
-    ],
-    note: 'The position snapshot is <matter>/.veqtor/deal-positions.json. Compact decision-record exports omit position wording. Separate copies have no automatic synchronization.',
-  },
-  {
-    id: 'threat-model',
-    title: 'What this security promise assumes',
-    body: [
-      'The public Alpha is designed for a computer you control and use as a single user. It checks Word files against strict size and structure limits and refuses files it cannot interpret safely.',
-      'Veqtor cannot protect your computer from malicious software already running under your account. Do not use it as the only protection for untrusted files or on a machine you do not control.',
-    ],
-  },
-  {
-    id: 'reporting',
-    title: 'Report issues without client data',
-    body: [
-      'Use synthetic documents when filing public bug reports. Never post real contract wording, local paths, activity-history files, credentials or client documents in GitHub Issues.',
-      'Suspected vulnerabilities should be reported privately through the security policy in the GitHub repository.',
-    ],
-  },
-]
+const page = {
+  "title": "Veqtor Workspace — Local files and data handling",
+  "description": "Understand the boundary between local document work, your AI conversation, working copies and file saving in Veqtor Workspace.",
+  "eyebrow": "Security and privacy",
+  "heading": "Local files. A connected AI assistant.",
+  "lede": "Veqtor works on your Mac. Document content returned to the assistant becomes part of your AI conversation and may be processed by its provider.",
+  "sections": [
+    {
+      "id": "local",
+      "title": "What stays on your Mac",
+      "body": [
+        "Veqtor keeps the source file, task snapshot, working copy and local logs on your Mac. The website does not receive your working documents. Stored copies and logs may contain document text; there is no automatic cleanup."
+      ]
+    },
+    {
+      "id": "provider",
+      "title": "What the assistant receives",
+      "body": [
+        "The assistant can receive text and other information read from the selected documents. Its provider processes that conversation under your account’s terms and settings. Working with local files does not make the assistant offline."
+      ]
+    },
+    {
+      "id": "access",
+      "title": "How document access works",
+      "body": [
+        "The assistant selects file and folder paths based on your instructions. The local process that runs document-editing code can read the paths granted for that task, write inside its working area and has no network access. Those restrictions apply to that process, not to every other tool available to the assistant."
+      ]
+    },
+    {
+      "id": "saving",
+      "title": "What the save check protects",
+      "body": [
+        "Veqtor edits a private copy. Before replacing the selected original, it checks whether the on-disk file changed since the task began. A new filename creates a separate file and does not overwrite an existing destination.",
+        "Unsaved Word edits are not visible to this check. Save first, avoid simultaneous edits, and reopen the document after the assistant updates it."
+      ]
+    },
+    {
+      "id": "review",
+      "title": "Review remains part of the workflow",
+      "body": [
+        "Optional document checks can report possible unexpected changes. They are not a guarantee of correctness, complete compatibility or a check of the file in Microsoft Word."
+      ]
+    }
+  ],
+  "path": "/security",
+  "linkSection": {
+    "eyebrow": "Related",
+    "title": "More about working with documents",
+    "links": [
+      {
+        "href": "/privacy",
+        "title": "Privacy"
+      },
+      {
+        "href": "/limitations",
+        "title": "Current limitations"
+      },
+      {
+        "href": "/docs",
+        "title": "Technical documentation"
+      },
+      {
+        "href": "/how-it-works",
+        "title": "How it works"
+      }
+    ]
+  }
+}
 ---
-
-<NarrativePage
-  title="Veqtor MCP Security & Privacy — Local Word Redline Tooling"
-  description="Understand where Veqtor runs, what document text may reach Claude, how source files and local activity records are handled, and the security limits of the public Alpha."
-  path="/security"
-  breadcrumbs={[{ label: 'Product', href: '/product' }, { label: 'Security and privacy' }]}
-  eyebrow="Security and privacy"
-  heading="Know what stays local—and what enters your Claude conversation."
-  lede="Veqtor does not upload whole documents on its own, but text returned to Claude may be processed by your AI provider. This protection assumes you are using a computer you control."
-  meta="Runs on your computer · No Veqtor-hosted upload"
-  sections={sections}
-  ctaTitle="Try Veqtor first with the synthetic sample contract."
-  ctaBody="The demo workflow lets you understand the boundary without using client data."
-/>
+<NarrativePage {...page} />

@@ -1,72 +1,57 @@
 ---
 import NarrativePage from '../components/NarrativePage.astro'
-
-const sections = [
-  {
-    id: 'word-format',
-    title: 'Work with the Word file—not a flattened copy',
-    body: [
-      'Modern Microsoft Word documents use a structured file format. Veqtor works with supported tracked text changes inside that file, so Claude can distinguish inserted, deleted, replaced and countered wording instead of seeing only copied plain text.',
-      'You can think of these simply as Word documents. The file-format detail matters to the software, but you do not need to understand it to use the product.',
-    ],
-  },
-  {
-    id: 'supported-review',
-    title: 'What the Alpha can review',
-    body: [
-      'Veqtor reads tracked text changes in the main document body and includes a small amount of nearby text. Revision types it recognizes there but cannot turn into editable text changes are counted as unsupported.',
-      'Veqtor also reads ordinary comments. Headers, footers, footnotes and endnotes remain outside scope. Veqtor may notice formatting changes, moved text and unusual nested structures in the main document body, but it cannot always edit them.',
-    ],
-  },
-  {
-    id: 'tracked-output',
-    title: 'Create a separate Word document with visible tracked changes',
-    body: [
-      'For supported replacements, deletions, counters and reinstatements, Veqtor can write actual Word tracked changes into a new output file. It does not silently rewrite the source text and it does not accept or reject existing revisions.',
-      'It can also propose exact text edits in supported clean paragraphs and table cells, with the output changes visible in Word.',
-      'The complete set of proposed edits is tested first. If even one edit cannot be made, Veqtor creates no final file and no partial set of edits.',
-    ],
-  },
-  {
-    id: 'review-in-word',
-    title: 'Final review still happens in Word',
-    body: [
-      'Open the new file in Microsoft Word and inspect the tracked changes, surrounding clauses, formatting and any document parts Veqtor does not support. The output is a review aid, not a substitute for your own legal and document-quality checks.',
-    ],
-  },
-]
-
-const relatedWorkflows = {
-  id: 'related-workflows',
-  eyebrow: 'Related workflows',
-  title: 'Use the Word changes in the wider review.',
-  body: 'Tracked changes show what moved in the document. Claude can help explain the negotiation, while you remain responsible for the conclusion and final file.',
-  links: [
+const page = {
+  "title": "Word tracked changes with AI — Veqtor Workspace",
+  "description": "Ask for tracked changes and comments directly in your Word document, then review and accept or reject the edits in Word.",
+  "eyebrow": "Tracked changes",
+  "heading": "Ask for tracked changes. Review them in Word.",
+  "lede": "Your assistant can put the requested revisions into the Word file so you can see what was added or removed.",
+  "sections": [
     {
-      href: '/contract-redline-analysis',
-      label: 'Several negotiation drafts',
-      title: 'Follow how wording changed across the rounds',
-      description: 'See how supported tracked changes can inform a review of several ordered drafts.',
+      "id": "request",
+      "title": "Make the request explicit",
+      "body": [
+        "Include “Use tracked changes” in your request. Say which passage to change and what the new wording should achieve. You can ask for a comment explaining an edit or record a decision without changing the text."
+      ]
     },
     {
-      href: '/ai-contract-review',
-      label: 'AI contract review',
-      title: 'Understand the roles of Claude, Veqtor, and you',
-      description: 'Keep Claude’s analysis separate from Veqtor’s document work and your final judgment.',
+      "id": "review",
+      "title": "Review what was added and removed",
+      "body": [
+        "Open the saved file in Word. Read each change and check the surrounding paragraph. Decide which edits to accept or reject. Do not assume that a clear sentence preserves the original meaning."
+      ]
     },
+    {
+      "id": "existing",
+      "title": "Be specific about existing revisions",
+      "body": [
+        "If the document already contains tracked changes, tell the assistant whether to retain them, accept particular changes or prepare a clean version. Review the result, especially in complex tables, fields and comments."
+      ]
+    }
   ],
+  "path": "/docx-track-changes-review",
+  "linkSection": {
+    "eyebrow": "Related",
+    "title": "More about working with documents",
+    "links": [
+      {
+        "href": "/product",
+        "title": "What Workspace does"
+      },
+      {
+        "href": "/how-it-works",
+        "title": "How it works"
+      },
+      {
+        "href": "/ai-contract-review",
+        "title": "AI contract review"
+      },
+      {
+        "href": "/contract-redline-analysis",
+        "title": "Reading contract redlines"
+      }
+    ]
+  }
 }
 ---
-
-<NarrativePage
-  title="Word Track Changes Review with Claude — Veqtor MCP"
-  description="Understand how Veqtor lets Claude read supported Microsoft Word tracked changes, check wording, test edits, and create a separate reviewable Word file."
-  path="/docx-track-changes-review"
-  eyebrow="Microsoft Word track changes"
-  heading="Review tracked changes with Claude—and keep the result in Word."
-  lede="Veqtor works with a narrow, explicit part of the Word file format so supported redlines remain visible and reviewable in the document."
-  meta="For modern Microsoft Word documents"
-  breadcrumbs={[{ label: 'Product', href: '/product' }, { label: 'Word Track Changes review' }]}
-  sections={sections}
-  linkSection={relatedWorkflows}
-/>
+<NarrativePage {...page} />
