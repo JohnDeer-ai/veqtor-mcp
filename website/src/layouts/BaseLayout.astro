@@ -6,6 +6,7 @@ import '@fontsource-variable/inter/wght.css'
 import '@fontsource-variable/inter/wght-italic.css'
 import '@fontsource-variable/roboto-mono/wght.css'
 import '../styles/global.css'
+import '../styles/workspace.css'
 
 interface Props {
   title: string
@@ -18,6 +19,7 @@ interface Props {
   modifiedTime?: string
   structuredData?: Record<string, unknown> | Record<string, unknown>[]
   noindex?: boolean
+  bodyClass?: string
 }
 
 const {
@@ -31,6 +33,7 @@ const {
   modifiedTime,
   structuredData = [],
   noindex = false,
+  bodyClass = '',
 } = Astro.props
 
 const site = Astro.site ?? new URL('https://veqtor.pro')
@@ -41,17 +44,16 @@ const baseSchemas = [
   {
     '@type': 'Organization',
     '@id': `${site.origin}/#organization`,
-    name: 'Veqtor MCP',
+    name: 'Veqtor',
     alternateName: 'Veqtor',
     url: site.origin,
     logo: `${site.origin}/logo-512.png`,
     founder: { '@id': AUTHOR.schemaId },
-    sameAs: ['https://github.com/JohnDeer-ai/veqtor-mcp'],
   },
   {
     '@type': 'WebSite',
     '@id': `${site.origin}/#website`,
-    name: 'Veqtor MCP',
+    name: 'Veqtor',
     alternateName: 'Veqtor',
     url: site.origin,
     publisher: { '@id': `${site.origin}/#organization` },
@@ -79,10 +81,10 @@ const jsonLd = JSON.stringify({
     <link rel="icon" href="/favicon-48x48.png" type="image/png" sizes="48x48" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
     <link rel="manifest" href="/site.webmanifest" />
-    <link rel="alternate" href="/llms.txt" type="text/plain" title="Veqtor MCP for language models" />
+    <link rel="alternate" href="/llms.txt" type="text/plain" title="Veqtor Workspace for language models" />
     {noindex && <meta name="robots" content="noindex, follow" />}
 
-    <meta property="og:site_name" content="Veqtor MCP" />
+    <meta property="og:site_name" content="Veqtor Workspace" />
     <meta property="og:type" content={type} />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
@@ -90,7 +92,7 @@ const jsonLd = JSON.stringify({
     <meta property="og:image" content={imageUrl} />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Veqtor MCP connects Claude to tracked changes in Microsoft Word documents" />
+    <meta property="og:image:alt" content="Veqtor Workspace — Ask AI. Get the changes in Word." />
     {publishedTime && <meta property="article:published_time" content={publishedTime} />}
     {modifiedTime && <meta property="article:modified_time" content={modifiedTime} />}
 
@@ -100,30 +102,62 @@ const jsonLd = JSON.stringify({
     <meta name="twitter:image" content={imageUrl} />
     <script is:inline type="application/ld+json" set:html={jsonLd}></script>
   </head>
-  <body>
+  <body class:list={["workspace-site", bodyClass]}>
     <a class="skip-link" href="#main-content">Skip to content</a>
     <Header currentPath={canonicalPath} />
     <main id="main-content">
       <slot />
     </main>
     <Footer />
-    <script is:inline>
-      (() => {
-        const header = document.querySelector('[data-site-header]');
-        const toggle = document.querySelector('[data-nav-toggle]');
-        const nav = document.querySelector('[data-site-nav]');
-        if (header && toggle && nav) {
-          toggle.addEventListener('click', () => {
-            const open = toggle.getAttribute('aria-expanded') === 'true';
-            toggle.setAttribute('aria-expanded', String(!open));
-            header.classList.toggle('is-open', !open);
-          });
-          nav.querySelectorAll('a').forEach((link) => link.addEventListener('click', () => {
-            toggle.setAttribute('aria-expanded', 'false');
-            header.classList.remove('is-open');
-          }));
+    <script>
+      const menu = document.querySelector<HTMLButtonElement>('.concept-menu')
+      const header = document.querySelector('.concept-header')
+      const closeMenu = () => { menu?.setAttribute('aria-expanded', 'false'); header?.classList.remove('menu-open') }
+      menu?.addEventListener('click', () => {
+        const expanded = menu.getAttribute('aria-expanded') !== 'true'
+        menu.setAttribute('aria-expanded', String(expanded))
+        header?.classList.toggle('menu-open', expanded)
+      })
+      header?.querySelectorAll('a').forEach(link => link.addEventListener('click', closeMenu))
+      document.addEventListener('keydown', event => { if (event.key === 'Escape') closeMenu() })
+
+      document.querySelectorAll<HTMLElement>('[data-tabs]').forEach(group => {
+        const tabs = Array.from(group.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+        const select = (tab: HTMLButtonElement) => {
+          tabs.forEach(item => {
+            const selected = item === tab
+            item.setAttribute('aria-selected', String(selected))
+            item.tabIndex = selected ? 0 : -1
+            const panel = group.querySelector<HTMLElement>(`#${item.getAttribute('aria-controls')}`)
+            if (panel) panel.hidden = !selected
+          })
         }
-      })();
+        tabs.forEach((tab, index) => {
+          tab.addEventListener('click', () => select(tab))
+          tab.addEventListener('keydown', event => {
+            let next: HTMLButtonElement | undefined
+            if (event.key === 'ArrowRight') next = tabs[(index + 1) % tabs.length]
+            if (event.key === 'ArrowLeft') next = tabs[(index - 1 + tabs.length) % tabs.length]
+            if (event.key === 'Home') next = tabs[0]
+            if (event.key === 'End') next = tabs[tabs.length - 1]
+            if (next) { event.preventDefault(); select(next); next.focus() }
+          })
+        })
+      })
+
+      document.querySelectorAll<HTMLButtonElement>('[data-copy]').forEach(button => {
+        button.addEventListener('click', async () => {
+          const target = document.getElementById(button.dataset.copy || '')
+          if (!target) return
+          const status = button.parentElement?.querySelector<HTMLElement>('[data-copy-status]')
+          try {
+            await navigator.clipboard.writeText(target.textContent?.trim() || '')
+            if (status) status.textContent = 'Copied'
+          } catch {
+            if (status) status.textContent = 'Select the text below to copy it.'
+          }
+        })
+      })
     </script>
   </body>
 </html>

@@ -1,7 +1,7 @@
 {
-  "name": "Veqtor MCP",
+  "name": "Veqtor Workspace",
   "short_name": "Veqtor",
-  "description": "Veqtor MCP provides local document tools for reviewing Word contract redlines with Claude.",
+  "description": "Read, edit and save Word documents with your AI assistant. Changes go into your document, ready to review.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#07060b",

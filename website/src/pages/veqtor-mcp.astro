@@ -1,0 +1,22 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro'
+import PageHero from '../components/PageHero.astro'
+import { PUBLIC_RELEASE_VERSION, PUBLIC_RELEASE_URL, PUBLIC_MCPB_URL, PUBLIC_CHECKSUMS_URL, PUBLIC_MCPB_SHA256, PUBLIC_PYPI_URL } from '../lib/public-release'
+const title = 'Earlier Veqtor MCP — Version 0.5.0'
+const description = 'The earlier Veqtor MCP product: published version 0.5.0, the Mac extension, checksums, source and historical demo. Separate from Veqtor Workspace.'
+---
+<BaseLayout title={title} description={description} canonicalPath="/veqtor-mcp">
+  <PageHero eyebrow="Earlier product" title="Veqtor MCP 0.5" lede="This is the earlier product for reviewing Word negotiation drafts. Veqtor Workspace is a separate product with a broader document workflow." breadcrumbs={[{label:'Earlier Veqtor MCP'}]} compact />
+  <section class="section"><div class="shell prose-shell"><article class="prose legacy-content">
+    <h2 id="release">Published version {PUBLIC_RELEASE_VERSION}</h2><p>The public release, package and installation instructions remain available. This download installs Veqtor MCP, not Veqtor Workspace.</p>
+    <div class="actions"><a class="button button--primary" href={PUBLIC_MCPB_URL}>Download Veqtor MCP for Mac</a><a class="button button--secondary" href={PUBLIC_RELEASE_URL}>Release notes</a></div>
+    <h2 id="install">Installation and documentation</h2><p>For Claude Desktop on macOS, open the extension file and follow the connection instructions in the <a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/v0.5.0/README.md">version 0.5.0 README</a>. Other clients and the fourteen-tool contract are documented there.</p><p>For Claude Code after installing uv, the published version can be registered with:</p><pre><code>claude mcp add --transport stdio --scope user veqtor -- uvx veqtor-mcp@0.5.0</code></pre><p>Keep any document folders and author settings described in the tagged instructions. See the <a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/v0.5.0/docs/AUTHOR_DRAFTING.md">author-drafting documentation</a> for the separate working-file and backup rules.</p>
+    <details data-copy-layer="technical"><summary>Verify the download</summary><p>Compare the downloaded file with the <a href={PUBLIC_CHECKSUMS_URL}>release checksum manifest</a>.</p><pre><code>shasum -a 256 veqtor-mcp-0.5.0-macos.mcpb</code></pre><p>Published SHA-256:</p><pre><code>{PUBLIC_MCPB_SHA256}</code></pre></details>
+    <h2 id="links">Source and historical demonstration</h2><p><a href={PUBLIC_PYPI_URL}>Exact PyPI package</a> · <a href="https://github.com/JohnDeer-ai/veqtor-mcp/tree/v0.5.0">Tagged source</a> · <a href="https://github.com/JohnDeer-ai/veqtor-mcp/blob/v0.5.0/LICENSE">Apache 2.0 license</a></p><p>The <a href="/demo">recorded demo</a> shows an older MCP workflow. It is not a demonstration of Workspace.</p>
+    <h2 id="workspace">Looking for Workspace?</h2><p>See <a href="/product">what Workspace does</a> or the <a href="/setup">Workspace installation page</a>. Do not use the older MCP download as a Workspace installer.</p>
+  </article><aside class="side-index"><strong>Related</strong><a href="/product">Veqtor Workspace</a><a href="/setup">Workspace installation</a><a href="/demo">Earlier demo</a><a href={PUBLIC_RELEASE_URL}>MCP release</a></aside></div></section>
+</BaseLayout>
+<style>
+  .legacy-content { min-width: 0; }
+  .legacy-content pre { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+</style>

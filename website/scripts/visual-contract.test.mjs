@@ -8,9 +8,9 @@ const websiteDir = join(dirname(fileURLToPath(import.meta.url)), '..')
 const readSource = (...parts) => readFileSync(join(websiteDir, 'src', ...parts), 'utf8')
 
 const globalCss = readSource('styles', 'global.css')
+const workspaceCss = readSource('styles', 'workspace.css')
 const baseLayout = readSource('layouts', 'BaseLayout.astro')
 const header = readSource('components', 'Header.astro')
-const setup = readSource('pages', 'setup.astro')
 const authorPage = readSource('pages', 'author', 'ilya-shilov.astro')
 const guideSource = readSource('data', 'guides-source.json')
 const guideArticle = readSource('pages', 'guides', '[slug].astro')
@@ -78,7 +78,7 @@ test('Inter ships a real italic face for rendered emphasis', () => {
 test('main navigation exposes and styles the current section', () => {
   assert.match(header, /aria-current=\{currentValue\(item\.href\)\}/)
   assert.match(header, /return 'location'/)
-  assert.match(globalCss, /\.site-nav a\[aria-current\]/)
+  assert.match(workspaceCss, /\.concept-nav nav a\[aria-current\]/)
 })
 
 test('micro typography uses the shared 11px minimum across the site', () => {
@@ -104,7 +104,7 @@ test('micro typography uses the shared 11px minimum across the site', () => {
   }
 
   assert.deepEqual(violations, [], 'every font-size needs a provable 11px floor; use var(--type-micro) at the minimum')
-  assert.match(setup, /\.setup-nav strong\s*\{[^}]*font-size:\s*var\(--type-micro\);/s)
+  assert.match(workspaceCss, /\.copy-heading\s*\{[^}]*font-size:\s*var\(--type-micro\);/s)
   assert.match(guideArticle, /\.toc a span,[\s\S]*?font-size:\s*var\(--type-micro\);/)
   assert.match(guideArticle, /\.table-wrap th\)\s*\{[^}]*font-size:\s*0\.7rem;/s)
 })

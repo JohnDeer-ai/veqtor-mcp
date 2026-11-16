@@ -1,106 +1,61 @@
 ---
 import NarrativePage from '../components/NarrativePage.astro'
-import { PUBLIC_RELEASE_VERSION } from '../lib/public-release'
-
-const sections = [
-  {
-    id: 'work-you-already-do',
-    title: 'Start with the work you already do',
-    body: [
-      'Keep the negotiation drafts in one folder. Ask Claude what changed, whether a particular quote is accurate, or how a clause moved across the drafts. Veqtor lets Claude inspect the Word files instead of relying only on text pasted into chat.',
-      'When you approve proposed wording, Claude can ask Veqtor to test the complete set of changes and create a separate Word document for review. Your source file remains untouched.',
-    ],
-    links: [
-      {
-        href: '/how-it-works',
-        title: 'Follow the review workflow step by step',
-        description: 'See how to connect Veqtor, order the drafts, check wording, test edits, and review the separate output in Word.',
-      },
-    ],
-  },
-  {
-    id: 'what-it-can-do',
-    title: 'What Veqtor can help with',
-    body: [`The public ${PUBLIC_RELEASE_VERSION} Alpha focuses on a deliberately narrow negotiation workflow across Word drafts.`],
-    bullets: [
-      'Find the Word drafts in a folder and use their file names to establish a clear order.',
-      'Read accepted/current main-body text and supported tracked changes with exact document-byte references.',
-      'Map exact paragraph evidence and recorded byte derivations across drafts without treating file order as lineage.',
-      'Trace exact paragraph matches backward through the declared draft order, with unclear steps reported rather than guessed.',
-      'Check a quote against a specific paragraph or tracked change before Claude relies on it.',
-      'Test all proposed edits together before any output is created.',
-      'Create a new Word document with supported tracked changes.',
-      'Continue supported edits under the configured author, read ordinary comments and add comments to exact wording.',
-      'Save author-drafting changes to the working file with an exact backup, or choose a new copy.',
-      'Save negotiation positions and restore their wording, fallbacks and open questions in a later round.',
-      'Keep a local activity history for the legacy review and counterproposal tools; author drafting uses per-call results and backups.',
-    ],
-  },
-  {
-    id: 'division-of-work',
-    title: 'Claude explains and drafts. Veqtor reads and writes in Word.',
-    body: [
-      'Veqtor does not decide whether a legal position is good or bad. Claude provides the analysis and drafting. Veqtor reads the changes it supports, checks exact wording, tests proposed edits, and makes only the kinds of Word edits it supports.',
-      'This separation does not make AI infallible. It gives you a clearer basis for checking what came from the document, what came from Claude, and what was ultimately written.',
-    ],
-    note: `Public Veqtor ${PUBLIC_RELEASE_VERSION} is a local MCP server using the stdio transport. Its fourteen tools are list_rounds, extract_redlines, inspect_document, map_rounds, trace_paragraph_history, verify_quote, preflight_edits, apply_edits, export_decision_record, read_deal_positions, mutate_deal_positions, read_document_comments, preflight_document_edits, and apply_document_edits.`,
-    links: [
-      {
-        href: '/veqtor-vs-claude-for-word',
-        title: 'Compare Veqtor with Claude for Word',
-        description: 'See when the Word add-in fits the task and when Veqtor’s narrower multi-draft workflow is useful.',
-      },
-    ],
-  },
-  {
-    id: 'alpha-boundary',
-    title: 'A focused public Alpha—not a full Word editor',
-    body: [
-      'Veqtor currently works on Mac and Linux. It supports main-body text, table cells, ordinary anchored comments and a narrow set of tracked text changes. Comment updates and deletions require the exact configured author. Headers, footers and footnotes remain outside scope, and it cannot accept or reject changes for you.',
-      'Author drafting requires supported local storage and an exact backup when saving to the working file. Close Word before saving and reopen it afterwards.',
-      'Some complex Word layouts are refused rather than changed approximately. That narrowness is intentional: when Veqtor cannot safely make the requested edit, it stops.',
-    ],
-  },
-]
-
-const useCases = {
-  id: 'use-cases',
-  eyebrow: 'Use cases',
-  title: 'Choose the part of the review you need help with.',
-  body: 'Veqtor focuses on three connected jobs: using Claude for analysis, following wording across drafts, and keeping supported changes reviewable in Word.',
-  links: [
+const page = {
+  "title": "Veqtor Workspace — AI edits in your Word files",
+  "description": "Read, revise and save Word documents with your AI assistant. Add comments, ask for tracked changes and choose where the result is saved.",
+  "eyebrow": "Veqtor Workspace",
+  "heading": "Your instructions. Changes in the document.",
+  "lede": "Work with the files on your Mac from your AI chat. Veqtor Workspace gives the assistant a way to read, edit and save the document itself.",
+  "sections": [
     {
-      href: '/ai-contract-review',
-      label: 'AI contract review',
-      title: 'Use Claude for analysis without losing the document',
-      description: 'See what Claude, Veqtor, and you are each responsible for during a contract review.',
+      "id": "read",
+      "title": "Read what matters",
+      "body": [
+        "Ask for a summary, find a clause or explain the comments. Name the working Word file and any contracts, reports or other documents the assistant should use for context. A reading request does not need to change the file."
+      ]
     },
     {
-      href: '/contract-redline-analysis',
-      label: 'Several negotiation drafts',
-      title: 'Follow how wording changed across the rounds',
-      description: 'Compare supported redlines, check important wording, and prepare a separate counterproposal.',
+      "id": "edit",
+      "title": "Revise the wording or add a comment",
+      "body": [
+        "Describe the result you want in normal language. Ask explicitly for tracked changes if you want to accept or reject the edits in Word. You can also ask for comments without changing the document text."
+      ]
     },
     {
-      href: '/docx-track-changes-review',
-      label: 'Microsoft Word',
-      title: 'Keep tracked changes visible in Word',
-      description: 'See which Word changes Veqtor can read and create in this early version.',
-    },
+      "id": "save",
+      "title": "Choose how to save",
+      "body": [
+        "Ask the assistant to update your working file or save a new version. Veqtor works on a private copy and checks for saved changes to the original before replacing it. Save and close the file in Word before the task, then reopen it to review the result."
+      ]
+    }
   ],
+  "path": "/product",
+  "linkSection": {
+    "eyebrow": "Related",
+    "title": "More about working with documents",
+    "links": [
+      {
+        "href": "/how-it-works",
+        "title": "How it works"
+      },
+      {
+        "href": "/ai-contract-review",
+        "title": "AI contract review"
+      },
+      {
+        "href": "/contract-redline-analysis",
+        "title": "Reading contract redlines"
+      },
+      {
+        "href": "/docx-track-changes-review",
+        "title": "Tracked changes in Word"
+      },
+      {
+        "href": "/veqtor-vs-claude-for-word",
+        "title": "Choosing a document workflow"
+      }
+    ]
+  }
 }
 ---
-
-<NarrativePage
-  title="Veqtor MCP — Word Redline Tools for Claude"
-  description="See how Veqtor helps Claude compare Word contract drafts, check specific tracked wording, test proposed edits, and create a separate counterproposal for review."
-  path="/product"
-  eyebrow="The product"
-  heading="Give Claude a checkable workflow for Word contract negotiations."
-  lede="Ask normal questions about the negotiation. Veqtor reads and checks supported tracked changes, prepares a separate counterproposal, or makes supported author-drafting edits with an exact backup when saving to the working file."
-  meta="Local · Open source · Public technical Alpha"
-  breadcrumbs={[{ label: 'Product' }]}
-  sections={sections}
-  linkSection={useCases}
-  ctaTitle="Watch the complete workflow on sample contract documents."
-/>
+<NarrativePage {...page} />

@@ -411,7 +411,7 @@ export const TOPICS: GuideTopic[] = source.clusters.flatMap((cluster) => {
     guides,
     description: cluster.metaDescription,
     twitterTitle: `${cluster.label} Guides`,
-    productBridge: cluster.productBridge,
+    productBridge: workspaceBridge(cluster.productBridge),
     stage,
   }]
 })
@@ -422,11 +422,16 @@ export const MCP_GUIDE_BRIDGE = {
   href: '/product',
   label: 'Product overview',
   title: 'See what Veqtor can do',
-  body: 'See how Veqtor lets Claude compare Word negotiation drafts, check exact wording, and create a separate document with proposed tracked changes.',
+  body: 'Veqtor Workspace lets your AI assistant read, edit and save your Word documents. Ask for tracked changes, add comments, and review the result in Word.',
 } as const
 
+function workspaceBridge(bridge: GuideProductBridge): GuideProductBridge {
+  if (bridge.href === '/demo') return { ...bridge, title: 'Watch the earlier MCP demo', body: 'This recorded example shows the earlier Veqtor MCP product. For the current product, see Veqtor Workspace from the main navigation.' }
+  return { ...bridge, title: 'Work on your draft with AI', body: 'Ask your AI assistant to read the relevant wording, explain the tracked changes and make the revisions you request in the Word file. Veqtor Workspace lets you save a new version or update your working document.' }
+}
+
 export function productBridgeForGuide(guide: Guide): GuideProductBridge {
-  return guide.productBridge ?? topicForGuide(guide).productBridge
+  return guide.productBridge ? workspaceBridge(guide.productBridge) : topicForGuide(guide).productBridge
 }
 
 export function canonicalUrl(path: string): string {

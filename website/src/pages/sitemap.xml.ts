@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro'
 import { DEMO_VIDEO } from '../lib/demo-video'
 import { GUIDES, TOPICS } from '../lib/guides'
-import { LINK_ARCHITECTURE_LASTMOD, latestLastmod } from '../lib/sitemap-lastmod.mjs'
+import { LINK_ARCHITECTURE_LASTMOD, WORKSPACE_SITE_LASTMOD, latestLastmod } from '../lib/sitemap-lastmod.mjs'
 
 const SITE = 'https://veqtor.pro'
 const UNCHANGED_TOPIC_BRIDGE = 'limitation-of-liability'
@@ -22,6 +22,7 @@ const STATIC_ROUTES = [
   '/setup',
   '/docs',
   '/limitations',
+  '/veqtor-mcp',
 ]
 const STATIC_ROUTE_LASTMOD = new Map<string, string>([
   ['/', '2026-10-18'],
@@ -58,17 +59,18 @@ export const GET: APIRoute = () => {
   const entries: Array<{ path: string; lastmod?: string; video?: typeof DEMO_VIDEO }> = [
     ...STATIC_ROUTES.map((path) => ({
       path,
-      lastmod: STATIC_ROUTE_LASTMOD.get(path),
+      lastmod: latestLastmod(STATIC_ROUTE_LASTMOD.get(path), WORKSPACE_SITE_LASTMOD),
       video: path === DEMO_VIDEO.pagePath ? DEMO_VIDEO : undefined,
     })),
     ...TOPICS.map((topic) => ({
       path: topic.path,
-      lastmod: topic.id === UNCHANGED_TOPIC_BRIDGE ? undefined : LINK_ARCHITECTURE_LASTMOD,
+      lastmod: WORKSPACE_SITE_LASTMOD,
     })),
     ...GUIDES.map((guide) => ({
       path: guide.path,
       lastmod: latestLastmod(
         guide.modifiedAt,
+        WORKSPACE_SITE_LASTMOD,
         guide.cluster === UNCHANGED_TOPIC_BRIDGE ? undefined : LINK_ARCHITECTURE_LASTMOD,
       ),
     })),

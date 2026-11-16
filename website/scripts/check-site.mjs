@@ -3,7 +3,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { LINK_ARCHITECTURE_LASTMOD, latestLastmod } from '../src/lib/sitemap-lastmod.mjs'
+import { WORKSPACE_SITE_LASTMOD, latestLastmod } from '../src/lib/sitemap-lastmod.mjs'
 import { guideModifiedDate, guideReviewWarning } from '../src/lib/guide-dates.mjs'
 import { validateRenderedBridge } from './lib/rendered-bridge.mjs'
 
@@ -12,7 +12,7 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const WEBSITE_DIR = resolve(SCRIPT_DIR, '..')
 const DIST_DIR = join(WEBSITE_DIR, 'dist')
 const GUIDE_SOURCE_PATH = join(WEBSITE_DIR, 'src', 'data', 'guides-source.json')
-const ALLOWED_NEW_ROUTES = ['/setup', '/docs', '/limitations', '/veqtor-vs-claude-for-word']
+const ALLOWED_NEW_ROUTES = ['/setup', '/docs', '/limitations', '/veqtor-vs-claude-for-word', '/veqtor-mcp']
 // Pinned from the approved guide inventory and reviewed editorial metadata.
 // Updating either hash is an explicit SEO decision, not routine content editing.
 const LEGACY_ROUTE_MANIFEST_SHA256 = '576d80131cb6b42902802646b727550ecf7080dd69f426a1060271ae8586dddc'
@@ -191,7 +191,7 @@ function withoutBreadcrumbNavigation(html) {
 }
 
 function expectedMainNavigationCurrent(route) {
-  if (route === '/product' || route === '/demo' || route === '/setup') {
+  if (route === '/setup') {
     return { href: route, value: 'page' }
   }
   if (route === '/guides') return { href: '/guides', value: 'page' }
@@ -627,75 +627,35 @@ function assertStaticDeploymentFiles() {
 }
 
 function assertSetupCommandIntegrity(pagesByRoute) {
-  const html = pagesByRoute.get('/setup')?.html ?? ''
-  const packageSpecifier = 'veqtor-mcp@0.5.0'
-  const occurrences = html.split(packageSpecifier).length - 1
-  if (occurrences !== 6) {
-    fail(`/setup: expected six literal ${packageSpecifier} commands in built HTML, found ${occurrences}`)
+  const setup = pagesByRoute.get('/setup')?.html ?? ''
+  const docs = pagesByRoute.get('/docs')?.html ?? ''
+  const legacy = pagesByRoute.get('/veqtor-mcp')?.html ?? ''
+  for (const required of ['Claude Desktop', 'ChatGPT Desktop', 'uv', 'veqtor-workspace', '--author', '/veqtor-mcp']) {
+    if (!setup.includes(required)) fail(`/setup: missing Workspace connection value ${required}`)
   }
-  const packagePin = 'veqtor-mcp==0.5.0'
-  const pinOccurrences = html.split(packagePin).length - 1
-  if (pinOccurrences !== 1) {
-    fail(`/setup: expected one literal ${packagePin} demo command in built HTML, found ${pinOccurrences}`)
+  for (const route of ['/', '/setup']) {
+    const html = pagesByRoute.get(route)?.html ?? ''
+    if (/releases\/download\/v0\.5\.0/.test(html)) fail(`${route}: must not present the earlier MCP download as Workspace`)
+    if (/Website concept|Local preview|noindex/i.test(html)) fail(`${route}: contains local-preview or indexing restrictions`)
   }
-  for (const staleSpecifier of ['veqtor-mcp@0.1.2', 'veqtor-mcp==0.1.2', 'veqtor-mcp@0.3.0', 'veqtor-mcp==0.3.0', 'veqtor-mcp@0.4.0', 'veqtor-mcp==0.4.0', 'veqtor-mcp@0.4.2', 'veqtor-mcp==0.4.2']) {
-    if (html.includes(staleSpecifier)) fail(`/setup: built HTML contains stale package specifier ${staleSpecifier}`)
+  if (!normalizeText(setup).includes('A public Workspace installer is not available yet')) {
+    fail('/setup: must state the current public-download availability')
   }
-  for (const requiredValue of [
+  const toolList = docs.match(/<div\b[^>]*class="tool-list"[^>]*>([\s\S]*?)<\/div>/i)?.[1] ?? ''
+  const documentedTools = [...toolList.matchAll(/<article\b[^>]*>\s*<code\b[^>]*>([^<]+)<\/code>/gi)].map(match => normalizeText(match[1]))
+  const expected = ['workspace_info', 'document_task', 'run_python', 'check_docx']
+  if (documentedTools.length !== expected.length || expected.some(tool => !documentedTools.includes(tool))) {
+    fail('/docs: must document the four Workspace tools exactly once')
+  }
+  for (const value of [
     'https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/v0.5.0',
     'https://github.com/JohnDeer-ai/veqtor-mcp/releases/download/v0.5.0/veqtor-mcp-0.5.0-macos.mcpb',
     'https://github.com/JohnDeer-ai/veqtor-mcp/releases/download/v0.5.0/SHA256SUMS.txt',
     '8e29e12cc272ac168441e6affdeedd51199294db94ec6c2f206a0a810d587075',
-    'shasum -a 256 veqtor-mcp-0.5.0-macos.mcpb',
-  ]) {
-    if (!html.includes(requiredValue)) fail(`/setup: built HTML is missing public release value ${requiredValue}`)
-  }
-  if (/v0\.5\.0 is not public(?: yet)?/i.test(html)) {
-    fail('/setup: built HTML still describes v0.5.0 as unpublished')
-  }
-  for (const route of ['/setup', '/docs']) {
-    const releaseHtml = pagesByRoute.get(route)?.html ?? ''
-    for (const value of ['veqtor.mcp.v0.5.0', 'read_deal_positions', 'mutate_deal_positions', 'read_document_comments', 'preflight_document_edits', 'apply_document_edits', 'fourteen tools']) {
-      if (!releaseHtml.includes(value)) fail(`${route}: missing current tool contract value ${value}`)
-    }
-  }
-  const docsHtml = pagesByRoute.get('/docs')?.html ?? ''
-  const toolList = docsHtml.match(/<div\b[^>]*class="tool-list"[^>]*>([\s\S]*?)<\/div>/i)?.[1] ?? ''
-  const documentedTools = [...toolList.matchAll(/<article\b[^>]*>\s*<code\b[^>]*>([^<]+)<\/code>/gi)]
-    .map((match) => normalizeText(match[1]))
-  const expectedTools = [
-    'list_rounds', 'extract_redlines', 'inspect_document', 'map_rounds',
-    'trace_paragraph_history', 'verify_quote', 'preflight_edits', 'apply_edits',
-    'export_decision_record', 'read_deal_positions', 'mutate_deal_positions',
-    'read_document_comments', 'preflight_document_edits', 'apply_document_edits',
-  ]
-  if (documentedTools.length !== 14 || new Set(documentedTools).size !== 14
-    || expectedTools.some((tool) => !documentedTools.includes(tool))) {
-    fail('/docs: the tool list must document exactly the fourteen public v0.5.0 tools once each')
-  }
-  const profileSamples = pairedContents(html, 'code').filter((value) => value.startsWith('"env":'))
-  if (profileSamples.length !== 1) fail('/setup: expected one manual author-profile JSON example')
-  for (const sample of profileSamples) {
-    try {
-      const profile = JSON.parse(`{${sample}}`).env
-      if (Object.keys(profile).sort().join(',') !== 'VEQTOR_COMMENT_INITIALS,VEQTOR_TRACKED_CHANGE_AUTHOR'
-        || Object.values(profile).some((value) => typeof value !== 'string' || !value.trim())) {
-        fail('/setup: manual author profile must contain a nonempty author and comment initials')
-      }
-    } catch {
-      fail('/setup: manual author-profile example is not valid JSON')
-    }
-  }
-  const authorCommands = pairedContents(html, 'code').filter((value) => value.startsWith('claude mcp add') && value.includes('VEQTOR_TRACKED_CHANGE_AUTHOR'))
-  if (authorCommands.length !== 1 || !authorCommands[0].includes('-e VEQTOR_COMMENT_INITIALS=')) {
-    fail('/setup: the optional Claude Code author command must configure comment initials too')
-  }
-  if (!docsHtml.includes('record_status=disabled') || !docsHtml.includes('.veqtor-backups')
-    || !docsHtml.includes('/blob/v0.5.0/docs/AUTHOR_DRAFTING.md')) {
-    fail('/docs: author drafting must disclose its separate backup/record contract and link the tagged documentation')
-  }
+    'veqtor-mcp@0.5.0',
+  ]) if (!legacy.includes(value)) fail(`/veqtor-mcp: missing preserved release value ${value}`)
   for (const marker of ['/cdn-cgi/l/email-protection', 'data-cfemail', '__cf_email__', 'email-decode.min.js']) {
-    if (html.includes(marker)) fail(`/setup: built HTML contains unexpected Cloudflare obfuscation marker ${marker}`)
+    if (setup.includes(marker) || legacy.includes(marker)) fail(`installation pages contain unexpected Cloudflare obfuscation: ${marker}`)
   }
 }
 
@@ -708,11 +668,12 @@ function assertSchemaContracts(schemasByRoute) {
   if (homeSoftware.some((node) => Object.hasOwn(node, 'codeRepository'))) {
     fail('/: SoftwareApplication must not use the SoftwareSourceCode-only codeRepository property')
   }
-  if (homeSoftware[0]?.softwareVersion !== '0.5.0') {
-    fail('/: SoftwareApplication softwareVersion must match public v0.5.0')
+  if (homeSoftware[0]?.name !== 'Veqtor Workspace' || homeSoftware[0]?.operatingSystem !== 'macOS') {
+    fail('/: SoftwareApplication must identify Workspace on macOS')
   }
-  if (homeSoftware[0]?.downloadUrl !== 'https://github.com/JohnDeer-ai/veqtor-mcp/releases/download/v0.5.0/veqtor-mcp-0.5.0-macos.mcpb') {
-    fail('/: SoftwareApplication downloadUrl must point to the public v0.5.0 MCPB')
+  if (homeSoftware[0]?.installUrl !== 'https://veqtor.pro/setup') fail('/: Workspace installation URL must point to /setup')
+  if (homeSoftware[0]?.downloadUrl || homeSoftware[0]?.softwareVersion) {
+    fail('/: do not advertise a public Workspace release before one is available')
   }
   const homeVideos = nodesOfType('/', 'VideoObject')
   if (homeVideos.length !== 0) fail(`/: homepage must not compete with /demo as a video watch page, found ${homeVideos.length} VideoObject node(s)`)
@@ -1032,28 +993,13 @@ function main() {
     fail(`/: guide-library summary must be dynamic and read ${JSON.stringify(expectedInventoryText)}`)
   }
   const expectedLastmodsByRoute = new Map([
-    ...[
-      '/contract-redline-analysis',
-      '/guides',
-    ].map((route) => [route, LINK_ARCHITECTURE_LASTMOD]),
-    ...[
-      '/', '/product', '/how-it-works', '/security', '/ai-contract-review', '/demo', '/setup', '/docs',
-      '/limitations', '/terms', '/veqtor-vs-claude-for-word', '/docx-track-changes-review', '/author/ilya-shilov',
-    ].map((route) => [route, '2026-10-18']),
-    ...guideSource.clusters.map((cluster) => [
-      `/guides/topics/${cluster.id}`,
-      cluster.id === 'limitation-of-liability' ? undefined : LINK_ARCHITECTURE_LASTMOD,
+    ...[...STATIC_LEGACY_ROUTES.filter(route => route !== '/guides/search'), ...ALLOWED_NEW_ROUTES]
+      .map(route => [route, WORKSPACE_SITE_LASTMOD]),
+    ...guideSource.clusters.map(cluster => [`/guides/topics/${cluster.id}`, WORKSPACE_SITE_LASTMOD]),
+    ...approvedGuides.map(guide => [
+      `/guides/${guide.slug}`,
+      latestLastmod(guideModifiedDate(guide), WORKSPACE_SITE_LASTMOD),
     ]),
-    ...approvedGuides.map((guide) => {
-      const editorialLastmod = guideModifiedDate(guide)
-      return [
-        `/guides/${guide.slug}`,
-        latestLastmod(
-          editorialLastmod,
-          guide.cluster === 'limitation-of-liability' ? undefined : LINK_ARCHITECTURE_LASTMOD,
-        ),
-      ]
-    }),
   ])
   assertPageLastmods(expectedLastmodsByRoute)
   assertReal404(pagesByRoute.get('/')?.html ?? '')

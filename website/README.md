@@ -6,47 +6,35 @@ does not need `@astrojs/cloudflare`. The generated `dist/` directory can be
 served by any static host, including Cloudflare Pages. Astro telemetry is
 disabled in the project scripts.
 
-## v0.5.0 activation
+## Workspace website migration — 16 November 2026
 
-The installation instructions target the published **v0.5.0 Alpha** release.
-[Release run 39156615444, attempt 1](https://github.com/JohnDeer-ai/veqtor-mcp/actions/runs/39156615444)
-completed successfully for commit `f4ef637690cf9e8c2b6927fba6b46c2577c1931a`.
-GitHub reports immutable publication at `2026-10-19T10:18:45Z`. Public targets:
+The public home, installation instructions and product pages describe Veqtor
+Workspace. All previously served page addresses and the 122-guide library remain
+in place; no existing page is redirected or removed. Guide article bodies,
+editorial metadata and review dates are unchanged. Shared navigation and product
+calls to action now point readers to the Workspace workflow. The sitemap records
+the navigation/product update separately from Article editorial dates.
 
-- [Immutable v0.5.0 release](https://github.com/JohnDeer-ai/veqtor-mcp/releases/tag/v0.5.0)
-- [Exact PyPI v0.5.0 package](https://pypi.org/project/veqtor-mcp/0.5.0/)
-- Verified public MCPB SHA-256: `8e29e12cc272ac168441e6affdeedd51199294db94ec6c2f206a0a810d587075`
+`/setup` describes the current Claude Desktop and ChatGPT Desktop connections.
+The Workspace repository is private and there is no verified public Workspace
+installer linked here. The page states that availability and keeps its installer
+button disabled. Do not substitute the earlier MCP download. When a public
+Workspace release is ready, update setup, home structured data, `llms.txt`, and
+`assertSetupCommandIntegrity` / `assertSchemaContracts` in the site check together.
 
-The exact candidate's `.github/scripts/verify_published_pypi.py` and
-`.github/scripts/verify_published_release.py` passed against the successful
-attempt's artifacts on 19 October 2026, both in the release workflow and in
-separate tokenless local checks. The public wheel, source distribution, MCPB
-and checksum manifest match the approved bytes; the PyPI checks also verify
-Trusted Publisher provenance. A separate installation of `veqtor-mcp==0.5.0`
-from public PyPI passed the version and doctor checks and generated four demo
-DOCX files in an isolated directory before this website activation.
+`/veqtor-mcp` retains the published v0.5.0 extension, checksum and tagged
+instructions. `/demo` and all video asset URLs retain the historical v0.1.2
+recording, explicitly identified as the earlier product. The release pins in
+`src/lib/public-release.ts` apply only to that earlier product.
 
-Package publication and website deployment are separate. Retain the Cloudflare
-deployment commit and fresh production checks with the activation evidence;
-the release timestamp above does not establish a website deployment time.
+The homepage visual examples contain a supplied Word excerpt and HTML document
+illustrations. They do not establish a fresh end-to-end product acceptance run.
+The website changes do not publish the Workspace source or change either Python
+package. The release-bound `public/logo-512.png` is unchanged.
 
-`src/lib/public-release.ts` supplies the current release links, install pins
-and checksum. `/setup` covers installation, upgrade, disposable-folder rollback
-and a read-only connection check; `/docs` describes all fourteen tools,
-paragraph history, projection-aware verification, own-author drafting and
-ordinary anchored comments. The legacy counterproposal path creates a new
-file. Author drafting can save to the working path with a required exact
-backup and Word closed; its three tools do not append the legacy decision
-journal. The v0.1.2 video stays historical.
-The source update date is not deployment evidence: after production deployment,
-check the live `/setup`, `/docs`, homepage structured data, `/llms.txt`, and all
-release, download, checksum and PyPI links.
-
-This is a separate website activation, not a new software release. Preserve the
-tagged README's conditional version-selection rule, package inputs, release
-assets and accepted evidence. Preserve the website's existing static hosting,
-dependencies, guide URLs/SEO inventory and media. Subsequent build-dependency
-maintenance is covered by the checks below.
+The migration also refreshes compatible transitive build dependencies to satisfy
+the required high-severity audit gate. Astro remains pinned; the remaining
+moderate advisory is reported by the audit rather than suppressed.
 
 ## Local development
 

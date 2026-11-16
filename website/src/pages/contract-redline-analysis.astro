@@ -1,71 +1,74 @@
 ---
 import NarrativePage from '../components/NarrativePage.astro'
-
-const sections = [
-  {
-    id: 'more-than-copy-paste',
-    title: 'Redline analysis needs the change—not just the resulting text',
-    body: [
-      'Copying a clause into chat hides which words were inserted, deleted or replaced and how the wording moved across drafts. That context is often the point of a negotiation.',
-      'Veqtor lets Claude inspect supported tracked changes directly in the Word files. Each change includes the file it came from and a small amount of nearby text, so Claude has a clearer source.',
-    ],
-  },
-  {
-    id: 'across-rounds',
-    title: 'Compare negotiation rounds in a declared order',
-    body: [
-      'Name the files 01, 02, 03 and so on. Veqtor uses that file-name order consistently and reports which documents it could or could not read.',
-      'The order helps organize the files. It does not prove which draft came first or decide automatically that a clause in one draft is the same clause in another. Claude may compare the material, but Veqtor does not claim to reconstruct the negotiation history by itself.',
-    ],
-  },
-  {
-    id: 'check-wording',
-    title: 'Check important wording before relying on it',
-    body: [
-      'When Claude quotes a tracked change, Veqtor can say whether the words match exactly, still match after ignoring repeated spaces and different quotation-mark or dash styles, or do not appear in that specific change. Veqtor does not search the entire document and declare an unrelated sentence verified.',
-    ],
-  },
-  {
-    id: 'from-analysis-to-output',
-    title: 'Move from analysis to a reviewable counterproposal',
-    body: [
-      'If you want to respond, Claude can prepare a proposed set of edits. Veqtor tests the full set before writing and creates a new Word document only if it can complete every requested edit using the parts of Word it supports.',
-      'Open the result in Word, inspect the tracked changes and make the final decision yourself.',
-    ],
-  },
-]
-
-const relatedWorkflows = {
-  id: 'related-workflows',
-  eyebrow: 'Related workflows',
-  title: 'Separate the analysis from the document work.',
-  body: 'Use the page that matches the question you need to answer next: who is responsible for the analysis, or what Veqtor can do inside Word.',
-  links: [
+const page = {
+  "title": "Contract redline analysis — Veqtor Workspace",
+  "description": "Read tracked changes and comments in Word contracts, ask focused questions and prepare requested edits with your AI assistant.",
+  "eyebrow": "Contract redlines",
+  "heading": "Understand the changes before you respond.",
+  "lede": "Point your assistant to the Word drafts you want it to read. Ask about a specific clause, comment or change, then decide what to do next.",
+  "sections": [
     {
-      href: '/ai-contract-review',
-      label: 'AI contract review',
-      title: 'Understand what Claude, Veqtor, and you each do',
-      description: 'See how contract analysis stays separate from supported document checks and your final review.',
+      "id": "read",
+      "title": "Read the relevant drafts",
+      "body": [
+        "Name the files and explain which version you are working on. Ask the assistant to quote the relevant wording and identify the document it came from. A summary does not replace checking the source."
+      ]
     },
     {
-      href: '/docx-track-changes-review',
-      label: 'Microsoft Word',
-      title: 'See which tracked changes Veqtor can read and create',
-      description: 'Review the supported Word workflow and the parts this early version does not handle.',
+      "id": "respond",
+      "title": "Give a clear response instruction",
+      "body": [
+        "Ask for the wording you want inserted, removed or clarified. Request tracked changes so you can review the edits in Word. Add a comment when you want a question or decision recorded beside the clause."
+      ]
     },
+    {
+      "id": "save",
+      "title": "Keep the version you need",
+      "body": [
+        "Save the result to the working file or ask for a new version. Check existing revisions and comments before sharing it. Workspace does not automatically reconstruct missing negotiation rounds or certify the meaning of a change."
+      ]
+    },
+    {
+      "id": "earlier",
+      "title": "Looking for the earlier negotiation tools?",
+      "body": [
+        "Veqtor MCP 0.5 is the previous product. Its release, documentation and recorded demo remain available separately."
+      ],
+      "links": [
+        {
+          "href": "/veqtor-mcp",
+          "title": "Earlier Veqtor MCP"
+        },
+        {
+          "href": "/demo",
+          "title": "Earlier product demo"
+        }
+      ]
+    }
   ],
+  "path": "/contract-redline-analysis",
+  "linkSection": {
+    "eyebrow": "Related",
+    "title": "More about working with documents",
+    "links": [
+      {
+        "href": "/product",
+        "title": "What Workspace does"
+      },
+      {
+        "href": "/how-it-works",
+        "title": "How it works"
+      },
+      {
+        "href": "/ai-contract-review",
+        "title": "AI contract review"
+      },
+      {
+        "href": "/docx-track-changes-review",
+        "title": "Tracked changes in Word"
+      }
+    ]
+  }
 }
 ---
-
-<NarrativePage
-  title="Contract Redline Analysis Across Word Drafts — Veqtor MCP"
-  description="Ask Claude what changed across Word contract drafts, check important quotes against specific tracked changes, and create a separate counterproposal for review."
-  path="/contract-redline-analysis"
-  eyebrow="Contract redline analysis"
-  heading="Understand how the wording moved across the negotiation."
-  lede="Veqtor lets Claude read the tracked text changes it supports and reports unsupported revision types it encounters in the main document body."
-  meta="Drafts in filename order · Source files unchanged"
-  breadcrumbs={[{ label: 'Product', href: '/product' }, { label: 'Contract redline analysis' }]}
-  sections={sections}
-  linkSection={relatedWorkflows}
-/>
+<NarrativePage {...page} />

@@ -1,74 +1,63 @@
 ---
 import NarrativePage from '../components/NarrativePage.astro'
-
-const sections = [
-  {
-    id: 'what-this-means',
-    title: 'AI contract review is useful only when document facts remain checkable',
-    body: [
-      'Claude can explain clauses, compare positions and draft alternatives. The difficult part is keeping that reasoning connected to the actual tracked changes in the Word documents—and getting approved wording back into a file without manual retyping.',
-      'Veqtor addresses that document layer. It gives Claude narrow tools to read supported redlines, check a quotation against one specific change, test a proposed edit set and create a separate Word document for review.',
-    ],
-  },
-  {
-    id: 'not-an-autopilot',
-    title: 'Not an autonomous contract-review verdict',
-    body: [
-      'Veqtor does not score legal risk, choose a negotiation position or establish that a clause is legally correct. Claude supplies analysis and drafting; the user remains responsible for instructions, judgment and final review.',
-      'That separation matters. It is more honest to distinguish Claude’s analysis from the facts Veqtor read in the files.',
-    ],
-  },
-  {
-    id: 'practical-workflow',
-    title: 'A practical review workflow',
-    body: ['Order the drafts, ask Claude a normal question, check any wording that matters, request a counterproposal, and review the separate output in Word.'],
-    bullets: [
-      'Ask what changed across several negotiation drafts instead of rereading each file from the beginning.',
-      'Ask whether quoted wording really matches the tracked change it came from.',
-      'Ask for supported proposed edits as a new Word document—not a chat answer you must retype.',
-    ],
-  },
-  {
-    id: 'limits',
-    title: 'Use the Alpha within its limits',
-    body: [
-      'Veqtor works locally on Mac and Linux and supports a narrow set of tracked text changes in the main body of a Word document, plus ordinary anchored comments. Comment updates and deletions require the exact configured author. It does not cover headers, footnotes, automatic accept or reject, or every complex Word layout.',
-      'Review the known limitations before using it on a real matter. Start with the synthetic demo documents and never put client content in a public support request.',
-    ],
-  },
-]
-
-const relatedWorkflows = {
-  id: 'related-workflows',
-  eyebrow: 'Related workflows',
-  title: 'Continue with the document task in front of you.',
-  body: 'The analysis, the negotiation history, and the Word file are connected—but each needs a different kind of review.',
-  links: [
+const page = {
+  "title": "AI contract review in Word — Veqtor Workspace",
+  "description": "Ask your AI assistant to read a contract, explain its wording and put requested revisions or comments into the Word document.",
+  "eyebrow": "Contract workflow",
+  "heading": "Read the contract. Put the requested changes in Word.",
+  "lede": "Veqtor Workspace connects your assistant to the working contract and the documents you identify for context.",
+  "sections": [
     {
-      href: '/contract-redline-analysis',
-      label: 'Several negotiation drafts',
-      title: 'Follow how wording changed across the rounds',
-      description: 'See how Veqtor supports a review of tracked wording across ordered drafts.',
+      "id": "context",
+      "title": "Give the assistant the context",
+      "body": [
+        "Identify the contract, your instructions and any supporting material. Ask for the questions or clauses you need to understand before requesting edits."
+      ]
     },
     {
-      href: '/docx-track-changes-review',
-      label: 'Microsoft Word',
-      title: 'Keep supported changes visible in Word',
-      description: 'See which tracked changes Veqtor can read and create in a separate document.',
+      "id": "instructions",
+      "title": "Turn your decision into an edit",
+      "body": [
+        "Explain the change you want, then ask for tracked changes or a comment. The assistant performs the document task; you remain responsible for the commercial and legal decision."
+      ]
     },
+    {
+      "id": "review",
+      "title": "Review the saved contract",
+      "body": [
+        "Open the result in Word and inspect the wording, comments and existing revisions. Use the contract guides for general background, not as advice on a particular transaction."
+      ],
+      "links": [
+        {
+          "href": "/guides",
+          "title": "Browse the contract guides"
+        }
+      ]
+    }
   ],
+  "path": "/ai-contract-review",
+  "linkSection": {
+    "eyebrow": "Related",
+    "title": "More about working with documents",
+    "links": [
+      {
+        "href": "/product",
+        "title": "What Workspace does"
+      },
+      {
+        "href": "/how-it-works",
+        "title": "How it works"
+      },
+      {
+        "href": "/contract-redline-analysis",
+        "title": "Reading contract redlines"
+      },
+      {
+        "href": "/docx-track-changes-review",
+        "title": "Tracked changes in Word"
+      }
+    ]
+  }
 }
 ---
-
-<NarrativePage
-  title="AI Contract Review for Word Redlines — Veqtor MCP"
-  description="Use Claude to analyze contract negotiations while Veqtor keeps supported Word redlines, quotations, proposed edits, and output files connected to the underlying documents."
-  path="/ai-contract-review"
-  eyebrow="AI contract review"
-  heading="Keep AI contract analysis tied to checkable Word changes."
-  lede="Veqtor handles the supported document operations. Claude handles reasoning and drafting. You review both before using the result."
-  meta="Claude explains · Veqtor works with Word · You review"
-  breadcrumbs={[{ label: 'Product', href: '/product' }, { label: 'AI contract review' }]}
-  sections={sections}
-  linkSection={relatedWorkflows}
-/>
+<NarrativePage {...page} />

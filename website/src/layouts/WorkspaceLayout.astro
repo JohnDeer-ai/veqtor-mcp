@@ -1,0 +1,10 @@
+---
+import BaseLayout from './BaseLayout.astro'
+interface Props {
+  title: string
+  description: string
+  canonicalPath: string
+  structuredData?: Record<string, unknown> | Record<string, unknown>[]
+}
+---
+<BaseLayout {...Astro.props} bodyClass="workspace-page"><slot /></BaseLayout>
