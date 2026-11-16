@@ -52,7 +52,10 @@ def archive(parts):
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as output:
         for name, data in parts.items():
-            output.writestr(name, data)
+            # Byte-preservation assertions must not depend on the wall clock.
+            info = zipfile.ZipInfo(name, date_time=(2020, 2, 2, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            output.writestr(info, data)
     return buffer.getvalue()
 
 
