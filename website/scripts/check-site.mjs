@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { WORKSPACE_SITE_LASTMOD, latestLastmod } from '../src/lib/sitemap-lastmod.mjs'
 import { guideModifiedDate, guideReviewWarning } from '../src/lib/guide-dates.mjs'
 import { validateRenderedBridge } from './lib/rendered-bridge.mjs'
-import { WORKSPACE_VERSION, WORKSPACE_DOWNLOAD_URL, WORKSPACE_SOURCE_URL, WORKSPACE_RELEASE_URL, WORKSPACE_CHECKSUMS_URL, WORKSPACE_SHA256 } from '../src/lib/workspace-release.mjs'
+import { WORKSPACE_VERSION, WORKSPACE_DOWNLOAD_URL, WORKSPACE_SOURCE_URL, WORKSPACE_RELEASE_URL, WORKSPACE_CHECKSUMS_URL, WORKSPACE_SHA256, WORKSPACE_CHATGPT_DOWNLOAD_URL, WORKSPACE_CHATGPT_SHA256 } from '../src/lib/workspace-release.mjs'
 
 const SITE_ORIGIN = 'https://veqtor.pro'
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
@@ -639,14 +639,17 @@ function assertSetupCommandIntegrity(pagesByRoute) {
     if (/releases\/download\/v0\.5\.0/.test(html)) fail(`${route}: must not present the earlier MCP download as Workspace`)
     if (/Website concept|Local preview|noindex/i.test(html)) fail(`${route}: contains local-preview or indexing restrictions`)
   }
-  for (const value of [WORKSPACE_DOWNLOAD_URL, WORKSPACE_SOURCE_URL, WORKSPACE_RELEASE_URL, WORKSPACE_CHECKSUMS_URL, WORKSPACE_SHA256]) {
+  for (const value of [WORKSPACE_DOWNLOAD_URL, WORKSPACE_SOURCE_URL, WORKSPACE_RELEASE_URL, WORKSPACE_CHECKSUMS_URL, WORKSPACE_SHA256, WORKSPACE_CHATGPT_DOWNLOAD_URL, WORKSPACE_CHATGPT_SHA256]) {
     if (!setup.includes(value)) fail(`/setup: missing public Workspace release value ${value}`)
   }
   if (/Coming soon|A public Workspace installer is not available yet/.test(setup)) {
     fail('/setup: published installer must not be described as unavailable')
   }
-  if (!/^[a-f0-9]{64}$/.test(WORKSPACE_SHA256)) {
+  if (![WORKSPACE_SHA256, WORKSPACE_CHATGPT_SHA256].every(value => /^[a-f0-9]{64}$/.test(value))) {
     fail('/setup: public Workspace installer checksum must be SHA-256')
+  }
+  for (const required of ['not signed with Developer ID or notarized by Apple', 'Open Anyway', 'Connect to ChatGPT']) {
+    if (!setup.includes(required)) fail(`/setup: missing ChatGPT installer instruction ${required}`)
   }
   const toolList = docs.match(/<div\b[^>]*class="tool-list"[^>]*>([\s\S]*?)<\/div>/i)?.[1] ?? ''
   const documentedTools = [...toolList.matchAll(/<article\b[^>]*>\s*<code\b[^>]*>([^<]+)<\/code>/gi)].map(match => normalizeText(match[1]))
