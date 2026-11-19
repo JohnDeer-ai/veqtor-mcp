@@ -38,11 +38,9 @@ moderate advisory is reported by the audit rather than suppressed.
 
 ## Local development
 
-Use the Node version in `.node-version` (Node 22.23.2). The current Astro 7
-dependency tree requires Node 22.19.0 or newer in the Node 22 line (including
-`undici`, used by Astro's font tooling). This project sets Node 22.23.2 as its
-minimum security baseline and pins that exact version so local, CI and
-Cloudflare builds use the same runtime.
+Use Node.js 22.23.5 as pinned in `.node-version`. Astro 7.4.7 requires Node.js
+22.23.4 or later. The site uses the 22.23.5 security release for local development,
+GitHub Actions and Cloudflare Pages.
 
 ```sh
 cd website
@@ -103,7 +101,7 @@ reviewed. When the repository is connected to Cloudflare Pages, use:
 | Dependency install | `npm ci` |
 | Build command | `npm run build` |
 | Build output directory | `dist` |
-| Node version | `22.23.2` (read from `.node-version`) |
+| Node version | `22.23.5` (read from `.node-version`) |
 
 If the Pages dashboard does not expose a separate dependency-install field,
 its npm lockfile installation runs before the build command; keep the build
