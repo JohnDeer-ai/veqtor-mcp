@@ -1,10 +1,11 @@
 ---
 import Logo from './Logo.astro'
+import { WORKSPACE_REPOSITORY_URL } from '../lib/workspace-release.mjs'
 ---
 <footer class="concept-footer">
   <div class="shell footer-inner">
     <div><a class="brand" href="/" aria-label="Veqtor Workspace home"><Logo compact /><span class="concept-wordmark">Veqtor <span>Workspace</span></span></a><p>Your documents. Your AI assistant.</p></div>
-    <div class="footer-links"><a href="/setup">Installation</a><a href="/#questions">Questions</a><a href="/guides">Contract guides</a></div>
+    <div class="footer-links"><a href="/setup">Installation</a><a href="/#questions">Questions</a><a href="/guides">Contract guides</a><a href={WORKSPACE_REPOSITORY_URL}>GitHub</a></div>
   </div>
   <nav class="shell footer-resources" aria-label="More about Veqtor">
     <a href="/product">Product</a><a href="/how-it-works">How it works</a><a href="/docs">Documentation</a><a href="/security">Security</a><a href="/limitations">Limitations</a><a href="/veqtor-mcp">Earlier Veqtor MCP</a><a href="/author/ilya-shilov">About</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a>

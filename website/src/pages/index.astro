@@ -1,17 +1,18 @@
 ---
 import Layout from '../layouts/WorkspaceLayout.astro'
 import { GUIDES, TOPICS } from '../lib/guides'
-const software = { '@type': 'SoftwareApplication', '@id': 'https://veqtor.pro/#software', name: 'Veqtor Workspace', applicationCategory: 'ProductivityApplication', operatingSystem: 'macOS', url: 'https://veqtor.pro/', installUrl: 'https://veqtor.pro/setup', description: 'Read, edit and save Word files with your AI assistant. Changes go into your document, ready to review.' }
+import { WORKSPACE_VERSION, WORKSPACE_DOWNLOAD_URL } from '../lib/workspace-release.mjs'
+const software = { '@type': 'SoftwareApplication', '@id': 'https://veqtor.pro/#software', name: 'Veqtor Workspace', applicationCategory: 'ProductivityApplication', operatingSystem: 'macOS', softwareRequirements: 'Apple Silicon Mac (M1 or newer) and ChatGPT Desktop with local tools enabled, Claude Desktop or Codex', url: 'https://veqtor.pro/', installUrl: 'https://veqtor.pro/setup', downloadUrl: WORKSPACE_DOWNLOAD_URL, softwareVersion: WORKSPACE_VERSION, description: 'Read, edit and save Word files with your AI assistant. Changes go into your document, ready to review.' }
 ---
-<Layout canonicalPath="/" structuredData={software} title="Veqtor Workspace — Ask AI. Get the changes in Word." description="Read, edit and save Word files with your AI assistant. Veqtor Workspace puts the changes into your document, ready to review. For macOS.">
+<Layout canonicalPath="/" structuredData={software} title={'Veqtor Workspace — Edit Word with ChatGPT & Claude'} description="Edit Word files with ChatGPT Desktop, Claude Desktop or Codex on macOS. Add tracked changes and comments, then save your document with Veqtor Workspace.">
   <section class="shell concept-hero" aria-labelledby="home-title">
     <div>
       <p class="concept-kicker">Your documents. Your AI assistant.</p>
       <h1 id="home-title">Ask AI. Get the changes in Word.</h1>
-      <p class="hero-description">Veqtor Workspace lets your AI assistant read, edit and save Word files on your Mac. Describe what you need. The changes go into your document, ready to review.</p>
+      <p class="hero-description">Veqtor Workspace lets ChatGPT Desktop, Claude Desktop or Codex read, edit and save Word files on your Mac. Ask for tracked changes or comments, then review the result in Word.</p>
       <p class="hero-benefit">No copying text back and forth.</p>
-      <div class="concept-actions"><a class="concept-button primary" href="/setup">Get started <span aria-hidden="true">↗</span></a><a class="concept-button" href="#examples">See examples <span aria-hidden="true">↓</span></a></div>
-      <div class="concept-availability"><span class="availability-dot">For macOS</span><span>Claude Desktop &amp; ChatGPT Desktop</span></div>
+      <div class="concept-actions"><a class="concept-button primary" href="/setup">Download for Mac <span aria-hidden="true">↗</span></a><a class="concept-button" href="#examples">See examples <span aria-hidden="true">↓</span></a></div>
+      <div class="concept-availability"><span class="availability-dot">Mac with Apple Silicon</span><span>ChatGPT Desktop · Claude Desktop · Codex</span></div>
     </div>
     <figure class="hero-example">
       <div class="example-request"><span class="example-label">You ask in the chat</span><p>“Change the delivery period to 45 days. Use tracked changes and add a comment explaining the edit.”</p></div>
@@ -75,7 +76,7 @@ const software = { '@type': 'SoftwareApplication', '@id': 'https://veqtor.pro/#s
   <section class="concept-section" id="questions" aria-labelledby="questions-title">
     <div class="shell faq-grid"><div><p class="concept-kicker">Good to know</p><h2 id="questions-title">A few practical questions.</h2></div>
       <div class="questions">
-        <details><summary>What do I need?</summary><p>A Mac and Claude Desktop or ChatGPT Desktop with local tools enabled. Codex also works. Veqtor connects to your assistant; it does not include an AI model. Your AI service’s account and usage terms still apply. See the installation guide for the current connection steps.</p></details>
+        <details><summary>What do I need?</summary><p>A Mac with Apple Silicon (M1 or newer) and Claude Desktop or ChatGPT Desktop with local tools enabled. Codex also works. Veqtor connects to your assistant; it does not include an AI model. Your AI service’s account and usage terms still apply. See the installation guide for the current connection steps.</p></details>
         <details><summary>What happens to my original file?</summary><p>Veqtor keeps a snapshot and gives the assistant a working copy. You can ask it to save a new file or update the original. Before replacing the original, it checks for saved changes made since the task began. Save your Word edits first, avoid editing the same file during a save, and reopen it afterwards.</p></details>
         <details><summary>Does my document stay on my Mac?</summary><p>The files and Veqtor’s working copies are on your Mac. Content returned to your assistant becomes part of your AI conversation and may be processed by its provider. Local files do not mean a fully offline AI workflow.</p></details>
         <details><summary>Which documents can I use?</summary><p>The current focus is Word files and text-based PDFs used as supporting material. Scanned PDFs need separate text recognition. Always check the result, including formatting and comments, before using or sharing it.</p></details>

@@ -1,0 +1,9 @@
+export const WORKSPACE_VERSION = '0.1.3'
+export const WORKSPACE_REPOSITORY_URL = 'https://github.com/JohnDeer-ai/veqtor-workspace'
+export const WORKSPACE_RELEASE_URL = `${WORKSPACE_REPOSITORY_URL}/releases/tag/v${WORKSPACE_VERSION}`
+export const WORKSPACE_DOWNLOAD_URL = `${WORKSPACE_REPOSITORY_URL}/releases/download/v${WORKSPACE_VERSION}/veqtor-workspace-${WORKSPACE_VERSION}-macos-arm64.mcpb`
+export const WORKSPACE_SOURCE_URL = `${WORKSPACE_REPOSITORY_URL}/archive/refs/tags/v${WORKSPACE_VERSION}.zip`
+export const WORKSPACE_CHECKSUMS_URL = `${WORKSPACE_REPOSITORY_URL}/releases/download/v${WORKSPACE_VERSION}/SHA256SUMS.txt`
+export const WORKSPACE_SHA256 = '792edef10123ba03611a0c3a70adb6d1ecf9b0e5d750e313b436717818356be8'
+export const WORKSPACE_CHATGPT_DOWNLOAD_URL = `${WORKSPACE_REPOSITORY_URL}/releases/download/v${WORKSPACE_VERSION}/veqtor-workspace-${WORKSPACE_VERSION}-chatgpt-macos-arm64.dmg`
+export const WORKSPACE_CHATGPT_SHA256 = '2356275c211b8d41334c12ab8e243c45afcaf52b3e64d3f30be36d49a2148208'
