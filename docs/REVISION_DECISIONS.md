@@ -374,3 +374,17 @@ closed local grammar, exact reversible patches and unchanged non-main parts
 remain required. Numbered chains, fields, pending text/property changes,
 external ranges and unknown markup refuse. Existing paragraph/text targets and
 clean-copy gates do not silently opt into this operation.
+
+The explicit `text_preserve_paragraphs` profile also supports one isolated `_GoBack`
+point inside one direct insertion in a pending paragraph component. Both empty,
+adjacent endpoints must be inside that insertion, with unique identity and no
+consumer in the main story or another XML part. Preview `bookmark_context`
+discloses that accepting retains the point and rejecting removes it together with
+the selected insertion. Word can remove this navigation bookmark during an
+ordinary save; this does not authorize Veqtor to silently remove it on accept.
+Other bookmark names, nonempty ranges, malformed endpoints, consumers, replacement
+pairs and the ordinary `single` target remain outside this profile. Paragraph
+marks and formatting remain pending and unchanged. This is not a clean-export
+exception or an implicit decision about paragraph boundaries.
+
+This narrow profile validates every package part as XML, regardless of its filename; unverified binary parts refuse. Character properties inside the selected insertion are limited to the required style and tested bold/italic/color family.

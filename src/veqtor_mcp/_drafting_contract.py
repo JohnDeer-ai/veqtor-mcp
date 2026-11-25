@@ -135,6 +135,16 @@ DECISION_PREVIEW["allOf"].append({
     "then": {"required": ["paragraph_chain_context"]},
     "else": {"properties": {"paragraph_chain_context": False}},
 })
+DECISION_PREVIEW["properties"]["bookmark_context"] = obj(
+    name={"const": "_GoBack"}, shape={"const": "internal_point"},
+    accept_policy={"const": "preserve"}, reject_policy={"const": "remove_with_insertion"},
+    word_save_policy={"const": "may_remove_navigation_bookmark"},
+)
+DECISION_PREVIEW["allOf"].append({
+    "if": {"required": ["bookmark_context"]},
+    "then": {"required": ["paragraph_boundary_context"],
+             "properties": {"revision_kind": {"const": "ins"}}},
+})
 DECISION_PREVIEW["properties"]["paragraph_boundary_context"] = obj(
     decision_scope={"enum": ["counter_text_only", "text_only"]}, boundary_policy={"const": "preserve"},
     structural_status={"const": "pending"}, paragraph_count={"type": "integer", "minimum": 2, "maximum": 64},
@@ -371,11 +381,11 @@ _REPLACE_PARAGRAPH = obj(
            "items": _PARAGRAPH_STEP},
 )
 _DECISION_APPLIED = obj(**{k: v for k, v in DECISION_PREVIEW["properties"].items()
-                         if k not in {"paragraph_numbering", "row_numbering", "counter_decision", "counter_outcomes", "field_result_context", "paragraph_boundary_context", "paragraph_chain_context"}}, index=_INDEX,
+                         if k not in {"paragraph_numbering", "row_numbering", "counter_decision", "counter_outcomes", "field_result_context", "paragraph_boundary_context", "paragraph_chain_context", "bookmark_context"}}, index=_INDEX,
                         target=DECISION_TARGET, actor_profile=AUTHOR_PROFILE)
 _DECISION_APPLIED["properties"]["paragraph_numbering"] = PARAGRAPH_NUMBERING
 _DECISION_APPLIED["properties"]["row_numbering"] = PARAGRAPH_NUMBERING
-for field in ("counter_decision", "counter_outcomes", "field_result_context", "paragraph_boundary_context", "paragraph_chain_context"):
+for field in ("counter_decision", "counter_outcomes", "field_result_context", "paragraph_boundary_context", "paragraph_chain_context", "bookmark_context"):
     _DECISION_APPLIED["properties"][field] = DECISION_PREVIEW["properties"][field]
 _DECISION_APPLIED["allOf"] = DECISION_PREVIEW["allOf"]
 _APPLIED = {"type": "array", "maxItems": 100,
